@@ -1,0 +1,59 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "prebuild": "node ../tools/frontend-env-from-manifest.mjs --verify-build-env",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test:logic": "node audit-logic-test.mts",
+    "test:sync": "node contract-ui-sync-test.mts",
+    "test": "npm run test:logic && npm run test:sync && npm run test:render",
+    "test:render": "vitest run",
+    "build:e2e:fork": "NEXT_PUBLIC_CHAIN_ID=31337 NEXT_PUBLIC_RPC_URL=http://127.0.0.1:8548 NEXT_PUBLIC_PROTOCOL_DEPLOYMENT_BLOCK=11386371 NEXT_PUBLIC_SUSDFR_FEE_ABI_VERSION=1 npm run build",
+    "test:e2e:fork": "playwright test --config playwright.config.ts"
+  },
+  "dependencies": {
+    "@base-org/account": "2.5.8",
+    "@tanstack/react-query": "^5.101.2",
+    "@walletconnect/ethereum-provider": "2.23.10",
+    "next": "16.2.11",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-markdown": "10.1.0",
+    "viem": "^2.55.0",
+    "wagmi": "^3.7.1"
+  },
+  "devDependencies": {
+    "@next/eslint-plugin-next": "16.2.11",
+    "@playwright/test": "^1.62.1",
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.0.4",
+    "eslint": "^9.39.5",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "jsdom": "^29.1.1",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "typescript-eslint": "^8.63.0",
+    "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "@emnapi/core": "1.11.3",
+    "@emnapi/wasi-threads": "1.2.3",
+    "axios": "1.19.0",
+    "brace-expansion": "5.0.9",
+    "postcss": "8.5.25",
+    "sharp": "^0.35.0"
+  }
+}
