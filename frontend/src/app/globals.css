@@ -1,0 +1,375 @@
+@import "tailwindcss";
+
+/* ────────────────────────────────────────────────────────────────────────
+   Forest Road Vault — design tokens (brief §8.7)
+   LIGHT sky-blue editorial system (Forest Road direction 2026-07-09):
+   soft ice-blue field, deep blue-slate ink, moss + parchment accents,
+   Instrument Serif display over grotesque/Inter/mono. The framed terrain
+   hero and the dark sUSDfr card remain dark moments inside a light page.
+   All brand values live here.
+   ──────────────────────────────────────────────────────────────────────── */
+
+@theme {
+  /* light blue field */
+  --color-bg: #e3edf3;
+  --color-surface: #f1f7fa;
+  --color-raised: #fbfdfe;
+  --color-line: rgba(20, 37, 48, 0.1);
+  --color-line-strong: rgba(20, 37, 48, 0.2);
+
+  /* ink — deep blue-slate */
+  --color-ink: #142530;
+  --color-ink-muted: #44606f;
+  --color-ink-faint: #7b93a0;
+
+  /* accent — moss, deepened for a light field */
+  --color-moss: #1e7a4e;
+  --color-moss-bright: #279a62;
+  --color-moss-deep: #124532;
+  --color-moss-faint: rgba(30, 122, 78, 0.1);
+
+  /* warm editorial emphasis */
+  --color-gold: #9a7f42;
+  --color-gold-faint: rgba(154, 127, 66, 0.1);
+
+  /* cream editorial surface + hero-overlay text */
+  --color-cream: #f0e9dc;
+  --color-cream-deep: #e4dac5;
+  --color-cream-ink: #1d211e;
+  --color-cream-ink-muted: #565e57;
+  --color-cream-line: rgba(29, 33, 30, 0.14);
+
+  /* dark panel (sUSDfr card, dark moments) */
+  --color-pine: #10231b;
+
+  /* status */
+  --color-warn: #b97f2e;
+  --color-danger: #bf4a32;
+
+  /* type */
+  --font-display: var(--font-instrument-serif);
+  --font-grotesk: var(--font-schibsted);
+  --font-body: var(--font-inter);
+  --font-mono: var(--font-plex-mono);
+
+  /* radii */
+  --radius-card: 18px;
+  --radius-pill: 999px;
+
+  /* motion */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-reveal: 900ms;
+}
+
+body {
+  background:
+    radial-gradient(90% 60% at 85% -5%, rgba(255, 255, 255, 0.65) 0%, transparent 60%),
+    radial-gradient(70% 50% at 8% 30%, rgba(197, 220, 232, 0.5) 0%, transparent 65%),
+    var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-feature-settings: "ss01" on, "cv05" on;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: rgba(30, 122, 78, 0.25);
+  color: var(--color-ink);
+}
+
+/* ── texture & materiality ────────────────────────────────────────────── */
+
+.grain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* light-blue mesh for quiet section backdrops */
+.hero-mesh {
+  background:
+    radial-gradient(56% 62% at 16% 0%, rgba(30, 122, 78, 0.08) 0%, transparent 60%),
+    radial-gradient(48% 58% at 86% 14%, rgba(148, 185, 205, 0.35) 0%, transparent 64%),
+    radial-gradient(70% 80% at 50% 112%, rgba(154, 127, 66, 0.07) 0%, transparent 58%);
+}
+
+/* gradient-hairline panel on light: white card, blue-tinted luminous border */
+.panel {
+  position: relative;
+  border-radius: var(--radius-card);
+  background:
+    linear-gradient(var(--color-raised), var(--color-raised)) padding-box,
+    linear-gradient(150deg, rgba(20, 37, 48, 0.18), rgba(20, 37, 48, 0.06) 38%, rgba(30, 122, 78, 0.22)) border-box;
+  border: 1px solid transparent;
+  box-shadow: 0 1px 2px rgba(20, 37, 48, 0.04), 0 12px 32px -18px rgba(20, 37, 48, 0.18);
+}
+
+.panel-hover {
+  transition:
+    transform 400ms var(--ease-out-soft),
+    box-shadow 400ms var(--ease-out-soft);
+}
+
+.panel-hover:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 24px 48px -20px rgba(20, 37, 48, 0.28),
+    0 0 0 1px rgba(30, 122, 78, 0.22);
+}
+
+.glow-dot {
+  box-shadow: 0 0 10px 2px rgba(30, 122, 78, 0.35);
+}
+
+/* ── hero terrain treatment (stays a dark moment inside the light page) ── */
+
+.hero-frame {
+  border-radius: 22px;
+  overflow: hidden;
+  position: relative;
+  isolation: isolate;
+  box-shadow:
+    0 30px 70px -30px rgba(20, 37, 48, 0.45),
+    0 0 0 1px rgba(20, 37, 48, 0.12);
+}
+
+.hero-img {
+  position: absolute;
+  inset: 0;
+  background-image: url("/hero-terrain.jpg");
+  background-size: cover;
+  background-position: 62% 40%;
+  filter: saturate(1.05) contrast(1.04) brightness(0.92);
+  transform: scale(1.04);
+  animation: hero-settle 1.8s var(--ease-out-soft) both;
+}
+
+.hero-grade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(8, 10, 9, 0.5) 0%, rgba(8, 10, 9, 0.1) 34%, rgba(8, 10, 9, 0.14) 62%, rgba(8, 10, 9, 0.64) 100%),
+    radial-gradient(80% 65% at 24% 78%, rgba(8, 12, 10, 0.5) 0%, transparent 62%),
+    linear-gradient(0deg, rgba(28, 65, 50, 0.22), rgba(28, 65, 50, 0.22));
+}
+
+@keyframes hero-settle {
+  from {
+    opacity: 0;
+    transform: scale(1.08);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+
+/* ── typographic devices ──────────────────────────────────────────────── */
+
+.serif-display {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.015em;
+}
+
+.serif-accent {
+  font-family: var(--font-display), Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.eyebrow {
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+  color: var(--color-moss);
+}
+
+.u-link {
+  position: relative;
+}
+.u-link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -3px;
+  height: 1px;
+  width: 100%;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: right;
+  transition: transform 380ms var(--ease-out-soft);
+}
+.u-link:hover::after {
+  transform: scaleX(1);
+  transform-origin: left;
+}
+
+/* ── scroll reveal ────────────────────────────────────────────────────── */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(22px);
+  transition:
+    opacity var(--duration-reveal) var(--ease-out-soft),
+    transform var(--duration-reveal) var(--ease-out-soft);
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── cascade diagram ──────────────────────────────────────────────────── */
+
+@keyframes cascade-flow {
+  0% {
+    stroke-dashoffset: 240;
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  70% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.25;
+  }
+}
+
+.cascade-line {
+  stroke-dasharray: 240;
+  animation: cascade-flow 7s var(--ease-out-soft) infinite;
+}
+
+.keyline {
+  background: linear-gradient(90deg, var(--color-moss) 0%, transparent 100%);
+  height: 1px;
+}
+
+/* Rendered markdown (docs). Editorial, matched to the ink/moss/serif system. */
+.doc-prose {
+  color: var(--color-ink-muted);
+  font-size: 15px;
+  line-height: 1.7;
+}
+.doc-prose > * + * {
+  margin-top: 1.1em;
+}
+.doc-prose h2 {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 27px;
+  line-height: 1.2;
+  color: var(--color-ink);
+  margin-top: 2.4rem;
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--color-line);
+}
+.doc-prose h3 {
+  font-family: var(--font-grotesk), system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 16.5px;
+  color: var(--color-ink);
+  margin-top: 1.8rem;
+}
+.doc-prose h4 {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-ink);
+  margin-top: 1.4rem;
+}
+.doc-prose strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.doc-prose a {
+  color: var(--color-moss);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.doc-prose ul,
+.doc-prose ol {
+  padding-left: 1.3rem;
+}
+.doc-prose ul {
+  list-style: disc;
+}
+.doc-prose ol {
+  list-style: decimal;
+}
+.doc-prose li + li {
+  margin-top: 0.4em;
+}
+.doc-prose li::marker {
+  color: var(--color-moss);
+}
+.doc-prose code {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.86em;
+  background: var(--color-moss-faint);
+  color: var(--color-moss-deep);
+  padding: 0.12em 0.38em;
+  border-radius: 5px;
+}
+.doc-prose blockquote {
+  border-left: 2px solid var(--color-moss);
+  background: var(--color-moss-faint);
+  padding: 0.9rem 1.1rem;
+  border-radius: 0 8px 8px 0;
+  font-size: 14px;
+}
+.doc-prose blockquote p {
+  margin: 0;
+}
+.doc-prose hr {
+  border: none;
+  border-top: 1px solid var(--color-line);
+  margin: 2.2rem 0;
+}
+.doc-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
+}
+.doc-prose th,
+.doc-prose td {
+  border: 1px solid var(--color-line);
+  padding: 0.5rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+}
+.doc-prose th {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-grotesk), system-ui, sans-serif;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.doc-prose td code {
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

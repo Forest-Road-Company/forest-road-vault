@@ -1,0 +1,79 @@
+# ── Secrets — NEVER commit ────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.mnemonic
+**/secrets/
+# Key material directory (audit L-03): the commit-guard only flags LABELED secrets,
+# so ignore the whole dir to stop raw key files (deployer/attester keys) being committed.
+keys/
+**/keys/
+
+# ── Foundry ───────────────────────────────────────────────────────────
+contracts/cache/
+contracts/out/
+# Slot-isolated build dirs. Parallel review agents each need their own
+# FOUNDRY_OUT/FOUNDRY_CACHE_PATH or they corrupt each other's artifacts, which
+# produces `contracts/out-<slot>` / `contracts/cache-<slot>` siblings the two
+# rules above do NOT cover — a `git add -A` would otherwise stage hundreds of MB
+# of build output. Flagged by the 2026-07-21 pre-commit audit sweep.
+contracts/out-*/
+contracts/cache-*/
+# broadcast logs can contain sensitive data; keep testnet run manifests
+# only via the deployment manifest committed deliberately in docs/deployments/
+contracts/broadcast/
+
+# ── Node / Next.js ────────────────────────────────────────────────────
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+frontend/.vercel/
+frontend/playwright-report/
+frontend/test-results/
+.vercel/
+*.tsbuildinfo
+
+# ── OS / editor ───────────────────────────────────────────────────────
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# ── Python ────────────────────────────────────────────────────────────
+**/__pycache__/
+*.pyc
+
+# ── Generated pitch deliverables (regenerate from tools/generate_*.py) ──
+# PDFs / PPTX / PNG decks + slide previews are generated artifacts and
+# large binaries (CLAUDE.md §4.3). The reproducible source is tools/*.py.
+pitch-materials/
+
+# ── Logs / misc ───────────────────────────────────────────────────────
+*.log
+coverage/
+lcov.info
+contracts/deployments/31337.json
+
+# Agent worktrees created by orchestration runs (never source of truth)
+.claude/worktrees/
+# Regenerable static-analysis output
+contracts/slither-report.json
+
+# Internal adversarial-audit workspace and temporary Foundry links are local evidence.
+# Public audit summaries live under frontend/src/content; do not commit raw logs or PoCs.
+# Root-anchored deliberately: an unanchored `audit/` matches a directory of that name at ANY
+# depth, which silently swallowed frontend/src/app/docs/audit/ — the renderer for the public
+# audit register. Its files were already tracked so nothing was lost, but a new page added
+# there would never have been committed, and would have been missing from the public repo.
+/audit/
+contracts/test/audit-invariant
+contracts/test/audit-poc
+contracts/test/audit-tools
+
+# Generated: mtm-keeper TypeScript build output (CLAUDE.md 4.3 — no generated artifacts)
+mtm-keeper/dist/
+# Generated: production MTM feed TypeScript build output
+mtm-feed/dist/
