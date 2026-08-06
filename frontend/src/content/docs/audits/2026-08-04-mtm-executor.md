@@ -146,8 +146,8 @@ an RPC-visible hash commitment.
 A remediation-parity review also aligned local acceptance exactly with the oracle: only canonical
 65-byte, low-s, v=27/28 signatures pass. Compact, high-s and raw-recovery-bit encodings are rejected
 before relay submission. The release-bound gas fixtures pass 14/14 and measure a 1,057,100 worst
-case at 64 signatures; the 2,000,000 fork candidate is 1.89x that value and lower configured values
-are rejected. Final operator approval against the deployed threshold and selected relay remains open.
+case at 64 signatures; the approved 2,000,000 limit is 1.89x that value and lower configured values
+are rejected. Installation against the eventual deployed threshold remains open.
 
 A second remediation-lens fixture measured **73,566–140,588 gas** across five deterministic revert
 classes that blind relay submission could otherwise burn after public simulation was removed. The
@@ -158,10 +158,16 @@ the fork's healthy/no-action case makes zero relay calls and leaves the digest u
 The compiled lifecycle passed again on the pinned mainnet fork. Both RPC proxies actively reject
 digest-commitment and valuation-carrying digest/attest/execute calls, and the receipt records
 `rpc-commitment-leak=0`, `rpc-valuation-leak=0` plus `rpc-bearer-leak=0` while all canonical
-actions, race, replacement, reorg and fail-closed cases still pass. Production still requires
-approval of the selected relay's access/logging/retention/private-revert-suppression/no-rebroadcast
-controls and the fixed gas limit for the deployed threshold; those are operator evidence gates, not
-an open code defect.
+actions, race, replacement, reorg and fail-closed cases still pass. Both selected live Flashbots
+configurations later passed bounded funded deterministic-revert suppression and selected
+Alchemy/Ankr no-public-observer tests without inclusion, nonce movement or spend. The public status
+API nevertheless exposed limited FAILED-transaction metadata contrary to current provider docs;
+internal raw-payload logging/retention and downstream access cannot be proven externally. Forest
+Road formally accepted that selected hosted-relay residual as `MTM-RELAY-01` on 5 August 2026,
+subject to the exact non-fast, Flashbots-only-builder, hash-only configuration, separate relay-auth
+keys, preservation of zero ordinary-RPC bearer leakage and four documented revisit triggers. The
+acceptance does not claim provider internals or universal/reorg no-rebroadcast are proven. This is
+a provider/operator disposition, not an open code defect or an acceptance of `MTM-02`.
 
 One thing the fix cost, recorded because the register should show both sides. Removing the pre-flight
 simulation also removed the `expectedAction` cross-check: the keeper used to compare the action in
@@ -184,7 +190,9 @@ proven capable of firing.
 ## Status
 
 `MTM-01` is accepted, risk retained, at Low/PROVEN; it is not fixed or refuted. `MTM-02` is fixed in
-repository and fork-verified. Reproduction detail for the live accepted finding remains withheld.
+repository and fork-verified. The distinct hosted-relay operational residual is accepted as
+`MTM-RELAY-01`; it does not change `MTM-02`'s fixed disposition. Reproduction detail for the live
+accepted contract finding remains withheld.
 
-This is an internal review of a contract that had none. It is not the independent external audit that
-our production gates require, and it does not move that gate.
+This remains an internal review. Forest Road's separate one-external-audit requirement is satisfied
+by the Corrovera whole-contract review; this page does not expand that engagement's scope or method.

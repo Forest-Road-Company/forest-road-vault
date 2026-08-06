@@ -1,0 +1,1012 @@
+{
+  "contracts/src/AssessedImpairmentSource.sol:AssessmentStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "IRevisionedImpairmentSource",
+        "name": "baseSource"
+      },
+      {
+        "type": "uint256",
+        "name": "assessedSeniorImpairment"
+      },
+      {
+        "type": "uint64",
+        "name": "validUntil"
+      },
+      {
+        "type": "bytes32",
+        "name": "evidenceHash"
+      },
+      {
+        "type": "bytes32",
+        "name": "assessedStateHash"
+      },
+      {
+        "type": "bytes32",
+        "name": "assessedRiskStateHash"
+      },
+      {
+        "type": "uint256",
+        "name": "assessedBackstopCapacity"
+      },
+      {
+        "type": "uint256",
+        "name": "assessedPerformanceFeeImpairment"
+      },
+      {
+        "type": "bool",
+        "name": "performanceFeeImpairmentSnapshotted"
+      }
+    ]
+  },
+  "contracts/src/AttestationOracle.sol:OracleStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "mapping(uint256 facilityId => mapping(AttestationKind kind => Record))",
+        "name": "records"
+      },
+      {
+        "type": "mapping(AttestationKind kind => uint8)",
+        "name": "thresholds"
+      },
+      {
+        "type": "mapping(bytes32 digest => bool)",
+        "name": "used"
+      },
+      {
+        "type": "mapping(uint256 facilityId => uint64)",
+        "name": "valuationWatermarks"
+      }
+    ]
+  },
+  "contracts/src/AttestationOracle.sol:Record": {
+    "kind": "mapping-value",
+    "fields": [
+      {
+        "type": "bytes32",
+        "name": "payload"
+      },
+      {
+        "type": "uint64",
+        "name": "asOf"
+      },
+      {
+        "type": "bool",
+        "name": "satisfied"
+      }
+    ]
+  },
+  "contracts/src/ClaimBridge.sol:BridgeStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "ICollateralRegistry",
+        "name": "registry"
+      },
+      {
+        "type": "IAttestationOracle",
+        "name": "oracle"
+      },
+      {
+        "type": "uint256",
+        "name": "nextId"
+      },
+      {
+        "type": "mapping(uint256 tokenId => Facility)",
+        "name": "facilities"
+      },
+      {
+        "type": "mapping(uint256 classId => uint256)",
+        "name": "requiredMintAttestations"
+      }
+    ]
+  },
+  "contracts/src/ClaimBridge.sol:Facility": {
+    "kind": "mapping-value",
+    "fields": [
+      {
+        "type": "uint256",
+        "name": "classId"
+      },
+      {
+        "type": "bytes32",
+        "name": "borrowerId"
+      },
+      {
+        "type": "bytes32",
+        "name": "stateId"
+      },
+      {
+        "type": "uint256",
+        "name": "principal"
+      },
+      {
+        "type": "uint16",
+        "name": "ltvBps"
+      },
+      {
+        "type": "uint16",
+        "name": "interestRateBps"
+      },
+      {
+        "type": "uint64",
+        "name": "maturity"
+      },
+      {
+        "type": "address",
+        "name": "fundingRecipient"
+      },
+      {
+        "type": "uint64",
+        "name": "paymentInterval"
+      },
+      {
+        "type": "uint64",
+        "name": "nextPaymentDue"
+      },
+      {
+        "type": "RateType",
+        "name": "rateType"
+      },
+      {
+        "type": "DayCountConvention",
+        "name": "dayCountConvention"
+      },
+      {
+        "type": "bool",
+        "name": "renewable"
+      },
+      {
+        "type": "bytes32",
+        "name": "paymentScheduleHash"
+      },
+      {
+        "type": "bytes32",
+        "name": "rateIndexRef"
+      },
+      {
+        "type": "bytes32",
+        "name": "renewalTermsHash"
+      },
+      {
+        "type": "bytes32",
+        "name": "offchainRef"
+      },
+      {
+        "type": "LoanState",
+        "name": "state"
+      }
+    ]
+  },
+  "contracts/src/CollateralRegistry.sol:RegistryStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "mapping(uint256 classId => ClassParams)",
+        "name": "classes"
+      },
+      {
+        "type": "mapping(uint256 classId => bool)",
+        "name": "known"
+      },
+      {
+        "type": "mapping(uint256 classId => uint256)",
+        "name": "classExp"
+      },
+      {
+        "type": "mapping(bytes32 borrowerId => uint256)",
+        "name": "borrowerExp"
+      },
+      {
+        "type": "mapping(bytes32 stateId => uint256)",
+        "name": "stateExp"
+      },
+      {
+        "type": "uint256",
+        "name": "totalExp"
+      },
+      {
+        "type": "uint16",
+        "name": "borrowerLimitBps"
+      },
+      {
+        "type": "uint16",
+        "name": "stateLimitBps"
+      },
+      {
+        "type": "uint256",
+        "name": "concentrationFloor"
+      },
+      {
+        "type": "uint256",
+        "name": "overLimitBits"
+      },
+      {
+        "type": "mapping(bytes32 borrowerId => bool)",
+        "name": "borrowerOverLimit"
+      },
+      {
+        "type": "mapping(bytes32 stateId => bool)",
+        "name": "stateOverLimit"
+      },
+      {
+        "type": "mapping(bytes32 borrowerId => uint16)",
+        "name": "borrowerLimitOverrideBps"
+      },
+      {
+        "type": "mapping(bytes32 borrowerId => bool)",
+        "name": "borrowerLimitOverridden"
+      }
+    ]
+  },
+  "contracts/src/ComplianceRegistry.sol:ComplianceStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "mapping(address account => bool)",
+        "name": "allowed"
+      },
+      {
+        "type": "mapping(address account => bool)",
+        "name": "blocked"
+      },
+      {
+        "type": "mapping(address module => bool)",
+        "name": "protocolExempt"
+      }
+    ]
+  },
+  "contracts/src/CuratorModule.sol:ClassPool": {
+    "kind": "mapping-value",
+    "fields": [
+      {
+        "type": "uint256",
+        "name": "balance"
+      },
+      {
+        "type": "uint256",
+        "name": "totalShares"
+      },
+      {
+        "type": "uint256",
+        "name": "round"
+      }
+    ]
+  },
+  "contracts/src/CuratorModule.sol:CuratorStake": {
+    "kind": "mapping-value",
+    "fields": [
+      {
+        "type": "uint256",
+        "name": "shares"
+      },
+      {
+        "type": "uint256",
+        "name": "round"
+      }
+    ]
+  },
+  "contracts/src/CuratorModule.sol:CuratorStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "IERC20",
+        "name": "usdfr"
+      },
+      {
+        "type": "ICollateralRegistry",
+        "name": "registry"
+      },
+      {
+        "type": "mapping(uint256 classId => ClassPool)",
+        "name": "pools"
+      },
+      {
+        "type": "mapping(uint256 classId => mapping(address curator => CuratorStake))",
+        "name": "stakes"
+      },
+      {
+        "type": "mapping(uint256 classId => mapping(address curator => bool))",
+        "name": "approved"
+      },
+      {
+        "type": "mapping(uint256 classId => uint256)",
+        "name": "targets"
+      },
+      {
+        "type": "mapping(uint256 classId => uint256)",
+        "name": "unresolvedDefaults"
+      },
+      {
+        "type": "IPointsModule",
+        "name": "pointsModule"
+      },
+      {
+        "type": "IsUSDfr",
+        "name": "feeVault"
+      }
+    ]
+  },
+  "contracts/src/DefaultManager.sol:DefaultStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "ClaimBridge",
+        "name": "bridge"
+      },
+      {
+        "type": "ICollateralRegistry",
+        "name": "registry"
+      },
+      {
+        "type": "IReserveManager",
+        "name": "reserves"
+      },
+      {
+        "type": "IMintRedeemController",
+        "name": "controller"
+      },
+      {
+        "type": "ICuratorModule",
+        "name": "curator"
+      },
+      {
+        "type": "IAttestationOracle",
+        "name": "oracle"
+      },
+      {
+        "type": "IERC20",
+        "name": "usdfr"
+      },
+      {
+        "type": "address",
+        "name": "vault"
+      },
+      {
+        "type": "ICascadeBackstop",
+        "name": "backstop"
+      },
+      {
+        "type": "mapping(uint256 tokenId => uint64)",
+        "name": "cureDeadlines"
+      },
+      {
+        "type": "mapping(uint256 classId => bytes32)",
+        "name": "remedyRefs"
+      },
+      {
+        "type": "mapping(uint256 classId => uint64)",
+        "name": "cureWindows"
+      },
+      {
+        "type": "mapping(uint256 classId => uint256)",
+        "name": "declaredDefaultedPrincipal"
+      },
+      {
+        "type": "mapping(uint256 tokenId => uint256)",
+        "name": "defaultedContribution"
+      },
+      {
+        "type": "mapping(uint256 tokenId => uint256)",
+        "name": "coverageConsumedByDefault"
+      },
+      {
+        "type": "uint256",
+        "name": "liveDefaultCoverageConsumed"
+      },
+      {
+        "type": "uint256",
+        "name": "liveDefaultCapacityFloor"
+      },
+      {
+        "type": "mapping(uint256 classId => uint64)",
+        "name": "graceWindows"
+      },
+      {
+        "type": "mapping(uint256 tokenId => bool)",
+        "name": "pastDueMarked"
+      },
+      {
+        "type": "uint256",
+        "name": "pastDueExposure"
+      },
+      {
+        "type": "mapping(uint256 tokenId => uint256)",
+        "name": "pastDueContribution"
+      },
+      {
+        "type": "mapping(uint256 classId => uint256)",
+        "name": "pastDuePrincipal"
+      },
+      {
+        "type": "uint256",
+        "name": "impairmentRevision"
+      }
+    ]
+  },
+  "contracts/src/interfaces/ICollateralRegistry.sol:ClassParams": {
+    "kind": "mapping-value",
+    "fields": [
+      {
+        "type": "string",
+        "name": "name"
+      },
+      {
+        "type": "CollateralModel",
+        "name": "model"
+      },
+      {
+        "type": "bool",
+        "name": "active"
+      },
+      {
+        "type": "uint16",
+        "name": "maxLtvBps"
+      },
+      {
+        "type": "uint64",
+        "name": "maxMaturity"
+      },
+      {
+        "type": "uint16",
+        "name": "concentrationLimitBps"
+      },
+      {
+        "type": "uint16",
+        "name": "marginCallLtvBps"
+      },
+      {
+        "type": "uint16",
+        "name": "liquidationLtvBps"
+      },
+      {
+        "type": "uint64",
+        "name": "maxMarkAge"
+      }
+    ]
+  },
+  "contracts/src/MintRedeemController.sol:ControllerStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "IUSDfr",
+        "name": "usdfr"
+      },
+      {
+        "type": "IComplianceRegistry",
+        "name": "compliance"
+      },
+      {
+        "type": "IReserveManager",
+        "name": "reserves"
+      }
+    ]
+  },
+  "contracts/src/PointsModule.sol:PointsStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "ComplianceRegistry",
+        "name": "compliance"
+      },
+      {
+        "type": "address",
+        "name": "vault"
+      },
+      {
+        "type": "address",
+        "name": "usdfrToken"
+      },
+      {
+        "type": "address",
+        "name": "curatorModule"
+      },
+      {
+        "type": "RateEpoch[]",
+        "name": "rateEpochs"
+      },
+      {
+        "type": "mapping(address => Position)",
+        "name": "sPos"
+      },
+      {
+        "type": "mapping(address => Position)",
+        "name": "uPos"
+      },
+      {
+        "type": "mapping(address => mapping(uint256 => Position))",
+        "name": "cPos"
+      },
+      {
+        "type": "uint256",
+        "name": "totalTrackedShares"
+      },
+      {
+        "type": "uint256",
+        "name": "totalTrackedUsdfr"
+      },
+      {
+        "type": "uint256",
+        "name": "totalTrackedCurator"
+      },
+      {
+        "type": "mapping(uint256 classId => uint64)",
+        "name": "lastCuratorLossAt"
+      },
+      {
+        "type": "mapping(uint256 classId => uint64[])",
+        "name": "curatorLossTimes"
+      },
+      {
+        "type": "mapping(uint256 classId => uint64)",
+        "name": "curatorLossRound"
+      },
+      {
+        "type": "mapping(uint256 classId => uint256)",
+        "name": "curatorSurvivalWad"
+      }
+    ]
+  },
+  "contracts/src/PointsModule.sol:Position": {
+    "kind": "mapping-value",
+    "fields": [
+      {
+        "type": "uint256",
+        "name": "balance"
+      },
+      {
+        "type": "uint256",
+        "name": "accrued"
+      },
+      {
+        "type": "uint64",
+        "name": "maturityStart"
+      },
+      {
+        "type": "uint64",
+        "name": "lastAccrual"
+      },
+      {
+        "type": "uint32",
+        "name": "lastEpochIdx"
+      },
+      {
+        "type": "uint32",
+        "name": "classId"
+      },
+      {
+        "type": "uint64",
+        "name": "seenLossEpoch"
+      },
+      {
+        "type": "uint256",
+        "name": "seenSurvivalWad"
+      },
+      {
+        "type": "uint64",
+        "name": "seenLossRound"
+      }
+    ]
+  },
+  "contracts/src/PointsModule.sol:RateEpoch": {
+    "kind": "array-element",
+    "fields": [
+      {
+        "type": "uint64",
+        "name": "start"
+      },
+      {
+        "type": "uint32",
+        "name": "usdfrMultBps"
+      },
+      {
+        "type": "uint32",
+        "name": "curatorMultBps"
+      },
+      {
+        "type": "uint256",
+        "name": "ratePerUnitDay"
+      }
+    ]
+  },
+  "contracts/src/RecoveryTopUpDistributor.sol:DistributorStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "IERC20",
+        "name": "usdfr"
+      },
+      {
+        "type": "uint256",
+        "name": "nextRoundId"
+      },
+      {
+        "type": "mapping(uint256 roundId => Round)",
+        "name": "rounds"
+      },
+      {
+        "type": "mapping(uint256 roundId => mapping(uint256 wordIndex => uint256 claimedWord))",
+        "name": "claimedBitMap"
+      }
+    ]
+  },
+  "contracts/src/RecoveryTopUpDistributor.sol:Round": {
+    "kind": "mapping-value",
+    "fields": [
+      {
+        "type": "bytes32",
+        "name": "merkleRoot"
+      },
+      {
+        "type": "bytes32",
+        "name": "evidenceHash"
+      },
+      {
+        "type": "address",
+        "name": "refundRecipient"
+      },
+      {
+        "type": "uint64",
+        "name": "claimDeadline"
+      },
+      {
+        "type": "uint256",
+        "name": "funded"
+      },
+      {
+        "type": "uint256",
+        "name": "claimed"
+      },
+      {
+        "type": "bool",
+        "name": "reclaimed"
+      }
+    ]
+  },
+  "contracts/src/RedemptionQueue.sol:QueueStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "IsUSDfr",
+        "name": "vault"
+      },
+      {
+        "type": "IERC20",
+        "name": "usdfr"
+      },
+      {
+        "type": "IReserveManager",
+        "name": "reserves"
+      },
+      {
+        "type": "uint64",
+        "name": "epochDuration"
+      },
+      {
+        "type": "uint16",
+        "name": "epochLiquidityBps"
+      },
+      {
+        "type": "uint256",
+        "name": "currentEpoch"
+      },
+      {
+        "type": "uint64",
+        "name": "epochEndsAt"
+      },
+      {
+        "type": "bool",
+        "name": "settling"
+      },
+      {
+        "type": "uint256",
+        "name": "settlementBudget"
+      },
+      {
+        "type": "uint256",
+        "name": "settlementDistributed"
+      },
+      {
+        "type": "uint256",
+        "name": "head"
+      },
+      {
+        "type": "uint256",
+        "name": "totalQueuedShares"
+      },
+      {
+        "type": "Request[]",
+        "name": "requests"
+      },
+      {
+        "type": "uint64",
+        "name": "redeemCooldown"
+      },
+      {
+        "type": "uint256",
+        "name": "minRedemptionValue"
+      },
+      {
+        "type": "uint256",
+        "name": "settlementMinValue"
+      }
+    ]
+  },
+  "contracts/src/RedemptionQueue.sol:Request": {
+    "kind": "array-element",
+    "fields": [
+      {
+        "type": "address",
+        "name": "owner"
+      },
+      {
+        "type": "uint64",
+        "name": "requestedAt"
+      },
+      {
+        "type": "uint32",
+        "name": "epochRequested"
+      },
+      {
+        "type": "uint256",
+        "name": "sharesRemaining"
+      },
+      {
+        "type": "uint256",
+        "name": "assetsClaimable"
+      }
+    ]
+  },
+  "contracts/src/ReserveManager.sol:ReserveStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "IERC20",
+        "name": "usdcToken"
+      },
+      {
+        "type": "uint256",
+        "name": "idleUSDCUnits"
+      },
+      {
+        "type": "uint256",
+        "name": "totalDeployedPrincipal"
+      },
+      {
+        "type": "mapping(uint256 facilityId => uint256)",
+        "name": "deployed"
+      }
+    ]
+  },
+  "contracts/src/SGrove.sol:SGroveStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "IERC20",
+        "name": "grove"
+      },
+      {
+        "type": "IERC20",
+        "name": "usdfr"
+      },
+      {
+        "type": "uint64",
+        "name": "unbondingPeriod"
+      },
+      {
+        "type": "uint16",
+        "name": "perEventCapBps"
+      },
+      {
+        "type": "uint256",
+        "name": "totalStaked"
+      },
+      {
+        "type": "mapping(address staker => uint256)",
+        "name": "staked"
+      },
+      {
+        "type": "mapping(address staker => Unbond[])",
+        "name": "unbonds"
+      },
+      {
+        "type": "uint256",
+        "name": "coverageReserve"
+      },
+      {
+        "type": "uint256",
+        "name": "rewardIndexWad"
+      },
+      {
+        "type": "mapping(address staker => uint256)",
+        "name": "userIndexWad"
+      },
+      {
+        "type": "mapping(address staker => uint256)",
+        "name": "accruedRewards"
+      },
+      {
+        "type": "uint256",
+        "name": "rewardRate"
+      },
+      {
+        "type": "uint64",
+        "name": "periodFinish"
+      },
+      {
+        "type": "uint64",
+        "name": "lastUpdateTime"
+      },
+      {
+        "type": "uint64",
+        "name": "rewardsDuration"
+      },
+      {
+        "type": "mapping(uint256 eventId => uint256)",
+        "name": "eventCovered"
+      },
+      {
+        "type": "mapping(uint256 eventId => uint256)",
+        "name": "eventCapSnapshot"
+      },
+      {
+        "type": "IsUSDfr",
+        "name": "feeVault"
+      }
+    ]
+  },
+  "contracts/src/SGrove.sol:Unbond": {
+    "kind": "array-element",
+    "fields": [
+      {
+        "type": "uint192",
+        "name": "amount"
+      },
+      {
+        "type": "uint64",
+        "name": "releaseAt"
+      }
+    ]
+  },
+  "contracts/src/sUSDfr.sol:SUSDfrStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "IComplianceRegistry",
+        "name": "compliance"
+      },
+      {
+        "type": "address",
+        "name": "redemptionQueue"
+      },
+      {
+        "type": "IPointsModule",
+        "name": "pointsModule"
+      },
+      {
+        "type": "IImpairmentSource",
+        "name": "impairmentSource"
+      },
+      {
+        "type": "uint256",
+        "name": "vestingAmount"
+      },
+      {
+        "type": "uint64",
+        "name": "lastYieldAt"
+      },
+      {
+        "type": "uint64",
+        "name": "yieldVestingPeriod"
+      },
+      {
+        "type": "address",
+        "name": "feeRecipient"
+      },
+      {
+        "type": "uint16",
+        "name": "managementFeeBps"
+      },
+      {
+        "type": "uint64",
+        "name": "lastFeeAccrual"
+      },
+      {
+        "type": "bool",
+        "name": "feeAccrualInProgress"
+      },
+      {
+        "type": "bool",
+        "name": "shareUpdateInProgress"
+      },
+      {
+        "type": "uint256",
+        "name": "highWaterMark"
+      },
+      {
+        "type": "uint16",
+        "name": "performanceFeeBps"
+      },
+      {
+        "type": "address",
+        "name": "feeOperationCaller"
+      },
+      {
+        "type": "uint8",
+        "name": "feeOperationKind"
+      },
+      {
+        "type": "uint256",
+        "name": "feeOperationMarkedAssets"
+      },
+      {
+        "type": "uint256",
+        "name": "feeOperationHurdleAssets"
+      },
+      {
+        "type": "uint256",
+        "name": "feeOperationSupply"
+      }
+    ]
+  },
+  "contracts/src/USDfr.sol:USDfrStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "IComplianceRegistry",
+        "name": "complianceModule"
+      },
+      {
+        "type": "IPointsModule",
+        "name": "pointsModule"
+      }
+    ]
+  },
+  "contracts/src/WaterfallEngine.sol:WaterfallStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "ClaimBridge",
+        "name": "bridge"
+      },
+      {
+        "type": "ICollateralRegistry",
+        "name": "registry"
+      },
+      {
+        "type": "IReserveManager",
+        "name": "reserves"
+      },
+      {
+        "type": "IMintRedeemController",
+        "name": "controller"
+      },
+      {
+        "type": "address",
+        "name": "vault"
+      },
+      {
+        "type": "address",
+        "name": "feeRecipient"
+      },
+      {
+        "type": "uint16",
+        "name": "protocolFeeBps"
+      },
+      {
+        "type": "mapping(uint256 classId => uint16)",
+        "name": "originationFeeBps"
+      },
+      {
+        "type": "IAttestationOracle",
+        "name": "oracle"
+      },
+      {
+        "type": "IDefaultManager",
+        "name": "defaultManager"
+      }
+    ]
+  }
+}

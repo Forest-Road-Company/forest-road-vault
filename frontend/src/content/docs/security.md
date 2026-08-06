@@ -85,9 +85,11 @@ Current status of those gates:
   reviewed the whole protocol, all 37 files and 10,502 lines of contract source, at a
   commit byte-identical to the current `contracts/src` tree at `b5245398`, with our existing 36-entry findings
   register supplied as an exclusion list so that a rediscovery could not be reported as a
-  discovery. It is the first review of this protocol by a party other than Forest Road, and
-  it is published in full on the Audit Register. **Its limits belong with its findings, so
-  we state them here rather than only in the report:** the engagement was Corrovera's
+  discovery. It is the first review of this protocol by a party other than Forest Road. Its scope,
+  method, findings, limitations and Forest Road's dispositions are published on the Audit Register;
+  the raw vendor report remains private because its finding sections contain reproduction detail
+  for unremediated mechanisms. **Its limits belong with its findings, so we state them here rather
+  than only in the report:** the engagement was Corrovera's
   AI-assisted tier; **no finding in it reached `confirmed`**, because fork reproduction was
   not part of the engagement; no property was formally proven; no fuzzing ran beyond our own
   suite; and adjudication was by one engineer rather than a consensus pipeline. The report's
@@ -134,25 +136,41 @@ Current status of those gates:
   Safe shared-owner common mode is formally accepted as `SAFE-CD-01` and remains disclosed rather
   than described as independent control. The validated KMS deployer is now funded with ETH and
   canonical USDC. Forest Road approved its four gas-policy values, and the strict read-only
-  renewed-session preflight passed at mainnet block 25,681,334 without a signing request; it must be repeated after
-  source freeze and immediately before the ceremony. The roleless atomic MTM executor and private
+  renewed-session preflight passed at mainnet block 25,681,334 without a signing request. A later
+  receipt-integrity review corrected a stale raw-timelock entry to the initializer-locking wrapper
+  actually deployed and added deployment/proxy/manifest cross-binding tests. That correction
+  rotates the authorization, so the prior preflight is historical evidence only; corrected-source
+  commit review, green CI, replacement freeze, fresh two-operator approval and a repeated strict
+  preflight are required before ceremony. The roleless atomic MTM executor and private
   keeper worker now exist. A follow-up internal audit fixed four additional Medium findings and the
   Low `KPA-L1` repository limitation. Round 17 then found two Low items: Forest Road accepted the
   live, PROVEN `MTM-01` risk on 4 August 2026 without claiming a fix or refutation, and
   `MTM-02` is fixed by local digest/quorum/action validation, event-based peer recovery and a required fixed gas limit, so neither read RPC
-  receives a pre-inclusion digest commitment, unsigned valuation or signed bearer bundle. The hardened unit suite passes 52/52, the executor suite passes
+  receives a pre-inclusion digest commitment, unsigned valuation or signed bearer bundle. The hardened unit suite passes 54/54, the executor suite passes
   12/12, and the complete compiled-worker lifecycle passes on a disposable fork pinned to mainnet
   block 25,500,000, including near-cap repeated-ID multi-bundle scheduling, both code-bearing and
   no-code bad-queue rejection, fail-closed expired-entry eviction, no-action rejection with zero
   relay calls, `rpc-commitment-leak=0`, `rpc-valuation-leak=0` and `rpc-bearer-leak=0`. The
-  local relay and guardian adapters prove worker behavior, not a production provider or actual
-  Safe. The executor remains undeployed but is within Corrovera's reviewed `contracts/src`; the
-  one-external-audit requirement is satisfied. The selected bounded-batch feed now has a repository
-  implementation and local load/recovery harness, but still lacks its exact selected-host
-  PostgreSQL production receipt; and two independently controlled
-  funded hosts, selected confidential-relay confidentiality/revert-suppression and independent-heartbeat evidence and the actual
+  live Flashbots qualification uses dedicated unfunded auth identities plus funded, competitively
+  priced, deterministic-revert tests. Both were classified as reverts, marked failed, excluded from
+  the selected Alchemy/Ankr public views and never included, with unchanged keeper balances and
+  nonces. Flashbots' public status API nevertheless returned limited failed-transaction metadata
+  contrary to its current documentation; it returned no calldata, raw transaction or signature.
+  Internal payload logging/retention remains unprovable. Forest Road formally accepted that
+  hosted-relay residual as `MTM-RELAY-01` on 5 August 2026, subject to the exact non-fast,
+  Flashbots-only-builder, hash-only configuration, separate relay-auth keys, zero ordinary-RPC
+  bearer leakage and four documented revisit triggers. The acceptance does not claim provider
+  internals or universal/reorg no-rebroadcast are technically proven.
+  The local guardian adapter does not prove the actual Safe. The executor
+  remains undeployed but is within Corrovera's reviewed `contracts/src`; the
+  one-external-audit requirement is satisfied. The exact selected bounded-batch feed now runs with
+  private-only Railway PostgreSQL and passes a 48-facility concurrent load plus exact-service
+  restart recovery; Forest Road approved its capacity-32 latency/capacity operating bound on
+  5 August 2026. Both offline keepers have matching feed endpoints/tokens,
+  `MAX_PENDING_BUNDLES=32` and approved gas variables. Two independently controlled
+  hosts, independent-heartbeat evidence and the actual
   human Guardian-Safe drill are absent. The feed test can use synthetic bundles and a disposable
-  fork; the Safe drill requires real owners but may use the tightly capped pre-audit test deployment,
+  fork; the Safe drill requires real owners but may use the tightly capped disposable mainnet test deployment,
   so neither item requires a public production launch. Human
   recovery timing and capital-policy records also remain open. A local test cannot mark those
   controls complete.

@@ -1,0 +1,88 @@
+# Foundry configuration — rigor per CLAUDE.md §1.4.
+# The `default` profile compiles exactly as we intend to deploy (optimizer on),
+# so every test run exercises the deployed configuration.
+
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+
+# Pinned compiler (CLAUDE.md §3.1) — do not float.
+solc_version = "0.8.30"
+evm_version = "cancun"
+
+# Optimizer as it will be deployed; tests run against this configuration.
+optimizer = true
+# AUDIT R15-01. Lowered from 1000 on 2026-07-30 to buy EIP-170 headroom in `sUSDfr`, which had
+# reached 88 bytes of margin and could not accommodate the degenerate-entry band fix (116 bytes).
+# Measured: 1000 -> 500 frees 1,816 bytes (24,488 -> 22,672) for +0.29%..+0.40% runtime gas on the
+# fee-stack integration suite. Every gate is re-run at this setting, so §1.4's "test the deployed
+# configuration" still holds. Revisit only with a fresh size measurement — the margin is the
+# binding constraint on any future addition to the vault.
+optimizer_runs = 500
+
+# Fail fast and loud.
+deny_warnings = true
+
+# Deploy scripts write the machine-readable deployment manifest here (CLAUDE.md §2.1).
+fs_permissions = [{ access = "read-write", path = "./deployments" }]
+
+# Fuzzing floor for non-critical suites (CLAUDE.md §1.4: >= 256 minimum).
+[profile.default.fuzz]
+runs = 1024
+max_test_rejects = 131072
+
+[profile.default.invariant]
+runs = 256
+depth = 128
+fail_on_revert = true       # handlers are written to never revert; a revert is a bug
+call_override = false
+
+# ── Heavy profile: critical value/accounting suites (CLAUDE.md §1.4: >= 10k) ──
+# Run with FOUNDRY_PROFILE=heavy — used in CI and before every checkpoint.
+[profile.heavy]
+inherits = "default"
+
+[profile.heavy.fuzz]
+runs = 10000
+max_test_rejects = 1048576
+
+[profile.heavy.invariant]
+runs = 512
+depth = 256
+fail_on_revert = true
+
+# ── Lite profile: quick iteration only; never the basis for a status claim ──
+[profile.lite]
+inherits = "default"
+
+[profile.lite.fuzz]
+runs = 64
+
+[profile.lite.invariant]
+runs = 16
+depth = 32
+
+# ── Coverage profile: instrumented, fast, and warning-tolerant ─────────
+# Run with:
+#   FOUNDRY_PROFILE=coverage forge coverage --offline --report summary
+# The test-only seeders are deliberately kept compilable without `--ir-minimum`;
+# that workaround perturbs timestamp/gas-sensitive tests and can produce false reds.
+[profile.coverage]
+inherits = "lite"
+deny_warnings = false
+
+[fmt]
+line_length = 120
+tab_width = 4
+bracket_spacing = false
+int_types = "long"
+
+[rpc_endpoints]
+sepolia = "${SEPOLIA_RPC_URL}"
+mainnet_fork = "${MAINNET_FORK_RPC_URL}"
+
+[etherscan]
+sepolia = {key = "${ETHERSCAN_API_KEY}"}
