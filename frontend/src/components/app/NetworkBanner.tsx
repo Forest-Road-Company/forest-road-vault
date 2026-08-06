@@ -18,7 +18,7 @@ export function NetworkBanner() {
         <p className="text-[13.5px] text-ink">
           <span className="font-medium">Wrong network.</span>{" "}
           <span className="text-ink-muted">
-            This build runs on {NETWORK_NAME} — your wallet is on chain {chainId}.
+            This build runs on {NETWORK_NAME}. Your wallet is on chain {chainId}.
           </span>
         </p>
         <button
@@ -31,7 +31,7 @@ export function NetworkBanner() {
       </div>
       {!isPending && error ? (
         <p className="mt-2 text-[12px] text-danger">
-          Switch failed: {error.message.split("\n")[0]} — switch to {NETWORK_NAME} manually in your wallet.
+          Switch failed: {error.message.split("\n")[0]}. Switch to {NETWORK_NAME} manually in your wallet.
         </p>
       ) : null}
     </div>

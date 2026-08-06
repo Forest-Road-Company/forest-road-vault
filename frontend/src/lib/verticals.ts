@@ -22,10 +22,10 @@ export const VERTICALS: Vertical[] = [
     slug: "film-tax-credits",
     name: "Film & TV tax credits",
     financed:
-      "Loans against transferable US state film/TV tax credits — a state issues a percentage of qualified production spend back as a credit, and the production borrows against that receivable today.",
+      "Loans against transferable US state film/TV tax credits. A state issues a percentage of qualified production spend back as a credit, and the production borrows against that receivable today.",
     claimType:
       "A perfected security interest (UCC-1 and assignment) in the tax-credit receivable and the borrower's right to receive it.",
-    duration: "Short — months to roughly two years, driven by state issuance timing.",
+    duration: "Short: months to roughly two years, driven by state issuance timing.",
     risks: [
       { name: "Issuance timing", detail: "The state controls when the credit is actually issued; delays extend duration." },
       { name: "Audit / clawback", detail: "The agreed-upon-procedures audit can reduce the credit below the underwritten amount." },
@@ -40,7 +40,7 @@ export const VERTICALS: Vertical[] = [
     slug: "renewable-energy",
     name: "Renewable energy",
     financed:
-      "Small and mid-market renewable projects — lending against transferable ITC/PTC tax credits and project cashflows, for borrowers underserved by community banks and capital markets.",
+      "Loans to small and mid-market renewable projects, against transferable ITC/PTC tax credits and project cashflows, for borrowers underserved by community banks and capital markets.",
     claimType:
       "Security interests in transferable federal tax credits and/or project assets and their cashflows.",
     duration: "Medium to long, spanning construction and operation.",
@@ -82,16 +82,16 @@ export const VERTICALS: Vertical[] = [
       { name: "Asset-level remedy", detail: "Foreclosure timelines vary by jurisdiction and can extend workouts." },
     ],
     remedy:
-      "Classic property foreclosure and sale — the one class in the book with a physical-asset remedy path.",
+      "Classic property foreclosure and sale. It's the one class in the book with a physical-asset remedy path.",
     collateralModel: "receivable",
   },
   {
     slug: "digital-assets",
     name: "Digital assets",
     financed:
-      "Secured lending to Forest Road's digital-assets trading subsidiary, financing the desk's trading book — a related-party facility, and disclosed as such.",
+      "Secured lending to Forest Road's digital-assets trading subsidiary, financing the desk's trading book. It's a related-party facility, disclosed as such.",
     claimType:
-      "A pledged, marked-to-market portfolio of liquid crypto assets — not a receivable. The collateral is price-volatile and liquid: the opposite profile of the receivable classes.",
+      "A pledged, marked-to-market portfolio of liquid crypto assets, not a receivable. The collateral is price-volatile and liquid: the opposite profile of the receivable classes.",
     duration: "Short and revolving, with continuous collateral-health monitoring.",
     risks: [
       {

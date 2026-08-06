@@ -1,0 +1,397 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-05T00:00:00.000Z",
+  "title": "Design System: Forest Road Vault",
+  "extensions": {
+    "colorMeta": {
+      "navy": {
+        "role": "primary",
+        "displayName": "Field Navy",
+        "canonical": "#1c2d48",
+        "tonalRamp": ["#0b1220", "#111a2c", "#16233c", "#1c2d48", "#3e547e", "#7c8db0", "#9db0d4", "#e6eaf2"]
+      },
+      "navy-deepest": {
+        "role": "primary",
+        "displayName": "Deepest Navy",
+        "canonical": "#0f1a2e",
+        "tonalRamp": ["#060a12", "#0a111e", "#0f1a2e", "#16233c", "#24365a", "#4a5f8a", "#8b9cc0", "#dfe5ef"]
+      },
+      "navy-raised": {
+        "role": "primary",
+        "displayName": "Lifted Navy",
+        "canonical": "#24365a",
+        "purpose": "Hover on a navy fill only — editorial primary button and the Operate action.",
+        "tonalRamp": ["#0c1220", "#131c30", "#1b2843", "#24365a", "#3a5182", "#6b81ac", "#a3b3d3", "#e8ecf4"]
+      },
+      "accent-deep": {
+        "role": "primary",
+        "displayName": "Pressed Navy",
+        "canonical": "#14213a",
+        "purpose": "Fills only — the :active state of the Operate action. Never text.",
+        "tonalRamp": ["#080d17", "#0e1727", "#14213a", "#1c2d48", "#2e4e6f", "#5f7ea3", "#a0b3cb", "#e7ecf3"]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Memo Navy",
+        "canonical": "#2e4e6f",
+        "tonalRamp": ["#0d1721", "#152534", "#1f3549", "#2e4e6f", "#436c96", "#7295b8", "#a8c1d8", "#e4ecf3"]
+      },
+      "accent-light": {
+        "role": "primary",
+        "displayName": "Pale Navy",
+        "canonical": "#9db0d4",
+        "purpose": "On-navy counterpart of the accent. Only valid where the ground is navy.",
+        "tonalRamp": ["#1a2233", "#26324a", "#374763", "#4c5f80", "#6a7ea1", "#8798c1", "#9db0d4", "#e2e8f4"]
+      },
+      "series": {
+        "role": "secondary",
+        "displayName": "Series Ladder",
+        "canonical": "#1c2d48",
+        "purpose": "The only encoding for ranked or categorical data — audit severities, allocations, ranked series. Never hue-coded.",
+        "tonalRamp": ["#1c2d48", "#3e547e", "#7c8db0", "#9db0d4", "#c9d0dc"]
+      },
+      "ok": {
+        "role": "tertiary",
+        "displayName": "Confirmed Green",
+        "canonical": "#1c6b4c",
+        "purpose": "A settled transaction. Exists because navy cannot distinguish pending from confirmed, and on a transaction surface that distinction is the point. Always paired with a text label. NOTE: has no on-navy counterpart yet — see open items.",
+        "tonalRamp": ["#04150e", "#082418", "#0f3d2b", "#15533a", "#1c6b4c", "#2a8c65", "#63b795", "#dcefe6"]
+      },
+      "warn": {
+        "role": "tertiary",
+        "displayName": "Ledger Amber",
+        "canonical": "#96621a",
+        "purpose": "Functional status only — testnet, wrong network, open finding, queued exit. Always paired with a text label. Lifts to #e8b055 inside navy subtrees.",
+        "tonalRamp": ["#2b1c07", "#42290b", "#5c3a10", "#7a4d15", "#96621a", "#b8791f", "#e8b055", "#f6ecd8"]
+      },
+      "warn-on-navy": {
+        "role": "tertiary",
+        "displayName": "Ledger Amber on Navy",
+        "canonical": "#e8b055",
+        "purpose": "The warn variable re-declared inside .navy-band, .navy-band-deep, .hero-frame, .kpi-band and the bg-navy* utilities. The editorial value measured 3.36:1 on the app's yield panel.",
+        "tonalRamp": ["#2b1c07", "#42290b", "#5c3a10", "#7a4d15", "#96621a", "#c89339", "#e8b055", "#f9eed9"]
+      },
+      "danger": {
+        "role": "tertiary",
+        "displayName": "Reverted Red",
+        "canonical": "#a23b3b",
+        "purpose": "Functional status only — reverted transaction, failed write, invalid field, hard blocker. Always paired with a text label and a stated reason. Lifts to #f0918b inside navy subtrees.",
+        "tonalRamp": ["#2c0f0f", "#431717", "#5d2020", "#7c2c2c", "#a23b3b", "#c05c5c", "#f0918b", "#f8e6e6"]
+      },
+      "danger-on-navy": {
+        "role": "tertiary",
+        "displayName": "Reverted Red on Navy",
+        "canonical": "#f0918b",
+        "purpose": "The danger variable re-declared inside navy subtrees, so text, border and faint fill lift together.",
+        "tonalRamp": ["#2c0f0f", "#431717", "#5d2020", "#7c2c2c", "#a23b3b", "#d0706c", "#f0918b", "#fdeceb"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Committee Ink",
+        "canonical": "#14213a",
+        "purpose": "Headings and any value a reader stops on.",
+        "tonalRamp": ["#080d17", "#0e1727", "#14213a", "#33405c", "#46536e", "#5f6b85", "#9aa3b6", "#e9ecf2"]
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "Reading Ink",
+        "canonical": "#33405c",
+        "purpose": "Body copy. 10:1 on white.",
+        "tonalRamp": ["#0b0f16", "#141a26", "#232c40", "#33405c", "#46536e", "#5f6b85", "#a2aabb", "#eceef3"]
+      },
+      "ink-faint": {
+        "role": "neutral",
+        "displayName": "Footnote Ink",
+        "canonical": "#5f6b85",
+        "purpose": "Captions, sources, labels, and the label of a disabled Operate control. 4.9:1 on white — the contrast floor. Nothing lighter carries text.",
+        "tonalRamp": ["#14171e", "#1f242f", "#2f3646", "#454e63", "#5f6b85", "#8b95a9", "#b8bfcd", "#eef0f4"]
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "Paper White",
+        "canonical": "#ffffff",
+        "purpose": "Page ground. The elevated panel (raised) is the same white — separation is by hairline, not by tone.",
+        "tonalRamp": ["#14213a", "#33405c", "#5f6b85", "#9aa6ba", "#c3ccdb", "#dde3ec", "#f4f6f9", "#ffffff"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Band Grey",
+        "canonical": "#f4f6f9",
+        "purpose": "The alternating section band; resting fill of low-severity pills, disabled fields, and the recessed disabled action.",
+        "tonalRamp": ["#171b22", "#252b36", "#3b4351", "#586173", "#8b93a3", "#c3ccdb", "#e8ecf3", "#f4f6f9"]
+      },
+      "app-toolbar": {
+        "role": "neutral",
+        "displayName": "Chrome Grey",
+        "canonical": "#eef1f6",
+        "purpose": "A second neutral layer for Operate chrome — the connect row and toolbars. Cooler than the white content panels so chrome reads as chrome.",
+        "tonalRamp": ["#161a21", "#232935", "#39414f", "#555f71", "#8891a1", "#c0c8d6", "#e0e5ee", "#eef1f6"]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#dde3ec",
+        "purpose": "Divides within a component. line-strong (#c3ccdb) opens a page, encloses a table, or bounds an Operate field; row (#e8ecf3) separates repeated rows.",
+        "tonalRamp": ["#181c22", "#272d37", "#3f4854", "#5c667a", "#8b95a8", "#c3ccdb", "#dde3ec", "#f2f5f9"]
+      }
+    },
+    "typographyMeta": {
+      "hero": { "displayName": "Hero", "purpose": "The landing h1 only, bottom-anchored over the graded photograph. Measure capped at 19 characters." },
+      "display": { "displayName": "Display", "purpose": "Every section h2 and interior page h1. Capped at a 7-of-12-column measure so it breaks over two or three lines, never one wide bar." },
+      "figure": { "displayName": "Figure", "purpose": "The number a reader should leave with. Tabular, 1.0 leading, always paired with a label and a source note where one is owed." },
+      "headline": { "displayName": "Headline", "purpose": "Rendered-doc h2, set above a 1px top rule with 2.6rem clearance." },
+      "title": { "displayName": "Title", "purpose": "Card and row headings; the same face at 24-25px carries a panel's one-sentence claim." },
+      "operate": { "displayName": "Operate", "purpose": "Inside .operate, every heading, label, figure and control label. Inter Tight 600 at a fixed size — the serif is the brand's voice, not a UI face." },
+      "lede": { "displayName": "Lede", "purpose": "The paragraph beside or under a heading, capped at 62ch (54ch in the page opener's right column)." },
+      "body": { "displayName": "Body", "purpose": "Default reading copy. 15px inside cards; 72ch at 1.72 leading in rendered documentation." },
+      "caption": { "displayName": "Caption", "purpose": "Notes, sources, disclosure lines, figure provenance." },
+      "label": { "displayName": "Label", "purpose": "Wayfinding, breadcrumb trails, column heads, dt, figure legends, opt-in ordinals. Never a kicker above a heading." },
+      "mono": { "displayName": "Mono", "purpose": "On-chain strings only — addresses, hashes, calldata — plus the amount input where digit alignment is a correctness requirement." }
+    },
+    "shadows": [
+      {
+        "name": "panel-hover-lift",
+        "value": "0 14px 34px -20px rgba(20, 33, 58, 0.28)",
+        "purpose": "Applied on .panel-hover over 360ms alongside a border step from line to line-strong. A shadow is a response to the pointer, never a resting state."
+      },
+      {
+        "name": "op-field-focus-ring",
+        "value": "0 0 0 3px rgba(46, 78, 111, 0.14)",
+        "purpose": "The Operate field's :focus-within glow, with the border moving to accent."
+      },
+      {
+        "name": "op-field-invalid-ring",
+        "value": "0 0 0 3px rgba(162, 59, 59, 0.12)",
+        "purpose": "The Operate field's [data-invalid=\"true\"] glow, with the border moving to danger. The reason is always stated in words beside it."
+      },
+      {
+        "name": "op-action-disabled-inset",
+        "value": "inset 0 0 0 1px var(--color-line-strong)",
+        "purpose": "The disabled Operate action sinks into the field rather than lifting off it. Replaces a dimmed white-on-grey that measured 1.62:1."
+      }
+    ],
+    "motion": [
+      { "name": "ease-out-soft", "value": "cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Editorial state transitions — panel hover, link underline wipe, cascade stroke." },
+      { "name": "ease-out-far", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "The hero entrance: staged line rise, rule draw, and photograph settle." },
+      { "name": "duration-entrance", "value": "900ms", "purpose": "Each hero line's rise out of an 18px offset and 6px blur." },
+      { "name": "duration-state", "value": "360ms", "purpose": "Editorial panel hover — background, border, and shadow together." },
+      { "name": "duration-underline", "value": "380ms", "purpose": ".u-link underline wipe: in from the right, out to the left." },
+      { "name": "duration-operate", "value": "150ms ease-out", "purpose": "The whole Operate motion budget: colour and ring only, never a transform for flavour. No orchestrated page-load on /app at all." },
+      { "name": "stage-delays", "value": "120ms, 260ms, 380ms, 480ms, 560ms", "purpose": "Hero stagger. Only the hero stages; there is no scroll-reveal system and content is visible by default." },
+      { "name": "rule-draw", "value": "820ms ease-out-far 640ms", "purpose": "The hero figure strip's rule draws across after the last line lands." },
+      { "name": "hero-settle", "value": "2.4s ease-out-far", "purpose": "Photograph settles from 1.11 to 1.06 scale." },
+      { "name": "op-shimmer", "value": "1.4s linear infinite", "purpose": "The loading skeleton's gradient sweep — a status indicator, not an entrance. The one motion exception inside Operate." },
+      { "name": "reduced-motion", "value": "prefers-reduced-motion: reduce → hero entrance removed, skeleton flattened to a static row fill, all animation and transition durations collapsed to 0.01ms", "purpose": "The accessibility floor for motion. The infinite cascade stroke stops with it." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" },
+      { "name": "container", "value": "1152px (max-w-6xl), widened to 1280px only when a grid needs the extra column" },
+      { "name": "gutter", "value": "20px" }
+    ],
+    "modes": [
+      {
+        "name": "editorial",
+        "scope": "default — every published route",
+        "purpose": "Merriweather headings, banded tonal rhythm, fluid display type, one authored entrance on the hero."
+      },
+      {
+        "name": "operate",
+        "scope": ".operate class on the AppSurface subtree",
+        "purpose": "One sans family (both .display and the font-display utility resolve to Inter Tight, declared outside @layer so it outranks Tailwind's utilities), a fixed scale, hover/focus/active/disabled on every control, and 150ms state-only motion. Shared components like TransparencyDashboard read serif on /transparency (a document) and sans inside /app (an instrument) — the mode changing, not drift, which is why the scope is a subtree class rather than a route stylesheet."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Navy pill on the white editorial field. One per surface — the nav's Enter App, Open the audit register.",
+      "html": "<a class=\"ds-btn-primary\" href=\"#\">Open the audit register</a>",
+      "css": ".ds-btn-primary { display: inline-block; background: var(--color-navy, #1c2d48); color: var(--color-on-navy, #ffffff); font-family: 'Inter Tight', system-ui, sans-serif; font-size: 14px; font-weight: 600; padding: 12px 28px; border: none; border-radius: 999px; text-decoration: none; transition: background-color 360ms cubic-bezier(0.22,1,0.36,1); } .ds-btn-primary:hover { background: var(--color-navy-raised, #24365a); } .ds-btn-primary:focus-visible { outline: 2px solid var(--color-accent, #2e4e6f); outline-offset: 3px; border-radius: 999px; }"
+    },
+    {
+      "name": "Primary Action on Navy",
+      "kind": "button",
+      "refersTo": "button-on-navy",
+      "description": "The inverted primary: white pill, navy text, filling with pale navy on hover. Used in the hero and the closing anchor.",
+      "html": "<div class=\"ds-navy-stage\"><a class=\"ds-btn-onnavy\" href=\"#\">Enter App</a><a class=\"ds-btn-ghost\" href=\"#\">How it works</a></div>",
+      "css": ".ds-navy-stage { background: var(--color-navy-deepest, #0f1a2e); padding: 28px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; } .ds-btn-onnavy { display: inline-block; background: #ffffff; color: var(--color-navy, #1c2d48); font-family: 'Inter Tight', system-ui, sans-serif; font-size: 14px; font-weight: 600; padding: 12px 28px; border-radius: 999px; text-decoration: none; transition: background-color 360ms cubic-bezier(0.22,1,0.36,1); } .ds-btn-onnavy:hover { background: var(--color-on-navy-accent, #9db0d4); } .ds-btn-ghost { display: inline-block; background: transparent; color: #ffffff; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 14px; padding: 12px 28px; border: 1px solid rgba(255,255,255,0.14); border-radius: 999px; text-decoration: none; transition: color 360ms cubic-bezier(0.22,1,0.36,1), border-color 360ms cubic-bezier(0.22,1,0.36,1); } .ds-btn-ghost:hover { color: var(--color-on-navy-accent, #9db0d4); border-color: var(--color-on-navy-accent, #9db0d4); } .ds-btn-onnavy:focus-visible, .ds-btn-ghost:focus-visible { outline: 2px solid var(--color-on-navy-accent, #9db0d4); outline-offset: 3px; }"
+    },
+    {
+      "name": "Operate Action",
+      "kind": "button",
+      "refersTo": "op-action",
+      "description": "The one primary action shape on the app surface. Navy at rest, lifted on hover, pressed on active, and RECESSED when disabled so its label stays readable — a user needs to read what the control would do before working out why they cannot press it.",
+      "html": "<div class=\"ds-operate\"><button class=\"ds-op-action\">Mint USDfr</button><button class=\"ds-op-action\" disabled aria-busy=\"true\">Confirm in wallet…</button></div>",
+      "css": ".ds-operate { font-family: 'Inter Tight', system-ui, sans-serif; display: flex; flex-direction: column; gap: 12px; } .ds-op-action { display: block; width: 100%; background: var(--color-navy, #1c2d48); color: #ffffff; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 13.5px; font-weight: 600; letter-spacing: -0.012em; padding: 10px 20px; border: none; border-radius: 999px; cursor: pointer; transition: background-color 150ms ease-out, box-shadow 150ms ease-out; } .ds-op-action:hover:not(:disabled) { background: var(--color-navy-raised, #24365a); } .ds-op-action:active:not(:disabled) { background: var(--color-accent-deep, #14213a); } .ds-op-action:disabled { background: var(--color-surface, #f4f6f9); box-shadow: inset 0 0 0 1px var(--color-line-strong, #c3ccdb); color: var(--color-ink-faint, #5f6b85); cursor: not-allowed; } .ds-op-action:focus-visible { outline: 2px solid var(--color-accent, #2e4e6f); outline-offset: 3px; }"
+    },
+    {
+      "name": "Operate Field",
+      "kind": "input",
+      "refersTo": "op-field",
+      "description": "The app's amount and text controls. Mono value so digits align; focus, invalid and disabled all declared. The invalid reason stays with the caller — a red border is never the only statement of what is wrong.",
+      "html": "<div class=\"ds-op-field\"><input class=\"ds-op-input\" type=\"text\" inputmode=\"decimal\" placeholder=\"0.00\" aria-label=\"Amount\"><button class=\"ds-op-max\">max</button><span class=\"ds-op-unit\">USDC</span></div><div class=\"ds-op-field\" data-invalid=\"true\"><input class=\"ds-op-input\" type=\"text\" value=\"5000000\" aria-invalid=\"true\" aria-label=\"Amount\"><span class=\"ds-op-unit\">USDC</span></div><p class=\"ds-op-reason\">Exceeds your available balance.</p>",
+      "css": ".ds-op-field { display: flex; align-items: center; gap: 8px; background: #ffffff; border: 1px solid var(--color-line-strong, #c3ccdb); border-radius: 10px; padding: 12px 16px; margin-bottom: 8px; transition: border-color 150ms ease-out, box-shadow 150ms ease-out; } .ds-op-field:focus-within { border-color: var(--color-accent, #2e4e6f); box-shadow: 0 0 0 3px rgba(46,78,111,0.14); } .ds-op-field[data-invalid=\"true\"] { border-color: var(--color-danger, #a23b3b); box-shadow: 0 0 0 3px rgba(162,59,59,0.12); } .ds-op-field[data-disabled=\"true\"] { background: var(--color-surface, #f4f6f9); border-color: var(--color-line, #dde3ec); } .ds-op-input { flex: 1; min-width: 0; background: transparent; border: none; outline: none; font-family: 'Azeret Mono', ui-monospace, monospace; font-size: 15px; letter-spacing: -0.02em; color: var(--color-ink, #14213a); } .ds-op-input::placeholder { color: var(--color-ink-faint, #5f6b85); } .ds-op-max { flex: none; background: transparent; border: 1px solid var(--color-line-strong, #c3ccdb); border-radius: 999px; padding: 2px 10px; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: var(--color-ink-muted, #33405c); cursor: pointer; transition: border-color 150ms ease-out, color 150ms ease-out; } .ds-op-max:hover { border-color: rgba(46,78,111,0.6); color: var(--color-accent, #2e4e6f); } .ds-op-unit { flex: none; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-ink-faint, #5f6b85); } .ds-op-reason { margin: 0; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 12.5px; line-height: 1.6; color: var(--color-danger, #a23b3b); }"
+    },
+    {
+      "name": "Operate Toolbar",
+      "kind": "nav",
+      "refersTo": "op-toolbar",
+      "description": "The app's connect row and chrome layer. Chrome grey — cooler than the white content panels — so chrome reads as chrome.",
+      "html": "<div class=\"ds-op-toolbar\"><span class=\"ds-op-toolbar-label\">Ethereum Sepolia</span><span class=\"ds-op-toolbar-addr\">0x7a2f…4c81</span><button class=\"ds-op-toolbar-btn\">Disconnect</button></div>",
+      "css": ".ds-op-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; background: var(--color-app-toolbar, #eef1f6); border: 1px solid var(--color-line, #dde3ec); border-radius: 10px; padding: 16px 20px; } .ds-op-toolbar-label { font-family: 'Inter Tight', system-ui, sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: var(--color-ink-faint, #5f6b85); } .ds-op-toolbar-addr { font-family: 'Azeret Mono', ui-monospace, monospace; font-size: 13px; letter-spacing: -0.02em; color: var(--color-ink, #14213a); } .ds-op-toolbar-btn { background: transparent; border: 1px solid var(--color-line-strong, #c3ccdb); border-radius: 999px; padding: 6px 14px; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 12px; font-weight: 600; color: var(--color-ink-muted, #33405c); cursor: pointer; transition: border-color 150ms ease-out, color 150ms ease-out; } .ds-op-toolbar-btn:hover { border-color: rgba(46,78,111,0.6); color: var(--color-accent, #2e4e6f); } .ds-op-toolbar-btn:focus-visible { outline: 2px solid var(--color-accent, #2e4e6f); outline-offset: 3px; }"
+    },
+    {
+      "name": "Operate Status Line & Skeleton",
+      "kind": "custom",
+      "refersTo": "op-action",
+      "description": "Write-phase reporting and the loading placeholder. Status announces asynchronously (role=status, aria-live=polite) and Confirmed is set in ok; the skeleton shows the SHAPE of the value being fetched, and an absent value says so in words rather than showing a bare dash.",
+      "html": "<div class=\"ds-operate\"><p class=\"ds-op-bal\">Balance: <span class=\"ds-op-skeleton\">0,000.00 USDC</span></p><p class=\"ds-op-bal\">Balance: <span class=\"ds-op-absent\">wallet not connected</span></p><p class=\"ds-op-status\" role=\"status\" aria-live=\"polite\">Confirmed. <a class=\"ds-op-link\" href=\"#\">view on Etherscan</a></p><p class=\"ds-op-status ds-op-status-err\" role=\"status\" aria-live=\"polite\">Transaction reverted. <span class=\"ds-op-errname\">(InsufficientBacking)</span></p></div>",
+      "css": ".ds-op-bal { margin: 0 0 8px; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 12px; color: var(--color-ink-faint, #5f6b85); } .ds-op-skeleton { display: inline-block; border-radius: 4px; background: linear-gradient(90deg, var(--color-row, #e8ecf3) 0%, var(--color-surface, #f4f6f9) 40%, var(--color-row, #e8ecf3) 80%); background-size: 220% 100%; animation: ds-op-shimmer 1.4s linear infinite; color: transparent; user-select: none; } @keyframes ds-op-shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } } @media (prefers-reduced-motion: reduce) { .ds-op-skeleton { animation: none; background: var(--color-row, #e8ecf3); } } .ds-op-absent { color: var(--color-ink-muted, #33405c); } .ds-op-status { margin: 0 0 6px; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 12.5px; line-height: 1.6; color: var(--color-ok, #1c6b4c); } .ds-op-status-err { color: var(--color-danger, #a23b3b); } .ds-op-link { color: inherit; text-decoration: underline; text-underline-offset: 3px; } .ds-op-errname { font-family: 'Azeret Mono', ui-monospace, monospace; font-size: 10.5px; color: var(--color-ink-faint, #5f6b85); }"
+    },
+    {
+      "name": "Text Link (wiping underline)",
+      "kind": "custom",
+      "refersTo": "nav-link",
+      "description": "The editorial inline link: accent text with a 1px underline that wipes in from the right on hover and out to the left.",
+      "html": "<a class=\"ds-u-link\" href=\"#\">Reconcile it against live state →</a>",
+      "css": ".ds-u-link { position: relative; display: inline-block; color: var(--color-accent, #2e4e6f); font-family: 'Inter Tight', system-ui, sans-serif; font-size: 13px; font-weight: 500; text-decoration: none; } .ds-u-link::after { content: ''; position: absolute; left: 0; bottom: -3px; height: 1px; width: 100%; background: currentColor; transform: scaleX(0); transform-origin: right; transition: transform 380ms cubic-bezier(0.22,1,0.36,1); } .ds-u-link:hover::after { transform: scaleX(1); transform-origin: left; } .ds-u-link:focus-visible { outline: 2px solid var(--color-accent, #2e4e6f); outline-offset: 3px; border-radius: 3px; }"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "The elevated surface. Same white as the ground; its edge is a hairline. Flat at rest, one shadow on hover.",
+      "html": "<a class=\"ds-panel\" href=\"#\"><h3 class=\"ds-panel-title\">Film &amp; television tax credits</h3><span class=\"ds-tag\">Receivable</span><p class=\"ds-panel-body\">Certified but unpaid state and national production incentives, assigned and lien-perfected.</p><p class=\"ds-panel-meta\">6–24 months</p></a>",
+      "css": ".ds-panel { display: flex; flex-direction: column; background: #ffffff; border: 1px solid var(--color-line, #dde3ec); border-radius: 10px; padding: 28px; text-decoration: none; transition: border-color 360ms cubic-bezier(0.22,1,0.36,1), box-shadow 360ms cubic-bezier(0.22,1,0.36,1); } .ds-panel:hover { border-color: var(--color-line-strong, #c3ccdb); box-shadow: 0 14px 34px -20px rgba(20,33,58,0.28); } .ds-panel-title { margin: 0; font-family: Merriweather, Georgia, serif; font-weight: 600; font-size: 19px; line-height: 1.25; letter-spacing: -0.004em; color: var(--color-ink, #14213a); transition: color 200ms; } .ds-panel:hover .ds-panel-title { color: var(--color-accent, #2e4e6f); } .ds-tag { align-self: flex-start; margin-top: 12px; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: var(--color-accent, #2e4e6f); border: 1px solid var(--color-line-strong, #c3ccdb); border-radius: 999px; padding: 4px 10px; } .ds-panel-body { margin: 16px 0 0; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 15px; line-height: 1.65; color: var(--color-ink-muted, #33405c); } .ds-panel-meta { margin: 20px 0 0; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: var(--color-ink-faint, #5f6b85); } .ds-panel:focus-visible { outline: 2px solid var(--color-accent, #2e4e6f); outline-offset: 3px; }"
+    },
+    {
+      "name": "Figure Band",
+      "kind": "custom",
+      "refersTo": "kpi-band",
+      "description": "The signature editorial component: navy panel of hairline-divided cells, each a figure, a label, and a note naming its source.",
+      "html": "<div class=\"ds-kpi\"><div class=\"ds-kpi-cell\"><div class=\"ds-kpi-value\">18</div><div class=\"ds-kpi-label\">Review rounds</div><div class=\"ds-kpi-note\">Published in full at /docs/audit</div></div><div class=\"ds-kpi-cell\"><div class=\"ds-kpi-value\">61</div><div class=\"ds-kpi-label\">Findings published</div><div class=\"ds-kpi-note\">Including findings accepted rather than fixed</div></div><div class=\"ds-kpi-cell\"><div class=\"ds-kpi-value\">7</div><div class=\"ds-kpi-label\">Still open or accepted</div><div class=\"ds-kpi-note\">Owner-dispositioned 4 August 2026</div></div></div>",
+      "css": ".ds-kpi { display: flex; flex-wrap: wrap; background: var(--color-navy-deepest, #0f1a2e); border: 1px solid var(--color-line, #dde3ec); border-radius: 10px; padding: 32px 8px; } .ds-kpi-cell { position: relative; flex: 1 1 0; min-width: 150px; padding: 8px 24px; } .ds-kpi-cell + .ds-kpi-cell::before { content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 1px; background: var(--color-line, #dde3ec); } .ds-kpi-value { font-family: Merriweather, Georgia, serif; font-weight: 600; font-size: 32px; line-height: 1; letter-spacing: -0.004em; color: #ffffff; font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' on; } .ds-kpi-label { margin-top: 16px; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: var(--color-on-navy-accent, #9db0d4); } .ds-kpi-note { margin-top: 10px; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 12.5px; line-height: 1.6; color: var(--color-on-navy-faint, #93a0b8); }"
+    },
+    {
+      "name": "Severity Pill",
+      "kind": "chip",
+      "refersTo": "pill-severity-high",
+      "description": "Severity and disposition on the navy tint ladder. Weight carries ranking; the word is always present, so the tint only reinforces it.",
+      "html": "<span class=\"ds-pill ds-pill-high\">High</span> <span class=\"ds-pill ds-pill-med\">Accepted</span> <span class=\"ds-pill ds-pill-low\">Low</span> <span class=\"ds-pill ds-pill-info\">Informational</span>",
+      "css": ".ds-pill { display: inline-block; border: 1px solid; border-radius: 999px; padding: 3px 8px; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; white-space: nowrap; } .ds-pill-high { border-color: var(--color-navy, #1c2d48); background: var(--color-navy, #1c2d48); color: #ffffff; } .ds-pill-med { border-color: var(--color-accent-strong, #1c2d48); background: rgba(28,45,72,0.12); color: var(--color-accent-strong, #1c2d48); } .ds-pill-low { border-color: var(--color-line-strong, #c3ccdb); background: var(--color-surface, #f4f6f9); color: var(--color-ink-value, #46536e); } .ds-pill-info { border-color: var(--color-line, #dde3ec); background: var(--color-surface, #f4f6f9); color: var(--color-ink-faint, #5f6b85); }"
+    },
+    {
+      "name": "Site Navigation",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "Sticky translucent header. Active route is ink at 500 with a 1.5px accent underline and aria-current.",
+      "html": "<header class=\"ds-nav\"><a class=\"ds-nav-brand\" href=\"#\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path fill=\"#1c2d48\" d=\"M10 1 19 6v8l-9 5-9-5V6z\"/></svg><span class=\"ds-nav-name\">Forest Road</span><span class=\"ds-nav-sub\">Vault</span></a><nav class=\"ds-nav-links\"><a class=\"ds-nav-link\" href=\"#\">How it works</a><a class=\"ds-nav-link ds-nav-link-active\" href=\"#\" aria-current=\"page\">Risk</a><a class=\"ds-nav-link\" href=\"#\">Docs</a></nav><a class=\"ds-nav-cta\" href=\"#\">Enter App</a></header>",
+      "css": ".ds-nav { display: flex; align-items: center; justify-content: space-between; gap: 24px; height: 64px; padding: 0 20px; background: rgba(255,255,255,0.88); backdrop-filter: blur(24px); border-bottom: 1px solid var(--color-line, #dde3ec); } .ds-nav-brand { display: flex; align-items: baseline; gap: 8px; text-decoration: none; } .ds-nav-name { font-family: 'Inter Tight', system-ui, sans-serif; font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; color: var(--color-ink, #14213a); } .ds-nav-sub { font-family: 'Inter Tight', system-ui, sans-serif; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.16em; color: var(--color-accent, #2e4e6f); } .ds-nav-links { display: flex; align-items: center; gap: 28px; } .ds-nav-link { position: relative; padding: 4px 0; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 13.5px; color: var(--color-ink-muted, #33405c); text-decoration: none; transition: color 200ms; } .ds-nav-link:hover { color: var(--color-ink, #14213a); } .ds-nav-link-active { color: var(--color-ink, #14213a); font-weight: 500; } .ds-nav-link-active::after { content: ''; position: absolute; left: 0; bottom: -3px; width: 100%; height: 1.5px; background: var(--color-accent, #2e4e6f); } .ds-nav-cta { background: var(--color-navy, #1c2d48); color: #ffffff; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 13px; font-weight: 600; padding: 6px 16px; border-radius: 999px; text-decoration: none; transition: background-color 200ms; } .ds-nav-cta:hover { background: var(--color-navy-raised, #24365a); } .ds-nav-link:focus-visible, .ds-nav-cta:focus-visible { outline: 2px solid var(--color-accent, #2e4e6f); outline-offset: 3px; border-radius: 3px; }"
+    },
+    {
+      "name": "Breadcrumb Page Opener",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "How every interior and document page opens: a real two-level trail on a hairline, then the h1 beside its lede on a twelve-column grid. This replaced the kicker on every route.",
+      "html": "<div class=\"ds-opener\"><nav aria-label=\"Breadcrumb\"><ol class=\"ds-crumbs\"><li><a class=\"ds-crumb\" href=\"#\">Forest Road Vault</a></li><li aria-hidden=\"true\" class=\"ds-crumb\">/</li><li><span aria-current=\"page\" class=\"ds-crumb ds-crumb-leaf\">Risk</span></li></ol></nav><div class=\"ds-rule-head\"></div><div class=\"ds-opener-grid\"><h1 class=\"ds-opener-title\">What can go wrong, stated plainly.</h1><p class=\"ds-opener-lede\">Every failure mode we have identified, its mechanism, and the remedy — including the ones with no remedy.</p></div></div>",
+      "css": ".ds-opener { padding: 40px 20px 56px; background: #ffffff; } .ds-crumbs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; list-style: none; margin: 0; padding: 0; } .ds-crumb { font-family: 'Inter Tight', system-ui, sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: var(--color-ink-faint, #5f6b85); text-decoration: none; transition: color 200ms; } a.ds-crumb:hover { color: var(--color-ink, #14213a); } .ds-crumb-leaf { color: var(--color-accent, #2e4e6f); } .ds-rule-head { height: 1px; margin-top: 12px; background: var(--color-line-strong, #c3ccdb); } .ds-opener-grid { display: grid; gap: 24px 64px; margin-top: 40px; } @media (min-width: 1024px) { .ds-opener-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); } .ds-opener-title { grid-column: span 7; } .ds-opener-lede { grid-column: span 5; padding-top: 8px; } } .ds-opener-title { margin: 0; font-family: Merriweather, Georgia, serif; font-weight: 600; font-size: 46px; line-height: 1.1; letter-spacing: -0.004em; color: var(--color-ink, #14213a); text-wrap: balance; } .ds-opener-lede { margin: 0; max-width: 54ch; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 17px; line-height: 1.65; color: var(--color-ink-muted, #33405c); } .ds-crumb:focus-visible { outline: 2px solid var(--color-accent, #2e4e6f); outline-offset: 3px; border-radius: 3px; }"
+    },
+    {
+      "name": "Callout",
+      "kind": "card",
+      "refersTo": "highlight-box",
+      "description": "A tinted panel with a hairline, never a thick coloured edge. Tone-aware: accent wash on white, 6% white on navy.",
+      "html": "<div class=\"ds-callout\"><p class=\"ds-callout-title\">Testnet only</p><div class=\"ds-callout-body\">Sepolia deployment with a mock stablecoin and bootstrap admin privileges retained. Nothing healthy here is evidence about a production configuration.</div></div>",
+      "css": ".ds-callout { background: rgba(46,78,111,0.07); border: 1px solid rgba(28,45,72,0.14); border-radius: 10px; padding: 24px 28px; } .ds-callout-title { margin: 0; font-family: Merriweather, Georgia, serif; font-weight: 600; font-size: 16px; line-height: 1.3; letter-spacing: -0.004em; color: var(--color-ink, #14213a); } .ds-callout-body { margin-top: 12px; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 15px; line-height: 1.65; color: var(--color-ink-muted, #33405c); }"
+    },
+    {
+      "name": "Data Table",
+      "kind": "custom",
+      "refersTo": "table-head",
+      "description": "Navy caption row, hairline row dividers, display label column at 30%, tabular figures throughout.",
+      "html": "<div class=\"ds-table\"><div class=\"ds-table-head\">Sepolia deployment</div><div class=\"ds-table-row\"><span class=\"ds-table-label\">Network</span><span class=\"ds-table-value\">Ethereum Sepolia (11155111)</span></div><div class=\"ds-table-row\"><span class=\"ds-table-label\">Controller</span><span class=\"ds-table-value ds-mono\">0x7a2f…4c81</span></div></div>",
+      "css": ".ds-table { border: 1px solid var(--color-line-strong, #c3ccdb); border-radius: 10px; overflow: hidden; font-variant-numeric: tabular-nums; } .ds-table-head { background: var(--color-navy, #1c2d48); color: #ffffff; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 13px; font-weight: 600; text-align: center; padding: 12px 20px; } .ds-table-row { display: flex; gap: 16px; padding: 14px 20px; } .ds-table-row + .ds-table-row { border-top: 1px solid var(--color-row, #e8ecf3); } .ds-table-label { flex: none; width: 30%; font-family: Merriweather, Georgia, serif; font-weight: 600; font-size: 15px; letter-spacing: -0.004em; color: var(--color-ink, #14213a); } .ds-table-value { flex: 1; font-family: 'Inter Tight', system-ui, sans-serif; font-size: 15px; line-height: 1.65; color: var(--color-ink-value, #46536e); } .ds-mono { font-family: 'Azeret Mono', ui-monospace, monospace; font-size: 13.5px; letter-spacing: -0.02em; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Underwriting Memo, Set in Navy",
+    "overview": "This is what a speciality-finance credit committee's memo looks like when it becomes a website: white paper, one serif voice for every claim, hairlines instead of boxes, and numbers that line up down a column because somebody is going to compare them. The category standard executed straight — the arrangement an allocator already expects from an on-chain credit protocol, at full craft, with no ironic distance and no smuggled novelty. Density is editorial rather than dashboard: generous bands (80-112px vertical), a 62-character measure on every lede, and long unbroken passages of body copy that assume a reader who reads.\n\nThe organizing move is material, not chromatic. The field is white (#ffffff) with one alternating near-white band (#f4f6f9); navy is a solid object placed on that field — the nav mark, the primary action, the figure band, table headers, the hero, the cascade diagram, the closing anchor, the footer. Nothing fades between the two. The hero ends on a hard horizontal edge against white, not a gradient dissolve, because a navy block on a white page is the parent brand's own arrangement and a wash would soften it into generic on-chain marketing.\n\nThe system runs in two modes. Everything published is editorial: serif headings, banded rhythm, one authored motion moment. The wallet-connected /app surface is Operate: one sans family, a fixed scale, full state coverage on every control, and motion that only ever reports state. Operate is a class-scoped subtree (.operate), not a separate stylesheet — the same tokens, deliberately different rules.\n\nThe refusals are as load-bearing as the tokens. No eyebrow above a heading, anywhere. No keyline above a card title. No scroll-reveal system — one authored entrance, on the hero, and after that the page is simply present. No hue-coded data: severity, allocation and rank all run down a five-step navy tint ladder, and the only chromatic exceptions (ok, warn, danger) are functional status that always ships with a text label. The parent brand's link blue #1f8aff is deliberately unadopted; a bright blue accent on navy is the generic look this system is trying not to be.",
+    "keyCharacteristics": [
+      "White field, navy material — navy is an element, never a page background",
+      "Merriweather 600 for every editorial heading, its italic reserved for a turn in the sentence",
+      "Monochrome navy data; hue only for functional status, and never alone",
+      "Hairlines and tonal bands instead of shadows and borders-as-decoration",
+      "Two modes: editorial (serif, banded, one authored moment) and Operate (sans, fixed, state-only motion)",
+      "Mono reserved strictly for on-chain strings — addresses, hashes, calldata",
+      "Tabular figures wherever a reader compares down a column"
+    ],
+    "rules": [
+      { "name": "The Material Rule", "body": "Navy is an element placed on the white field, never the field itself. If a navy area has no edge — no hard boundary against white, no hairline, no radius — it has become a background and is wrong.", "section": "colors" },
+      { "name": "The Monochrome Data Rule", "body": "Ranked and categorical data is encoded in the navy tint ladder. No green, no gold, no red-amber-green severity scale. Weight carries ranking.", "section": "colors" },
+      { "name": "The Labelled Status Rule", "body": "ok, warn and danger are exempt from the monochrome rule because they are not decoration — but hue is never the only signal. A status colour always appears with a text label beside it, and an invalid field always carries its reason in words rather than leaving a red border to imply one.", "section": "colors" },
+      { "name": "The Status-On-Navy Rule", "body": "The editorial status values are tuned for the white ground and fall through 4.5:1 on navy (warn measured 3.36:1 on the app's yield panel), so the variables themselves are re-declared inside every navy subtree — .navy-band, .navy-band-deep, .hero-frame, .kpi-band, and the bg-navy* utilities. Because Tailwind resolves text-warn, border-warn and bg-warn-faint to var(--color-warn) at use time, lifting the variable lifts text, border and wash together, and a status colour cannot silently fail by being placed on the dark material. Never hard-code a lifted status hex at the call site; extend the re-declaration block instead.", "section": "colors" },
+      { "name": "The Two-Band Seam Rule", "body": "When two navy bands meet (the closing anchor above the footer), the lower one drops one tonal step (navy to navy-deepest) and carries a visible 1px rule at 20% white. Without both, the two bands read as a single dark mass.", "section": "colors" },
+      { "name": "The Semantic Naming Rule", "body": "Tokens are named for role, not for value: ink is text, raised is an elevated surface, bg is the ground, navy/on-navy are the element and the ink that sits on it. This is why the field was retuned from a dark first pass to white/navy inside globals.css alone, and it is the same mechanism the Status-On-Navy Rule uses — role naming applied to state. Never introduce a literal colour name.", "section": "colors" },
+      { "name": "The Turn-In-The-Sentence Rule", "body": "Emphasis inside a heading is Merriweather italic in accent (.display-accent), inverting to on-navy-accent on navy — and it marks a turn in the sentence, not a section heading. At most one per page-scroll, never a section's default voice. It survives on the landing where the sentence actually turns (the brand line's 'working credit', the cascade's 'Depositors are last', the audit claim's 'accepted') and on other routes at most once. Never a weight change, never a tint gradient, never an underline, never a highlight.", "section": "typography" },
+      { "name": "The Label-As-Wayfinding Rule", "body": "An uppercase label may tell a reader where they are, head a column, define a term, or legend a figure. It may never sit above a heading as a kicker. This holds on every route: where a category, round or date was doing wayfinding work, it moved into a real breadcrumb ol with aria-current=page on a .rule-head hairline. If the label were deleted and the heading still worked, the label was decoration.", "section": "typography" },
+      { "name": "The One Family Per Mode Rule", "body": "The serif is the brand's voice, not a UI face. Inside .operate both .display and the font-display utility resolve to Inter Tight, so no label, button, or figure a user is comparing in a task is ever set in the serif.", "section": "typography" },
+      { "name": "The Mono Is Evidence Rule", "body": "Mono means 'this string is verifiable on-chain': addresses, hashes, calldata, transaction amounts. It is never a technical costume for body copy.", "section": "typography" },
+      { "name": "The Tabular Column Rule", "body": "Anything compared down a column gets tabular figures. Applied globally to table, .tnum, and [data-figure].", "section": "typography" },
+      { "name": "The Varied Opening Rule", "body": "Consecutive sections must not open the same way. Stacked headline-and-lede, two-column argument, and a cold statistic row are all in the vocabulary; using one three times in a row turns the page into a slide deck, which is the thing this system was built against.", "section": "layout" },
+      { "name": "The Hairline Rule", "body": "Separation is a 1px rule, not a shadow and not a gap. line divides inside a component, line-strong opens a page or encloses a table, row separates repeated rows, on-navy-line does all three on navy.", "section": "elevation" },
+      { "name": "The Flat-At-Rest Rule", "body": "No surface carries a shadow at rest. If depth is needed, change the field the surface sits on. Every shadow in the system is a state — hover, focus, invalid, or disabled.", "section": "elevation" },
+      { "name": "The Mode-Not-Drift Rule", "body": "TransparencyDashboard and PointsDashboard render on both public routes and inside /app. On /transparency they keep Merriweather figures, because there they are a document; inside .operate the same components render sans, because there they are an instrument. That is the mode changing, not an inconsistency — and it is precisely why the scope is a class on a subtree rather than a route-level stylesheet: a shared component has to be able to read its context.", "section": "components" },
+      { "name": "The One Authored Moment Rule (editorial)", "body": "The published site animates on entrance exactly once, on the hero: .stage children rise 18px out of a 6px blur on a shared cubic-bezier(0.16, 1, 0.3, 1) over 900ms at 120/260/380/480/560ms delays, and the figure strip's rule draws across after the last line lands. Nothing else animates on entrance; there is no scroll-reveal system and content is visible by default.", "section": "components" },
+      { "name": "The State-Only Motion Rule (Operate)", "body": "Inside .operate motion is 150ms, colour and ring only, and there is no orchestrated page-load whatsoever. The single exception is the loading skeleton's shimmer, which is a status indicator rather than an entrance.", "section": "components" }
+    ],
+    "dos": [
+      "Do place navy as a bounded element on the white field — band, panel, pill, table head, hero block — and give it a hard edge against the white.",
+      "Do reach for a hairline before a shadow, a border, or a gap. Three weights exist: line (#dde3ec) within, line-strong (#c3ccdb) around, row (#e8ecf3) between.",
+      "Do set every editorial heading in Merriweather 600, and spend its italic only where the sentence turns — at most once per page-scroll.",
+      "Do put the app surface's headings, labels, figures and controls in Inter Tight by keeping them inside the .operate scope.",
+      "Do encode severity, rank and allocation in the five-step navy series ladder.",
+      "Do pair every functional status colour with a text label, always, and state an invalid field's reason in words next to it.",
+      "Do re-declare a status variable on new dark material rather than hard-coding a lifted hex at the call site.",
+      "Do cap ledes and body at 62ch (54ch in the page opener's right column, 72ch in rendered documentation) and let display headings break over two or three lines.",
+      "Do open every interior and document page with a real breadcrumb ol carrying aria-current=page on a .rule-head hairline.",
+      "Do give every figure a label and, where one is owed, a note naming its source.",
+      "Do apply tabular figures via [data-figure] or .tnum to anything compared down a column.",
+      "Do vary how consecutive sections open — stacked head, two-column argument, cold statistic row.",
+      "Do drop one tonal step and add a visible rule wherever two navy bands meet.",
+      "Do declare hover, focus, active and disabled on every Operate control, and keep the disabled label readable (ink-faint on surface, recessed by an inset ring).",
+      "Do distinguish absent from loading: words for 'wallet not connected', a skeleton for an in-flight read.",
+      "Do announce asynchronous outcomes with role=status / aria-live=polite and aria-busy on the control that caused them.",
+      "Do keep the :focus-visible ring intact: 2px accent, 3px offset, 3px radius.",
+      "Do state a page's absent data plainly and link where it can be verified, rather than rendering a plausible placeholder."
+    ],
+    "donts": [
+      "Don't set a label above a heading. No eyebrows, no kickers. Labels are wayfinding, breadcrumb leaves, column heads, dt, or figure legends.",
+      "Don't draw a keyline or accent bar above a card title. .col-bar and .keyline were both deleted from this system; a rule above every heading is the eyebrow wearing a different name.",
+      "Don't use the italic as a section heading's default voice. Three per landing page is the ceiling, and each one has to be a turn in the sentence.",
+      "Don't let the serif into the app surface — no font-display utility inside .operate expecting Merriweather, and no display face on a label, button, or figure a user is comparing in a task.",
+      "Don't add a scroll-reveal or per-section entrance animation, and don't give the app surface a page-load animation at all. The hero's entrance is the whole entrance budget.",
+      "Don't animate a transform to signal pressability. Operate motion is colour and ring, 150ms.",
+      "Don't dim a disabled control into illegibility. Recess it and keep its label readable.",
+      "Don't number an unordered set. Ordinals are opt-in and mean 'sequence matters'.",
+      "Don't use a gradient wash as a surface. The one gradient in the system grades navy across the hero photograph so type has solid ground; it is not a decorative device.",
+      "Don't use mono for anything that is not an on-chain string, a hash, or an amount whose digits must align.",
+      "Don't introduce a hue outside the navy family and the three status values. Specifically not #1f8aff — the parent brand's link blue is deliberately unadopted, because a bright blue accent on navy is the generic on-chain look.",
+      "Don't carry text in anything lighter than ink-faint (#5f6b85) on white or on-navy-faint (#93a0b8) on navy; those are the contrast floor.",
+      "Don't let hue be the only carrier of meaning anywhere.",
+      "Don't render a lone em dash as a display-scale value. At 52-64px it reads as a redaction bar; write the absence out.",
+      "Don't introduce a literal colour token name. Extend the semantic set (ink/raised/bg/navy/on-navy/app-toolbar) so the field and its states can be retuned in one file.",
+      "Don't add a resting shadow, a second radius between 10px and the pill, or a third typeface.",
+      "Don't ship an assurance row of identical tiles, or one section per idea in a uniform card grid — the deck-ported-to-web pattern this system exists to refuse."
+    ],
+    "openItems": [
+      "Live parameters on /verticals/[slug]: the route deliberately does not restate CollateralRegistry class parameters — hardcoding them is forbidden and no reads are wired there. The page states the absence and links to /transparency. The designed pattern for surfacing those reads is unresolved.",
+      "ok has no on-navy value. warn and danger are re-declared inside navy subtrees per the Status-On-Navy Rule; ok (#1c6b4c) is not. It currently renders only in StatusLine, whose callers all sit on white panels, so nothing fails today — but #1c6b4c measures roughly 2.7:1 on navy-deepest, and YieldPositionPanel is a navy subtree. The first 'Confirmed' placed on navy will fail. Add ok to the re-declaration block before using it on dark material; do not read its current absence as a decision.",
+      "Two test suites cannot start: npm run test:logic and npm run test:sync fail to launch because node cannot load their .mts files without a TypeScript loader. Both files are untouched by the design work and the failure is pre-existing, but the suite must not be read as green."
+    ]
+  }
+}

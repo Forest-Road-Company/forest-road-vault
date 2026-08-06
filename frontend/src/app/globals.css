@@ -1,81 +1,192 @@
 @import "tailwindcss";
 
 /* ────────────────────────────────────────────────────────────────────────
-   Forest Road Vault — design tokens (brief §8.7)
-   LIGHT sky-blue editorial system (Forest Road direction 2026-07-09):
-   soft ice-blue field, deep blue-slate ink, moss + parchment accents,
-   Instrument Serif display over grotesque/Inter/mono. The framed terrain
-   hero and the dark sUSDfr card remain dark moments inside a light page.
-   All brand values live here.
+   Forest Road Vault — design tokens
+   Redesign 2026-08-05 (direction seed f1401973, canon executed straight).
+
+   White ground, navy elements — the parent brand's arrangement. The field is
+   white and near-white; navy is what gets placed ON it: the nav mark, the
+   primary action, the figure band, table headers, the hero, the cascade, and
+   the closing anchor. Navy is a material here, not a background.
+
+   Typefaces are the parent brand's, read off forestroad.com: Merriweather
+   600/700 for display (its italic is the emphasis device), Inter Tight for
+   UI and body. Mono is reserved strictly for on-chain strings.
+
+   Token names are semantic, not literal: `ink` is text, `raised` is an
+   elevated surface, `bg` is the page ground. That is why the field can be
+   retuned here without touching every route.
+   All brand values live in this file.
    ──────────────────────────────────────────────────────────────────────── */
 
 @theme {
-  /* light blue field */
-  --color-bg: #e3edf3;
-  --color-surface: #f1f7fa;
-  --color-raised: #fbfdfe;
-  --color-line: rgba(20, 37, 48, 0.1);
-  --color-line-strong: rgba(20, 37, 48, 0.2);
+  /* ── the white field: ground, then the bands that sit on it ── */
+  --color-bg: #ffffff; /* page ground */
+  --color-surface: #f4f6f9; /* alternating band */
+  --color-card: #f9fafc;
+  --color-raised: #ffffff; /* elevated panel / content band */
+  --color-line: #dde3ec;
+  --color-line-strong: #c3ccdb;
+  --color-row: #e8ecf3; /* table row dividers */
 
-  /* ink — deep blue-slate */
-  --color-ink: #142530;
-  --color-ink-muted: #44606f;
-  --color-ink-faint: #7b93a0;
+  /* ── ink on the white field ── */
+  --color-ink: #14213a; /* headings, values a reader stops on */
+  --color-ink-muted: #33405c; /* body copy — 10:1 on white */
+  --color-ink-value: #46536e; /* table values, secondary body */
+  --color-ink-faint: #5f6b85; /* captions, footnotes — 4.9:1 on white */
 
-  /* accent — moss, deepened for a light field */
-  --color-moss: #1e7a4e;
-  --color-moss-bright: #279a62;
-  --color-moss-deep: #124532;
-  --color-moss-faint: rgba(30, 122, 78, 0.1);
+  /* ── accent: mid navy, the parent brand's own. Their link blue (#1f8aff)
+        is deliberately absent — a bright blue accent is the generic
+        on-chain look. `accent-light` is the on-navy counterpart, used only
+        where the ground underneath is navy. ── */
+  --color-accent: #2e4e6f;
+  --color-accent-strong: #1c2d48;
+  --color-accent-light: #9db0d4;
+  --color-accent-deep: #14213a; /* fills, never text */
+  --color-accent-faint: rgba(46, 78, 111, 0.07);
 
-  /* warm editorial emphasis */
-  --color-gold: #9a7f42;
-  --color-gold-faint: rgba(154, 127, 66, 0.1);
+  /* ── navy, as the element colour placed on the white field ── */
+  --color-navy: #1c2d48;
+  --color-navy-deep: #16233c;
+  --color-navy-alt: #1a2744;
+  --color-navy-deepest: #0f1a2e; /* hero, figure band, closing anchor */
+  --color-navy-raised: #24365a; /* hover on a navy fill */
+  --color-navy-border: rgba(255, 255, 255, 0.14);
 
-  /* cream editorial surface + hero-overlay text */
-  --color-cream: #f0e9dc;
-  --color-cream-deep: #e4dac5;
-  --color-cream-ink: #1d211e;
-  --color-cream-ink-muted: #565e57;
-  --color-cream-line: rgba(29, 33, 30, 0.14);
+  /* ── ink on navy elements ── */
+  --color-on-navy: #ffffff;
+  --color-on-navy-muted: #c7d0e0;
+  --color-on-navy-faint: #93a0b8;
+  --color-on-navy-accent: #9db0d4;
+  --color-on-navy-line: rgba(255, 255, 255, 0.14);
 
-  /* dark panel (sUSDfr card, dark moments) */
-  --color-pine: #10231b;
+  /* Series ladder for charts and editorial severity — navy tints, never
+     hue-coded. The house style is monochrome navy: no green, no gold. Use
+     for audit severities, allocations, ranked series. */
+  --color-series-1: #1c2d48;
+  --color-series-2: #3e547e;
+  --color-series-3: #7c8db0;
+  --color-series-4: #9db0d4;
+  --color-series-5: #c9d0dc;
 
-  /* status */
-  --color-warn: #b97f2e;
-  --color-danger: #bf4a32;
+  /* ── Operate surface (/app) ──
+     Product UI gets a second neutral layer for toolbars and panels, and a
+     success value the editorial palette does not carry: a transaction surface
+     has to distinguish confirmed from pending, and navy-for-everything cannot.
+     These are exempt from the monochrome-navy editorial rule for the same
+     reason warn and danger are — they report state, not taste. */
+  --color-app-toolbar: #eef1f6;
+  --color-ok: #1c6b4c;
+  --color-ok-faint: rgba(28, 107, 76, 0.1);
 
-  /* type */
-  --font-display: var(--font-instrument-serif);
-  --font-grotesk: var(--font-schibsted);
-  --font-body: var(--font-inter);
-  --font-mono: var(--font-plex-mono);
+  /* ── Functional status ──
+     The brand rule is navy-only for editorial material. These are exempt
+     because they are not decoration: they mark a reverted transaction, a
+     wrong network, an open finding, or a queue the user must not misread.
+     Desaturated to sit with navy on a white ground. The hue is never the
+     only signal — a label always accompanies it. */
+  --color-warn: #96621a;
+  --color-warn-faint: rgba(183, 121, 31, 0.1);
+  --color-danger: #a23b3b;
+  --color-danger-faint: rgba(162, 59, 59, 0.09);
 
-  /* radii */
-  --radius-card: 18px;
+  /* ── type: the parent brand's faces ── */
+  --font-display: var(--font-merriweather);
+  --font-body: var(--font-inter-tight);
+  --font-mono: var(--font-azeret);
+
+  --radius-card: 10px;
   --radius-pill: 999px;
 
-  /* motion */
+  /* ── motion ── */
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
-  --duration-reveal: 900ms;
+  --ease-out-far: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-entrance: 900ms;
+}
+
+:root {
+  color-scheme: light;
 }
 
 body {
-  background:
-    radial-gradient(90% 60% at 85% -5%, rgba(255, 255, 255, 0.65) 0%, transparent 60%),
-    radial-gradient(70% 50% at 8% 30%, rgba(197, 220, 232, 0.5) 0%, transparent 65%),
-    var(--color-bg);
-  color: var(--color-ink);
+  background: var(--color-bg);
+  color: var(--color-ink-muted);
   font-family: var(--font-body), system-ui, sans-serif;
-  font-feature-settings: "ss01" on, "cv05" on;
+  font-size: 15.5px;
+  line-height: 1.65;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
 }
 
+/* ── browser surfaces ──────────────────────────────────────────────────
+   The parts we did not draw still carry the design: selection, caret,
+   scrollbar, focus ring, underline offset, and the figures in tabular
+   data all ship with defaults that belong to no design system. */
+
 ::selection {
-  background: rgba(30, 122, 78, 0.25);
+  background: rgba(46, 78, 111, 0.18);
   color: var(--color-ink);
+}
+
+/* Navy elements invert the selection so it stays legible on them. */
+.navy-band ::selection,
+.navy-band-deep ::selection,
+.hero-frame ::selection,
+.kpi-band ::selection {
+  background: rgba(157, 176, 212, 0.32);
+  color: #ffffff;
+}
+
+* {
+  caret-color: var(--color-accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+a {
+  text-underline-offset: 3px;
+  text-decoration-thickness: from-font;
+}
+
+/* Scrollbars, themed from the palette rather than left as chrome. */
+* {
+  scrollbar-color: var(--color-line-strong) var(--color-surface);
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border: 3px solid var(--color-surface);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9aa6ba;
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--color-surface);
+}
+
+/* Anything a reader compares down a column gets tabular figures. */
+table,
+.tnum,
+[data-figure] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" on;
 }
 
 /* ── texture & materiality ────────────────────────────────────────────── */
@@ -90,106 +201,414 @@ body {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* light-blue mesh for quiet section backdrops */
-.hero-mesh {
-  background:
-    radial-gradient(56% 62% at 16% 0%, rgba(30, 122, 78, 0.08) 0%, transparent 60%),
-    radial-gradient(48% 58% at 86% 14%, rgba(148, 185, 205, 0.35) 0%, transparent 64%),
-    radial-gradient(70% 80% at 50% 112%, rgba(154, 127, 66, 0.07) 0%, transparent 58%);
+@layer components {
+  /* Navy placed on the white field: a full-width band. */
+  .navy-band {
+    background: var(--color-navy);
+  }
+
+  .navy-band-deep {
+    background: var(--color-navy-deepest);
+  }
+
+  /* Inside a navy element, body ink and rules invert. Setting it once here
+     keeps every route from re-specifying on-navy colours per element. */
+  .navy-band,
+  .navy-band-deep {
+    color: var(--color-on-navy-muted);
+  }
+
+  .navy-band .display,
+  .navy-band-deep .display,
+  .hero-frame .display,
+  .navy-band h1,
+  .navy-band h2,
+  .navy-band h3,
+  .navy-band-deep h1,
+  .navy-band-deep h2,
+  .navy-band-deep h3 {
+    color: var(--color-on-navy);
+  }
+
+  .navy-band .display-accent,
+  .navy-band-deep .display-accent,
+  .hero-frame .display-accent,
+  .kpi-band .display-accent {
+    color: var(--color-on-navy-accent);
+  }
+
+  .navy-band .running-head,
+  .navy-band-deep .running-head,
+  .hero-frame .running-head,
+  .kpi-band .running-head {
+    color: var(--color-on-navy-faint);
+  }
 }
 
-/* gradient-hairline panel on light: white card, blue-tinted luminous border */
-.panel {
-  position: relative;
-  border-radius: var(--radius-card);
-  background:
-    linear-gradient(var(--color-raised), var(--color-raised)) padding-box,
-    linear-gradient(150deg, rgba(20, 37, 48, 0.18), rgba(20, 37, 48, 0.06) 38%, rgba(30, 122, 78, 0.22)) border-box;
-  border: 1px solid transparent;
-  box-shadow: 0 1px 2px rgba(20, 37, 48, 0.04), 0 12px 32px -18px rgba(20, 37, 48, 0.18);
+/* ── Operate mode: the /app surface ────────────────────────────────────────
+   Product UI plays by different rules than the editorial surfaces, so the
+   differences are declared once here rather than argued per component.
+
+   1. ONE FAMILY. The serif display face is the brand's voice, not a UI face.
+      In a task surface it belongs nowhere near a label, a button, or a figure a
+      user is comparing, so `.display` resolves to the UI face inside `.operate`.
+      The same component (the transparency dashboard) therefore reads serif on
+      the public page, where it is a document, and sans inside the app, where it
+      is an instrument. That is the mode changing, not an inconsistency.
+   2. FIXED SCALE. No fluid type: users sit at one DPI in a task.
+   3. FULL STATE COVERAGE. Controls declare hover, focus, active, disabled.
+   4. MOTION REPORTS STATE. 150ms, and never a transform for flavour. */
+
+/* Both the `.display` component class and the `font-display` utility, since
+   the write cards reach for the utility directly. Kept outside @layer so it
+   outranks Tailwind's utilities layer on specificity. */
+.operate .display,
+.operate .font-display {
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.2;
+}
+
+@layer components {
+  /* Toolbars and the connect row: the second neutral layer, cooler than the
+     content panels so chrome reads as chrome. */
+  .op-toolbar {
+    background: var(--color-app-toolbar);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+  }
+
+  /* The one primary action shape on the surface. */
+  .op-action {
+    background: var(--color-navy);
+    color: #ffffff;
+    border-radius: var(--radius-pill);
+    font-weight: 600;
+    transition:
+      background-color 150ms ease-out,
+      box-shadow 150ms ease-out;
+  }
+
+  .op-action:hover:not(:disabled) {
+    background: var(--color-navy-raised);
+  }
+
+  .op-action:active:not(:disabled) {
+    background: var(--color-accent-deep);
+  }
+
+  /* Disabled has to stay readable: a user needs to know what the control
+     would do before working out why they cannot press it. White on a grey
+     fill measured 1.62:1, so this reads as a recessed control instead. */
+  .op-action:disabled {
+    background: var(--color-surface);
+    box-shadow: inset 0 0 0 1px var(--color-line-strong);
+    color: var(--color-ink-faint);
+    cursor: not-allowed;
+  }
+
+  /* Amount fields and other text controls. */
+  .op-field {
+    background: var(--color-raised);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-card);
+    transition:
+      border-color 150ms ease-out,
+      box-shadow 150ms ease-out;
+  }
+
+  .op-field:focus-within {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px rgba(46, 78, 111, 0.14);
+  }
+
+  .op-field[data-invalid="true"] {
+    border-color: var(--color-danger);
+    box-shadow: 0 0 0 3px rgba(162, 59, 59, 0.12);
+  }
+
+  .op-field[data-disabled="true"] {
+    background: var(--color-surface);
+    border-color: var(--color-line);
+  }
+
+  /* Loading placeholder. A task surface shows the shape of the value it is
+     fetching rather than a spinner floating in the middle of content. */
+  .op-skeleton {
+    display: inline-block;
+    border-radius: 4px;
+    background: linear-gradient(
+      90deg,
+      var(--color-row) 0%,
+      var(--color-surface) 40%,
+      var(--color-row) 80%
+    );
+    background-size: 220% 100%;
+    animation: op-shimmer 1.4s linear infinite;
+    color: transparent;
+    user-select: none;
+  }
+}
+
+@keyframes op-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .op-skeleton {
+    animation: none;
+    background: var(--color-row);
+  }
+}
+
+/* Functional status inside a navy element.
+   The editorial values are tuned for the white ground, where they read at
+   4.5:1+; on navy they fall through it (warn hit 3.36:1 on the app's yield
+   panel). Re-declaring the variables inside navy subtrees lifts every
+   utility that resolves them — text, border and faint fill alike — so a
+   status colour cannot silently fail by being placed on the dark material. */
+.navy-band,
+.navy-band-deep,
+.hero-frame,
+.kpi-band,
+.bg-navy,
+.bg-navy-alt,
+.bg-navy-deep,
+.bg-navy-deepest {
+  --color-warn: #e8b055;
+  --color-warn-faint: rgba(232, 176, 85, 0.14);
+  --color-danger: #f0918b;
+  --color-danger-faint: rgba(240, 145, 139, 0.16);
+  /* `ok` lifts with the others. Every StatusLine currently renders on a white
+     card, so the editorial value reads there — but a confirmation is exactly
+     the kind of thing that later gets moved onto a navy panel, and #1c6b4c
+     measures ~2.7:1 on navy-deepest. The whole point of re-declaring the
+     variable is that no status hue is left out of the set. */
+  --color-ok: #5cc79a;
+  --color-ok-faint: rgba(92, 199, 154, 0.16);
+}
+
+@layer components {
+
+  /* ── panels on the field ── */
+
+  .panel {
+    position: relative;
+    border-radius: var(--radius-card);
+    background: var(--color-raised);
+    border: 1px solid var(--color-line);
+  }
+
+  /* Running rule that opens a content page. */
+  .rule-head {
+    height: 1px;
+    background: var(--color-line-strong);
+  }
+
+  /* Callout — a tinted panel with a hairline, not a thick colored edge. */
+  .highlight-box {
+    background: var(--color-accent-faint);
+    border: 1px solid var(--color-navy-border);
+    border-radius: var(--radius-card);
+  }
+
+  /* Figure band — hairline-divided cells carrying the numbers a reader
+     should leave with. Every cell names its source. */
+  .kpi-band {
+    background: var(--color-navy-deepest);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .kpi-band > * {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 150px;
+  }
+
+  .kpi-band > * + *::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 1px;
+    background: var(--color-line);
+  }
+
+  /* Data table with a tinted header row. */
+  .fram-table {
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-card);
+    overflow: hidden;
+  }
+
+  .fram-table thead th,
+  .fram-table .fram-table-head {
+    background: var(--color-navy);
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  .fram-table tbody tr + tr {
+    border-top: 1px solid var(--color-row);
+  }
+
+  /* No column keyline. The THESIS refuses the keyline along with the eyebrow;
+     a rule above every card heading is the same ornament wearing a different
+     name. Separation comes from the hairlines the rest of the system uses. */
 }
 
 .panel-hover {
   transition:
-    transform 400ms var(--ease-out-soft),
-    box-shadow 400ms var(--ease-out-soft);
+    background-color 360ms var(--ease-out-soft),
+    border-color 360ms var(--ease-out-soft),
+    box-shadow 360ms var(--ease-out-soft);
 }
 
 .panel-hover:hover {
-  transform: translateY(-3px);
-  box-shadow:
-    0 24px 48px -20px rgba(20, 37, 48, 0.28),
-    0 0 0 1px rgba(30, 122, 78, 0.22);
+  border-color: var(--color-line-strong);
+  box-shadow: 0 14px 34px -20px rgba(20, 33, 58, 0.28);
 }
 
-.glow-dot {
-  box-shadow: 0 0 10px 2px rgba(30, 122, 78, 0.35);
-}
 
-/* ── hero terrain treatment (stays a dark moment inside the light page) ── */
+/* ── hero ─────────────────────────────────────────────────────────────── */
 
 .hero-frame {
-  border-radius: 22px;
-  overflow: hidden;
   position: relative;
+  overflow: hidden;
   isolation: isolate;
-  box-shadow:
-    0 30px 70px -30px rgba(20, 37, 48, 0.45),
-    0 0 0 1px rgba(20, 37, 48, 0.12);
 }
 
 .hero-img {
   position: absolute;
   inset: 0;
-  background-image: url("/hero-terrain.jpg");
+  background-image: url("/brand/hero-cover.jpg");
   background-size: cover;
-  background-position: 62% 40%;
-  filter: saturate(1.05) contrast(1.04) brightness(0.92);
-  transform: scale(1.04);
-  animation: hero-settle 1.8s var(--ease-out-soft) both;
+  background-position: 62% 54%;
+  filter: saturate(0.72) contrast(1.06) brightness(0.66);
+  transform: scale(1.06);
+  animation: hero-settle 2.4s var(--ease-out-far) both;
 }
 
+/* Navy graded into the photography so type sits on solid ground at the left
+   and the image survives at the right. The hero ends on a hard edge against
+   the white field below it — a navy block placed on white, not a fade. */
 .hero-grade {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(8, 10, 9, 0.5) 0%, rgba(8, 10, 9, 0.1) 34%, rgba(8, 10, 9, 0.14) 62%, rgba(8, 10, 9, 0.64) 100%),
-    radial-gradient(80% 65% at 24% 78%, rgba(8, 12, 10, 0.5) 0%, transparent 62%),
-    linear-gradient(0deg, rgba(28, 65, 50, 0.22), rgba(28, 65, 50, 0.22));
+    linear-gradient(
+      100deg,
+      var(--color-navy-deepest) 0%,
+      rgba(15, 26, 46, 0.96) 26%,
+      rgba(15, 26, 46, 0.74) 48%,
+      rgba(15, 26, 46, 0.4) 74%,
+      rgba(15, 26, 46, 0.22) 100%
+    ),
+    linear-gradient(180deg, rgba(15, 26, 46, 0.5) 0%, transparent 40%, rgba(15, 26, 46, 0.34) 100%);
 }
 
 @keyframes hero-settle {
   from {
     opacity: 0;
-    transform: scale(1.08);
+    transform: scale(1.11);
   }
   to {
     opacity: 1;
-    transform: scale(1.04);
+    transform: scale(1.06);
+  }
+}
+
+/* ── the authored moment ───────────────────────────────────────────────
+   One orchestrated entrance, on the hero only: each line is unmasked from
+   below on a shared exponential ease, and the figure strip's rule draws
+   across after the last line lands. Nothing else on the site animates on
+   entrance — a page that reveals every section reads as an effect, not as
+   a page settling. */
+
+.stage > * {
+  animation: stage-rise 900ms var(--ease-out-far) both;
+}
+
+.stage > *:nth-child(1) { animation-delay: 120ms; }
+.stage > *:nth-child(2) { animation-delay: 260ms; }
+.stage > *:nth-child(3) { animation-delay: 380ms; }
+.stage > *:nth-child(4) { animation-delay: 480ms; }
+.stage > *:nth-child(5) { animation-delay: 560ms; }
+
+@keyframes stage-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+
+.rule-draw {
+  transform-origin: left;
+  animation: rule-draw 820ms var(--ease-out-far) 640ms both;
+}
+
+@keyframes rule-draw {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
   }
 }
 
 /* ── typographic devices ──────────────────────────────────────────────── */
 
-.serif-display {
-  font-family: var(--font-display), Georgia, serif;
-  font-weight: 400;
-  letter-spacing: -0.015em;
-}
+@layer components {
+  /* Display: Merriweather 600, the parent brand's headline face. Serifs
+     at this weight need tight leading and no negative tracking. */
+  .display {
+    font-family: var(--font-display), Georgia, serif;
+    font-weight: 600;
+    letter-spacing: -0.004em;
+    line-height: 1.14;
+    color: var(--color-ink);
+    text-wrap: balance;
+  }
 
-.serif-accent {
-  font-family: var(--font-display), Georgia, serif;
-  font-style: italic;
-  font-weight: 400;
-  letter-spacing: -0.01em;
-}
+  /* Emphasis inside a headline. The parent brand loads Merriweather italic
+     600/700 — the italic is the device, not a weight change or a tint
+     gradient. */
+  .display-accent {
+    font-style: italic;
+    color: var(--color-accent);
+  }
 
-.eyebrow {
-  font-family: var(--font-mono), monospace;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.24em;
-  color: var(--color-moss);
+  /* Running head / label: Inter Tight, the parent brand's UI face. Used for
+     wayfinding and column labels — never as a kicker above a heading. */
+  .running-head {
+    font-family: var(--font-body), system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--color-ink-faint);
+  }
+
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" on;
+  }
 }
 
 .u-link {
@@ -210,21 +629,6 @@ body {
 .u-link:hover::after {
   transform: scaleX(1);
   transform-origin: left;
-}
-
-/* ── scroll reveal ────────────────────────────────────────────────────── */
-
-.reveal {
-  opacity: 0;
-  transform: translateY(22px);
-  transition:
-    opacity var(--duration-reveal) var(--ease-out-soft),
-    transform var(--duration-reveal) var(--ease-out-soft);
-}
-
-.reveal.is-visible {
-  opacity: 1;
-  transform: none;
 }
 
 /* ── cascade diagram ──────────────────────────────────────────────────── */
@@ -252,50 +656,52 @@ body {
   animation: cascade-flow 7s var(--ease-out-soft) infinite;
 }
 
-.keyline {
-  background: linear-gradient(90deg, var(--color-moss) 0%, transparent 100%);
-  height: 1px;
-}
-
-/* Rendered markdown (docs). Editorial, matched to the ink/moss/serif system. */
+/* Rendered markdown (docs), on the navy field. */
 .doc-prose {
   color: var(--color-ink-muted);
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: 15.5px;
+  line-height: 1.72;
+  max-width: 72ch;
 }
 .doc-prose > * + * {
   margin-top: 1.1em;
 }
 .doc-prose h2 {
   font-family: var(--font-display), Georgia, serif;
-  font-size: 27px;
-  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.004em;
+  font-size: 25px;
+  line-height: 1.22;
   color: var(--color-ink);
-  margin-top: 2.4rem;
-  padding-top: 1.4rem;
+  margin-top: 2.6rem;
+  padding-top: 1.5rem;
   border-top: 1px solid var(--color-line);
 }
 .doc-prose h3 {
-  font-family: var(--font-grotesk), system-ui, sans-serif;
+  font-family: var(--font-display), Georgia, serif;
   font-weight: 600;
-  font-size: 16.5px;
+  font-size: 17px;
+  line-height: 1.3;
   color: var(--color-ink);
-  margin-top: 1.8rem;
+  margin-top: 1.9rem;
 }
 .doc-prose h4 {
   font-weight: 600;
   font-size: 14px;
   color: var(--color-ink);
-  margin-top: 1.4rem;
+  margin-top: 1.5rem;
 }
 .doc-prose strong {
   color: var(--color-ink);
   font-weight: 600;
 }
 .doc-prose a {
-  color: var(--color-moss);
+  color: var(--color-accent);
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-underline-offset: 3px;
+}
+.doc-prose a:hover {
+  color: var(--color-ink);
 }
 .doc-prose ul,
 .doc-prose ol {
@@ -311,22 +717,22 @@ body {
   margin-top: 0.4em;
 }
 .doc-prose li::marker {
-  color: var(--color-moss);
+  color: var(--color-accent);
 }
 .doc-prose code {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 0.86em;
-  background: var(--color-moss-faint);
-  color: var(--color-moss-deep);
+  background: var(--color-surface);
+  color: var(--color-ink);
   padding: 0.12em 0.38em;
-  border-radius: 5px;
+  border-radius: 4px;
 }
 .doc-prose blockquote {
-  border-left: 2px solid var(--color-moss);
-  background: var(--color-moss-faint);
+  border-left: 1px solid var(--color-accent);
+  background: var(--color-accent-faint);
   padding: 0.9rem 1.1rem;
   border-radius: 0 8px 8px 0;
-  font-size: 14px;
+  font-size: 14.5px;
 }
 .doc-prose blockquote p {
   margin: 0;
@@ -339,21 +745,20 @@ body {
 .doc-prose table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 13.5px;
   display: block;
   overflow-x: auto;
 }
 .doc-prose th,
 .doc-prose td {
   border: 1px solid var(--color-line);
-  padding: 0.5rem 0.7rem;
+  padding: 0.55rem 0.7rem;
   text-align: left;
   vertical-align: top;
 }
 .doc-prose th {
   background: var(--color-surface);
   color: var(--color-ink);
-  font-family: var(--font-grotesk), system-ui, sans-serif;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -362,10 +767,13 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .reveal {
-    opacity: 1;
-    transform: none;
-    transition: none;
+  .stage > *,
+  .rule-draw,
+  .hero-img {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
   }
   * {
     animation-duration: 0.01ms !important;

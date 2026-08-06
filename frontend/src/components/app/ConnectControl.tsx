@@ -45,7 +45,7 @@ export function ConnectControl() {
   const connectError = !isPending && error ? (
     <p className="mt-2 w-full text-[12px] leading-snug text-danger">
       {(error as {name?: string}).name === "ProviderNotFoundError"
-        ? "No browser wallet found — install one (e.g. MetaMask or Rabby) and reload."
+        ? "No browser wallet found. Install one (e.g. MetaMask or Rabby) and reload."
         : ("shortMessage" in error ? (error.shortMessage as string) : error.message)}
     </p>
   ) : null;
@@ -85,7 +85,7 @@ export function ConnectControl() {
             choices.length === 1 ? connect({connector: choices[0]}) : setChooserOpen(true)
           }
           disabled={isPending}
-          className="rounded-pill bg-moss px-5 py-2 text-[13.5px] font-medium text-raised transition-transform hover:scale-[1.02] hover:bg-moss-bright disabled:opacity-60"
+          className="rounded-pill bg-accent px-5 py-2 text-[13.5px] font-medium text-raised transition-transform hover:scale-[1.02] hover:bg-accent-strong disabled:opacity-60"
         >
           {isPending ? "Connecting…" : "Connect wallet"}
         </button>
@@ -104,7 +104,7 @@ export function ConnectControl() {
             setChooserOpen(false);
           }}
           disabled={isPending}
-          className="rounded-pill border border-line-strong bg-raised px-4 py-1.5 text-[13px] text-ink transition-colors hover:border-moss/60 disabled:opacity-60"
+          className="rounded-pill border border-line-strong bg-raised px-4 py-1.5 text-[13px] text-ink transition-colors hover:border-accent/60 disabled:opacity-60"
         >
           {c.name}
         </button>

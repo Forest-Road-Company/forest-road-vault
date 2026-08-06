@@ -1,19 +1,19 @@
 # Protocol Overview
 
 Forest Road Vault is an on-chain credit protocol for speciality-finance receivables. It
-brings four verticals of real-world credit — film & TV tax credits, renewable-energy
-receivables, life-sciences royalties, and commercial real-estate bridge loans — on-chain
-under a single reserve, with a fifth marked-to-market digital-assets class.
+brings four verticals of real-world credit on-chain under a single reserve: film & TV tax
+credits, renewable-energy receivables, life-sciences royalties, and commercial real-estate
+bridge loans. A fifth, marked-to-market digital-assets class sits alongside them.
 
-> The application identifies its active network and deployment receipt. Yield is variable —
-> it is the book's actual performance, nothing more. Token characterization and eligibility
+> The application identifies its active network and deployment receipt. Yield is variable.
+> It is the book's actual performance, nothing more. Token characterization and eligibility
 > are matters for the definitive legal materials and counsel.
 
 ## The two tokens
 
-- **USDfr** — minted 1:1 by depositing canonical USDC. It is fully backed at all
+- **USDfr**: minted 1:1 by depositing canonical USDC. It is fully backed at all
   times by the backing invariant: total supply can never exceed the reserve's value.
-- **sUSDfr** — the yield-bearing ERC-4626 vault share. Deposit USDfr, receive sUSDfr at
+- **sUSDfr**: the yield-bearing ERC-4626 vault share. Deposit USDfr, receive sUSDfr at
   the current exchange rate. Realized facility/reserve income raises NAV; explicit credit
   losses and evented protocol fee-share mints can lower the per-share rate. Exit is
   through an epoch-based FIFO redemption queue.
@@ -26,8 +26,8 @@ exact, timelocked recapitalization restores backing and its temporary authority 
 
 ## Identified-per-asset collateral
 
-Every facility is a specific, identified receivable — assigned, lien-perfected (UCC-1),
-and escrowed off-chain — represented on-chain by a **Loan NFT** that mints only when every
+Every facility is a specific, identified receivable, assigned, lien-perfected (UCC-1),
+and escrowed off-chain, represented on-chain by a **Loan NFT** that mints only when every
 required off-chain fact has been attested by authorized attesters **and** every on-chain
 condition holds. Escrow cannot release before the NFT exists. This is not a blind pool.
 
@@ -35,9 +35,9 @@ condition holds. Escrow cannot release before the NFT exists. This is not a blin
 
 Credit losses are absorbed in a strict, non-invertible order:
 
-1. **Curator first-loss** — subordinated capital posted per collateral class.
-2. **sGROVE backstop** — a staked-GROVE coverage reserve.
-3. **sUSDfr depositor principal** — only after both junior layers are exhausted.
+1. **Curator first-loss**: subordinated capital posted per collateral class.
+2. **sGROVE backstop**: a staked-GROVE coverage reserve.
+3. **sUSDfr depositor principal**: only after both junior layers are exhausted.
 
 Senior depositors are never subordinated to junior capital, and the cascade can never be
 paused.

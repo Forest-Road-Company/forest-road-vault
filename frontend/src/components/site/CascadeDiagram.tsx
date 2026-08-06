@@ -2,6 +2,10 @@
  * The three-layer loss cascade, drawn as a fine-line diagram: a loss line
  * flows downward and is absorbed layer by layer. Pure SVG + CSS animation
  * (reduced-motion safe via globals.css).
+ *
+ * This is a figure, so it is marked up as one — the label is its legend, not a
+ * kicker. The 1/2/3 ordinals stay because the ordering IS the information: the
+ * whole point of the diagram is which capital absorbs a loss first.
  */
 const layers = [
   {
@@ -16,52 +20,91 @@ const layers = [
   },
   {
     label: "3 · sUSDfr principal",
-    sub: "depositors — touched only beyond both layers",
+    sub: "depositors, touched only beyond both layers",
     note: "last, by construction",
   },
 ] as const;
 
-export function CascadeDiagram() {
+export function CascadeDiagram({ tone = "light" }: { tone?: "light" | "navy" }) {
+  const dark = tone === "navy";
   return (
-    <div className="panel relative overflow-hidden p-8 md:p-10">
+    <figure
+      className={`relative overflow-hidden rounded-card p-8 md:p-10 ${
+        dark ? "border border-navy-border bg-navy-deep" : "panel"
+      }`}
+    >
       <div className="pointer-events-none absolute left-1/2 top-0 hidden h-full -translate-x-1/2 md:block">
-        <svg width="2" height="100%" viewBox="0 0 2 240" preserveAspectRatio="none" aria-hidden>
+        <svg
+          width="2"
+          height="100%"
+          viewBox="0 0 2 240"
+          preserveAspectRatio="none"
+          aria-hidden
+        >
           <line
             x1="1"
             y1="0"
             x2="1"
             y2="240"
-            stroke="var(--color-danger)"
+            stroke={
+              dark ? "var(--color-on-navy-accent)" : "var(--color-accent)"
+            }
             strokeWidth="1.5"
             className="cascade-line"
           />
         </svg>
       </div>
-      <p className="eyebrow">Loss cascade — enforced ordering</p>
+
+      <figcaption
+        className={`running-head ${dark ? "text-on-navy-accent" : "text-accent"}`}
+      >
+        Loss cascade: enforced ordering
+      </figcaption>
+
       <div className="mt-8 space-y-4">
         {layers.map((l, i) => (
           <div
             key={l.label}
-            className="relative rounded-[12px] border border-line bg-raised/70 px-6 py-5 backdrop-blur-sm transition-colors hover:border-moss/35"
+            className={`relative rounded-card px-6 py-5 transition-colors ${
+              dark
+                ? "border border-navy-border bg-navy hover:border-on-navy-accent/50"
+                : "border border-line bg-surface hover:border-accent/45"
+            }`}
             style={{ marginLeft: `${i * 6}%`, marginRight: `${(2 - i) * 3}%` }}
           >
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="font-grotesk text-[15px] font-semibold tracking-tight text-ink">
+              <p
+                className={`display text-[15.5px] ${dark ? "text-on-navy" : "text-ink"}`}
+              >
                 {l.label}
               </p>
-              <p className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-ink-faint">
+              <p
+                className={`running-head ${dark ? "text-on-navy-faint" : "text-ink-faint"}`}
+              >
                 {l.note}
               </p>
             </div>
-            <p className="mt-1 text-[13px] text-ink-muted">{l.sub}</p>
+            <p
+              className={`mt-1.5 text-[13.5px] leading-relaxed ${
+                dark ? "text-on-navy-muted" : "text-ink-muted"
+              }`}
+            >
+              {l.sub}
+            </p>
           </div>
         ))}
       </div>
-      <p className="mt-7 max-w-2xl text-[13px] leading-relaxed text-ink-faint">
+
+      <p
+        className={`mt-8 max-w-[62ch] text-[13.5px] leading-relaxed ${
+          dark ? "text-on-navy-faint" : "text-ink-faint"
+        }`}
+      >
         The ordering is a contract invariant, fuzz-tested across states: losses
         can never skip or invert a layer, and the exchange rate can never fall
-        silently. Structural ordering of losses — not a guarantee against them.
+        silently. This is structural ordering of losses, not a guarantee
+        against them.
       </p>
-    </div>
+    </figure>
   );
 }

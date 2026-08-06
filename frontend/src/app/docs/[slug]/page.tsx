@@ -47,19 +47,32 @@ export default async function DocPage({
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-20">
-      <Link
-        href="/docs"
-        className="font-mono text-[11px] uppercase tracking-[0.2em] text-moss transition-colors hover:text-moss-bright"
-      >
-        ← Docs
-      </Link>
-      <p className="mt-6 font-mono text-[11px] uppercase tracking-[0.22em] text-ink-faint">
-        {doc.eyebrow}
-      </p>
-      <h1 className="serif-display mt-2 text-[38px] leading-[1.1] text-ink md:text-[46px]">
+      {/* The category label does wayfinding work, so it lives in the trail
+          rather than sitting as a kicker above the heading. */}
+      <nav aria-label="Breadcrumb">
+        <ol className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <li>
+            <Link
+              href="/docs"
+              className="running-head transition-colors hover:text-ink"
+            >
+              Docs
+            </Link>
+          </li>
+          <li aria-hidden className="running-head">
+            /
+          </li>
+          <li>
+            <span aria-current="page" className="running-head text-accent">
+              {doc.eyebrow}
+            </span>
+          </li>
+        </ol>
+      </nav>
+      <div className="rule-head mt-3" />
+      <h1 className="display mt-10 text-[34px] leading-[1.1] text-ink md:text-[46px]">
         {doc.title}
       </h1>
-      <div className="keyline mt-6 w-14" />
 
       <article className="doc-prose mt-10">
         {/* Raw HTML is explicitly discarded. react-markdown also applies a safe URL transform,
@@ -69,17 +82,17 @@ export default async function DocPage({
 
       <Link
         href={next.href}
-        className="mt-16 flex items-center justify-between rounded-card border border-line bg-raised/70 p-5 transition-colors hover:border-moss/50 hover:bg-raised"
+        className="mt-16 flex items-center justify-between rounded-card border border-line bg-raised/70 p-5 transition-colors hover:border-accent/50 hover:bg-raised"
       >
         <span>
-          <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink-faint">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-faint">
             Next
           </span>
           <span className="mt-1 block text-[15px] font-medium text-ink">
             {next.title}
           </span>
         </span>
-        <span className="text-moss">→</span>
+        <span className="text-accent">→</span>
       </Link>
     </div>
   );

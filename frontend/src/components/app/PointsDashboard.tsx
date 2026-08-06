@@ -55,17 +55,17 @@ function SourceCard({
   return (
     <div className="panel h-full p-6">
       <div className="flex items-baseline justify-between gap-3">
-        <h3 className="font-grotesk text-[15px] font-semibold tracking-tight text-ink">
+        <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
           {title}
         </h3>
-        <span className="font-mono text-[11px] text-moss">
+        <span className="font-mono text-[11px] text-accent">
           {maturityRangeLabel(multiplierBps)}
         </span>
       </div>
-      <p className="serif-display mt-4 text-[30px] text-ink">
+      <p className="display mt-4 text-[30px] text-ink">
         {points !== undefined ? fmtAmount(points, 18, 4) : "—"}
       </p>
-      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-faint">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
         points accrued
       </p>
       <div className="mt-4 border-t border-line pt-3 font-mono text-[10.5px] leading-relaxed text-ink-faint">
@@ -152,7 +152,7 @@ export function PointsDashboard() {
     <div className="mt-12">
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-card border border-line bg-raised/70 px-5 py-4">
         <ConnectControl />
-        <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-ink-faint">
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
           live on-chain ledger · refreshes every 30 seconds
         </span>
       </div>
@@ -160,7 +160,7 @@ export function PointsDashboard() {
 
       {!isConnected ? (
         <div className="mt-5 rounded-card border border-dashed border-line-strong bg-raised/60 p-10 text-center">
-          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink-faint">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-faint">
             Connect a wallet
           </p>
           <p className="mx-auto mt-3 max-w-md text-[13.5px] leading-relaxed text-ink-muted">
@@ -180,10 +180,10 @@ export function PointsDashboard() {
         <>
           <div className="mt-5 grid gap-5 lg:grid-cols-3">
             <div className="panel p-7 lg:col-span-2">
-              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink-faint">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-faint">
                 Your points
               </p>
-              <p className="serif-display mt-4 break-all text-[44px] leading-none text-ink md:text-[54px]">
+              <p className="display mt-4 break-all text-[44px] leading-none text-ink md:text-[54px]">
                 {totalPoints !== undefined ? fmtAmount(totalPoints, 18, 4) : isLoading ? "…" : "—"}
               </p>
               <p className="mt-4 max-w-2xl text-[13px] leading-relaxed text-ink-muted">
@@ -193,7 +193,7 @@ export function PointsDashboard() {
               </p>
             </div>
             <div className="panel p-7">
-              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-moss">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-accent">
                 Live parameters
               </p>
               <dl className="mt-4 space-y-3 font-mono text-[11px]">
@@ -259,13 +259,13 @@ export function PointsDashboard() {
 
           <div className="panel mt-5 overflow-hidden">
             <div className="border-b border-line px-6 py-4">
-              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink-faint">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-faint">
                 Curator positions by class
               </p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[680px] text-left">
-                <thead className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">
+                <thead className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
                   <tr>
                     <th className="px-6 py-3 font-normal">Class</th>
                     <th className="px-6 py-3 text-right font-normal">Tracked capital</th>
@@ -283,7 +283,7 @@ export function PointsDashboard() {
                       <td className="px-6 py-3.5 text-right">
                         {row.points !== undefined ? fmtAmount(row.points, 18, 2) : "—"}
                       </td>
-                      <td className={`px-6 py-3.5 text-right ${row.frozen ? "text-warn" : "text-moss"}`}>
+                      <td className={`px-6 py-3.5 text-right ${row.frozen ? "text-warn" : "text-accent"}`}>
                         {row.frozen
                           ? `frozen since ${row.frozenAt ?? "unknown"}`
                           : "active"}

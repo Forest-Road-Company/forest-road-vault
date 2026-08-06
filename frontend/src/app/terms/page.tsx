@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Terms — Forest Road Vault" };
 export default function TermsPage() {
   return (
     <PageShell
-      eyebrow="Legal"
+      section="Legal"
       title="Terms of use"
       lede={
         IS_MAINNET

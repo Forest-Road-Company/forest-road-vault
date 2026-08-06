@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageShell } from "@/components/site/PageShell";
+import { Section } from "@/components/site/Blocks";
 import { VERTICALS } from "@/lib/verticals";
 
 export function generateStaticParams() {
@@ -26,46 +28,138 @@ export default async function VerticalPage({
   const v = VERTICALS.find((x) => x.slug === slug);
   if (!v) notFound();
 
+  const mtm = v.collateralModel === "marked-to-market";
+  const others = VERTICALS.filter((x) => x.slug !== v.slug);
+
+  /* The class's own terms, as a definition list rather than four hand-rolled
+     labels stacked in a panel. */
+  const terms = [
+    { term: "The claim", detail: v.claimType },
+    { term: "Duration", detail: v.duration },
+    { term: "Default remedy", detail: v.remedy },
+  ];
+
   return (
-    <PageShell eyebrow="Collateral class" title={v.name} lede={v.financed}>
-      <div className="mt-12 grid gap-5 lg:grid-cols-2">
-        <div className="panel p-7">
-          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-moss">
-            The claim
-          </p>
-          <p className="mt-3 text-[14px] leading-relaxed text-ink-muted">{v.claimType}</p>
-          <p className="mt-5 font-mono text-[11px] uppercase tracking-[0.2em] text-moss">
-            Duration
-          </p>
-          <p className="mt-3 text-[14px] leading-relaxed text-ink-muted">{v.duration}</p>
-          <p className="mt-5 font-mono text-[11px] uppercase tracking-[0.2em] text-moss">
-            Default remedy
-          </p>
-          <p className="mt-3 text-[14px] leading-relaxed text-ink-muted">{v.remedy}</p>
-        </div>
-
-        <div className="panel p-7">
-          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-gold">
-            Risk stack
-          </p>
-          <ul className="mt-4 space-y-4">
-            {v.risks.map((r) => (
-              <li key={r.name}>
-                <p className="text-[14px] font-medium text-ink">{r.name}</p>
-                <p className="mt-1 text-[13.5px] leading-relaxed text-ink-muted">{r.detail}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      <div className="mt-8 rounded-card border border-dashed border-line-strong bg-surface/60 p-6">
-        <p className="font-mono text-[11px] tracking-wide text-ink-faint">
-          Live class parameters (LTV cap, maturity and concentration headroom) are
-          enforced on-chain by the CollateralRegistry. Interest rates and payment
-          terms are signed per facility; clean v1 has no DSRA reserve sizing.
+    <PageShell
+      bleed
+      section="Collateral class"
+      title={v.name}
+      lede={v.financed}
+    >
+      <Section tone="surface">
+        <p
+          className={`running-head inline-block rounded-pill border px-3 py-1 ${
+            mtm
+              ? "border-warn/40 bg-warn-faint text-warn"
+              : "border-line-strong text-ink-value"
+          }`}
+        >
+          {mtm
+            ? "Marked-to-market · related party · margin and liquidation"
+            : "Receivable-backed · enforced by legal foreclosure"}
         </p>
-      </div>
+
+        <div className="mt-12 grid gap-x-20 gap-y-14 lg:grid-cols-2">
+          <div>
+            <h2 className="display text-[25px] leading-tight">
+              How the claim is held
+            </h2>
+            <dl className="mt-7">
+              {terms.map((t, i) => (
+                <div
+                  key={t.term}
+                  className={`py-5 ${
+                    i === 0
+                      ? "border-t border-line-strong"
+                      : "border-t border-row"
+                  }`}
+                >
+                  <dt className="running-head text-accent">{t.term}</dt>
+                  <dd className="mt-2.5 max-w-[56ch] text-[15px] leading-relaxed text-ink-muted">
+                    {t.detail}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+
+          <div>
+            <h2 className="display text-[25px] leading-tight">
+              What can go wrong
+            </h2>
+            <ul className="mt-7">
+              {v.risks.map((r, i) => (
+                <li
+                  key={r.name}
+                  className={`py-5 ${
+                    i === 0
+                      ? "border-t border-line-strong"
+                      : "border-t border-row"
+                  }`}
+                >
+                  <p className="display text-[16px] leading-snug">{r.name}</p>
+                  <p className="mt-2 max-w-[56ch] text-[15px] leading-relaxed text-ink-muted">
+                    {r.detail}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        <div className="highlight-box mt-14 px-7 py-6">
+          <p className="max-w-[76ch] text-[14px] leading-relaxed text-ink-muted">
+            Live class parameters (LTV cap, maturity and concentration headroom)
+            are enforced on-chain by the CollateralRegistry and are not
+            restated here, so this page cannot drift from them. Interest rates
+            and payment terms are signed per facility; clean v1 has no DSRA
+            reserve sizing.{" "}
+            <Link href="/transparency" className="u-link font-medium text-accent">
+              Read current state →
+            </Link>
+          </p>
+        </div>
+      </Section>
+
+      {/* ── Sibling rail. A class page that dead-ends sends the reader back to
+             the index to reach the next one. ──────────────────────────────── */}
+      <Section tone="light">
+        <div className="flex flex-wrap items-baseline justify-between gap-4">
+          <h2 className="display text-[25px] leading-tight">
+            The other four classes
+          </h2>
+          <Link
+            href="/verticals"
+            className="u-link text-[13px] font-semibold uppercase tracking-[0.14em] text-accent"
+          >
+            All five, compared →
+          </Link>
+        </div>
+
+        <div className="mt-10">
+          {others.map((o, i) => (
+            <Link
+              key={o.slug}
+              href={`/verticals/${o.slug}`}
+              className={`group flex flex-col gap-3 py-6 transition-colors hover:bg-surface sm:flex-row sm:items-baseline sm:gap-10 ${
+                i === 0 ? "border-t border-line-strong" : "border-t border-row"
+              }`}
+            >
+              <span className="display flex-none text-[18px] leading-snug transition-colors group-hover:text-accent sm:w-[3in]">
+                {o.name}
+              </span>
+              <span className="flex-1 text-[15px] leading-relaxed text-ink-muted">
+                {o.claimType}
+              </span>
+              <span className="running-head flex-none sm:w-[1.6in]">
+                {o.collateralModel === "marked-to-market"
+                  ? "Marked-to-market"
+                  : "Receivable-backed"}
+              </span>
+            </Link>
+          ))}
+        </div>
+      </Section>
     </PageShell>
   );
 }

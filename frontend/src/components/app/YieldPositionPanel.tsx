@@ -345,23 +345,34 @@ export function YieldPositionPanel() {
       : null;
 
   return (
-    <section className="mt-8 overflow-hidden rounded-card bg-pine text-cream shadow-[0_24px_55px_-28px_rgba(16,35,27,0.7)]">
+    <section className="mt-8 overflow-hidden rounded-card bg-navy-deepest text-on-navy shadow-[0_24px_55px_-28px_rgba(15,26,46,0.7)]">
       <div className="grid gap-px bg-white/10 lg:grid-cols-[1.05fr_1fr]">
-        <div className="bg-pine p-7 sm:p-8">
-          <p className="font-mono text-[10.5px] uppercase tracking-[0.2em] text-cream/55">
+        <div className="bg-navy-deepest p-7 sm:p-8">
+          <p className="text-[10.5px] font-semibold uppercase tracking-[0.2em] text-on-navy/55">
             Projected position income
           </p>
-          <div className="mt-3 flex flex-wrap items-end gap-x-4 gap-y-2">
-            <p className="serif-display text-[52px] leading-none text-cream sm:text-[64px]">
-              {metrics.projectedPositionIncome !== null
-                ? fmtAmount(metrics.projectedPositionIncome, 18, 4)
-                : "—"}
+          {/* A bare em dash at display scale reads as a redaction bar, not as
+              an absent value. When there is no figure yet, the slot says why
+              in words instead of standing there as a mark. */}
+          {metrics.projectedPositionIncome !== null ? (
+            <div className="mt-3 flex flex-wrap items-end gap-x-4 gap-y-2">
+              <p
+                data-figure
+                className="display text-[52px] leading-none text-on-navy sm:text-[64px]"
+              >
+                {fmtAmount(metrics.projectedPositionIncome, 18, 4)}
+              </p>
+              <p className="pb-1 text-[11px] font-semibold tracking-[0.03em] text-on-navy/50">
+                USDfr / year
+              </p>
+            </div>
+          ) : (
+            <p className="mt-4 max-w-md text-[14px] leading-relaxed text-on-navy/70">
+              Connect a wallet holding sUSDfr to see your projected share of the
+              book&apos;s annual interest, in USDfr per year.
             </p>
-            <p className="pb-1 font-mono text-[10.5px] uppercase tracking-[0.14em] text-cream/50">
-              USDfr / year
-            </p>
-          </div>
-          <p className="mt-4 max-w-xl text-[13px] leading-relaxed text-cream/65">
+          )}
+          <p className="mt-4 max-w-xl text-[13px] leading-relaxed text-on-navy/65">
             Your pro-rata share of the current performing book&apos;s contractual annual
             interest after the Waterfall interest fee but before the global-HWM
             performance fee and time-based management fee. It changes with your
@@ -369,7 +380,7 @@ export function YieldPositionPanel() {
             composition of the book; it is indicative, not guaranteed.
           </p>
           {observedDays !== null && observedDays < 30 ? (
-            <p className="mt-3 text-[11.5px] leading-relaxed text-gold">
+            <p className="mt-3 text-[11.5px] leading-relaxed text-warn">
               Short history: only {observedDays < 1 ? "<1" : Math.floor(observedDays)} day
               {observedDays >= 2 ? "s" : ""} observed, so historical income covers only a
               limited window.
@@ -415,8 +426,8 @@ export function YieldPositionPanel() {
           </div>
         </div>
 
-        <div className="bg-[#132a20] p-7 sm:p-8">
-          <p className="font-mono text-[10.5px] uppercase tracking-[0.2em] text-cream/55">
+        <div className="bg-navy-deep p-7 sm:p-8">
+          <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy/55">
             Your sUSDfr position
           </p>
           {address ? (
@@ -525,7 +536,7 @@ export function YieldPositionPanel() {
                   }
                 />
               </div>
-              <p className="mt-6 border-t border-white/10 pt-4 text-[11.5px] leading-relaxed text-cream/45">
+              <p className="mt-6 border-t border-white/10 pt-4 text-[11.5px] leading-relaxed text-on-navy/45">
                 Position gain is not lifetime tax P&amp;L: it covers shares still in this
                 wallet and uses proportional direct-deposit cost basis. Queue positions,
                 exited shares, and externally transferred-in shares are excluded.
@@ -536,7 +547,7 @@ export function YieldPositionPanel() {
               </p>
             </>
           ) : (
-            <p className="mt-5 text-[13px] leading-relaxed text-cream/60">
+            <p className="mt-5 text-[13px] leading-relaxed text-on-navy/60">
               Connect a wallet to see sUSDfr held, current USDfr value, indicative annual
               income, and gain on the wallet&apos;s directly deposited position.
             </p>
@@ -544,7 +555,7 @@ export function YieldPositionPanel() {
         </div>
       </div>
       {history.phase === "error" ? (
-        <p className="border-t border-warn/30 bg-warn/10 px-7 py-3 text-[11.5px] text-cream/65">
+        <p className="border-t border-warn/30 bg-warn/10 px-7 py-3 text-[11.5px] text-on-navy/65">
           Historical event reads are unavailable from the configured RPC. Historical income,
           realized yield, and direct-deposit gain are unavailable; projected position income
           and live balances remain direct contract reads.
@@ -557,11 +568,13 @@ export function YieldPositionPanel() {
 function DarkMetric({label, value, note}: {label: string; value: string; note: string}) {
   return (
     <div>
-      <p className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-cream/40">
+      <p className="text-[9.5px] font-semibold uppercase tracking-[0.14em] text-on-navy/40">
         {label}
       </p>
-      <p className="mt-1 font-mono text-[14px] text-cream">{value}</p>
-      <p className="mt-1 text-[10.5px] leading-snug text-cream/40">{note}</p>
+      {/* Carries words ("Immediate") as well as figures, so this is Jost with
+          tabular numerals rather than mono. */}
+      <p className="tnum mt-1 text-[15px] font-medium text-on-navy">{value}</p>
+      <p className="mt-1 text-[10.5px] leading-snug text-on-navy/40">{note}</p>
     </div>
   );
 }
