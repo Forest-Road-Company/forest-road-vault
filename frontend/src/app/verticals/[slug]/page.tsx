@@ -130,7 +130,7 @@ export default async function VerticalPage({
           </h2>
           <Link
             href="/verticals"
-            className="u-link text-[13px] font-semibold uppercase tracking-[0.14em] text-accent"
+            className="u-link inline-flex min-h-[24px] items-center text-[13px] font-semibold uppercase tracking-[0.14em] text-accent"
           >
             All five, compared →
           </Link>

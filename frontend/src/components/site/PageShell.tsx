@@ -34,9 +34,11 @@ export function PageShell({
           <nav aria-label="Breadcrumb">
             <ol className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
               <li>
+                {/* inline-flex rather than padding so the 24px target does not
+                    push the crumb off the row's baseline. */}
                 <Link
                   href="/"
-                  className="running-head transition-colors hover:text-ink"
+                  className="running-head inline-flex min-h-[24px] items-center transition-colors hover:text-ink"
                 >
                   Forest Road Vault
                 </Link>

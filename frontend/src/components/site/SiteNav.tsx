@@ -99,30 +99,36 @@ export function SiteNav() {
             aria-expanded={open}
             aria-controls="site-menu"
             aria-label={open ? "Close menu" : "Open menu"}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-line-strong text-ink transition-colors hover:bg-surface lg:hidden"
+            /* The button is the 44px target — the one control a thumb reaches
+               for before anything has been read, so it takes the enhanced size
+               rather than the 24px minimum. The bordered box inside stays 36px,
+               so the nav looks exactly as it did; only the hit area grew. */
+            className="group -mr-1 flex h-11 w-11 items-center justify-center lg:hidden"
           >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              aria-hidden
-            >
-              {open ? (
-                <>
-                  <path d="M3.5 3.5l9 9" />
-                  <path d="M12.5 3.5l-9 9" />
-                </>
-              ) : (
-                <>
-                  <path d="M2 4.5h12" />
-                  <path d="M2 11.5h12" />
-                </>
-              )}
-            </svg>
+            <span className="flex h-9 w-9 items-center justify-center rounded-md border border-line-strong text-ink transition-colors group-hover:bg-surface">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                aria-hidden
+              >
+                {open ? (
+                  <>
+                    <path d="M3.5 3.5l9 9" />
+                    <path d="M12.5 3.5l-9 9" />
+                  </>
+                ) : (
+                  <>
+                    <path d="M2 4.5h12" />
+                    <path d="M2 11.5h12" />
+                  </>
+                )}
+              </svg>
+            </span>
           </button>
         </div>
       </nav>

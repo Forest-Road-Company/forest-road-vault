@@ -33,40 +33,40 @@ export function SiteFooter() {
           </div>
 
           <div className="grid grid-cols-2 gap-x-16 gap-y-8 text-[13px] sm:grid-cols-3 sm:gap-y-2">
-            <div className="space-y-2">
+            <div className="space-y-0.5">
               <p className="running-head text-on-navy-accent">Protocol</p>
-              <Link href="/how-it-works" className="block text-on-navy-muted hover:text-on-navy">
+              <Link href="/how-it-works" className="block py-1 text-on-navy-muted hover:text-on-navy">
                 How it works
               </Link>
-              <Link href="/verticals" className="block text-on-navy-muted hover:text-on-navy">
+              <Link href="/verticals" className="block py-1 text-on-navy-muted hover:text-on-navy">
                 Verticals
               </Link>
-              <Link href="/transparency" className="block text-on-navy-muted hover:text-on-navy">
+              <Link href="/transparency" className="block py-1 text-on-navy-muted hover:text-on-navy">
                 Transparency
               </Link>
-              <Link href="/docs" className="block text-on-navy-muted hover:text-on-navy">
+              <Link href="/docs" className="block py-1 text-on-navy-muted hover:text-on-navy">
                 Docs
               </Link>
-              <Link href="/points" className="block text-on-navy-muted hover:text-on-navy">
+              <Link href="/points" className="block py-1 text-on-navy-muted hover:text-on-navy">
                 Points
               </Link>
-              <Link href="/app" className="block text-on-navy-muted hover:text-on-navy">
+              <Link href="/app" className="block py-1 text-on-navy-muted hover:text-on-navy">
                 App
               </Link>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-0.5">
               <p className="running-head text-on-navy-accent">Legal</p>
-              <Link href="/legal" className="block text-on-navy-muted hover:text-on-navy">
+              <Link href="/legal" className="block py-1 text-on-navy-muted hover:text-on-navy">
                 Disclosures
               </Link>
-              <Link href="/risk" className="block text-on-navy-muted hover:text-on-navy">
+              <Link href="/risk" className="block py-1 text-on-navy-muted hover:text-on-navy">
                 Risk factors
               </Link>
-              <Link href="/terms" className="block text-on-navy-muted hover:text-on-navy">
+              <Link href="/terms" className="block py-1 text-on-navy-muted hover:text-on-navy">
                 Terms
               </Link>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-0.5">
               <p className="running-head text-on-navy-accent">Community</p>
               {/* External destinations: plain anchors, not next/link — off-origin URLs are never
                   client-side navigations, so Link adds nothing and obscures the intent. */}
@@ -74,7 +74,7 @@ export function SiteFooter() {
                 href="https://discord.gg/3rrEx8bxWr"
                 target="_blank"
                 rel="noreferrer noopener"
-                className="block text-on-navy-muted hover:text-on-navy"
+                className="block py-1 text-on-navy-muted hover:text-on-navy"
               >
                 Discord
               </a>
@@ -82,7 +82,7 @@ export function SiteFooter() {
                 href="https://x.com/forestroadvault"
                 target="_blank"
                 rel="noreferrer noopener"
-                className="block text-on-navy-muted hover:text-on-navy"
+                className="block py-1 text-on-navy-muted hover:text-on-navy"
               >
                 X
               </a>

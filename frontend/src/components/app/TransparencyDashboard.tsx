@@ -791,7 +791,7 @@ function Panel({title, addr, children}: {title: string; addr: string; children: 
             href={`${EXPLORER}${addr}`}
             target="_blank"
             rel="noreferrer"
-            className="u-link font-mono text-[10px] text-ink-faint hover:text-accent"
+            className="u-link inline-flex min-h-[24px] items-center font-mono text-[11px] text-ink-faint hover:text-accent"
           >
             {addr.slice(0, 6)}…{addr.slice(-4)}
           </a>
@@ -823,7 +823,7 @@ function Reconcile({addr, fn}: {addr: string; fn: string}) {
       href={`${EXPLORER}${addr}#readProxyContract`}
       target="_blank"
       rel="noreferrer"
-      className="u-link mt-1 inline-block font-mono text-[10px] text-on-navy-faint hover:text-on-navy"
+      className="u-link mt-1 inline-flex min-h-[24px] items-center font-mono text-[11px] text-on-navy-faint hover:text-on-navy"
     >
       {fn}() on Etherscan →
     </a>

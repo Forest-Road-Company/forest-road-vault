@@ -122,7 +122,7 @@ export default function AddressesPage() {
                       href={`${EXPLORER_BASE_URL}/address/${address}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="u-link whitespace-nowrap font-mono text-[12px] leading-relaxed text-ink-muted hover:text-accent"
+                      className="u-link inline-flex min-h-[24px] items-center whitespace-nowrap font-mono text-[12px] leading-relaxed text-ink-muted hover:text-accent"
                     >
                       {address}
                     </a>

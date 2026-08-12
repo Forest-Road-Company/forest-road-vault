@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Section, SectionHead } from "@/components/site/Blocks";
 import { CascadeDiagram } from "@/components/site/CascadeDiagram";
@@ -12,7 +13,19 @@ export default function Landing() {
              banner sitting inside it. Navy is graded across the brand
              photography from the left, which is where the type sits. ─────── */}
       <section className="hero-frame grain flex min-h-[min(82svh,960px)] flex-col justify-end">
-        <div className="hero-img" aria-hidden />
+        {/* The LCP element. As a CSS background it shipped one 2400px JPEG to
+            every device; through next/image it negotiates AVIF/WebP and a
+            width-appropriate variant. The grade, art direction and settle
+            animation are unchanged — they live on .hero-img. */}
+        <Image
+          src="/brand/hero-cover.jpg"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="hero-img"
+          aria-hidden
+        />
         <div className="hero-grade" aria-hidden />
 
         <div className="stage relative z-10 mx-auto w-full max-w-6xl px-5 pb-20 pt-24 md:pb-24">
@@ -117,7 +130,7 @@ export default function Landing() {
               </p>
               <Link
                 href="/transparency"
-                className="u-link mt-2 inline-block text-[13px] font-medium text-accent"
+                className="u-link mt-2 inline-flex min-h-[24px] items-center text-[13px] font-medium text-accent"
               >
                 Reconcile it against live state →
               </Link>
@@ -228,7 +241,7 @@ export default function Landing() {
             />
             <Link
               href="/how-it-works"
-              className="u-link mt-9 inline-block text-[13px] font-semibold uppercase tracking-[0.14em] text-on-navy-accent"
+              className="u-link mt-9 inline-flex min-h-[24px] items-center text-[13px] font-semibold uppercase tracking-[0.14em] text-on-navy-accent"
             >
               The dual record system →
             </Link>
@@ -266,7 +279,7 @@ export default function Landing() {
             </Link>
             <Link
               href="/risk"
-              className="u-link text-[13px] font-semibold uppercase tracking-[0.14em] text-accent"
+              className="u-link inline-flex min-h-[24px] items-center text-[13px] font-semibold uppercase tracking-[0.14em] text-accent"
             >
               Read the risks →
             </Link>

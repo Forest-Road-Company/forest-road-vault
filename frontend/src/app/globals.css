@@ -505,12 +505,11 @@ table,
   isolation: isolate;
 }
 
+/* Carried by a next/image `fill`, which supplies position/inset/object-fit.
+   The art direction, grade and settle stay here. */
 .hero-img {
-  position: absolute;
-  inset: 0;
-  background-image: url("/brand/hero-cover.jpg");
-  background-size: cover;
-  background-position: 62% 54%;
+  object-fit: cover;
+  object-position: 62% 54%;
   filter: saturate(0.72) contrast(1.06) brightness(0.66);
   transform: scale(1.06);
   animation: hero-settle 2.4s var(--ease-out-far) both;
