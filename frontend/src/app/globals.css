@@ -676,7 +676,8 @@ table,
   animation: cascade-flow 7s var(--ease-out-soft) infinite;
 }
 
-/* Rendered markdown (docs), on the navy field. */
+/* Rendered markdown (docs), on the white field: ink-muted body at a 72ch
+   measure, per DESIGN.md's rendered-documentation spec. */
 .doc-prose {
   color: var(--color-ink-muted);
   font-size: 15.5px;

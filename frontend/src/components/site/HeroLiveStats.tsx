@@ -87,15 +87,18 @@ export function HeroLiveStats() {
     <div className="mt-14">
       <div className="rule-draw h-px w-full bg-on-navy-line" />
       <dl className="mt-6 flex flex-wrap gap-x-12 gap-y-7">
+        {/* A div in a dl must hold its dt before its dd, so the term leads in
+            the DOM and the figure is ordered above it visually. Emitting the
+            value first would announce a figure with no term in front of it. */}
         {STRUCTURE.map((s) => (
-          <div key={s.label}>
+          <div key={s.label} className="flex flex-col">
+            <dt className="running-head order-2 mt-2.5">{s.label}</dt>
             <dd
               data-figure
-              className="display text-[32px] leading-none text-on-navy md:text-[38px]"
+              className="display order-1 text-[32px] leading-none text-on-navy md:text-[38px]"
             >
               {s.value}
             </dd>
-            <dt className="running-head mt-2.5">{s.label}</dt>
           </div>
         ))}
       </dl>
