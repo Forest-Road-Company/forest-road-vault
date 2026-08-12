@@ -11,6 +11,7 @@ import {IRedemptionQueue} from "../../src/interfaces/IRedemptionQueue.sol";
 import {Config} from "../../src/libraries/Config.sol";
 import {Roles} from "../../src/libraries/Roles.sol";
 import {CreditLayerFixture} from "../helpers/CreditLayerFixture.sol";
+import {MockImpairmentSource} from "../helpers/MockImpairmentSource.sol";
 
 contract RedemptionQueueTest is CreditLayerFixture {
     function _stake(address who, uint256 amount18) internal returns (uint256 shares) {
@@ -35,6 +36,21 @@ contract RedemptionQueueTest is CreditLayerFixture {
             if (target < eligibleAt) target = eligibleAt;
         }
         vm.warp(target);
+    }
+
+    function _startCappedYieldStream(uint256 amount) internal {
+        vm.startPrank(admin);
+        vault.setYieldVestingPeriod(Config.MAX_YIELD_VESTING_PERIOD);
+        vault.grantRole(Roles.CREDIT_ROLE, address(this));
+        queue.setEpochLiquidityBps(uint16(Config.BPS));
+        vm.stopPrank();
+
+        _mintUSDfrTo(alice, amount);
+        vm.prank(alice);
+        assertTrue(usdfr.transfer(address(this), amount));
+        vault.beginYieldNotification();
+        assertTrue(usdfr.transfer(address(vault), amount));
+        vault.notifyYield(amount);
     }
 
     // ── initialize ───────────────────────────────────────────────────────
@@ -160,6 +176,36 @@ contract RedemptionQueueTest is CreditLayerFixture {
         _endEpoch();
         vm.expectRevert(IRedemptionQueue.Queue_ZeroAmount.selector);
         queue.closeEpoch(0);
+    }
+
+    function test_closeEpoch_oneNativeUnitShortfallBlocksAndReturnedUnitClearsObservation() public {
+        uint256 shares = _stake(alice, 100e18);
+        _request(alice, shares);
+        _endEpoch();
+
+        _createReserveShortfall(1e12); // one native six-decimal USDC unit
+        vm.expectRevert(IRedemptionQueue.Queue_ReserveLossSettlementFrozen.selector);
+        queue.closeEpoch(1);
+
+        vm.prank(borrower);
+        usdc.transfer(address(reserves), 1);
+        assertFalse(reserves.reserveLossExitsLocked(), "physical return clears only the objective guard");
+        queue.closeEpoch(1);
+    }
+
+    function test_closeEpoch_persistentArmCannotExpireAndNeedsExplicitCancellation() public {
+        uint256 shares = _stake(alice, 100e18);
+        _request(alice, shares);
+        _endEpoch();
+        (uint256 armId,) = _armReserveLoss(700);
+
+        vm.warp(block.timestamp + 1000 days);
+        vm.expectRevert(IRedemptionQueue.Queue_ReserveLossSettlementFrozen.selector);
+        queue.closeEpoch(1);
+
+        vm.prank(admin);
+        reserves.cancelAndDisable(armId, keccak256("queue-arm-cancelled"));
+        queue.closeEpoch(1);
     }
 
     function test_closeEpoch_headInCooldownDoesNotBurnHeartbeat() public {
@@ -306,6 +352,142 @@ contract RedemptionQueueTest is CreditLayerFixture {
         assertEq(queue.currentEpoch(), 2);
         assertEq(usdfr.balanceOf(address(queue)), expectedAssets, "assets custodied for claim");
         assertTrue(controller.backingInvariantHolds());
+    }
+
+    /// @notice G4 regression: the post-outflow stream cap used to run once per request, so the
+    ///         first request changed the rate paid to the second inside one keeper transaction.
+    ///         One aggregate burn makes both FIFO positions share one canonical quote.
+    function test_G4_cappedStreamCannotCreateTwoPricesInsideOneBatch() public {
+        uint256 sharesA = _stake(alice, 100e18);
+        uint256 sharesB = _stake(bob, 100e18);
+        _startCappedYieldStream(1_000e18);
+        assertGt(vault.unvestedYield(), 0, "precondition: live stream");
+
+        uint256 idA = _request(alice, sharesA);
+        uint256 idB = _request(bob, sharesB);
+        _endEpoch();
+
+        uint256 prePreparationQuote = vault.previewRedeem(sharesA + sharesB);
+        uint256 queueAssetsBefore = usdfr.balanceOf(address(queue));
+        queue.closeEpoch(2);
+
+        (, uint256 remainingA, uint256 claimA,,) = queue.request(idA);
+        (, uint256 remainingB, uint256 claimB,,) = queue.request(idB);
+        assertEq(remainingA, 0);
+        assertEq(remainingB, 0);
+        // This test previously asserted equality to the quote taken BEFORE settlement-wide
+        // stream preparation, thereby enshrining M-2's missing NAV step. The prepared quote is
+        // deliberately higher; claims must instead equal the one aggregate receipt actually
+        // delivered by the vault.
+        assertEq(
+            claimA + claimB,
+            usdfr.balanceOf(address(queue)) - queueAssetsBefore,
+            "claims must equal the one aggregate receipt"
+        );
+        assertGt(claimA + claimB, prePreparationQuote, "the pre-pricing stream recognition did not occur");
+        assertApproxEqAbs(claimA, claimB, 1, "one batch paid two exchange rates");
+    }
+
+    function test_G4_feeCheckpointAndStreamCapStillProduceOneBatchPrice() public {
+        uint256 sharesA = _stake(alice, 200e18);
+        uint256 sharesB = _stake(bob, 200e18);
+        _startCappedYieldStream(2_000e18);
+        uint16 maxFee = vault.maxManagementFeeBps();
+        vm.prank(admin);
+        vault.setManagementFee(maxFee);
+
+        uint256 idA = _request(alice, sharesA);
+        uint256 idB = _request(bob, sharesB);
+        vm.warp(block.timestamp + 365 days);
+        uint256 quotedAfterFeeSimulation = vault.previewRedeem(sharesA + sharesB);
+        queue.closeEpoch(2);
+
+        (,, uint256 claimA,,) = queue.request(idA);
+        (,, uint256 claimB,,) = queue.request(idB);
+        assertEq(claimA + claimB, quotedAfterFeeSimulation, "checkpoint diverged from aggregate preview");
+        assertApproxEqAbs(claimA, claimB, 1, "fee checkpoint created two batch prices");
+    }
+
+    /// @notice M-2 regression. The earlier G4 tests proved only that requests grouped inside
+    ///         one call shared a quote; they did not prove that `maxRequests` was economically
+    ///         neutral. Post-outflow stream recognition therefore let a keeper choose the NAV
+    ///         step by choosing one request or two. Preparation now uses the full remaining
+    ///         settlement budget, so one-request chunks and one aggregate chunk are equivalent.
+    function test_M2_keeperChunkSizeCannotChooseCapStreamEconomics() public {
+        uint256 sharesA = _stake(alice, 100e18);
+        uint256 sharesB = _stake(bob, 100e18);
+        _startCappedYieldStream(1_000e18);
+        uint256 idA = _request(alice, sharesA);
+        uint256 idB = _request(bob, sharesB);
+        _endEpoch();
+
+        uint256 snap = vm.snapshotState();
+        queue.closeEpoch(1);
+        queue.closeEpoch(1);
+        (,, uint256 chunkedA,,) = queue.request(idA);
+        (,, uint256 chunkedB,,) = queue.request(idB);
+        uint256 chunkedUnvested = vault.unvestedYield();
+        uint256 chunkedSupply = vault.totalSupply();
+
+        assertTrue(vm.revertToState(snap), "failed to restore the identical pricing state");
+        queue.closeEpoch(2);
+        (,, uint256 aggregateA,,) = queue.request(idA);
+        (,, uint256 aggregateB,,) = queue.request(idB);
+
+        assertApproxEqAbs(chunkedA, aggregateA, 1, "keeper chunking changed the first FIFO price");
+        assertApproxEqAbs(chunkedB, aggregateB, 1, "keeper chunking changed the second FIFO price");
+        assertApproxEqAbs(
+            chunkedA + chunkedB, aggregateA + aggregateB, 1, "keeper chunking changed aggregate settlement value"
+        );
+        assertEq(vault.unvestedYield(), chunkedUnvested, "keeper chunking changed retained stream value");
+        assertEq(vault.totalSupply(), chunkedSupply, "keeper chunking changed fee-adjusted supply");
+    }
+
+    /// @notice G4 inter-transaction boundary: a changed conservative mark creates a new,
+    ///         explicit pricing session without resetting FIFO, cooldown, epoch, or budget.
+    function test_G4_markRevisionStartsNewSessionWithoutResettingSettlement() public {
+        MockImpairmentSource source = new MockImpairmentSource();
+        vm.prank(admin);
+        vault.setImpairmentSource(address(source));
+        vm.prank(admin);
+        queue.setEpochLiquidityBps(uint16(Config.BPS));
+        vm.prank(complianceAdmin);
+        compliance.setAllowed(carol, true);
+
+        uint256 sharesA = _stake(alice, 100e18);
+        uint256 sharesB = _stake(bob, 100e18);
+        uint256 sharesC = _stake(carol, 100e18);
+        uint256 idA = _request(alice, sharesA);
+        uint256 idB = _request(bob, sharesB);
+        uint256 idC = _request(carol, sharesC);
+        _endEpoch();
+
+        uint256 quoteA = vault.previewRedeem(sharesA);
+        queue.closeEpoch(1);
+        (,, uint256 claimA,,) = queue.request(idA);
+        uint256 budgetAfterA = queue.settlementBudgetRemaining();
+        assertEq(claimA, quoteA, "first session diverged from its quote");
+        assertEq(queue.pricingSessionCount(), 1, "first session not recorded");
+        assertEq(queue.head(), idB, "FIFO reset after first session");
+        assertTrue(queue.isSettling(), "maxRequests boundary ended the settlement");
+        assertEq(queue.currentEpoch(), 1, "session boundary advanced the epoch");
+
+        source.setImpairment(60e18);
+        uint256 quoteB = vault.previewRedeem(sharesB);
+        assertLt(quoteB, quoteA, "adverse mark did not change the next session quote");
+        queue.closeEpoch(1);
+
+        (,, uint256 claimB,,) = queue.request(idB);
+        assertEq(claimB, quoteB, "second session diverged from its revised quote");
+        assertEq(queue.pricingSessionCount(), 2, "mark revision did not create a new session");
+        assertEq(queue.head(), idC, "mark revision reset or jumped FIFO");
+        assertTrue(queue.isSettling(), "mark revision ended the live settlement");
+        assertEq(queue.currentEpoch(), 1, "mark revision advanced the epoch");
+        assertEq(
+            queue.settlementBudgetRemaining(),
+            budgetAfterA - claimB,
+            "mark revision reset or inflated the latched budget"
+        );
     }
 
     function test_closeEpoch_budgetIgnoresUnaccountedUSDCDonation() public {
@@ -580,28 +762,63 @@ contract RedemptionQueueTest is CreditLayerFixture {
 
     // ── ADR-0022: forced cooldown governance + boundary ──────────────────
 
+    /// @notice ═══════════ INVERTED (SWEEP-2 CSG-F2) — DO NOT RESTORE THE ORIGINAL ═══════════════
+    ///         THIS TEST ASSERTED THE DEFECT AS A FEATURE. It pinned, verbatim:
+    ///             vm.prank(admin); queue.setRedeemCooldown(7 days);   // "a shortening lets a
+    ///                                                                 //  queued request out sooner"
+    ///             // zero is a permitted, deliberate governance act (disables the hold)
+    ///             vm.prank(admin); queue.setRedeemCooldown(0);
+    ///             assertEq(queue.redeemCooldown(), 0);
+    ///         Both of those are the G2W loss-dodge. `CollateralRegistry.conservativeSeniorMark`
+    ///         ramps the UNATTESTED past-due discount in over `Config.DEFAULT_REDEEM_COOLDOWN`, and
+    ///         `ConservativeImpairmentMath` states the resulting safety property as "a senior who
+    ///         requests AT or AFTER the mark cannot settle before `requestedAt +
+    ///         DEFAULT_REDEEM_COOLDOWN`, by which point the weight is FULL". MEASURED: on a
+    ///         2,000,000e18 senior tranche with an 800,000e18 unattested mark,
+    ///         `setRedeemCooldown(7 days)` let a reactor settle INSIDE the ramp for 133,360e18 more
+    ///         than the honest full-weight price and the holder who STAYED lost exactly 133,360e18.
+    ///         `setRedeemCooldown(0)` deletes the ramp outright.
+    ///
+    ///         NOT WEAKENED: every other property the original asserted — the event, the effect,
+    ///         the UNIFORM application to in-flight requests, and the access control — is still
+    ///         asserted, on values inside the legal range.
+    /// @dev MUTATION: `if (cooldown < Config.DEFAULT_REDEEM_COOLDOWN && cooldown == type(uint64).max
+    ///      || cooldown > Config.MAX_REDEEM_COOLDOWN)` (compiles, both operands still read) -> RED
+    ///      here on the first `expectRevert`.
     function test_setRedeemCooldown_effectEventAccessAndUniformity() public {
         // authorized: sets, emits, takes effect
         vm.expectEmit(false, false, false, true);
-        emit IRedemptionQueue.RedeemCooldownSet(14 days);
+        emit IRedemptionQueue.RedeemCooldownSet(28 days);
         vm.prank(admin);
-        queue.setRedeemCooldown(14 days);
-        assertEq(queue.redeemCooldown(), 14 days);
+        queue.setRedeemCooldown(28 days);
+        assertEq(queue.redeemCooldown(), 28 days);
 
         // ADR-0022: applies UNIFORMLY to in-flight requests (eligibility recomputed against
-        // the current value) — a shortening lets a queued request out sooner.
+        // the current value) — a change moves a queued request's eligibility with it.
         uint256 shares = _stake(alice, 100_000e18);
         uint256 id = _request(alice, shares);
         uint256 requestedAt = block.timestamp;
-        assertEq(queue.eligibleToSettleAt(id), requestedAt + 14 days);
+        assertEq(queue.eligibleToSettleAt(id), requestedAt + 28 days);
+        vm.prank(admin);
+        queue.setRedeemCooldown(Config.DEFAULT_REDEEM_COOLDOWN);
+        assertEq(
+            queue.eligibleToSettleAt(id),
+            requestedAt + Config.DEFAULT_REDEEM_COOLDOWN,
+            "eligibility tracks current cooldown"
+        );
+
+        // INVERTED: shortening BELOW the G2W relief ramp is now REFUSED, and zero with it.
+        vm.expectRevert(IRedemptionQueue.Queue_BadParams.selector);
         vm.prank(admin);
         queue.setRedeemCooldown(7 days);
-        assertEq(queue.eligibleToSettleAt(id), requestedAt + 7 days, "eligibility tracks current cooldown");
-
-        // zero is a permitted, deliberate governance act (disables the hold)
+        vm.expectRevert(IRedemptionQueue.Queue_BadParams.selector);
         vm.prank(admin);
         queue.setRedeemCooldown(0);
-        assertEq(queue.redeemCooldown(), 0);
+        // ...and the fat-finger that permanently freezes every senior exit is refused too.
+        vm.expectRevert(IRedemptionQueue.Queue_BadParams.selector);
+        vm.prank(admin);
+        queue.setRedeemCooldown(type(uint64).max);
+        assertEq(queue.redeemCooldown(), Config.DEFAULT_REDEEM_COOLDOWN, "no refused call took effect");
 
         // unauthorized caller is rejected
         vm.expectRevert(

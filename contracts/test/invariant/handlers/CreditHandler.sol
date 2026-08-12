@@ -14,6 +14,7 @@ import {SUSDfr} from "../../../src/sUSDfr.sol";
 import {USDfr} from "../../../src/USDfr.sol";
 import {WaterfallEngine} from "../../../src/WaterfallEngine.sol";
 import {IAttestationOracle} from "../../../src/interfaces/IAttestationOracle.sol";
+import {IDefaultManager} from "../../../src/interfaces/IDefaultManager.sol";
 import {IWaterfallEngine} from "../../../src/interfaces/IWaterfallEngine.sol";
 import {Config} from "../../../src/libraries/Config.sol";
 import {MockAttestationOracle} from "../../helpers/MockAttestationOracle.sol";
@@ -58,6 +59,12 @@ contract CreditHandler is Test {
     /// @dev The vault's timelocked DEFAULT_ADMIN_ROLE holder, for the H-3 re-tune action.
     address internal vaultAdmin;
 
+    /// @dev AUDIT FIX (G3): the ReserveManager's timelocked DEFAULT_ADMIN_ROLE holder, the only
+    ///      authority that may recognise or release a conservative mark on deployed principal.
+    ///      Zero until a campaign opts in via `setReserveGovernor`, which is what keeps the G3
+    ///      actions inert in the campaigns that did not ask for them.
+    address internal reserveGovernor;
+
     address[3] public actors;
     uint256[] public facilities;
     uint256 internal constant MAX_FACILITIES = 6;
@@ -69,7 +76,19 @@ contract CreditHandler is Test {
     uint256 public ghostInterestDistributed;
     uint256 public ghostFees;
     uint256 public ghostVaultYield;
+    /// @dev AUDIT FIX (ADV-1). The THIRD leg of the waterfall's conservation identity: gross
+    ///      protocol fee that was never minted because an unabsorbed senior residual stood. The
+    ///      identity `interest == fee + toVault` was true only before ADV-1; it is now
+    ///      `interest == fee + toVault + withheld`, and `invariant_waterfall_conservesValue`
+    ///      asserts the three-way form. A separate ghost (rather than folding it into `ghostFees`)
+    ///      is what keeps `invariant_INV6_protocolFeeTookExactlyItsRate`-style reconciliations
+    ///      against the fee recipient's real balance exact.
+    uint256 public ghostFeeWithheldForImpairment;
     uint256 public ghostDepositorLosses;
+    /// @dev AUDIT R16-01 reach telemetry: how many oversized deliveries actually left a live
+    ///      stream behind (i.e. how often the `_capStreamToBase` boundary was genuinely exercised),
+    ///      so a campaign cannot silently degenerate into never visiting the parked state.
+    uint256 public ghostCapBindingDeliveries;
     /// @dev PM-R-11 reach telemetry: how many times `stressCoverageFloor` actually reached the
     ///      drained-then-refilled coverage state (not merely how often it was called).
     uint256 public ghostFloorDrains;
@@ -111,6 +130,45 @@ contract CreditHandler is Test {
     // Re-audit MEDIUM: a performing repayment now cures the past-due mark via `onPerformingRepayment`.
     uint256 public ghostPastDueAutoReleases; // full performing repayment auto-cleared the flag
     uint256 public ghostPastDueReanchors; // partial performing paydown re-anchored the mark DOWN
+    // ── OWNER DECISION 2026-08-07 (G2W): the unattested-past-due RELIEF RAMP ─────────────────
+    // The cohort relief anchor, mirrored so the reference model in `CreditInvariants` can
+    // recompute the ramped weight WITHOUT reading `DefaultManager`'s own weighting arithmetic --
+    // which is the thing under test.
+    //
+    // WHY THIS IS SET FROM `defaultManager.pastDueExposure()` RATHER THAN FROM `_pastDueFlag`.
+    // `pastDueExposure` is a GROSS accumulator that this fix does not touch; the model is
+    // independent of the IMPAIRMENT ARITHMETIC, not of every DefaultManager view (it already reads
+    // `defaultedContribution` and `reserves.deployedTo` the same way). Deriving the anchor from
+    // this handler's own ghost set instead would let the two drift the moment a contract path
+    // emptied the pool without this handler noticing, and a ghost anchor EARLIER than the
+    // contract's makes the model's weight HIGHER than the contract's -- i.e. a FALSE FAILURE on a
+    // clean build. Reading the contract's own emptiness test makes them identical by construction.
+    uint256 public ghostReliefAnchor;
+    /// @dev G2W ramp reach telemetry. An "observation" is a handler action taken while the
+    ///      unattested cohort is non-empty, classified by where the relief clock stood. Both
+    ///      buckets must be non-zero across a campaign or the ramp is being asserted about a region
+    ///      the campaign never visits -- the vacuous-invariant failure mode this repository has
+    ///      already been bitten by twice.
+    uint256 public ghostRampObservedInside; // 0 <= elapsed < DEFAULT_REDEEM_COOLDOWN
+    uint256 public ghostRampObservedExpired; // elapsed >= DEFAULT_REDEEM_COOLDOWN
+    // ── AUDIT FIX (G3) conservative-mark ghost state ─────────────────────────────────────────
+    // An INDEPENDENT model of `ReserveManager.principalImpairment` / `totalPrincipalImpairment`,
+    // built only from this handler's own inputs (the amount it asked to recognise or release,
+    // and the principal/loss it fed to a face-decreasing call). It is never read back from the
+    // contract, so `invariant_backing_impairmentLedgerReconciles` is a real recomputation: a
+    // mutation that drops the automatic release inside `recordPrincipalWritedown` or
+    // `recordPayment` makes the contract diverge from this ghost, which is what catches it.
+    mapping(uint256 tokenId => uint256) public ghostMark;
+    uint256 public ghostTotalMark;
+    /// @dev G3 reach telemetry: how many times the campaign actually reached the region the
+    ///      finding is about — a defaulted facility whose outstanding EXCEEDS everything the
+    ///      three-layer cascade can absorb, so `realizeLoss` cannot write it down at all.
+    uint256 public ghostOverCapacityMarks;
+    uint256 public ghostMarkReleases;
+    /// @dev G3 reach telemetry: cash recoveries collected against a STANDING mark — the only
+    ///      path in this campaign that exercises the contract's automatic consumption of a mark
+    ///      when face falls.
+    uint256 public ghostImpairedRecoveries;
     uint256 public callCount;
 
     constructor(
@@ -192,9 +250,67 @@ contract CreditHandler is Test {
         return s == ClaimBridge.LoanState.Defaulted || s == ClaimBridge.LoanState.Accelerated;
     }
 
+    /// @dev AUDIT FIX (G3). True while the protocol is open for business. A recognised
+    ///      conservative mark can legitimately push `totalBackingValue()` below supply — that is
+    ///      the honest report of an under-backed protocol and the entire point of the G3 fix —
+    ///      and in that state every `MintRedeemController._assertBacking`-gated path (mint,
+    ///      redeem, mintYield, burnLoss) and `WaterfallEngine.distribute`'s closing gate REFUSE
+    ///      to run, because those gates are level checks rather than non-worsening checks.
+    ///      Actions that would touch them therefore SKIP rather than revert (`fail_on_revert =
+    ///      true`), exactly as `depositAndStake` already skips the degenerate vault.
+    ///
+    ///      This is inert in every campaign that does not wire `setReserveGovernor`: nothing
+    ///      else reachable from this handler can make the invariant report false, because every
+    ///      other supply- or backing-moving path asserts it before returning.
+    function _protocolIsOpen() internal view returns (bool) {
+        return controller.backingInvariantHolds();
+    }
+
+    /// @dev AUDIT FIX (G3). Mirrors the contract's automatic consumption of a recognised mark
+    ///      whenever a facility's FACE principal falls — `ReserveManager.recordPrincipalWritedown`
+    ///      and the principal leg of `recordPayment`. Computed from this handler's own input, not
+    ///      read back from the contract.
+    /// @dev First four bytes of returned revert data, or zero when there are none.
+    function _revertSelector(bytes memory err) internal pure returns (bytes4 sel) {
+        if (err.length < 4) return bytes4(0);
+        assembly {
+            sel := mload(add(err, 32))
+        }
+    }
+
+    /// @dev The WRITE-DOWN rule: `ReserveManager.recordPrincipalWritedown` removes MARKED face
+    ///      (the loss is being realised), so it releases `min(faceDecrease, recognized)`. Mirror
+    ///      of `_consumeImpairmentOnFaceDecrease`. DO NOT use this for a COLLECTION — see
+    ///      `_consumeGhostMarkOnCollection`.
+    function _consumeGhostMark(uint256 id, uint256 faceDecrease) internal {
+        uint256 mark = ghostMark[id];
+        if (mark == 0) return;
+        uint256 consumed = faceDecrease < mark ? faceDecrease : mark;
+        ghostMark[id] = mark - consumed;
+        ghostTotalMark -= consumed;
+    }
+
+    /// @dev AUDIT FIX (SWEEP-1 RMDM-F2, 2026-08-08) — THE COLLECTION RULE, WHICH IS DIFFERENT.
+    ///      `ReserveManager.recordPayment` releases ONLY the part of the mark that would otherwise
+    ///      STRAND above the remaining face. Cash arriving is RECOVERABLE face, so collecting it
+    ///      disproves nothing and the mark on what remains is unchanged; the release exists purely
+    ///      to keep `principalImpairment[f] <= deployed[f]`. Before the fix this handler mirrored
+    ///      the WRITE-DOWN rule on both paths, which is how the whole campaign came to encode the
+    ///      optimistic convention as its own oracle.
+    /// @param newFace The facility's face AFTER the collection.
+    function _consumeGhostMarkOnCollection(uint256 id, uint256 newFace) internal {
+        uint256 mark = ghostMark[id];
+        if (mark <= newFace) return;
+        uint256 consumed = mark - newFace;
+        ghostMark[id] = newFace;
+        ghostTotalMark -= consumed;
+    }
+
     // ── bounded operations ───────────────────────────────────────────────
 
     function depositAndStake(uint256 actorSeed, uint256 amount) external {
+        // AUDIT FIX (G3): closed while a recognised conservative mark stands. See `_protocolIsOpen`.
+        if (!_protocolIsOpen()) return;
         // AUDIT H-3 (remediation + residual): the vault CLOSES to new capital in the DEGENERATE
         // state — the deposit base collapsed to zero, or dwarfed by the stranded unvested-yield
         // stream (reachable from this very handler via a maximal `realizeLoss`, which is how the
@@ -253,15 +369,16 @@ contract CreditHandler is Test {
             renewalTermsHash: bytes32(0),
             offchainRef: keccak256("fuzz-ucc-ref")
         });
-        oracle.setSatisfied(nextId, IAttestationOracle.AttestationKind.AssignmentExecuted, true);
-        oracle.setSatisfied(nextId, IAttestationOracle.AttestationKind.UCCFiled, true);
-        // AUDIT FIX (H-4): the CreditIssued payload must commit to these exact terms.
+        // P-32: all three documentary/credit gate facts commit to the exact same terms hash.
+        // Existence-only setters would make the handler's successful path impossible against the
+        // landed ClaimBridge, while hiding the binding from this differential campaign.
+        bytes32 termsHash = bridge.creditTermsHash(terms);
         oracle.setPayload(
-            nextId,
-            IAttestationOracle.AttestationKind.CreditIssued,
-            bridge.creditTermsHash(terms),
-            uint64(block.timestamp),
-            true
+            nextId, IAttestationOracle.AttestationKind.AssignmentExecuted, termsHash, uint64(block.timestamp), true
+        );
+        oracle.setPayload(nextId, IAttestationOracle.AttestationKind.UCCFiled, termsHash, uint64(block.timestamp), true);
+        oracle.setPayload(
+            nextId, IAttestationOracle.AttestationKind.CreditIssued, termsHash, uint64(block.timestamp), true
         );
         vm.prank(originator);
         uint256 id = bridge.originate(custodian, terms);
@@ -271,6 +388,8 @@ contract CreditHandler is Test {
     }
 
     function fund(uint256 facSeed) external {
+        // AUDIT FIX (G3): closed while a recognised conservative mark stands. See `_protocolIsOpen`.
+        if (!_protocolIsOpen()) return;
         if (facilities.length == 0) return;
         uint256 id = facilities[facSeed % facilities.length];
         if (_state(id) != ClaimBridge.LoanState.Pending) return;
@@ -298,13 +417,27 @@ contract CreditHandler is Test {
         uint256 outstanding;
         uint256 expFee;
         uint256 expToVault;
+        uint256 expWithheld;
         uint256 feeBefore;
         uint256 vaultBefore;
         uint256 supplyBefore;
     }
 
+    /// @dev AUDIT FIX (ADV-1). The model's OWN computation of the senior-impairment fee ceiling,
+    ///      from the credit-layer stock. Deliberately NOT a call into anything on
+    ///      `WaterfallEngine`: an expectation model that asked the contract what it intended to do
+    ///      would assert nothing at all.
+    /// @param feeGross The gross protocol fee this model expects on the receipt.
+    /// @return The part of `feeGross` the spec says must be withheld and never minted.
+    function _seniorImpairmentCeiling(uint256 feeGross) internal view returns (uint256) {
+        uint256 residual = defaultManager.pendingSeniorImpairment();
+        return feeGross < residual ? feeGross : residual;
+    }
+
     /// @dev Repayment with PER-CALL DIFFERENTIAL CHECK of the waterfall split.
     function repay(uint256 facSeed, uint256 interest, uint256 principal) external {
+        // AUDIT FIX (G3): closed while a recognised conservative mark stands. See `_protocolIsOpen`.
+        if (!_protocolIsOpen()) return;
         if (facilities.length == 0) return;
         uint256 id = facilities[facSeed % facilities.length];
         ClaimBridge.LoanState st = _state(id);
@@ -321,6 +454,19 @@ contract CreditHandler is Test {
         // independent expectation model (mirrors the spec, not the code path)
         m.expFee = interest * waterfall.protocolFeeBps() / 10_000;
         m.expToVault = interest - m.expFee;
+        // AUDIT FIX (ADV-1): the SPEC now says Forest Road may not take a performance fee out of a
+        // senior shortfall that junior capital has declined to absorb. THE MODEL IS EXTENDED, NOT
+        // RELAXED — it computes the ceiling from ITS OWN read of the credit-layer stock, taken
+        // BEFORE the call (which is where the contract reads it too: the interest leg runs before
+        // `distribute`'s lifecycle hooks), and it still asserts an EXACT equality afterwards.
+        //
+        // THE STOCK/FLOW RULE, MIRRORED: `pendingSeniorImpairment()` is a cumulative STOCK and is
+        // used ONLY as a CEILING on the per-transaction fee FLOW. Note `expToVault` is deliberately
+        // left on the GROSS fee — the withheld amount is NEVER MINTED, it is not redirected to the
+        // vault, and asserting the unchanged senior leg is what catches a reordering in
+        // `_routeInterest`. See `WaterfallEngine._withholdFeeForSeniorImpairment`.
+        m.expWithheld = _seniorImpairmentCeiling(m.expFee);
+        m.expFee -= m.expWithheld;
 
         m.feeBefore = usdfr.balanceOf(feeRecipient);
         m.vaultBefore = usdfr.balanceOf(address(vault));
@@ -328,11 +474,24 @@ contract CreditHandler is Test {
         uint256 feeSharesBefore = vault.balanceOf(vault.feeRecipient());
 
         _executeRepayment(id, interest, principal, m.outstanding);
+        // AUDIT FIX (G3, NARROWED BY SWEEP-1 RMDM-F2): cash principal lowers FACE, and the
+        // contract releases only the part of the mark that would otherwise STRAND above the new
+        // face. Mirror it here from this handler's OWN input.
+        if (principal != 0) _consumeGhostMarkOnCollection(id, m.outstanding - principal);
         _acceptAccruedFeeDilution(feeSharesBefore);
 
         assertEq(usdfr.balanceOf(feeRecipient) - m.feeBefore, m.expFee, "DIFF: fee split");
         assertEq(usdfr.balanceOf(address(vault)) - m.vaultBefore, m.expToVault, "DIFF: senior yield");
-        assertEq(usdfr.totalSupply() - m.supplyBefore, interest, "DIFF: conservation in == out");
+        // AUDIT FIX (ADV-1). This assertion is STRENGTHENED, not relaxed. It used to read
+        // `== interest`, which was the two-way conservation `interest == fee + toVault`. That form
+        // is now false in general, so the three-way form is asserted instead — and it still pins
+        // the minted total to the wei, with `expWithheld` supplied independently by this model.
+        // A withheld fee is NOT MINTED, so it must be missing from supply; if it were merely
+        // redirected to the vault this equality would still hold but `DIFF: senior yield` above
+        // would break, so the pair is jointly tight.
+        assertEq(
+            usdfr.totalSupply() - m.supplyBefore, interest - m.expWithheld, "DIFF: conservation in == out + withheld"
+        );
         assertEq(reserves.deployedTo(id), m.outstanding - principal, "DIFF: principal return");
 
         // H-2: cash principal returned on a DEFAULTED facility that `DefaultManager` has not been
@@ -350,6 +509,94 @@ contract CreditHandler is Test {
         ghostInterestDistributed += interest;
         ghostFees += m.expFee;
         ghostVaultYield += m.expToVault;
+        // AUDIT FIX (ADV-1): the third leg of the waterfall's conservation identity. See
+        // `CreditInvariants::invariant_waterfall_conservesValue`.
+        ghostFeeWithheldForImpairment += m.expWithheld;
+        callCount++;
+    }
+
+    /// @notice AUDIT R16-01: a servicing payment deliberately sized OFF THE BOOK and oversized for
+    ///         the live staked base, with vesting switched on — the FRV-FS-03 inflow shape.
+    /// @dev WHY THIS EXISTS AS ITS OWN ACTION. `repay` bounds interest to a flat `[0, 300k]`
+    ///      window, so whether a delivery is large ENOUGH RELATIVE TO THE LIVE BASE to drive
+    ///      `_capStreamToBase` is left to luck, and the campaign never systematically visited the
+    ///      state where the cap actually binds. That is the state the R16-01 finding lives in: the
+    ///      old cap retained `K/(K+1)` of the balance and parked the vault at exactly
+    ///      `unvestedYield() == K * totalAssets()` — the maximum-skim point — while
+    ///      `_isDegenerate`'s strict `>` left entry OPEN there. A pre-filtered handler that never
+    ///      drives the input past the cap makes the boundary invariant decoration (campaign 5),
+    ///      so this action sizes the payment off the CURRENT balance and asserts the parked ratio
+    ///      per call.
+    ///
+    ///      The action switches vesting ON when it is off, because the whole stream mechanism (and
+    ///      therefore the cap and the skim band) is inert at the launch `yieldVestingPeriod == 0`.
+    ///      That is the same governance class `retuneYieldVesting` already models.
+    /// @param facSeed Selects the live facility the payment comes from.
+    /// @param sizeSeed Fuzzes the payment size within the oversized band.
+    function deliverOversizedYield(uint256 facSeed, uint256 sizeSeed) external {
+        // AUDIT FIX (G3): closed while a recognised conservative mark stands. See `_protocolIsOpen`.
+        if (!_protocolIsOpen()) return;
+        if (facilities.length == 0) return;
+        if (vault.totalSupply() == 0) return;
+        uint256 id = facilities[facSeed % facilities.length];
+        ClaimBridge.LoanState st = _state(id);
+        if (!_isLive(st) && !_isDefaulted(st)) return;
+
+        // Captured BEFORE the vesting switch, deliberately: `setYieldVestingPeriod` crystallizes
+        // fees, and a checkpoint mint is one of the two documented ways the fee-net rate may
+        // decline (`invariant_exchangeRate_neverFallsWithoutLossOrFee`). Capturing it after the
+        // switch leaves that mint unattributed and reds the rate floor on an entirely legitimate
+        // accrual — which is exactly what the first campaign of this action did.
+        uint256 feeSharesBefore = vault.balanceOf(vault.feeRecipient());
+        if (vault.yieldVestingPeriod() == 0) {
+            vm.prank(vaultAdmin);
+            vault.setYieldVestingPeriod(7 days);
+        }
+
+        // Size the payment off the vault's CASH, not off a flat constant: the cap binds once the
+        // delivered amount exceeds `held / K`, so this band is entirely inside the illegal region.
+        uint256 held = usdfr.balanceOf(address(vault));
+        uint256 lo = held / 2 + UNIT;
+        uint256 interest = bound(sizeSeed, lo, lo + held + UNIT);
+        if (interest > 5_000_000e18) interest = 5_000_000e18;
+        interest -= interest % UNIT;
+        if (interest == 0) return;
+
+        bool openBefore = vault.maxDeposit(address(this)) != 0;
+        uint256 expFee = interest * waterfall.protocolFeeBps() / 10_000;
+        // AUDIT FIX (ADV-1). Same spec extension as `repay` above: the fee is capped by the
+        // unabsorbed senior residual, the vault leg is unchanged, and the withheld part is booked
+        // to its own ghost so the waterfall conservation identity stays exact.
+        uint256 expWithheld = _seniorImpairmentCeiling(expFee);
+        expFee -= expWithheld;
+
+        _executeRepayment(id, interest, 0, reserves.deployedTo(id));
+        _acceptAccruedFeeDilution(feeSharesBefore);
+
+        uint256 stream = vault.unvestedYield();
+        uint256 base = vault.totalAssets();
+        if (stream != 0) {
+            // R16-01: a HEALTHY delivery must park the retained stream a factor of K^2 INSIDE the
+            // entry guard (`stream <= base / K`), never ON it (`stream == K * base`). Restoring the
+            // old `K/(K+1)` retention target fails exactly here.
+            assertLe(
+                stream * Config.SUSDFR_MAX_STRANDED_YIELD_RATIO,
+                base,
+                "R16-01: OVERSIZED DELIVERY PARKED THE VAULT ON THE ENTRY-GUARD BOUNDARY"
+            );
+            ghostCapBindingDeliveries++;
+        }
+        // FRV-FS-03: and a healthy payment must never be the thing that closes senior entry.
+        if (openBefore) {
+            assertGt(vault.maxDeposit(address(this)), 0, "FRV-FS-03: A HEALTHY PAYMENT CLOSED SENIOR ENTRY");
+        }
+
+        ghostInterestDistributed += interest;
+        ghostFees += expFee;
+        // NB: `interest - expFee` would be wrong now that `expFee` is NET — the vault leg is sized
+        // off the GROSS fee. Reconstruct it as `interest - (expFee + expWithheld)`.
+        ghostVaultYield += interest - (expFee + expWithheld);
+        ghostFeeWithheldForImpairment += expWithheld;
         callCount++;
     }
 
@@ -383,6 +630,8 @@ contract CreditHandler is Test {
     }
 
     function postFirstLoss(uint256 classSeed, uint256 amount) external {
+        // AUDIT FIX (G3): closed while a recognised conservative mark stands. See `_protocolIsOpen`.
+        if (!_protocolIsOpen()) return;
         uint256 classId = classSeed % 2 == 0 ? Config.CLASS_FILM_TAX_CREDITS : Config.CLASS_RENEWABLE_ENERGY;
         amount = bound(amount, 1e12, 2_000_000e18);
         amount -= amount % UNIT;
@@ -403,6 +652,8 @@ contract CreditHandler is Test {
     /// @dev SUBORDINATION per-call check: a successful withdrawal never leaves the
     ///      pool below its requirement.
     function withdrawFirstLoss(uint256 classSeed, uint256 amount) external {
+        // AUDIT FIX (G3): closed while a recognised conservative mark stands. See `_protocolIsOpen`.
+        if (!_protocolIsOpen()) return;
         uint256 classId = classSeed % 2 == 0 ? Config.CLASS_FILM_TAX_CREDITS : Config.CLASS_RENEWABLE_ENERGY;
         // AUDIT FIX (R4-EC2): a class with an unresolved default freezes withdrawals —
         // a legitimate precondition, so skip rather than revert under fail_on_revert.
@@ -431,6 +682,8 @@ contract CreditHandler is Test {
     }
 
     function fundBackstop(uint256 amount) external {
+        // AUDIT FIX (G3): closed while a recognised conservative mark stands. See `_protocolIsOpen`.
+        if (!_protocolIsOpen()) return;
         amount = bound(amount, 1e12, 1_000_000e18);
         _fundBackstop(amount);
         callCount++;
@@ -442,27 +695,21 @@ contract CreditHandler is Test {
     ///      defaults still hold consumption, and a uniform draw over [1e-6, 1e6] USDfr
     ///      practically never leaves a balance a single loss event can clear.
     function fundBackstopSmall(uint256 amount) external {
+        // AUDIT FIX (G3): closed while a recognised conservative mark stands. See `_protocolIsOpen`.
+        if (!_protocolIsOpen()) return;
         amount = bound(amount, UNIT, 2_000e18);
         _fundBackstop(amount);
         callCount++;
     }
 
-    /// @dev AUDIT FIX (C-30). `MockCascadeBackstop.setCoverageCap` had ZERO callers anywhere in
-    ///      the tree, so every mock-based campaign ran with the per-event cap at
-    ///      `type(uint256).max` and `coverageCapacity()` degenerated to the raw balance. The
-    ///      production per-event cap (PM-R-07 — cumulative per event, snapshotted at that
-    ///      event's first draw) was therefore never exercised at a value that actually BINDS,
-    ///      and the cascade invariants could not distinguish "layer 2 limited by capital" from
-    ///      "layer 2 limited by the governed cap".
-    ///
-    ///      The bound deliberately spans both regimes: most draws land below the balance (the
-    ///      cap binds, which is the untested case) while the upper end exceeds it (the cap is
-    ///      slack, the previously-only regime). Changing the cap cannot corrupt an in-flight
-    ///      event — the mock snapshots at first draw, mirroring `SGrove` — and
-    ///      `_backstopRoomFor` already reads the cap, so the differential model stays exact.
-    function setBackstopEventCap(uint256 seed) external {
-        uint256 bal = usdfr.balanceOf(address(backstop));
-        backstop.setCoverageCap(bound(seed, 1, bal == 0 ? UNIT : bal * 2));
+    /// @dev ADR-0035 identity action. The retired cap-mutator selector is replaced by an
+    ///      independent check that arbitrary counterfactual reserves are never ratio-scaled.
+    function checkUncappedBackstopCapacity(uint256 seed) external {
+        uint256 reserve = bound(seed, 1, 2_000_000e18);
+        assertEq(backstop.coverageCapacityAt(reserve), reserve, "ADR-0035 counterfactual capacity drift");
+        (uint16 bps, uint256 absoluteCap) = backstop.coverageCapParameters();
+        assertEq(bps, uint16(Config.BPS), "ADR-0035 compatibility bps drift");
+        assertEq(absoluteCap, type(uint256).max, "ADR-0035 compatibility absolute cap drift");
         callCount++;
     }
 
@@ -521,9 +768,14 @@ contract CreditHandler is Test {
             vm.warp(uint256(graceEnd) + 1);
         }
 
+        // G2W: mirror the contract's EMPTY -> non-empty relief anchor, read from the contract's own
+        // gross aggregate BEFORE the mark lands (see `ghostReliefAnchor`).
+        if (defaultManager.pastDueExposure() == 0) ghostReliefAnchor = block.timestamp;
+
         uint256 feeSharesBefore = vault.balanceOf(vault.feeRecipient());
         defaultManager.markPastDue(id);
         _acceptAccruedFeeDilution(feeSharesBefore);
+        _noteRampReach();
         // record the ghost flag AND the mark-time snapshot (read from ReserveManager, independent of
         // the contract's `pastDueContribution`); `markPastDue` does not move `deployedTo`, so reading
         // it after the call still equals the contract's recorded snapshot.
@@ -541,16 +793,17 @@ contract CreditHandler is Test {
         if (facilities.length == 0) return;
         uint256 id = facilities[facSeed % facilities.length];
         if (!_pastDueFlag[id]) return; // nothing flagged: clean no-op
+        bytes32 cureEvidence = keccak256(abi.encode("credit-handler-cure", id, callCount));
         oracle.setPayload(
             id,
             IAttestationOracle.AttestationKind.PastDueCured,
-            keccak256(abi.encode(id, bytes32(0))),
+            keccak256(abi.encode(id, cureEvidence)),
             uint64(block.timestamp),
             true
         );
         uint256 feeSharesBefore = vault.balanceOf(vault.feeRecipient());
         vm.prank(servicer);
-        defaultManager.clearPastDue(id, bytes32(0));
+        defaultManager.clearPastDue(id, cureEvidence);
         _acceptAccruedFeeDilution(feeSharesBefore);
         _pastDueFlag[id] = false;
         _pastDueSnapshot[id] = 0;
@@ -619,6 +872,8 @@ contract CreditHandler is Test {
     ///      layer splits are computed from pre-call balances with the spec's min-chain
     ///      and asserted exactly after the call — for every fuzzed loss event.
     function realizeLoss(uint256 facSeed, uint256 loss) external {
+        // AUDIT FIX (G3): closed while a recognised conservative mark stands. See `_protocolIsOpen`.
+        if (!_protocolIsOpen()) return;
         if (facilities.length == 0) return;
         uint256 id = facilities[facSeed % facilities.length];
         if (!_isDefaulted(_state(id))) return;
@@ -675,18 +930,22 @@ contract CreditHandler is Test {
         m.expCovered = (loss - m.expAbsorbed) < m.room ? (loss - m.expAbsorbed) : m.room;
         m.expDepositor = loss - m.expAbsorbed - m.expCovered;
 
+        bytes32 lossEvidence = keccak256(abi.encode("credit-handler-loss", id, loss, callCount));
         oracle.setPayload(
             id,
             IAttestationOracle.AttestationKind.LossRealized,
-            keccak256(abi.encode(id, loss, bytes32(0))),
+            keccak256(abi.encode(id, loss, lossEvidence)),
             uint64(block.timestamp),
             true
         );
         vm.prank(servicer);
-        defaultManager.realizeLoss(id, loss, bytes32(0));
+        defaultManager.realizeLoss(id, loss, lossEvidence);
         // H-2: `_reduceDefaulted` re-anchors the contribution to `deployedTo` on every
         // realization, so nothing recovered before this point is unsynced any more.
         ghostUnsyncedRecovery[id] = 0;
+        // AUDIT FIX (G3): the paired `recordPrincipalWritedown` lowers FACE, so the contract
+        // consumes the mark that sat on it. Mirror it from this handler's OWN input.
+        _consumeGhostMark(id, loss);
 
         assertEq(
             m.poolBefore - curator.poolBalance(Config.CLASS_FILM_TAX_CREDITS),
@@ -703,9 +962,8 @@ contract CreditHandler is Test {
         // ordering corollary: depositors lose ONLY when both junior layers are dry
         if (m.expDepositor > 0) {
             assertEq(curator.poolBalance(Config.CLASS_FILM_TAX_CREDITS), 0, "CASCADE: skipped layer 1");
-            // PM-R-11 follow-up: with a per-EVENT cap, "layer 2 is dry" means this EVENT's
-            // room is exhausted — the reserve may still hold USDfr earmarked for other
-            // events. Asserting a zero BALANCE here would be wrong, not merely stricter.
+            // ADR-0035: every event reaches the one shared reserve, so a senior loss is possible
+            // only after this event's compatibility room is zero.
             assertEq(_backstopRoomFor(id, usdfr.balanceOf(address(backstop))), 0, "CASCADE: skipped layer 2");
             ghostDepositorLosses += m.expDepositor;
             rateFloor = vault.currentExchangeRate(); // explicit loss resets the fee-aware floor
@@ -755,6 +1013,8 @@ contract CreditHandler is Test {
     ///        exceeds consumption plus everything the live defaults can still reach — otherwise
     ///        the under-mark a broken floor produces is arithmetically invisible).
     function stressCoverageFloor(uint256 aSeed, uint256 sliceSeed, uint256 refillSeed) external {
+        // AUDIT FIX (G3): closed while a recognised conservative mark stands. See `_protocolIsOpen`.
+        if (!_protocolIsOpen()) return;
         // The shape needs two live defaults. Declaring one is an ordinary fuzz action here, so
         // top up rather than waste the turn waiting for the sequencer to order it for us.
         _declareUntilTwoDefaults();
@@ -891,16 +1151,13 @@ contract CreditHandler is Test {
         }
     }
 
-    /// @dev `eventId`'s per-event cap as snapshotted at its first draw; zero means it has never
-    ///      drawn, so a fresh draw would snapshot against the whole reserve.
+    /// @dev ADR-0035 compatibility word for `eventId`: cumulative draw plus live shared reserve.
     function _snapshotCap(uint256 eventId) internal view returns (uint256 cap) {
         (, cap) = backstop.eventCoverage(eventId);
     }
 
-    /// @dev What `eventId` could still draw against an unlimited reserve — its snapshotted cap
-    ///      less what it has already drawn. Unlike `_backstopRoomFor` this is NOT clamped to the
-    ///      reserve's current balance, which is what makes it the right measure of "reach" while
-    ///      the reserve sits at zero.
+    /// @dev What `eventId` can still draw: compatibility word less cumulative draw, which is the
+    ///      live shared reserve under ADR-0035.
     function _snapshotRoom(uint256 eventId) internal view returns (uint256 room) {
         (uint256 drawn, uint256 cap) = backstop.eventCoverage(eventId);
         room = cap > drawn ? cap - drawn : 0;
@@ -1065,27 +1322,51 @@ contract CreditHandler is Test {
         }
     }
 
-    /// @dev The coverage `eventId` can still draw, mirroring the real `SGrove` per-EVENT rule
-    ///      (PM-R-07): the cap is snapshotted at the event's first draw and consumed
-    ///      cumulatively, and is never more than the reserve actually holds.
-    /// @param eventId The defaulted facility's tokenId (what DefaultManager passes through).
+    /// @dev ADR-0035: every event can reach the same shared live reserve.
     /// @param bal The backstop's current USDfr balance.
     /// @return room The coverage still reachable by this event.
-    function _backstopRoomFor(uint256 eventId, uint256 bal) internal view returns (uint256 room) {
-        (uint256 drawn, uint256 snapshot) = backstop.eventCoverage(eventId);
-        uint256 cap = snapshot;
-        if (cap == 0) {
-            uint256 perEvent = backstop.coverageCap();
-            cap = bal < perEvent ? bal : perEvent;
-        }
-        room = cap > drawn ? cap - drawn : 0;
-        if (room > bal) room = bal;
+    function _backstopRoomFor(uint256, uint256 bal) internal pure returns (uint256 room) {
+        room = bal;
     }
 
     function warp(uint256 secs) external {
         secs = bound(secs, 1 hours, 30 days);
         vm.warp(block.timestamp + secs);
+        // G2W: the upper bound (30 days) EXCEEDS `Config.DEFAULT_REDEEM_COOLDOWN` (21 days), so a
+        // single warp can carry a standing unattested cohort clean across its relief ramp. DO NOT
+        // lower it below the cooldown without adding a dedicated reach action: the expired half of
+        // the ramp would stop being reachable and the invariant would go quietly vacuous there.
+        _noteRampReach();
         callCount++;
+    }
+
+    /// @dev G2W RAMP REACH ACTION: carry a standing unattested cohort clean across the expiry of
+    ///      its relief ramp. Added for the same reason `stressCoverageFloor` was: measured on the
+    ///      clean build WITHOUT it, only 11 of 256 default-profile runs ever observed the EXPIRED
+    ///      half of the ramp, because reaching it needs the fuzzer to draw a large `warp` while a
+    ///      cohort happens to be standing. An invariant that models a region the campaign visits by
+    ///      luck is one action-mix change away from being vacuous there. This drives the region
+    ///      deterministically through the real contracts.
+    ///
+    ///      Forward-only, like every other time move in this handler, and a clean no-op with no
+    ///      cohort standing (`fail_on_revert = true`).
+    function expireReliefRamp() external {
+        if (defaultManager.pastDueExposure() == 0) return; // no cohort: the ramp has no subject
+        uint256 expiry = ghostReliefAnchor + Config.DEFAULT_REDEEM_COOLDOWN;
+        if (block.timestamp < expiry) vm.warp(expiry);
+        _noteRampReach();
+        callCount++;
+    }
+
+    /// @dev G2W ramp reach: classify where the cohort relief clock stands right now. A no-op when
+    ///      the unattested cohort is empty, because the ramp has no subject then.
+    function _noteRampReach() internal {
+        if (defaultManager.pastDueExposure() == 0) return;
+        if (block.timestamp - ghostReliefAnchor >= Config.DEFAULT_REDEEM_COOLDOWN) {
+            ghostRampObservedExpired++;
+        } else {
+            ghostRampObservedInside++;
+        }
     }
 
     /// @notice Wires the vault's timelocked admin so governance re-tunes can be fuzzed.
@@ -1093,6 +1374,182 @@ contract CreditHandler is Test {
     /// @param who The DEFAULT_ADMIN_ROLE holder on the vault.
     function setVaultAdmin(address who) external {
         vaultAdmin = who;
+    }
+
+    // ── AUDIT FIX (G3) REACH: the loss the cascade cannot absorb ─────────
+    //
+    // WHY THIS EXISTS. `realizeLoss` above bounds its fuzzed loss BY total cascade capacity
+    // (curator pool + this event's backstop room + the vault's vested assets), specifically so
+    // the handler stays revert-free under `fail_on_revert = true`. That bound is correct for
+    // that action — but it also means the stateful campaign was WRITTEN TO STAY OUT of the
+    // region finding G3 is about: a loss LARGER than everything the three layers can absorb.
+    // `DefaultManager.realizeLoss` reverts `LossExceedsAbsorptionCapacity` there, and because
+    // that revert rolls back `reserves.recordPrincipalWritedown` with it, before G3 there was
+    // no way to write the loss down at all — worthless principal kept counting as backing.
+    // Without an action that deliberately walks into that region, the whole invariant tier
+    // proved nothing about it.
+    //
+    // The action below reaches it on purpose: it PROVES the cascade cannot take the loss (the
+    // real revert, asserted), then applies the intervention the fix adds, then asserts the
+    // conservative mark actually moved backing. Every precondition early-returns.
+
+    /// @notice G3 REACH ACTION: find a defaulted facility whose outstanding exceeds total
+    ///         cascade capacity, prove `realizeLoss` cannot write it down, and mark the
+    ///         unabsorbable remainder down through the conservative-mark input instead.
+    /// @param facSeed Selects the facility.
+    function markUnabsorbableLoss(uint256 facSeed) external {
+        if (reserveGovernor == address(0) || facilities.length == 0) return;
+        // Step (1) below executes a real `realizeLoss` and asserts its EXACT revert reason. While
+        // another mark already stands, that call would revert on the junior-layer `burnLoss`
+        // instead (level-check gate) and the reason assertion would be measuring the wrong thing.
+        // Require the open state so the proof stays about absorption capacity.
+        if (!_protocolIsOpen()) return;
+        uint256 id = facilities[facSeed % facilities.length];
+        if (!_isDefaulted(_state(id))) return;
+        uint256 outstanding = reserves.deployedTo(id);
+        uint256 recognized = reserves.principalImpairmentOf(id);
+        if (outstanding == 0 || recognized != 0) return;
+
+        // Total absorption capacity, computed exactly as `realizeLoss`'s own bound computes it.
+        uint256 capacity = curator.poolBalance(Config.CLASS_FILM_TAX_CREDITS)
+            + _backstopRoomFor(id, usdfr.balanceOf(address(backstop))) + vault.totalAssets();
+        // Only the region the finding is about. Anything at or below capacity is the ordinary
+        // `realizeLoss` path and is already covered by the differential model above.
+        if (outstanding <= capacity) return;
+
+        // (1) PROVE we are in the defective region: the cascade genuinely cannot take it.
+        bytes32 attemptedLossEvidence = keccak256(abi.encode("g3-capacity-probe", id, callCount));
+        oracle.setPayload(
+            id,
+            IAttestationOracle.AttestationKind.LossRealized,
+            keccak256(abi.encode(id, outstanding, attemptedLossEvidence)),
+            uint64(block.timestamp),
+            true
+        );
+        vm.prank(servicer);
+        (bool absorbed, bytes memory err) = address(defaultManager).call(
+            abi.encodeCall(DefaultManager.realizeLoss, (id, outstanding, attemptedLossEvidence))
+        );
+        assertFalse(absorbed, "G3 REACH: the cascade absorbed a loss beyond its capacity");
+        // Assert the EXACT reason, so this action can never silently degrade into "it reverted
+        // for some other bounding reason" and stop reaching the region it exists to reach.
+        assertEq(
+            _revertSelector(err),
+            IDefaultManager.DefaultManager_LossExceedsAbsorptionCapacity.selector,
+            "G3 REACH: realizeLoss reverted for the wrong reason"
+        );
+        assertEq(reserves.deployedTo(id), outstanding, "G3 REACH: a reverted realizeLoss moved face");
+
+        // (2) THE INTERVENTION: mark the unabsorbable remainder down. Bounded by live face, so
+        //     it cannot revert. `capacity` stays realisable through the ordinary cascade path.
+        uint256 mark = outstanding - capacity;
+        uint256 backingBefore = reserves.totalBackingValue();
+        uint256 faceBefore = reserves.deployedPrincipal();
+        vm.prank(reserveGovernor);
+        reserves.recognizePrincipalImpairment(id, mark, keccak256(abi.encode("g3-reach", id, callCount)));
+        ghostMark[id] += mark;
+        ghostTotalMark += mark;
+        ghostOverCapacityMarks++;
+
+        // (3) The mark must move BACKING and must not move FACE.
+        assertEq(reserves.totalBackingValue(), backingBefore - mark, "G3: backing did not fall by the mark");
+        assertEq(reserves.deployedPrincipal(), faceBefore, "G3: a conservative mark moved the face ledger");
+        callCount++;
+    }
+
+    /// @notice G3 REACH ACTION: collect cash principal on the facility that carries the standing
+    ///         mark, sized so the collection takes FACE BELOW the mark and therefore exercises the
+    ///         contract's automatic anti-stranding release.
+    /// @dev This is the second half of the region the finding is about, and it is the ONLY way
+    ///      this campaign exercises the contract's automatic consumption of a mark when FACE
+    ///      falls. `repay` cannot reach it: it skips while the protocol is closed, and a mark is
+    ///      what closes it. Without this action `ghostTotalMark` would only ever be moved by an
+    ///      explicit recognise/release pair, so `invariant_backing_impairmentLedgerReconciles`
+    ///      could not tell a working `_consumeImpairmentOnFaceDecrease` from a deleted one.
+    ///
+    ///      ═══ RE-AIMED (SWEEP-1 RMDM-F2, 2026-08-08) — READ BEFORE RESTORING THE OLD SIZING ═══
+    ///      This action used to size `principal` at the standing SHORTFALL and then assert that
+    ///      the collection consumed `min(principal, mark)` of the mark and RAISED backing by the
+    ///      same. Those assertions were this campaign's copy of the optimistic convention — an
+    ///      ordinary collection silently retiring an evidenced governance mark — so the campaign
+    ///      could not have caught RMDM-F2 and in fact ASSERTED it. `recordPayment` now releases
+    ///      only what would otherwise strand above the new face, so the action is sized to CROSS
+    ///      that boundary (`newFace < mark`) or it would exercise nothing at all.
+    ///
+    ///      `WaterfallEngine.distribute`'s closing gate is NON-WORSENING (R16-M4/M5), and a
+    ///      collection on a marked facility is backing-FLAT except for the stranded excess, which
+    ///      only raises backing — so no sizing here can trip it (`fail_on_revert = true`).
+    /// @param facSeed Selects the facility.
+    function recoverAgainstStandingMark(uint256 facSeed) external {
+        if (reserveGovernor == address(0) || facilities.length == 0) return;
+        uint256 id = facilities[facSeed % facilities.length];
+        uint256 mark = reserves.principalImpairmentOf(id);
+        if (mark == 0) return;
+        ClaimBridge.LoanState st = _state(id);
+        if (!_isLive(st) && !_isDefaulted(st)) return;
+        uint256 outstanding = reserves.deployedTo(id);
+        if (outstanding == 0) return;
+
+        uint256 backing = reserves.totalBackingValue();
+        // Take face BELOW the standing mark, so the anti-stranding release actually fires. Round
+        // UP to whole USDC: `recordPayment` credits `usdcAmount * 1e12`, so an unaligned principal
+        // leg would under-deliver and revert.
+        uint256 principal = outstanding > mark ? outstanding - mark + UNIT : outstanding;
+        principal += UNIT - 1;
+        principal -= principal % UNIT;
+        if (principal == 0) principal = UNIT;
+        if (principal > outstanding) principal = outstanding - (outstanding % UNIT);
+        if (principal == 0) return;
+
+        uint256 newFace = outstanding - principal;
+        uint256 expectedConsumed = mark > newFace ? mark - newFace : 0;
+        _executeRepayment(id, 0, principal, outstanding);
+        _consumeGhostMarkOnCollection(id, newFace);
+        if (_isDefaulted(st)) ghostUnsyncedRecovery[id] += principal;
+        if (_isLive(st)) _syncPastDueGhostOnRepay(id);
+
+        assertEq(
+            reserves.principalImpairmentOf(id),
+            mark - expectedConsumed,
+            "G3/SWEEP-1: the collection released more of the mark than would have stranded"
+        );
+        assertEq(reserves.deployedTo(id), newFace, "G3: face did not fall by the cash principal");
+        assertEq(
+            reserves.totalBackingValue(),
+            backing + expectedConsumed,
+            "G3/SWEEP-1: backing moved by more than the stranded excess"
+        );
+        ghostImpairedRecoveries++;
+        callCount++;
+    }
+
+    /// @notice G3: governance reverses a mark, reopening the protocol.
+    /// @dev Without this the campaign would latch closed on its first mark and stop exercising
+    ///      everything else, which would trade one blind spot for another.
+    /// @param facSeed Selects the facility.
+    /// @param amountSeed Fuzzes how much of the standing mark is released.
+    function releaseImpairmentMark(uint256 facSeed, uint256 amountSeed) external {
+        if (reserveGovernor == address(0) || facilities.length == 0) return;
+        uint256 id = facilities[facSeed % facilities.length];
+        uint256 recognized = reserves.principalImpairmentOf(id);
+        if (recognized == 0) return;
+        uint256 amount = _bound(amountSeed, 1, recognized);
+        uint256 backingBefore = reserves.totalBackingValue();
+        vm.prank(reserveGovernor);
+        reserves.releasePrincipalImpairment(id, amount, keccak256(abi.encode("g3-release", id, callCount)));
+        ghostMark[id] -= amount;
+        ghostTotalMark -= amount;
+        ghostMarkReleases++;
+        assertEq(reserves.totalBackingValue(), backingBefore + amount, "G3: release did not restore its own amount");
+        callCount++;
+    }
+
+    /// @notice Wires the ReserveManager's timelocked admin so the G3 actions can run.
+    /// @dev Called once from the invariant `setUp`; deliberately NOT in the fuzz selector set.
+    ///      A campaign that never calls this leaves both G3 actions inert.
+    /// @param who The DEFAULT_ADMIN_ROLE holder on the ReserveManager.
+    function setReserveGovernor(address who) external {
+        reserveGovernor = who;
     }
 
     /// @notice AUDIT H-3: a fuzzed timelocked yield-vesting re-tune.

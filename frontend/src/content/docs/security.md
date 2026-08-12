@@ -85,11 +85,9 @@ Current status of those gates:
   reviewed the whole protocol — all 37 files and 10,502 lines of contract source — at a
   commit byte-identical to the current `contracts/src` tree at `b5245398`, with our existing 36-entry findings
   register supplied as an exclusion list so that a rediscovery could not be reported as a
-  discovery. It is the first review of this protocol by a party other than Forest Road. Its scope,
-  method, findings, limitations and Forest Road's dispositions are published on the Audit Register;
-  the raw vendor report remains private because its finding sections contain reproduction detail
-  for unremediated mechanisms. **Its limits belong with its findings, so we state them here rather
-  than only in the report:** the engagement was Corrovera's
+  discovery. It is the first review of this protocol by a party other than Forest Road, and
+  it is published in full on the Audit Register. **Its limits belong with its findings, so
+  we state them here rather than only in the report:** the engagement was Corrovera's
   AI-assisted tier; **no finding in it reached `confirmed`**, because fork reproduction was
   not part of the engagement; no property was formally proven; no fuzzing ran beyond our own
   suite; and adjudication was by one engineer rather than a consensus pipeline. The report's
@@ -170,7 +168,7 @@ Current status of those gates:
   `MAX_PENDING_BUNDLES=32` and approved gas variables. Two independently controlled
   hosts, independent-heartbeat evidence and the actual
   human Guardian-Safe drill are absent. The feed test can use synthetic bundles and a disposable
-  fork; the Safe drill requires real owners but may use the tightly capped disposable mainnet test deployment,
+  fork; the Safe drill requires real owners but may use the tightly capped pre-audit test deployment,
   so neither item requires a public production launch. Human
   recovery timing and capital-policy records also remain open. A local test cannot mark those
   controls complete.

@@ -15,7 +15,7 @@ We will acknowledge receipt, tell you plainly whether we consider it a finding a
 and agree disclosure timing with you.
 
 Findings that survive validation are published on the
-[audit register](https://github.com/jevansfr/forest-road-vault) with their severity and
+[audit register](https://github.com/londonjevans/ForestRoadVault) with their severity and
 disposition — **including the ones we accept rather than fix**. Reproduction detail is withheld
 while a mechanism is live and unremediated, which is a deliberate exception to publishing in full.
 Reporters are credited unless they ask not to be.
@@ -28,8 +28,8 @@ There is no bug bounty at this stage.
 |---|---|
 | In scope | `contracts/src` — the production contract set, at the commit published here. |
 | In scope | `frontend/` where a defect would mislead a user about on-chain state or cause a harmful transaction. |
-| Test deployment only | A restricted disposable Ethereum-mainnet test ceremony and the Sepolia deployment are not production and accept no third-party capital. |
-| Not in this repository | Live-mainnet deployment, validation and handover scripts; custody material; the off-chain keeper/private feed; manifests; and operational tooling are withheld. Generic test/development scripts are included. If you believe you found something in a component you cannot see, please still report it. |
+| Not deployed | This protocol is **not live on Ethereum mainnet.** Only a Sepolia test deployment exists; its assets have no value. |
+| Not in this repository | Deployment scripts, the off-chain keeper, and operational tooling are withheld. If you believe you have found something in a component you cannot see, please still report it. |
 
 The Sepolia deployment retains bootstrap admin privileges, uses a mock stablecoin, and runs with
 concentration limits fully open. Findings that depend only on that configuration are expected and
@@ -39,9 +39,8 @@ report it and let us make that call rather than discarding it.
 ## Good-faith research
 
 We have no interest in pursuing good-faith research, and nothing in this policy waives any right.
-Please test against your own deployment or a local fork rather than any deployed Forest Road
-address, do not access or modify data that is not yours, and do not degrade the service for other
-users.
+Please test against your own deployment or a local fork rather than the live testnet, do not access
+or modify data that is not yours, and do not degrade the service for other users.
 
 ## Known and published
 

@@ -31,6 +31,7 @@ import {ICollateralRegistry} from "../src/interfaces/ICollateralRegistry.sol";
 import {Config} from "../src/libraries/Config.sol";
 import {Roles} from "../src/libraries/Roles.sol";
 import {PrivilegeAudit} from "./PrivilegeAudit.sol";
+import {PrivilegeTopology} from "./generated/PrivilegeTopology.sol";
 
 /// @notice POST-DEPLOY VALIDATION (CLAUDE.md §2.1): asserts the LIVE system matches
 ///         the tested fixture topology — module wiring, role assignments (positive AND
@@ -60,11 +61,16 @@ contract Validate is Script {
         address votesAggregator; // ADR-0026 (L-02)
         address deployer;
         address opsAdmin;
+        address proposalGuardian;
         address attester1;
         address attester2;
         address frTreasury;
         address feeRecipient;
         address anchorCurator;
+        /// @dev AUDIT FIX (D7-01 round 5): holder of SETTLEMENT_KEEPER_ROLE. Legacy manifests
+        ///      predate the role, so `_load` soft-defaults it to `opsAdmin`; ValidateMainnet
+        ///      hard-requires the key so a mainnet manifest can never omit it.
+        address queueKeeper;
         address stable;
         address assessedImpairmentSource; // ADR-0027; mandatory in the clean-v1 manifest
         bool keepOpsAdmin;
@@ -171,6 +177,8 @@ contract Validate is Script {
         a.votesAggregator = vm.parseJsonAddress(manifest, ".votesAggregator");
         a.deployer = vm.parseJsonAddress(manifest, ".deployer");
         a.opsAdmin = vm.parseJsonAddress(manifest, ".opsAdmin");
+        require(vm.keyExistsJson(manifest, ".proposalGuardian"), "manifest missing proposalGuardian");
+        a.proposalGuardian = vm.parseJsonAddress(manifest, ".proposalGuardian");
         a.attester1 =
             vm.keyExistsJson(manifest, ".attester1") ? vm.parseJsonAddress(manifest, ".attester1") : a.deployer;
         a.attester2 = vm.parseJsonAddress(manifest, ".attester2");
@@ -178,6 +186,8 @@ contract Validate is Script {
         a.feeRecipient = vm.parseJsonAddress(manifest, ".feeRecipient");
         a.anchorCurator =
             vm.keyExistsJson(manifest, ".anchorCurator") ? vm.parseJsonAddress(manifest, ".anchorCurator") : a.opsAdmin;
+        a.queueKeeper =
+            vm.keyExistsJson(manifest, ".queueKeeper") ? vm.parseJsonAddress(manifest, ".queueKeeper") : a.opsAdmin;
         // AUDIT FIX (C-01 round 2, reviewer issue A5): `.stable_TESTNET_MOCK` exists only
         // because `Deploy` deploys a MockERC20. A deployment parameterised with canonical
         // USDC writes `.stable` instead, and the hard dependency made validation
@@ -255,6 +265,32 @@ contract Validate is Script {
         {
             (address u, address r, address v) = CuratorModule(a.curator).modules();
             require(u == a.usdfr && r == a.registry && v == a.vault, "curator wiring");
+            // AUDIT FIX (R6-CF1). The reserve-CUSTODY arm of the curator withdrawal freeze. An
+            // unwired ReserveManager reads as FROZEN, so a miss here does not open a hole — it
+            // bricks curator withdrawals, which is exactly as loud as it should be, and this
+            // require makes it visible at validation time instead of at the first withdrawal.
+            require(CuratorModule(a.curator).reserveManager() == a.reserves, "curator->reserves (R6-CF1)");
+            // The governor supplies the LIVE governance-path length the guardian pre-arm must
+            // outlast. Without it the Config launch constants stand as the floor and go stale the
+            // day governance retunes votingDelay / votingPeriod / timelock minDelay.
+            require(CuratorModule(a.curator).governor() == a.governor, "curator->governor (R6-CF1)");
+            // P-49. The check that used to stand here compared `custodyPreArmDuration()` against
+            // the `Config` launch path (1 + 7 + 2 = 10 days) and was UNFALSIFIABLE:
+            // `_governancePath()` already floors the path at those same 10 days, and
+            // `_derivePreArm` multiplies by 3/2, so the duration is >= 15 days for EVERY reachable
+            // configuration. It could not fail, and it stood in for a check that can.
+            //
+            // This is that check. `custodyPreArmCoversLiveGovernancePath()` compares the duration
+            // against the UNCAPPED live path, so it is false exactly when the
+            // `CUSTODY_PRE_ARM_MAX_PATH` (60 days) cap binds and the derived duration (capped at
+            // `CUSTODY_PRE_ARM_MAX_DURATION`, 90 days) no longer outlasts the real governance path
+            // — the one regime in which the whole pre-arm mechanism is inverted. Three NatSpec
+            // blocks in `CuratorModule` already told the reader this call was made here; until
+            // P-49 it was not.
+            require(
+                CuratorModule(a.curator).custodyPreArmCoversLiveGovernancePath(),
+                "curator pre-arm does not outlast the LIVE governance path (R6-CF1 / F3-PA-c)"
+            );
         }
         {
             (address b, address r, address rs, address c2, address v, address o) = WaterfallEngine_modules(a.waterfall);
@@ -265,13 +301,32 @@ contract Validate is Script {
             );
         }
         {
-            (address b, address r, address rs, address c2, address cu, address o, address v) =
+            (address b, address r, address rs, address c2, address cu, address o, address v, address ledger) =
                 DefaultManager(a.defaultManager).modules();
             require(
                 b == a.bridge && r == a.registry && rs == a.reserves && c2 == a.controller && cu == a.curator
                     && o == a.oracle && v == a.vault,
                 "defaultManager wiring"
             );
+            require(ledger != address(0), "defaultManager commitment ledger unset");
+            require(ledger.code.length != 0, "defaultManager commitment ledger has no code");
+            // AUDIT FIX (SWEEP-1 VAC-F10) — LOAD-BEARING, DO NOT DELETE. `ConservativeImpairmentMath`
+            // is an EIP-170 extraction deployed by `DefaultManager`'s CONSTRUCTOR and held as an
+            // immutable, so it lives in the IMPLEMENTATION's runtime code and is not covered by any
+            // proxy/wiring check above. The whole redemption-pricing path now hard-depends on it:
+            // `pendingSeniorImpairment()` forwards to it, and that feeds `redemptionTotalAssets`,
+            // `previewRedeem`, the ADR-0022 queue fill and the ADR-0034 Y-bis exit draw. If the
+            // proxy points at a stale or wrong implementation whose immutable is zero or codeless,
+            // every one of those reverts — and nothing in `Validate` or `ValidateMainnet` looked.
+            // A validator that cannot see the child of the contract it validates is a validator
+            // with a hole in it (CLAUDE.md §2.1: "proxies pointing at the right implementations").
+            address impairmentMath = address(DefaultManager(a.defaultManager).impairmentMath());
+            require(impairmentMath != address(0), "defaultManager impairment math unset");
+            require(impairmentMath.code.length != 0, "defaultManager impairment math has no code");
+            // Non-vacuous: prove the forwarder actually reaches it rather than merely that an
+            // address is populated. On a freshly handed-over deployment this is 0 and must not
+            // revert.
+            DefaultManager(a.defaultManager).pendingSeniorImpairment();
         }
         if (a.mtmExecutor != address(0)) {
             require(a.mtmExecutor.code.length != 0, "MTM executor has no code");
@@ -301,10 +356,16 @@ contract Validate is Script {
         // All four are OPTIONAL at the contract level (a zero address degrades to the
         // pre-ADR behaviour, which is fail-SAFE to deploy but silently drops the
         // protection). Assert them here so a deploy that forgot cannot pass validation.
+        // AUDIT FIX (ADV-1): this wiring now gates TWO things, not one. Besides the ADR-0022
+        // resolve hook, `WaterfallEngine._withholdFeeForSeniorImpairment` reads
+        // `DefaultManager.pendingSeniorImpairment()` through the same pointer to decide whether a
+        // protocol fee may be minted at all. An unwired manager withholds NOTHING, so Forest Road
+        // would collect a performance fee out of an unabsorbed senior shortfall — the ADV-1 finding
+        // verbatim, and silently, since the contract-level zero check is fail-safe by design.
         require(
             WaterfallEngine(a.waterfall).defaultManager() == a.defaultManager,
-            "ADR-0022: engine->defaultManager resolve hook not wired (a recovered facility "
-            "would depress the redemption NAV forever)"
+            "ADR-0022/ADV-1: engine->defaultManager not wired (a recovered facility would depress "
+            "the redemption NAV forever, AND the protocol fee would be paid out of a senior shortfall)"
         );
         AssessedImpairmentSource assessment = AssessedImpairmentSource(a.assessedImpairmentSource);
         require(
@@ -362,6 +423,7 @@ contract Validate is Script {
         require(CuratorModule(a.curator).pointsModule() == a.points, "curator->a.points");
         require(DefaultManager(a.defaultManager).backstop() == a.sGrove, "defaultManager->backstop");
         require(FRGovernor(payable(a.governor)).timelock() == a.timelock, "governor->a.timelock");
+        require(FRGovernor(payable(a.governor)).proposalGuardian() == a.proposalGuardian, "governor->proposalGuardian");
         // audit R5 M-5: a wrong IVotes token would let an attacker's token drive governance
         // while every other check still passed — assert the governor's vote source. Post
         // ADR-0026 (L-02) that source is the AGGREGATOR, not GROVE directly, so the R5 M-5
@@ -408,10 +470,77 @@ contract Validate is Script {
         require(IAccessControl(a.reserves).hasRole(Roles.CREDIT_ROLE, a.waterfall), "waterfall on a.reserves");
         require(IAccessControl(a.reserves).hasRole(Roles.CREDIT_ROLE, a.defaultManager), "dm on a.reserves");
         require(IAccessControl(a.controller).hasRole(Roles.CREDIT_ROLE, a.waterfall), "waterfall mints yield");
-        require(IAccessControl(a.controller).hasRole(Roles.CREDIT_ROLE, a.defaultManager), "dm burns loss");
+        require(IAccessControl(a.controller).hasRole(Roles.LOSS_BURNER_ROLE, a.defaultManager), "dm burns loss");
+        require(IAccessControl(a.controller).hasRole(Roles.LOSS_BURNER_ROLE, a.reserves), "reserves burn custody loss");
+        // AUDIT FIX (R16-M1) — THE NEGATIVES ARE THE POINT. A positive-only role check passes
+        // just as happily on an over-granted topology, and over-granting is exactly what the
+        // finding was: the engine held a `burnLoss` power it never used, i.e. half of the
+        // burn-then-mint confiscation composition, for nothing.
+        require(!IAccessControl(a.controller).hasRole(Roles.LOSS_BURNER_ROLE, a.waterfall), "waterfall must not burn");
+        require(!IAccessControl(a.controller).hasRole(Roles.CREDIT_ROLE, a.defaultManager), "dm must not mint yield");
+        // AUDIT FIX (R16-M1). The credit-layer endpoint lists must be wired, or the cascade and
+        // the interest leg are bricked (fail-closed by design — an unwired controller refuses).
+        // The negatives pin that no user-reachable address was named.
+        require(MintRedeemController(a.controller).isYieldSink(a.vault), "vault is a yield sink");
+        require(MintRedeemController(a.controller).isYieldSink(a.feeRecipient), "feeRecipient is a yield sink");
+        require(MintRedeemController(a.controller).isLossSource(a.defaultManager), "dm is a loss source");
+        require(MintRedeemController(a.controller).isLossSource(a.reserves), "reserves is a loss source");
+        require(MintRedeemController(a.controller).isLossSource(a.vault), "vault is a loss source");
+        require(!MintRedeemController(a.controller).isLossSource(a.waterfall), "waterfall not a loss source");
+        require(!MintRedeemController(a.controller).isLossSource(a.queue), "queue not a loss source");
         require(IAccessControl(a.curator).hasRole(Roles.CREDIT_ROLE, a.defaultManager), "dm absorbs");
+        require(IAccessControl(a.curator).hasRole(Roles.CREDIT_ROLE, a.reserves), "reserves absorb curator loss");
         require(IAccessControl(a.oracle).hasRole(Roles.CREDIT_ROLE, a.waterfall), "waterfall consumes");
         require(IAccessControl(a.sGrove).hasRole(Roles.CREDIT_ROLE, a.defaultManager), "dm covers");
+        require(IAccessControl(a.sGrove).hasRole(Roles.CREDIT_ROLE, a.reserves), "reserves draw custody cover");
+        require(
+            ReserveManager(a.reserves).lossController() == a.controller,
+            "C-01: reserve loss controller is not MintRedeemController"
+        );
+        (address lossCurator, address lossBackstop, address lossVault, address lossGovernor, address lossTimelock) =
+            ReserveManager(a.reserves).reserveLossModules();
+        require(lossCurator == a.curator, "C-01: reserve loss curator mismatch");
+        require(lossBackstop == a.sGrove, "C-01: reserve loss backstop mismatch");
+        require(lossVault == a.vault, "C-01: reserve loss vault mismatch");
+        require(lossGovernor == a.governor, "C-01: reserve loss governor mismatch");
+        require(lossTimelock == a.timelock, "C-01: reserve loss timelock mismatch");
+        require(CuratorModule(a.curator).reserveManager() == a.reserves, "C-01: curator interlock mismatch");
+        (uint256 pendingBackingReduction, uint256 pendingSurplus, uint256 pendingSupplyReduction) =
+            ReserveManager(a.reserves).recognizedReserveLoss();
+        require(
+            pendingBackingReduction == 0 && pendingSurplus == 0 && pendingSupplyReduction == 0,
+            "C-01: reserve loss unexpectedly pending"
+        );
+        (uint256 activeReserveLossIncident,) = ReserveManager(a.reserves).activeReserveLossIncident();
+        require(activeReserveLossIncident == 0, "C-01: reserve loss incident unexpectedly active");
+        require(ReserveManager(a.reserves).reserveDeficit() == 0, "C-01: reserve deficit at validation");
+        require(
+            ReserveManager(a.reserves).lossAbsorber() == a.defaultManager,
+            "C-01: reserve loss absorber is not DefaultManager"
+        );
+        require(
+            ReserveManager(a.reserves).lossController() == a.controller,
+            "C-01: reserve loss controller is not MintRedeemController"
+        );
+        // ADR-0034 Y-bis — THE ATOMIC JUNIOR DRAW HAS NO WIRING OF ITS OWN, BY DESIGN, SO ITS
+        // PRECONDITIONS ARE ASSERTED EXPLICITLY HERE. `MintRedeemController._drawJuniorForExit`
+        // DERIVES its draw source from `ReserveManager.lossAbsorber()` rather than storing a second
+        // pointer that could desynchronise, and authorises the burn against the existing
+        // `setLossSource` list. The four requires above already pin every component; this one
+        // states the COMPOSITION, so an edit that drops any of them fails with a message naming
+        // the decision rather than a generic wiring error. Under-backed exits price at the GROSS
+        // mark — the pre-ADR-0034 defect — the moment this composition breaks.
+        require(
+            ReserveManager(a.reserves).lossAbsorber() == a.defaultManager
+                && MintRedeemController(a.controller).isLossSource(a.defaultManager)
+                && IAccessControl(a.curator).hasRole(Roles.CREDIT_ROLE, a.defaultManager)
+                && IAccessControl(a.sGrove).hasRole(Roles.CREDIT_ROLE, a.defaultManager),
+            "ADR-0034 Y-bis: the atomic junior exit draw is not wired end to end"
+        );
+        require(
+            ReserveManager(a.reserves).exitPrepaidAbsorption() == 0,
+            "ADR-0034 Y-bis: exit prepayment ledger non-zero on a fresh deployment"
+        );
         require(
             IAccessControl(a.vault).hasRole(Roles.FEE_ACCOUNTING_ROLE, a.curator),
             "curator cannot synchronize vault fee hurdle"
@@ -475,24 +604,27 @@ contract Validate is Script {
     /// @param a The deployed address set and posture flags.
     function _validateGovernance(M memory a) internal view {
         // ── governance handover ────────────────────────────────────────────
-        address[16] memory mods = [
-            a.compliance,
-            a.usdfr,
-            a.reserves,
-            a.controller,
-            a.vault,
-            a.points,
-            a.registry,
-            a.oracle,
-            a.bridge,
-            a.curator,
-            a.waterfall,
-            a.defaultManager,
-            a.assessedImpairmentSource,
-            a.queue,
-            a.sGrove,
-            a.grove
-        ];
+        address[] memory mods = PrivilegeTopology.handoverTargets(_topologyTargets(a));
+        // Keep the validator-side fail-closed distinctness proof even though the source list is
+        // generated: a changed field adapter must never silently remove a governed module.
+        for (uint256 i = 0; i < mods.length; ++i) {
+            require(mods[i] != address(0), "governed module list has a ZERO address");
+            for (uint256 j = 0; j < i; ++j) {
+                require(mods[i] != mods[j], "governed module list has a DUPLICATE entry");
+            }
+        }
+        // AUDIT FIX (SWEEP-3 S3-02) — DO NOT DELETE. This is a hand-written positional literal of a
+        // fixed length, so a duplicated or reordered entry silently removes a module from every
+        // assertion below WITH NO COMPILE ERROR. The same shape, measured on the 17-address audit
+        // list, let an ops-held USDfr `MINTER_ROLE` pass both validators green. Every entry is a
+        // distinct deployed contract, so a duplicate or a zero is unambiguously a mis-copy.
+        // Mirrors `PrivilegeAudit.requireDistinctModules`, which covers the audit lists.
+        for (uint256 i = 0; i < mods.length; ++i) {
+            require(mods[i] != address(0), "governed module list has a ZERO address");
+            for (uint256 j = 0; j < i; ++j) {
+                require(mods[i] != mods[j], "governed module list has a DUPLICATE entry");
+            }
+        }
         for (uint256 i = 0; i < mods.length; ++i) {
             require(IAccessControl(mods[i]).hasRole(bytes32(0), a.timelock), "timelock must be admin everywhere");
             // AUDIT FIX: assert the UPGRADER topology too — it is the most upgrade-critical
@@ -641,6 +773,25 @@ contract Validate is Script {
         // pre-existing proxy would leave `minRedemptionValue == 0` (floor disabled, re-exposing
         // the dust-wedge surface stop-and-wait relies on the floor to bar) and this check makes
         // that regression LOUD rather than silently PASSED.
+        // AUDIT FIX (D7-01 round 5, BLOCKING): CLAUDE.md §2.1 requires post-deploy validation to
+        // assert roles are assigned correctly. Before this, a deployment that granted
+        // SETTLEMENT_KEEPER_ROLE to address(0) — leaving the protocol's ONLY senior exit with a
+        // single usable holder — validated GREEN. Assert the configured holder and operational
+        // backstop are real; ValidateMainnet separately requires that they are distinct.
+        require(a.queueKeeper != address(0), "Validate: manifest is missing the settlement keeper");
+        require(
+            IAccessControl(a.queue).hasRole(Roles.SETTLEMENT_KEEPER_ROLE, a.queueKeeper),
+            "Validate: settlement keeper does not hold SETTLEMENT_KEEPER_ROLE"
+        );
+        require(
+            IAccessControl(a.queue).hasRole(Roles.SETTLEMENT_KEEPER_ROLE, a.opsAdmin),
+            "Validate: the backstop holder does not hold SETTLEMENT_KEEPER_ROLE"
+        );
+        require(
+            !IAccessControl(a.queue).hasRole(Roles.SETTLEMENT_KEEPER_ROLE, address(0)),
+            "Validate: SETTLEMENT_KEEPER_ROLE granted to the zero address"
+        );
+
         require(
             RedemptionQueue(a.queue).minRedemptionValue() == Config.DEFAULT_MIN_REDEMPTION_VALUE,
             "queue min redemption value not set (C-1)"
@@ -713,27 +864,7 @@ contract Validate is Script {
     ///      clean branch now enumerates unconditionally and claims only what it has proven.
     /// @param a The deployed address set and posture flags.
     function _reportPrivilegePosture(M memory a) internal view {
-        (address[] memory targets, string[] memory names) = PrivilegeAudit.moduleSet(
-            [
-                a.compliance,
-                a.usdfr,
-                a.reserves,
-                a.controller,
-                a.vault,
-                a.points,
-                a.registry,
-                a.oracle,
-                a.bridge,
-                a.curator,
-                a.waterfall,
-                a.defaultManager,
-                a.assessedImpairmentSource,
-                a.queue,
-                a.sGrove,
-                a.grove,
-                a.timelock
-            ]
-        );
+        (address[] memory targets, string[] memory names) = PrivilegeAudit.moduleSet(_topologyTargets(a));
 
         // AUDIT FIX (C-01 round 2, reviewer issue B4). The durable manifest receipt is
         // cross-checked against LIVE chain state, so a stale artifact (the pre-round-2
@@ -742,7 +873,8 @@ contract Validate is Script {
         // moved into the artifact layer.
         if (a.hasManifestClaim) {
             bool actuallyClean = PrivilegeAudit.scan(targets, names, a.deployer, false).length == 0
-                && PrivilegeAudit.scanTimelock(a.timelock, a.deployer, false).length == 0;
+                && PrivilegeAudit.scanTimelock(a.timelock, a.deployer, false).length == 0
+                && PrivilegeAudit.scanGovernor(a.governor, a.deployer).length == 0;
             require(
                 actuallyClean == a.manifestClaimsDeployerClean,
                 "manifest deployerCleanExceptAttester contradicts on-chain state"
@@ -775,6 +907,35 @@ contract Validate is Script {
                 PrivilegeAudit.scanTimelock(a.timelock, a.opsAdmin, true).length == 0,
                 "PRODUCTION SHAPE: ops holds timelock PROPOSER/CANCELLER"
             );
+            // AUDIT FIX (SWEEP-2 F1) — THE PRINCIPAL AXIS. DO NOT DELETE.
+            //
+            // Everything above scans exactly TWO of the NINE principals this deployment names.
+            // `Deploy`/`DeployMainnet` also name `proposalGuardian`, `queueKeeper`, `frTreasury`,
+            // `feeRecipient`, `anchorCurator`, `attester1` and `attester2`, while
+            // `DeployMainnet._validatePrincipals`
+            // spends twenty-odd `require`s proving they are DISTINCT from one another — then
+            // nothing ever asks what any of them HOLDS. MEASURED on a production-shaped ceremony:
+            // `UPGRADER_ROLE` on the sUSDfr vault granted to the anchor curator, to the hot
+            // settlement keeper, or `DEFAULT_ADMIN_ROLE` granted to the treasury (which also holds
+            // the entire GROVE supply and therefore all voting power) survived the full
+            // deploy->wire->seed->handover sequence and passed BOTH `validateDeployment` and
+            // `validateHandover` green. `Validate._printPosture` prints the keeper's pairs and
+            // nothing else's, and printing is not blocking.
+            //
+            // This is SEAM-1's shape on the other axis: SEAM-1 was a ROLE present in the drop list
+            // and absent from the detect list; this was a PRINCIPAL present in the ceremony and
+            // absent from the detect list. The handover cannot strip these keys (it only ever
+            // acts as/on the two EOAs of record), so detection is the whole remedy: a genesis
+            // principal carrying protocol authority must fail the production gate loudly.
+            _assertNamedPrincipalsHoldNoAuthority(a, targets, names);
+            require(
+                PrivilegeAudit.scanGovernor(a.governor, a.deployer).length == 0,
+                "PRODUCTION SHAPE: deployer is proposal guardian"
+            );
+            require(
+                PrivilegeAudit.scanGovernor(a.governor, a.opsAdmin).length == 0,
+                "PRODUCTION SHAPE: ops is proposal guardian"
+            );
             if (a.opsAdmin != a.deployer) {
                 // A separate deployer key is a pure bootstrap artefact: it must hold nothing
                 // at all beyond the ATTESTER concession.
@@ -794,6 +955,78 @@ contract Validate is Script {
         _printPosture(a, targets, names);
     }
 
+    /// @dev Named conversion makes a generated field addition a compile-time change at every
+    /// topology consumer rather than an unnoticed positional shift.
+    function _topologyTargets(M memory a) internal pure returns (PrivilegeTopology.ModuleAddresses memory targets) {
+        return PrivilegeTopology.ModuleAddresses({
+            compliance: a.compliance,
+            usdfr: a.usdfr,
+            reserves: a.reserves,
+            controller: a.controller,
+            vault: a.vault,
+            points: a.points,
+            registry: a.registry,
+            oracle: a.oracle,
+            bridge: a.bridge,
+            curator: a.curator,
+            waterfall: a.waterfall,
+            defaultManager: a.defaultManager,
+            assessedImpairmentSource: a.assessedImpairmentSource,
+            queue: a.queue,
+            sGrove: a.sGrove,
+            grove: a.grove,
+            timelock: a.timelock
+        });
+    }
+
+    /// @dev AUDIT FIX (SWEEP-2 F1, P-31). The seven genesis principals other than
+    ///      `deployer`/`opsAdmin`
+    ///      must hold NO protocol authority: no module AUTHORITY role
+    ///      (`PrivilegeAudit.authorityRoleSet` — admin / upgrader / minter / controller / credit /
+    ///      reserve-admin / loss-burner / fee-accounting) and no timelock PROPOSER or CANCELLER
+    ///      (which, with the open executor asserted above, is DEFAULT_ADMIN-equivalent authority
+    ///      over every module, merely delayed).
+    ///
+    ///      DO NOT DELETE, AND DO NOT NARROW THE PRINCIPAL LIST. Every entry here is an address
+    ///      the deployment scripts NAME and the mainnet validator separately proves distinct;
+    ///      an address worth proving distinct is an address worth scanning. `ATTESTER_ROLE` is
+    ///      deliberately NOT in `authorityRoleSet`, so the two attesters keep the role they exist
+    ///      to hold — this asserts only that they hold nothing BEYOND it.
+    ///
+    ///      Zero entries are skipped rather than scanned: `Validate.M` soft-defaults several of
+    ///      these for legacy manifests, and scanning `address(0)` would assert about the open
+    ///      `EXECUTOR_ROLE` grant rather than about a principal.
+    /// @param a The deployed address set and posture flags.
+    /// @param targets The scanned module addresses.
+    /// @param names The scanned module names.
+    function _assertNamedPrincipalsHoldNoAuthority(M memory a, address[] memory targets, string[] memory names)
+        internal
+        view
+    {
+        address[7] memory principals = [
+            a.proposalGuardian,
+            a.queueKeeper,
+            a.frTreasury,
+            a.feeRecipient,
+            _anchorCurator(a),
+            _attester1(a),
+            a.attester2
+        ];
+        (bytes32[] memory authIds, string[] memory authNames) = PrivilegeAudit.authorityRoleSet();
+        for (uint256 i = 0; i < principals.length; ++i) {
+            address p = principals[i];
+            if (p == address(0)) continue;
+            require(
+                PrivilegeAudit.scanRoles(targets, names, authIds, authNames, p).length == 0,
+                "PRODUCTION SHAPE: a named genesis principal holds a module AUTHORITY role"
+            );
+            require(
+                PrivilegeAudit.scanTimelock(a.timelock, p, true).length == 0,
+                "PRODUCTION SHAPE: a named genesis principal holds timelock PROPOSER/CANCELLER"
+            );
+        }
+    }
+
     /// @dev The receipt itself. Printed in BOTH postures — a handover that satisfied every
     ///      authority assertion still leaves operational power on principals, and the
     ///      operator is entitled to see exactly what.
@@ -801,7 +1034,7 @@ contract Validate is Script {
     /// @param targets The scanned module addresses.
     /// @param names The scanned module names.
     function _printPosture(M memory a, address[] memory targets, string[] memory names) internal view {
-        string[] memory deployerHeld = PrivilegeAudit.scanEverything(targets, names, a.timelock, a.deployer);
+        string[] memory deployerHeld = PrivilegeAudit.scanEverything(targets, names, a.timelock, a.governor, a.deployer);
         string memory banner = a.keepOpsAdmin
             ? "======================= RETAINED PRIVILEGE ======================="
             : "=============== RESIDUAL PRIVILEGE AFTER HANDOVER ===============";
@@ -812,7 +1045,8 @@ contract Validate is Script {
             console2.log("AUTHORITY HANDED OVER: the timelock holds DEFAULT_ADMIN and UPGRADER on");
             console2.log("every module, and no AUTHORITY role (admin/upgrader/minter/");
             console2.log("controller/credit/reserve-admin) nor timelock PROPOSER/CANCELLER");
-            console2.log("survives on either principal. That is ALL that has been proven. Everything");
+            console2.log("survives on either EOA or any named genesis principal. That is ALL");
+            console2.log("that has been proven. Everything");
             console2.log("still held by an operational principal is enumerated below - read it");
             console2.log("before treating this deployment as handed over.");
         }
@@ -824,7 +1058,7 @@ contract Validate is Script {
             console2.log("  RETAINED PRIVILEGE  deployer  -> compliance.KYC_ALLOWLISTED");
         }
         if (a.opsAdmin != a.deployer) {
-            string[] memory opsHeld = PrivilegeAudit.scanEverything(targets, names, a.timelock, a.opsAdmin);
+            string[] memory opsHeld = PrivilegeAudit.scanEverything(targets, names, a.timelock, a.governor, a.opsAdmin);
             console2.log("opsAdmin principal:", a.opsAdmin);
             for (uint256 i = 0; i < opsHeld.length; ++i) {
                 console2.log("  RETAINED PRIVILEGE  opsAdmin  ->", opsHeld[i]);
@@ -834,6 +1068,22 @@ contract Validate is Script {
             }
         } else {
             console2.log("opsAdmin principal == deployer EOA (pairs above cover both).");
+        }
+        if (a.queueKeeper != a.opsAdmin && a.queueKeeper != a.deployer) {
+            string[] memory keeperHeld =
+                PrivilegeAudit.scanEverything(targets, names, a.timelock, a.governor, a.queueKeeper);
+            console2.log("queueKeeper principal:", a.queueKeeper);
+            for (uint256 i = 0; i < keeperHeld.length; ++i) {
+                console2.log("  RETAINED PRIVILEGE  queueKeeper  ->", keeperHeld[i]);
+            }
+        } else {
+            console2.log("queueKeeper principal is already enumerated above.");
+        }
+        string[] memory guardianHeld =
+            PrivilegeAudit.scanEverything(targets, names, a.timelock, a.governor, a.proposalGuardian);
+        console2.log("proposalGuardian principal:", a.proposalGuardian);
+        for (uint256 i = 0; i < guardianHeld.length; ++i) {
+            console2.log("  RETAINED PRIVILEGE  proposalGuardian  ->", guardianHeld[i]);
         }
         console2.log("-----------------------------------------------------------------");
         // AUDIT FIX (round 2, reviewer issue A1): the attestation quorum. This is named in

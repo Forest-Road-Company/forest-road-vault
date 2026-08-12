@@ -30,7 +30,6 @@ library Config {
     /// @dev USD amounts in 18 decimals (USDfr units).
     uint256 internal constant DEFAULT_FIRST_LOSS_PER_CLASS = 10_000_000e18;
     uint256 internal constant SGROVE_UNBONDING_PERIOD = 21 days;
-    uint256 internal constant SGROVE_PER_EVENT_COVERAGE_CAP_BPS = 5_000; // 50%
     // Reward streaming window (ADR-0021 / audit R4-EC1): notified rewards drip linearly
     // over this period rather than distributing instantly, so rewards accrue in real time
     // (Pendle-compatible) and cannot be sandwiched by a deposit-before-harvest. Governance
@@ -46,10 +45,35 @@ library Config {
     uint256 internal constant GOV_PROPOSAL_THRESHOLD = 1_000_000e18; // 0.1% of supply
     uint256 internal constant GOV_QUORUM_FRACTION = 4; // % of total votes
     uint256 internal constant TIMELOCK_MIN_DELAY = 2 days;
+    /// @dev C-01 reserve-loss pre-arm floor. The live arm duration is derived from the
+    ///      bound Governor and Timelock at arm time and may be longer; this immutable
+    ///      floor prevents a broken or shortened timing dependency from failing open.
+    uint256 internal constant RESERVE_LOSS_MIN_PREARM_DURATION = 11 days;
+    uint256 internal constant RESERVE_LOSS_SCHEDULING_SLACK = 1 days;
 
     /// @dev Protocol fee on distributed interest (waterfall), in bps. Launch default
     ///      is deliberately modest; governance-adjustable; economic-review item.
     uint256 internal constant DEFAULT_PROTOCOL_FEE_BPS = 1_000; // 10% of interest
+
+    /// @dev AUDIT FIX (SWEEP-2 S2-F1) — PERMANENT HARD CAP ON THE INTEREST PROTOCOL FEE.
+    ///      DO NOT DELETE AND DO NOT RAISE WITHOUT FOREST ROAD DIRECTION.
+    ///
+    ///      Before this, `WaterfallEngine.setProtocolFee` was bounded only by `Config.BPS` — it was
+    ///      the ONLY fee rate in the protocol with no permanent ceiling, while its three siblings
+    ///      (`setOriginationFee` -> `MAX_ORIGINATION_FEE_BPS`, `sUSDfr.setPerformanceFee` ->
+    ///      `MAX_PERFORMANCE_FEE_BPS`, `setManagementFee` -> `MAX_MANAGEMENT_FEE_BPS`) all carry
+    ///      one and two of those are PUBLISHED to holders (`maxPerformanceFeeBps()`,
+    ///      `maxManagementFeeBps()`) and described here as "permanent in v1". MEASURED: 10,000 bps
+    ///      was accepted and took the ENTIRE senior yield leg (`toVault` 0, `toFee` the whole
+    ///      interest receipt). Because `_routeInterest` takes this fee FIRST, off the same senior
+    ///      income stream the vault's 20% performance cap protects, total capture of senior yield
+    ///      was reachable AROUND a cap the protocol advertises as permanent — and the fee recipient
+    ///      holds plain USDfr, so it is not a cascade layer.
+    ///
+    ///      The LEVEL mirrors `MAX_PERFORMANCE_FEE_BPS` (20%), i.e. 2x the launch default, which
+    ///      is the house convention for "a permanent ceiling with real governance room under it".
+    ///      The level is an economic-review item; the EXISTENCE of the ceiling is not.
+    uint16 internal constant MAX_PROTOCOL_FEE_BPS = 2_000; // 20% of interest — permanent in v1
 
     /// @dev Protocol-level performance fee on sUSDfr NAV gains above the global,
     ///      post-fee high-water mark. Launches at 10% and may only be changed
@@ -95,6 +119,15 @@ library Config {
     ///      ahead of a foreseeable loss (front-running / loss-dodge defense).
     uint64 internal constant DEFAULT_REDEEM_COOLDOWN = 21 days;
 
+    /// @dev AUDIT FIX (SWEEP-2 CSG-F2) — the UPPER bound on `RedemptionQueue.setRedeemCooldown`.
+    ///      The LOWER bound is `DEFAULT_REDEEM_COOLDOWN` itself and is not a separate constant on
+    ///      purpose: the G2W relief ramp in `CollateralRegistry.conservativeSeniorMark` is written
+    ///      against that exact constant, so the floor must BE it — a second constant is a second
+    ///      thing to forget to move (SEAM-1). 180 days is the same order as
+    ///      `SGrove.setUnbondingPeriod`'s `AUDIT FIX (L)` ceiling and exists for the same reason:
+    ///      an unbounded setter can permanently freeze every queued senior exit by fat finger.
+    uint64 internal constant MAX_REDEEM_COOLDOWN = 180 days;
+
     /// @dev C-1 anti-dust-wedge floor. Minimum REALIZED value (in USDfr, 18 decimals) a
     ///      redemption request must be worth to enter the queue — $1. `closeEpoch` never burns a
     ///      position worth zero at the conservative mark; it stops there, so a sub-wei "dust" head
@@ -117,8 +150,9 @@ library Config {
     ///      protocol prerequisite. Forest Road selected instant recognition for launch.
     ///      Governance may enable a non-zero window prospectively after economic review.
     uint64 internal constant DEFAULT_YIELD_VESTING_PERIOD = 0;
-    /// @dev Hard ceiling on the governance-settable vesting window. Bounds how long
-    ///      realized yield can be withheld from the exchange rate.
+    /// @dev Hard ceiling on a newly opened stream. The vault also stores an absolute stream
+    ///      deadline that non-zero governance re-tunes and rollovers may shorten but never
+    ///      extend, so alternating settings cannot defer the same realized yield indefinitely.
     uint64 internal constant MAX_YIELD_VESTING_PERIOD = 30 days;
 
     /// @notice RAMP POSTURE (Forest Road direction, 2026-07-21): concentration limits are
@@ -145,6 +179,45 @@ library Config {
 
     uint256 internal constant BPS = 10_000;
 
+    /// @notice Forward weight, in bps, that an UNATTESTED permissionless past-due mark
+    ///         (`DefaultManager.markPastDue`) carries in the conservative redemption NAV,
+    ///         relative to an ATTESTED declared default. Used as the fallback whenever
+    ///         `DefaultManager`'s governed slot reads zero (see `pastDueWeightBps()`).
+    /// @dev OWNER DECISION (Forest Road, 2026-08-07): "An unattested, permissionless past-due
+    ///      mark should NOT carry the same forward weight as an attested declared default."
+    ///
+    ///      DERIVED, NOT INVENTED. The protocol already governs an evidence ladder — but only on
+    ///      the marked-to-market side, where the three rungs are per-class registry parameters:
+    ///        - `maxLtvBps`         the rung the protocol is willing to be exposed at (healthy);
+    ///        - `marginCallLtvBps`  the rung at which a PERMISSIONLESS, REVERSIBLE early warning
+    ///                              fires (`marginCall`) — forward impairment weight ZERO, it only
+    ///                              starts a cure clock;
+    ///        - `liquidationLtvBps` the terminal rung, where `liquidate` records the FULL
+    ///                              outstanding into the impairment pool and `realizeLoss` becomes
+    ///                              reachable — forward impairment weight ONE.
+    ///      `markPastDue` is the receivable-side analogue of the MARGIN-CALL rung: permissionless,
+    ///      reversible, early, and strictly BEFORE the terminal attested rung (`declareDefault`).
+    ///      Governance placed that early rung exactly half way along the governed deterioration
+    ///      band. From the mainnet-v1 class-5 tuple in `script/Deploy.s.sol`
+    ///      (maxLtv 5_000, marginCall 6_500, liquidation 8_000):
+    ///
+    ///          (marginCallLtvBps - maxLtvBps) / (liquidationLtvBps - maxLtvBps)
+    ///            = (6_500 - 5_000) / (8_000 - 5_000) = 1_500 / 3_000 = 1/2 = 5_000 bps.
+    ///
+    ///      WHY NOT THE ADVANCE RATE ALONE. `maxLtvBps`/`ltvBps` cannot supply this weight, and the
+    ///      reasoning is recorded here so it is not re-attempted: the advance rate is DEFINED as the
+    ///      break-even recovery on the attested claim face (ClaimBridge documents the denominator as
+    ///      `principal * BPS / ltvBps`). Senior loss is `max(0, principal - recovery)`, so at a
+    ///      recovery equal to the advance rate the loss is identically ZERO — the advance rate
+    ///      derives a weight of 0, which re-opens H-5 and D5-03. Worse, every variant that forces a
+    ///      positive number out of it (haircut on face, re-advance against carried principal) is
+    ///      MONOTONE THE WRONG WAY: it marks a more conservatively underwritten facility harder.
+    ///
+    ///      DO NOT set this to zero (re-opens H-5: a conflicted servicer can sit on a declaration
+    ///      while seniors exit at par) or to `BPS` (restores the defect this constant fixes).
+    ///      `CollateralRegistry.setPastDueWeight` enforces both bounds.
+    uint256 internal constant DEFAULT_PAST_DUE_WEIGHT_BPS = 5_000; // 50%
+
     /// @notice sUSDfr entry guard (audit H-3 residual): the maximum ratio of the STRANDED,
     ///         realized-but-unvested yield stream (`sUSDfr.unvestedYield()`) to the DEPOSIT BASE
     ///         (`sUSDfr.totalAssets()`) that vault entry tolerates before `deposit`/`mint` close as
@@ -157,32 +230,45 @@ library Config {
     ///      incumbents who funded it. The hazard scales with `unvestedYield() / totalAssets()`, so
     ///      the guard keys on exactly that ratio.
     ///
-    ///      CALIBRATION (economic-review item; audit finding #3 re-key from 10 to 3).
-    ///      `sUSDfr._capStreamToBase` enforces this boundary against the ACTUAL staked base on
-    ///      both sides of the vault: after every yield delivery AND after every queue outflow,
-    ///      at most `K/(K+1)` of physical vault USDfr remains unvested and any excess is
-    ///      recognized immediately. A healthy low-staking vault therefore cannot be closed by
-    ///      receiving a payment that is large relative to deposits (FRV-FS-03), nor by an
-    ///      ordinary settlement shrinking the base under a live stream (RC-03) — note the cap
-    ///      leaves ZERO slack at the boundary, which is precisely why the outflow side must
-    ///      re-cap rather than rely on headroom. The guard remains meaningful after a senior
-    ///      write-down, which burns the recognized base while leaving an already-live stream
-    ///      physically present.
+    ///      CALIBRATION (economic-review item; audit finding #3 re-key from 10 to 3, then audit
+    ///      R16-01). `sUSDfr._capStreamToBase` enforces a retention boundary against the ACTUAL
+    ///      staked base on both sides of the vault: after every yield delivery AND before every
+    ///      queue outflow, at most `1/(K+1)` of physical vault USDfr remains unvested and any
+    ///      excess is recognized immediately. A healthy low-staking vault therefore cannot be
+    ///      closed by receiving a payment that is large relative to deposits (FRV-FS-03), nor by
+    ///      an ordinary settlement shrinking the base under a live stream (RC-03).
+    ///      The guard remains meaningful after a senior write-down, which burns the recognized
+    ///      base while leaving an already-live stream physically present.
     ///
     ///      WHY 3 AND NOT 10 (the audit residual). The OLD `K = 10` reopened entry the moment the
     ///      ratio fell to 10 — with the stranded stream still 10/11 (~91%) of the vault balance —
     ///      leaving a near-total skim band `(0, 10]` open. It did NOT "close the entire band": near
     ///      the top of that band a fresh depositor could still skim ~91% of the vault as the stream
-    ///      vested. Dropping to `K = 3` collapses the open band to `(0, 3]` — the skim is capped at
-    ///      ~75% of the balance and only reachable while the withheld stream is a MAJORITY of the
-    ///      vault, an already-catastrophic near-total-write-down state, never a healthy one.
-    ///      `K = 3` bounds the excluded stream to 3/4 (~75%) of physical vault assets. It is a
+    ///      vested. Dropping to `K = 3` collapses the open band to `(0, 3)`. `K = 3` bounds the
+    ///      excluded stream at the closure point to 3/4 (~75%) of physical vault assets. It is a
     ///      DIMENSIONLESS ratio, not a wei level, so it holds identically at every vault scale.
+    ///
+    ///      CORRECTION (AUDIT R16-01, HIGH — the previous justification of the open band was
+    ///      FALSE; do not restore it). This comment used to argue that the top of the `(0, K]` band
+    ///      is "only reachable while the withheld stream is a MAJORITY of the vault, an
+    ///      already-catastrophic near-total-write-down state, never a healthy one". That was wrong,
+    ///      and `K` was never what bounded a routine deposit's skim. The FRV-FS-03 inflow leg
+    ///      created exactly that ratio in a HEALTHY vault: the cap retained `K/(K+1)` of the
+    ///      balance, the largest retention the guard tolerates, which parks the vault at precisely
+    ///      `unvestedYield() == K * totalAssets()` — and `_isDegenerate`'s strict `>` left entry
+    ///      OPEN on that point. Servicing payments are sized off book principal, not off live
+    ///      sUSDfr supply, so any payment large relative to the staked base reached it. What bounds
+    ///      the routine skim is the CAP's retention target, now `1/(K+1)`: healthy operation parks
+    ///      at ratio `1/K`, a factor of `K^2` inside this guard, with a minority (25%) of the
+    ///      vault's cash excluded, and the boundary itself is now CLOSED (`>=`). The band between
+    ///      `1/K` and `K` is reachable only through a realized loss or a governance re-pricing of
+    ///      the vesting window.
+    ///
     ///      Kept a constant rather than a governance-tunable for
     ///      this pass: like `SUSDFR_MAX_SHARE_PRICE_COLLAPSE`, it is a defensive safety floor, not an
     ///      operating knob, and adding storage/setter surface to the namespaced vault struct for it
     ///      is unwarranted complexity here; a future pass may promote it to a governed parameter.
-    ///      See `SUSDfr._isDegenerate`.
+    ///      See `SUSDfr._isDegenerate` and `SUSDfr._capStreamToBase`.
     uint256 internal constant SUSDFR_MAX_STRANDED_YIELD_RATIO = 3;
 
     /// @dev AUDIT R15-01. Vault entry closes once the realized per-share rate has collapsed to

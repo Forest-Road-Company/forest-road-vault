@@ -13,26 +13,22 @@ import {Config} from "../../src/libraries/Config.sol";
 import {Roles} from "../../src/libraries/Roles.sol";
 
 /// @title CascadeNavFork — the three-layer loss cascade and the conservative NAV, on a pinned
-///        mainnet fork, against the REAL deployed stack and REAL USDC.
+///        mainnet fork, against a locally deployed current-source stack and REAL USDC.
 ///
 /// @notice `FullLifecycleFork` proves ONE three-layer cascade runs end to end. This suite goes
 ///         after the two mechanisms that have each produced multiple audit findings and whose
 ///         interaction is the subtlest thing in the protocol:
 ///
-///         PM-R-07 — the sGROVE per-EVENT coverage cap is CUMULATIVE and SNAPSHOTTED at the
-///         event's first draw. Before that fix, `coverShortfall` recomputed `reserve * capBps`
-///         on every call, so chunking one facility's loss across several `realizeLoss` calls drew
-///         50%, then 50% of the remainder, and so on — approaching the whole reserve and silently
-///         voiding the staker protection ADR-0021 advertises.
+///         ADR-0035 supersedes PM-R-07: sGROVE is one live shared reserve, with no event-owned
+///         ceiling and no first-draw snapshot. One event may exhaust it; chunking and event order
+///         cannot create more coverage than the physical reserve, and replenishment immediately
+///         becomes reachable by every live event.
 ///
 ///         PM-R-11 — `pendingSeniorImpairment()` must never mark BELOW the true conservative
-///         floor. It netted the residual against the GLOBAL `coverageCapacity()`, which describes
-///         what a *fresh* event could draw; an event that has already drawn can only reach
-///         `snapshot - drawn`. Three separate revisions of that fix were needed: the raw netting,
-///         then a live-capacity netting re-inflated by a permissionless `fundCoverage` or a
-///         `setPerEventCap` raise, then a drain-to-zero/refill that re-seeded the pinned floor.
+///         floor. Its historical capped-tree cases remain recognizable, but this current-source
+///         fixture deliberately re-points them to the owner-selected live-reserve rule.
 ///
-///         All three PM-R-11 variants, the PM-R-07 chunking guarantee, the cascade ORDERING
+///         All PM-R-11 variants, the ADR-0035 shared-reserve guarantee, the cascade ORDERING
 ///         across multiple facilities in multiple classes, the `redemptionTotalAssets() <=
 ///         totalAssets()` invariant, and the clean-recovery restore path are exercised here on
 ///         the real deployment topology rather than a hand-rolled fixture.
@@ -43,9 +39,9 @@ import {Roles} from "../../src/libraries/Roles.sol";
 ///        express the multi-facility / multi-class scenarios this suite needs).
 ///      - `_declare` / `_fundCoverage` / `_postFirstLoss` / `_stakeAsCurator` — small wrappers.
 ///      - `_eventRoom` / `_eventRoomUnclamped` / `_trueAggregateFloor` — an INDEPENDENT model of
-///        PM-R-07's per-event reach and PM-R-11's conservative floor, recomputed from first
-///        principles rather than trusting the contract's own view (CLAUDE.md §1.5, differential
-///        testing).
+///        ADR-0035's physical shared reach and PM-R-11's conservative floor, recomputed from the
+///        reserve balance rather than trusting the compatibility event view (CLAUDE.md §1.5,
+///        differential testing).
 ///      - `_realizeAndVerify` — runs `realizeLoss` and checks the resulting (curator, backstop,
 ///        depositor) split against that independent model, from BOTH the observed balance deltas
 ///        and the emitted `LossRealized` event, and asserts the ordering can never invert.
@@ -65,30 +61,29 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // 1. PM-R-07 — the per-EVENT cap is cumulative and snapshotted
+    // 1. ADR-0035 — one event may consume the live shared reserve, but never more
     // ─────────────────────────────────────────────────────────────────────
 
-    /// @notice ONE facility's loss, realized in FIVE chunks, can never draw more sGROVE coverage
-    ///         in total than the cap snapshotted at its FIRST draw.
-    /// @dev The pre-PM-R-07 per-CALL cap would have covered all 750,000 (50% of the *current*
-    ///      reserve exceeds every 150,000 chunk), leaving depositors untouched. The cumulative cap
-    ///      stops at exactly 500,000 and pushes the remaining 250,000 onto the senior layer —
-    ///      which is precisely the exposure bound an sGROVE staker is promised.
-    function test_fork_perEventCapIsCumulativeAndSnapshottedAtFirstDraw() public onFork {
+    /// @notice ONE facility's loss, realized in FIVE chunks, may consume the shared reserve but
+    ///         can never draw more than its physical funding.
+    /// @dev The 750,000 aggregate loss is below the 1,000,000 reserve, so ADR-0035 requires layer
+    ///      two to absorb every chunk and leaves exactly 250,000 for later events.
+    function test_fork_oneEventChunkingConsumesOnlyTheSharedReserve() public onFork {
         _mintFromUSDC(alice, 5_000_000e6);
         _stake(alice, 4_000_000e18);
         _mintFromUSDC(ops, 1_000_000e6);
         _fundCoverage(ops, 1_000_000e18);
 
         assertEq(sGrove.coverageReserve(), 1_000_000e18, "coverage reserve seeded");
-        assertEq(sGrove.coverageCapacity(), 500_000e18, "a fresh event may draw 50% of the reserve");
+        assertEq(sGrove.coverageCapacity(), 1_000_000e18, "capacity is the whole live reserve");
         assertEq(curator.poolBalance(FILM), 0, "precondition: empty curator pool isolates layer 2");
 
         uint256 id = _originateAndFundIn(FILM, keccak256("BW-CHUNK"), 2_000_000e18, 7500);
         _declare(id);
 
-        (, uint256 capBeforeAnyDraw) = sGrove.eventCoverage(id);
-        assertEq(capBeforeAnyDraw, 0, "no snapshot exists until the first draw");
+        (uint256 drawnBefore, uint256 reachBefore) = sGrove.eventCoverage(id);
+        assertEq(drawnBefore, 0, "nothing drawn before realization");
+        assertEq(reachBefore, 1_000_000e18, "every event immediately sees the shared reserve");
 
         uint256 vaultAtStart = vault.totalAssets();
         uint256 totalCovered;
@@ -99,19 +94,18 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
             totalDepositor += got.depositorLoss;
             assertEq(got.absorbed, 0, "layer 1 is empty in this scenario");
 
-            (uint256 drawn, uint256 cap) = sGrove.eventCoverage(id);
-            assertEq(cap, 500_000e18, "the cap stays pinned at the FIRST draw's snapshot");
-            assertLe(drawn, cap, "PM-R-07: cumulative draw never exceeds the snapshotted cap");
+            (uint256 drawn, uint256 reach) = sGrove.eventCoverage(id);
+            assertEq(reach, 1_000_000e18, "drawn plus live reserve conserves initial funding");
+            assertLe(drawn, reach, "cumulative draw never exceeds physical funding");
             assertEq(drawn, totalCovered, "the event's cumulative draw is exactly what was delivered");
         }
 
-        // The exact chunk-by-chunk split: 150k, 150k, 150k, then 50k (the cap's last room), then 0.
-        assertEq(totalCovered, 500_000e18, "PM-R-07: the EVENT drew exactly its snapshotted cap, no more");
-        assertEq(totalDepositor, 250_000e18, "the residual 250k reached the senior layer");
+        assertEq(totalCovered, 750_000e18, "ADR-0035: layer two absorbed every funded chunk");
+        assertEq(totalDepositor, 0, "senior stays untouched while shared reserve remains");
         assertEq(totalCovered + totalDepositor, 750_000e18, "value conservation across all five chunks");
-        assertEq(sGrove.coverageReserve(), 500_000e18, "half the reserve SURVIVES this event (ADR-0014)");
-        assertEq(vaultAtStart - vault.totalAssets(), 250_000e18, "senior absorbed exactly the uncovered residual");
-        assertEq(defaultManager.liveDefaultCoverageConsumed(), 500_000e18, "PM-R-11 tracks the consumption");
+        assertEq(sGrove.coverageReserve(), 250_000e18, "unspent physical reserve survives for later events");
+        assertEq(vaultAtStart - vault.totalAssets(), 0, "senior absorbed no funded loss");
+        assertEq(defaultManager.liveDefaultCoverageConsumed(), 750_000e18, "consumption remains observable");
         assertEq(
             defaultManager.defaultedContribution(id),
             2_000_000e18 - 750_000e18,
@@ -120,9 +114,9 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         _assertNavOrdering("chunked realization");
     }
 
-    /// @notice A SECOND (and third) event re-snapshots against the SMALLER remaining reserve, so a
-    ///         residual backstop survives every successive credit event.
-    function test_fork_secondEventReSnapshotsAgainstTheSmallerReserve() public onFork {
+    /// @notice Successive events consume the SAME pool in report order; they do not mint separate
+    ///         allowances or preserve a geometric remainder.
+    function test_fork_successiveEventsConsumeTheSameSharedReserve() public onFork {
         _mintFromUSDC(alice, 5_000_000e6);
         _stake(alice, 2_000_000e18);
         _mintFromUSDC(ops, 1_000_000e6);
@@ -136,27 +130,24 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         _declare(c);
 
         Layers memory la = _realizeAndVerify(a, FILM, 500_000e18);
-        assertEq(la.covered, 500_000e18, "event A drew its full cap");
+        assertEq(la.covered, 500_000e18, "event A drew from the shared reserve");
         assertEq(la.depositorLoss, 0, "layer 2 covered A entirely");
         assertEq(sGrove.coverageReserve(), 500_000e18, "reserve halved");
 
         Layers memory lb = _realizeAndVerify(b, FILM, 400_000e18);
-        (, uint256 capB) = sGrove.eventCoverage(b);
-        assertEq(capB, 250_000e18, "event B re-snapshots against the SMALLER reserve (50% of 500k)");
-        assertEq(lb.covered, 250_000e18, "B could only draw its own, smaller cap");
-        assertEq(lb.depositorLoss, 150_000e18, "the rest reached the senior layer");
-        assertEq(sGrove.coverageReserve(), 250_000e18, "reserve halved again");
+        (, uint256 reachB) = sGrove.eventCoverage(b);
+        assertEq(reachB, 500_000e18, "B's cumulative draw plus live reserve is the pool it encountered");
+        assertEq(lb.covered, 400_000e18, "B draws its whole loss from available shared reserve");
+        assertEq(lb.depositorLoss, 0, "senior remains untouched while reserve funds the loss");
+        assertEq(sGrove.coverageReserve(), 100_000e18, "only physical consumption reduces the reserve");
 
         Layers memory lc = _realizeAndVerify(c, FILM, 125_000e18);
-        (, uint256 capC) = sGrove.eventCoverage(c);
-        assertEq(capC, 125_000e18, "event C re-snapshots smaller still");
-        assertEq(lc.covered, 125_000e18, "C drew within its cap");
-        assertEq(lc.depositorLoss, 0, "C needed no senior absorption");
+        (, uint256 reachC) = sGrove.eventCoverage(c);
+        assertEq(reachC, 100_000e18, "C's event view exposes only the pool it encountered");
+        assertEq(lc.covered, 100_000e18, "C exhausts the shared reserve");
+        assertEq(lc.depositorLoss, 25_000e18, "senior takes only the unfunded remainder");
 
-        assertGt(sGrove.coverageReserve(), 0, "ADR-0014: a residual backstop survives every event");
-        assertEq(sGrove.coverageReserve(), 125_000e18, "and its size is exactly the geometric remainder");
-        assertGt(capB, capC, "each successive event's ceiling is strictly smaller");
-        assertGt(500_000e18, capB, "and strictly below the first event's ceiling");
+        assertEq(sGrove.coverageReserve(), 0, "a single later event may exhaust layer two");
         _assertNavOrdering("successive events");
     }
 
@@ -165,7 +156,7 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
     // ─────────────────────────────────────────────────────────────────────
 
     /// @notice A loss inside the curator pool must leave the backstop and the senior layer
-    ///         EXACTLY untouched — the sGROVE event must not even be snapshotted.
+    ///         EXACTLY untouched — the sGROVE event must record no draw.
     function test_fork_curatorFirstLossAbsorbsEntirelyBeforeTheBackstopIsTouched() public onFork {
         _mintFromUSDC(alice, 4_000_000e6);
         _stake(alice, 2_000_000e18);
@@ -189,7 +180,7 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         assertEq(vault.totalAssets(), vaultBefore, "senior assets EXACTLY untouched");
         (uint256 drawn, uint256 cap) = sGrove.eventCoverage(id);
         assertEq(drawn, 0, "the event drew nothing");
-        assertEq(cap, 0, "and no per-event cap was ever snapshotted");
+        assertEq(cap, reserveBefore, "the compatibility view exposes live reserve without a draw");
         assertEq(defaultManager.liveDefaultCoverageConsumed(), 0, "no coverage consumed");
         _assertNavOrdering("layer 1 only");
     }
@@ -263,22 +254,22 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         assertEq(s3.depositorLoss, 0, "s3: senior untouched");
         assertEq(curator.poolBalance(FILM), 0, "s3: FILM first-loss fully wiped");
 
-        // 4. RENEWABLE loss exhausting f2's own event cap: the overflow reaches senior.
+        // 4. RENEWABLE consumes from the same live reserve.
         Layers memory s4 = _realizeAndVerify(f2, RENEWABLE, 300_000e18);
         assertEq(s4.absorbed, 0, "s4: no curator capital in RENEWABLE");
-        assertEq(s4.covered, 200_000e18, "s4: f2's event cap had 200k of room left");
-        assertEq(s4.depositorLoss, 100_000e18, "s4: senior took only the uncoverable remainder");
+        assertEq(s4.covered, 300_000e18, "s4: shared reserve funds the whole loss");
+        assertEq(s4.depositorLoss, 0, "s4: senior stays untouched while reserve remains");
 
-        // 5. FILM loss with layer 1 gone and f1's event cap partly spent.
+        // 5. FILM consumes the last shared reserve, then senior takes the remainder.
         Layers memory s5 = _realizeAndVerify(f1, FILM, 200_000e18);
         assertEq(s5.absorbed, 0, "s5: layer 1 is exhausted");
-        assertEq(s5.covered, 100_000e18, "s5: f1's remaining event room");
-        assertEq(s5.depositorLoss, 100_000e18, "s5: senior took the remainder");
+        assertEq(s5.covered, 50_000e18, "s5: layer 2 contributes its last physical reserve");
+        assertEq(s5.depositorLoss, 150_000e18, "s5: senior took only the unfunded remainder");
 
-        // 6. RENEWABLE again with f2's cap fully spent: senior only.
+        // 6. RENEWABLE again after the shared reserve is exhausted: senior only.
         Layers memory s6 = _realizeAndVerify(f2, RENEWABLE, 100_000e18);
         assertEq(s6.absorbed, 0, "s6: no layer 1");
-        assertEq(s6.covered, 0, "s6: f2's event cap is fully consumed");
+        assertEq(s6.covered, 0, "s6: layer 2 is fully consumed");
         assertEq(s6.depositorLoss, 100_000e18, "s6: senior absorbed alone");
 
         // Aggregate conservation across the whole run.
@@ -289,8 +280,8 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
             + s5.depositorLoss + s6.depositorLoss;
         assertEq(totalLoss, 1_050_000e18, "the run realized 1.05M of loss");
         assertEq(totalAbsorbed, 200_000e18, "layer 1 contributed exactly the posted first-loss");
-        assertEq(totalCovered, 550_000e18, "layer 2 contributed exactly both events' caps");
-        assertEq(totalSenior, 300_000e18, "layer 3 contributed only the true residual");
+        assertEq(totalCovered, 600_000e18, "layer 2 contributed exactly its funded reserve");
+        assertEq(totalSenior, 250_000e18, "layer 3 contributed only the unfunded residual");
         assertEq(totalAbsorbed + totalCovered + totalSenior, totalLoss, "VALUE CONSERVATION over the whole run");
         assertLe(usdfr.totalSupply(), reserves.totalBackingValue(), "BACKING INVARIANT holds throughout");
         _assertNavOrdering("multi-class cascade");
@@ -313,14 +304,14 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         uint256 supplyBefore = usdfr.totalSupply();
         uint256 outstandingBefore = reserves.deployedTo(id);
 
-        _attestLoss(id, 500_000e18, bytes32(0));
+        bytes32 lossEvidence = _attestLoss(id, 500_000e18, bytes32(0));
         vm.prank(ops);
         vm.expectRevert(
             abi.encodeWithSelector(
                 IDefaultManager.DefaultManager_LossExceedsAbsorptionCapacity.selector, id, 500_000e18, vaultAssets
             )
         );
-        defaultManager.realizeLoss(id, 500_000e18, bytes32(0));
+        defaultManager.realizeLoss(id, 500_000e18, lossEvidence);
 
         assertEq(vault.totalAssets(), vaultAssets, "vault untouched by the reverted realization");
         assertEq(usdfr.totalSupply(), supplyBefore, "no USDfr burned");
@@ -348,12 +339,11 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // 3. PM-R-11 — the conservative NAV never under-marks (three variants)
+    // 3. PM-R-11 / ADR-0035 — the conservative NAV follows live shared reach
     // ─────────────────────────────────────────────────────────────────────
 
-    /// @notice VARIANT 1 (the original finding). After a PARTIAL realization has consumed part of
-    ///         the event's snapshotted cap, the reported impairment is at or above the true
-    ///         conservative floor — never below it.
+    /// @notice VARIANT 1 (the original finding). After a PARTIAL realization, the reported
+    ///         impairment is at or above the true floor from the remaining shared reserve.
     function test_fork_navNeverUnderMarksAfterPartialRealization() public onFork {
         _mintFromUSDC(alice, 5_000_000e6);
         _stake(alice, 3_000_000e18);
@@ -362,29 +352,29 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         assertEq(curator.poolBalance(FILM), 0, "empty curator pool isolates layer 2");
 
         uint256 freshCapacity = sGrove.coverageCapacity();
-        assertEq(freshCapacity, 500_000e18, "50% of the 1M reserve");
+        assertEq(freshCapacity, 1_000_000e18, "the full 1M reserve is live capacity");
 
         uint256 principal = 2_000_000e18;
         uint256 id = _originateAndFundIn(FILM, keccak256("BW-V1"), principal, 7500);
         _declare(id);
 
-        // Before any draw the mark is EXACT: the full fresh capacity is legitimately nettable.
+        // Before any draw the mark is EXACT: the full live reserve is legitimately nettable.
         assertEq(defaultManager.liveDefaultCoverageConsumed(), 0, "nothing consumed yet");
         assertEq(
             defaultManager.pendingSeniorImpairment(),
             principal - freshCapacity,
-            "pre-draw: reported == principal less the full fresh capacity"
+            "pre-draw: reported == principal less the full live reserve"
         );
         assertEq(defaultManager.pendingSeniorImpairment(), _trueFloorFor(id), "pre-draw: reported == true floor");
 
-        uint256 partialLoss = freshCapacity * 3 / 5; // 300k, entirely absorbed by layer 2
+        uint256 partialLoss = freshCapacity * 3 / 5; // 600k, entirely absorbed by layer 2
         Layers memory got = _realizeAndVerify(id, FILM, partialLoss);
         assertEq(got.covered, partialLoss, "layer 2 absorbed the whole partial loss");
 
         (uint256 drawn, uint256 snapshot) = sGrove.eventCoverage(id);
-        assertEq(drawn, 300_000e18, "drawn");
-        assertEq(snapshot, 500_000e18, "the cap was snapshotted at the first draw");
-        assertEq(defaultManager.liveDefaultCoverageConsumed(), 300_000e18, "consumption tracked");
+        assertEq(drawn, 600_000e18, "drawn");
+        assertEq(snapshot, 1_000_000e18, "drawn plus live reserve preserves the event-view identity");
+        assertEq(defaultManager.liveDefaultCoverageConsumed(), 600_000e18, "consumption tracked");
 
         uint256 reported = defaultManager.pendingSeniorImpairment();
         uint256 trueFloor = _trueFloorFor(id);
@@ -393,18 +383,18 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         // the true conservative price, pushing the difference onto the seniors who stayed.
         assertGe(reported, trueFloor, "PM-R-11: reported impairment is NEVER below the true floor");
 
-        // The exact arithmetic on the fork: remaining declared, less (capacity - consumed).
+        // Exact arithmetic: remaining declared less the still-live shared reserve.
         uint256 remainingDeclared = principal - partialLoss;
-        assertEq(remainingDeclared, 1_700_000e18, "remaining declared principal");
-        assertEq(sGrove.coverageCapacity(), 350_000e18, "capacity recomputed on the 700k reserve");
-        assertEq(reported, remainingDeclared - (350_000e18 - 300_000e18), "nets capacity MINUS consumed coverage");
-        assertEq(reported, 1_650_000e18, "the exact conservative mark");
-        assertEq(trueFloor, 1_500_000e18, "the true floor (event room 200k, reserve 700k)");
+        assertEq(remainingDeclared, 1_400_000e18, "remaining declared principal");
+        assertEq(sGrove.coverageCapacity(), 400_000e18, "capacity is the remaining reserve");
+        assertEq(reported, remainingDeclared - 400_000e18, "nets the remaining shared reserve once");
+        assertEq(reported, 1_000_000e18, "the exact conservative mark");
+        assertEq(trueFloor, 1_000_000e18, "the independently reconstructed physical floor");
         _assertNavOrdering("variant 1");
     }
 
-    /// @notice VARIANT 2. A PERMISSIONLESS `fundCoverage` top-up after a partial draw must not
-    ///         hand the drawn default coverage it can no longer reach.
+    /// @notice VARIANT 2. A PERMISSIONLESS `fundCoverage` top-up after a partial draw immediately
+    ///         restores protection to the live cohort.
     /// @dev Funded here by `carol`, who is deliberately NOT KYC'd — `fundCoverage` is role-less
     ///      and unpausable by design, so the attack surface is genuinely open to anyone. Carol
     ///      cannot mint USDfr, so alice transfers her some first (USDfr transfers are
@@ -432,17 +422,18 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         uint256 capacityBefore = sGrove.coverageCapacity();
         _fundCoverage(carol, 2_000_000e18);
         assertGt(sGrove.coverageCapacity(), capacityBefore, "precondition: capacity really did jump");
-        assertEq(sGrove.coverageReserve(), 2_700_000e18, "the top-up landed");
+        assertEq(sGrove.coverageReserve(), 2_400_000e18, "the top-up landed after a 600k draw");
 
         uint256 markAfter = defaultManager.pendingSeniorImpairment();
-        assertEq(markAfter, markBefore, "a top-up must NOT lower the mark for an already-drawn default");
-        assertGe(markAfter, _trueFloorFor(id), "still at or above the true conservative floor");
+        assertLt(markAfter, markBefore, "real replenishment must reduce the live cohort's mark");
+        assertEq(markAfter, 0, "the replenished reserve fully protects remaining principal");
+        assertEq(markAfter, _trueFloorFor(id), "reported mark equals the physical floor");
         _assertNavOrdering("variant 2");
     }
 
-    /// @notice VARIANT 3. Governance raising `perEventCapBps` after a partial draw must not
-    ///         re-inflate the netting either.
-    function test_fork_navNeverUnderMarksAfterPerEventCapRaise() public onFork {
+    /// @notice VARIANT 3. ADR-0035 publishes an uncapped identity at every reserve size; probing
+    ///         that compatibility surface after a partial draw must not mutate the mark.
+    function test_fork_navNeverUnderMarksAfterUncappedCapacityProbe() public onFork {
         _mintFromUSDC(alice, 5_000_000e6);
         _stake(alice, 2_000_000e18);
         _mintFromUSDC(ops, 1_000_000e6);
@@ -456,23 +447,21 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         uint256 markBefore = defaultManager.pendingSeniorImpairment();
 
         uint256 capacityBefore = sGrove.coverageCapacity();
-        sGrove.setPerEventCap(uint16(Config.BPS)); // 100% — the largest possible raise
-        (, uint16 capBpsNow) = sGrove.params();
-        assertEq(capBpsNow, uint16(Config.BPS), "the raise really took effect");
-        assertGt(sGrove.coverageCapacity(), capacityBefore, "precondition: capacity really did jump");
+        assertEq(sGrove.coverageCapacityAt(capacityBefore), capacityBefore, "capacity must be identity");
+        (uint16 capBpsNow, uint256 absoluteCap) = sGrove.coverageCapParameters();
+        assertEq(capBpsNow, uint16(Config.BPS), "compatibility bps must publish uncapped identity");
+        assertEq(absoluteCap, type(uint256).max, "compatibility absolute cap must be unbounded");
+        assertEq(sGrove.coverageCapacity(), capacityBefore, "a pure capacity probe mutated reserve");
 
         assertEq(
-            defaultManager.pendingSeniorImpairment(),
-            markBefore,
-            "a cap raise must NOT lower the mark for an already-drawn default"
+            defaultManager.pendingSeniorImpairment(), markBefore, "a capacity identity probe must NOT move the mark"
         );
         assertGe(defaultManager.pendingSeniorImpairment(), _trueFloorFor(id), "still conservative");
         _assertNavOrdering("variant 3");
     }
 
-    /// @notice VARIANT 3b (the round-3 follow-up). DRAIN the reserve to zero, then REFILL it. The
-    ///         pinned capacity floor must NOT be re-seeded at the post-refill capacity — zero is a
-    ///         LEGITIMATE floor, not an "unset" sentinel.
+    /// @notice VARIANT 3b (the round-3 follow-up). DRAIN the reserve to zero, then REFILL it. Under
+    ///         ADR-0035 the refill must immediately rearm the still-live cohort.
     function test_fork_navNeverUnderMarksAfterDrainToZeroThenRefill() public onFork {
         deal(USDC, alice, 12_000_000e6);
         _mintFromUSDC(alice, 12_000_000e6);
@@ -480,14 +469,14 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         _mintFromUSDC(ops, 5_000_000e6);
         _fundCoverage(ops, 1_000_000e18);
 
-        // A snapshots its cap against the FULL 1M reserve by drawing a single wei.
+        // A draws one wei; the compatibility view remains cumulative draw plus live reserve.
         uint256 a = _originateAndFundIn(FILM, keccak256("BW-D-A"), 3_000_000e18, 7500);
         _declare(a);
         _realizeAndVerify(a, FILM, 1);
         (, uint256 snapA) = sGrove.eventCoverage(a);
-        assertEq(snapA, 500_000e18, "A's cap snapshotted against the full 1M reserve");
+        assertEq(snapA, 1_000_000e18, "A's event view equals its draw plus shared reserve");
 
-        // B and C draw the reserve down below A's (larger, earlier) snapshot.
+        // B and C consume the shared reserve in report order.
         uint256 b = _originateAndFundIn(FILM, keccak256("BW-D-B"), 2_000_000e18, 7500);
         _declare(b);
         _realizeAndVerify(b, FILM, 500_000e18);
@@ -495,32 +484,31 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         uint256 c = _originateAndFundIn(FILM, keccak256("BW-D-C"), 1_000_000e18, 7500);
         _declare(c);
         _realizeAndVerify(c, FILM, 250_000e18);
-        assertLt(sGrove.coverageReserve(), snapA, "reserve now strictly below A's snapshot");
+        assertLt(sGrove.coverageReserve(), snapA, "reserve fell through physical draws");
 
-        // A draws again: its room exceeds what is left, so `covered` clamps to the reserve and
-        // takes it to zero, driving the capacity — and therefore the pinned floor — to zero.
+        // A draws again: coverage clamps to the remaining physical reserve and takes it to zero.
         Layers memory drain = _realizeAndVerify(a, FILM, 600_000e18);
-        assertEq(drain.covered, 250_000e18, "clamped to the remaining reserve, not to A's room");
+        assertEq(drain.covered, 250_000e18 - 1, "clamped to the remaining reserve after A's one wei");
         assertEq(sGrove.coverageReserve(), 0, "reserve fully drained");
         assertEq(sGrove.coverageCapacity(), 0, "capacity, and so the pinned floor, is now zero");
         assertGt(defaultManager.liveDefaultCoverageConsumed(), 0, "live defaults hold consumption");
 
-        // Anyone refills, hugely. This must NOT lift the pinned floor.
+        // Anyone refills, hugely. The new capital is real and must become reachable.
         _fundCoverage(ops, 4_000_000e18);
         assertGt(sGrove.coverageCapacity(), 0, "precondition: capacity jumped back");
 
-        // A further draw by a STILL-LIVE default must not re-seed the floor upward.
+        // A further draw by a STILL-LIVE default consumes the replenished reserve.
         _realizeAndVerify(a, FILM, 100_000e18);
 
         uint256 reported = defaultManager.pendingSeniorImpairment();
         assertGe(
             reported, _trueAggregateFloor(_ids3(a, b, c)), "round 3: drain-then-refill stays at or above the floor"
         );
-        // The floor is pinned at ZERO, so nothing at all is netted: the mark equals the raw
-        // residual. A re-seeded floor would have netted ~1.95M of unreachable coverage.
         uint256 residual = defaultManager.declaredDefaultedPrincipal(FILM); // curator pool is empty
         assertEq(curator.poolBalance(FILM), 0, "no layer 1 to net per class");
-        assertEq(reported, residual, "floor pinned at zero: NOTHING is netted against the live defaults");
+        assertEq(sGrove.coverageReserve(), 3_900_000e18, "refilled reserve less A's final draw");
+        assertEq(reported, residual - sGrove.coverageReserve(), "refill is netted exactly once across the cohort");
+        assertEq(reported, 650_000e18 - 1, "exact mark retains A's one-wei initial realization");
         _assertNavOrdering("drain then refill");
     }
 
@@ -533,7 +521,7 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         _postFirstLoss(FILM, 100_000e18);
         _postFirstLoss(RENEWABLE, 300_000e18);
         _fundCoverage(ops, 200_000e18);
-        assertEq(sGrove.coverageCapacity(), 100_000e18, "50% of the 200k reserve");
+        assertEq(sGrove.coverageCapacity(), 200_000e18, "the whole 200k reserve is live capacity");
 
         uint256 f1 = _originateAndFundIn(FILM, keccak256("BW-M1"), 500_000e18, 7500);
         uint256 f2 = _originateAndFundIn(RENEWABLE, keccak256("BW-M2"), 200_000e18, 7000);
@@ -541,12 +529,12 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         _declare(f2);
 
         // residual = (500k FILM - 100k FILM curator) + max(0, 200k RE - 300k RE curator) = 400k.
-        // Then net the global backstop capacity of 100k -> 300k.
+        // Then net the 200k shared reserve -> 200k.
         assertEq(defaultManager.declaredDefaultedPrincipal(FILM), 500_000e18, "FILM declared");
         assertEq(defaultManager.declaredDefaultedPrincipal(RENEWABLE), 200_000e18, "RENEWABLE declared");
         assertEq(
             defaultManager.pendingSeniorImpairment(),
-            300_000e18,
+            200_000e18,
             "an over-collateralised class contributes ZERO residual; the rest nets the global backstop"
         );
 
@@ -557,11 +545,11 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         assertEq(got.depositorLoss, 0, "senior untouched");
 
         // residual = 350k (FILM, curator now 0) + 0 (RENEWABLE) = 350k.
-        // capacity = 50% of 150k = 75k; floor pinned at 75k; consumed 50k -> nettable 25k.
+        // The remaining 150k reserve is offered once to the live cohort.
         assertEq(sGrove.coverageReserve(), 150_000e18, "reserve after the draw");
-        assertEq(sGrove.coverageCapacity(), 75_000e18, "capacity after the draw");
+        assertEq(sGrove.coverageCapacity(), 150_000e18, "capacity equals reserve after the draw");
         assertEq(defaultManager.liveDefaultCoverageConsumed(), 50_000e18, "consumed by the live default");
-        assertEq(defaultManager.pendingSeniorImpairment(), 325_000e18, "exact conservative mark after the draw");
+        assertEq(defaultManager.pendingSeniorImpairment(), 200_000e18, "exact conservative mark after the draw");
         assertGe(
             defaultManager.pendingSeniorImpairment(),
             _trueAggregateFloor(_ids2(f1, f2)),
@@ -610,8 +598,8 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         _fundCoverage(ops, 300_000e18);
         _assertNavOrdering("after a top-up");
 
-        sGrove.setPerEventCap(uint16(Config.BPS));
-        _assertNavOrdering("after a cap raise");
+        assertEq(sGrove.coverageCapacityAt(sGrove.coverageReserve()), sGrove.coverageReserve());
+        _assertNavOrdering("after an uncapped-capacity probe");
 
         _warp(optionalStreamPeriod);
         assertEq(vault.unvestedYield(), 0, "the stream fully vested");
@@ -664,7 +652,7 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         assertEq(vault.redemptionTotalAssets(), vault.totalAssets(), "and the bases agree");
 
         _declare(id);
-        assertEq(defaultManager.pendingSeniorImpairment(), 500_000e18 - 50_000e18, "declared less the 50k capacity");
+        assertEq(defaultManager.pendingSeniorImpairment(), 400_000e18, "declared less the 100k shared reserve");
         assertLt(vault.previewRedeem(unit), exitBefore, "the exit price fell on declaration");
         assertEq(vault.convertToAssets(unit), depositBefore, "the DEPOSIT price did not move (ADR-0022)");
 
@@ -698,8 +686,8 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         Layers memory got = _realizeAndVerify(id, FILM, 100_000e18);
         assertEq(got.covered, 100_000e18, "layer 2 drew while the default was live");
         assertEq(defaultManager.liveDefaultCoverageConsumed(), 100_000e18, "consumption recorded");
-        // 1.9M still declared; capacity 450k on the 900k reserve, less 100k already consumed.
-        assertEq(defaultManager.pendingSeniorImpairment(), 1_550_000e18, "the default still marks the NAV");
+        // 1.9M still declared against 900k of physical shared reserve.
+        assertEq(defaultManager.pendingSeniorImpairment(), 1_000_000e18, "the default still marks the NAV");
 
         // The borrower recovers everything still outstanding.
         uint256 outstanding = reserves.deployedTo(id);
@@ -713,17 +701,14 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         // A LATER, unrelated default must now net the full current capacity with no residue.
         uint256 later = _originateAndFundIn(FILM, keccak256("BW-REL2"), 500_000e18, 7500);
         _declare(later);
-        assertEq(
-            defaultManager.pendingSeniorImpairment(),
-            500_000e18 - sGrove.coverageCapacity(),
-            "a closed-out default leaves NO residue on the next one"
-        );
+        assertGt(sGrove.coverageCapacity(), 500_000e18, "shared reserve exceeds the later default");
+        assertEq(defaultManager.pendingSeniorImpairment(), 0, "a closed-out default leaves NO residue on the next one");
         _assertNavOrdering("after release");
     }
 
     /// @notice Full realization (rather than recovery) also releases the consumption and clears
-    ///         the pinned capacity floor, so a later default is netted against the capacity
-    ///         actually standing at its OWN draw.
+    ///         its ledger row, so a later default is netted against the shared reserve actually
+    ///         standing at declaration.
     function test_fork_fullRealizationReleasesConsumptionAndClearsTheFloor() public onFork {
         _mintFromUSDC(alice, 4_000_000e6);
         _stake(alice, 2_000_000e18);
@@ -746,7 +731,7 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         _declare(second);
         assertEq(sGrove.coverageReserve(), 1_600_000e18, "600k left after the two draws, plus the 1M top-up");
         uint256 capacityNow = sGrove.coverageCapacity();
-        assertEq(capacityNow, 800_000e18, "50% of the 1.6M reserve");
+        assertEq(capacityNow, 1_600_000e18, "capacity equals the full replenished reserve");
         assertEq(
             defaultManager.pendingSeniorImpairment(),
             0,
@@ -770,7 +755,7 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         _stake(alice, 2_000_000e18);
         _mintFromUSDC(ops, 1_000_000e6);
         _fundCoverage(ops, 400_000e18);
-        assertEq(sGrove.coverageCapacity(), 200_000e18, "50% of the 400k reserve");
+        assertEq(sGrove.coverageCapacity(), 400_000e18, "the whole 400k reserve is live capacity");
 
         // Originated at a 33% LTV against a 1.5M mark.
         uint256 id = _originateAndFundMtm(keccak256("BW-MTM"), 500_000e18, 1_500_000e18);
@@ -792,15 +777,15 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         assertEq(defaultManager.declaredDefaultedPrincipal(DIGITAL), 500_000e18, "entered the impairment pool");
         assertEq(defaultManager.defaultedContribution(id), 500_000e18, "the facility's contribution was recorded");
         assertEq(curator.unresolvedDefaults(DIGITAL), 1, "curator withdrawals frozen for the class");
-        assertEq(defaultManager.pendingSeniorImpairment(), 300_000e18, "500k declared less the 200k capacity");
+        assertEq(defaultManager.pendingSeniorImpairment(), 100_000e18, "500k declared less the 400k reserve");
         assertEq(vault.totalAssets(), totalBefore, "the DEPOSIT base is untouched by a declaration");
-        assertEq(vault.redemptionTotalAssets(), totalBefore - 300_000e18, "the EXIT base is marked down");
+        assertEq(vault.redemptionTotalAssets(), totalBefore - 100_000e18, "the EXIT base is marked down");
 
         // The same cascade settles it.
         Layers memory got = _realizeAndVerify(id, DIGITAL, 300_000e18);
         assertEq(got.absorbed, 0, "no curator capital in the digital-assets class");
-        assertEq(got.covered, 200_000e18, "layer 2 up to its event cap");
-        assertEq(got.depositorLoss, 100_000e18, "senior took the remainder");
+        assertEq(got.covered, 300_000e18, "layer 2 funds the entire residual from shared reserve");
+        assertEq(got.depositorLoss, 0, "senior stays untouched while reserve remains");
         _assertNavOrdering("mtm liquidation");
     }
 
@@ -820,8 +805,8 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
 
         Layers memory got = _realizeAndVerify(id, FILM, 400_000e18);
         assertEq(got.absorbed, 100_000e18, "layer 1 first, from the accelerated state too");
-        assertEq(got.covered, 200_000e18, "then layer 2, capped at the event snapshot");
-        assertEq(got.depositorLoss, 100_000e18, "then layer 3");
+        assertEq(got.covered, 300_000e18, "then layer 2 draws the funded residual");
+        assertEq(got.depositorLoss, 0, "layer 3 is untouched while reserve remains");
         _assertNavOrdering("accelerated");
     }
 
@@ -915,7 +900,7 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         curator.withdrawFirstLoss(FILM, 1e18);
 
         assertEq(defaultManager.defaultedContribution(id), 500_000e18, "the mark survived every rejected call");
-        assertEq(defaultManager.pendingSeniorImpairment(), 500_000e18 - 200_000e18, "and still nets correctly");
+        assertEq(defaultManager.pendingSeniorImpairment(), 100_000e18, "and still nets the 400k shared reserve");
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1009,11 +994,23 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
     ///      case re-executes the whole cascade on the fork. Measured cost: ~36s for this test.
     /// forge-config: default.fuzz.runs = 10000
     function testFuzz_fork_cascadeSplitAndOrdering(uint256 lossSeed) public onFork {
+        _assertCascadeSplitAndOrdering(lossSeed);
+    }
+
+    /// @notice Deterministic promotion of the saved Foundry fuzz counterexample for this property.
+    /// @dev The predecessor lived only in cache/fuzz/failures, where removing or renaming the fuzz
+    ///      target could silently orphan it. Keep this ordinary test even while the fuzz campaign
+    ///      remains green.
+    function test_regression_persistedCascadeSplitBoundary() public onFork {
+        _assertCascadeSplitAndOrdering(0xf589);
+    }
+
+    function _assertCascadeSplitAndOrdering(uint256 lossSeed) internal {
         _mintFromUSDC(alice, 5_000_000e6);
         _stake(alice, 3_000_000e18);
         _mintFromUSDC(ops, 1_000_000e6);
         _postFirstLoss(FILM, 150_000e18);
-        _fundCoverage(ops, 500_000e18); // event cap: 250k
+        _fundCoverage(ops, 500_000e18); // one shared layer-two reserve
 
         uint256 id = _originateAndFundIn(FILM, keccak256("BW-FZ1"), 1_000_000e18, 7500);
         _declare(id);
@@ -1023,21 +1020,21 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
 
         assertEq(got.absorbed, loss < 150_000e18 ? loss : 150_000e18, "layer 1 takes min(loss, pool)");
         uint256 residual = loss - got.absorbed;
-        assertEq(got.covered, residual < 250_000e18 ? residual : 250_000e18, "layer 2 takes min(residual, cap)");
+        assertEq(got.covered, residual < 500_000e18 ? residual : 500_000e18, "layer 2 takes min(residual, reserve)");
         assertEq(got.depositorLoss, residual - got.covered, "layer 3 takes only what is left");
-        assertLe(got.covered, 250_000e18, "PM-R-07: never beyond the event cap");
+        assertLe(got.covered, 500_000e18, "ADR-0035: never beyond physical reserve");
         assertLe(vault.redemptionTotalAssets(), vault.totalAssets(), "exit base <= deposit base");
         assertLe(usdfr.totalSupply(), reserves.totalBackingValue(), "backing invariant");
     }
 
     /// @notice FUZZ: chunking ONE facility's loss across two arbitrary realizations can never draw
-    ///         more sGROVE coverage in total than the cap snapshotted at the first draw.
+    ///         more sGROVE coverage in total than the shared reserve initially funded.
     /// forge-config: default.fuzz.runs = 10000
-    function testFuzz_fork_chunkedRealizationNeverExceedsTheEventCap(uint256 seedA, uint256 seedB) public onFork {
+    function testFuzz_fork_chunkedRealizationNeverExceedsTheSharedReserve(uint256 seedA, uint256 seedB) public onFork {
         _mintFromUSDC(alice, 5_000_000e6);
         _stake(alice, 3_000_000e18);
         _mintFromUSDC(ops, 1_000_000e6);
-        _fundCoverage(ops, 1_000_000e18); // event cap: 500k, snapshotted at the first draw
+        _fundCoverage(ops, 1_000_000e18);
 
         uint256 id = _originateAndFundIn(FILM, keccak256("BW-FZ2"), 1_500_000e18, 7500);
         _declare(id);
@@ -1047,18 +1044,21 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
 
         Layers memory a = _realizeAndVerify(id, FILM, chunkA);
         (uint256 drawnA, uint256 capA) = sGrove.eventCoverage(id);
-        assertEq(capA, 500_000e18, "the cap is snapshotted at the FIRST draw, against the full reserve");
+        assertEq(capA, 1_000_000e18, "drawn plus reserve preserves the initial funded amount");
         assertEq(drawnA, a.covered, "cumulative draw after chunk A");
 
         Layers memory b = _realizeAndVerify(id, FILM, chunkB);
         (uint256 drawnB, uint256 capB) = sGrove.eventCoverage(id);
-        assertEq(capB, capA, "the cap does NOT re-snapshot for the same event");
+        assertEq(capB, capA, "cumulative draw plus live reserve remains conserved");
         assertEq(drawnB, a.covered + b.covered, "cumulative draw after chunk B");
-        assertLe(drawnB, capB, "PM-R-07: the EVENT's cumulative draw never exceeds its snapshot");
-        assertGe(sGrove.coverageReserve(), 500_000e18, "half the reserve always survives this one event");
+        assertLe(drawnB, capB, "cumulative delivery never exceeds initial physical funding");
+        uint256 totalLoss = chunkA + chunkB;
+        uint256 expectedCovered = totalLoss < 1_000_000e18 ? totalLoss : 1_000_000e18;
+        assertEq(drawnB, expectedCovered, "chunking cannot change aggregate shared-reserve delivery");
+        assertEq(sGrove.coverageReserve(), 1_000_000e18 - expectedCovered, "reserve delta equals delivery");
         assertEq(
             a.absorbed + a.covered + a.depositorLoss + b.absorbed + b.covered + b.depositorLoss,
-            chunkA + chunkB,
+            totalLoss,
             "value conservation across both chunks"
         );
     }
@@ -1076,12 +1076,16 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         tokenId = bridge.totalOriginated() + 1;
         uint64 maturity = uint64(block.timestamp + 365 days);
         bytes32 ref = keccak256(abi.encode("ref", tokenId));
+        bytes32 stateId = classId == Config.CLASS_FILM_TAX_CREDITS ? keccak256("US-GA") : bytes32(0);
         ClaimBridge.OriginationTerms memory terms =
-            _forkTermsFor(classId, borrowerId, keccak256("US-GA"), principal, ltvBps, 1000, maturity, ref);
-        _attest(tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, keccak256(abi.encode("a", tokenId)));
-        _attest(tokenId, IAttestationOracle.AttestationKind.UCCFiled, keccak256(abi.encode("u", tokenId)));
+            _forkTermsFor(classId, borrowerId, stateId, principal, ltvBps, 1000, maturity, ref);
+        bytes32 termsHash = bridge.creditTermsHash(terms);
+        _attest(tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, termsHash);
+        if (classId != Config.CLASS_DIGITAL_ASSETS) {
+            _attest(tokenId, IAttestationOracle.AttestationKind.UCCFiled, termsHash);
+        }
         // AUDIT FIX (H-4): the CreditIssued quorum commits to these exact terms.
-        _attest(tokenId, IAttestationOracle.AttestationKind.CreditIssued, bridge.creditTermsHash(terms));
+        _attest(tokenId, IAttestationOracle.AttestationKind.CreditIssued, termsHash);
 
         vm.prank(ops);
         uint256 id = bridge.originate(ops, terms);
@@ -1102,11 +1106,12 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         uint64 maturity = uint64(block.timestamp + 365 days);
         bytes32 ref = keccak256(abi.encode("ref", tokenId));
         ClaimBridge.OriginationTerms memory terms =
-            _forkTermsFor(DIGITAL, borrowerId, keccak256("US-NY"), principal, 5000, 1000, maturity, ref);
-        _attest(tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, keccak256(abi.encode("a", tokenId)));
+            _forkTermsFor(DIGITAL, borrowerId, bytes32(0), principal, 5000, 1000, maturity, ref);
+        bytes32 termsHash = bridge.creditTermsHash(terms);
+        _attest(tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, termsHash);
         _attest(tokenId, IAttestationOracle.AttestationKind.Valuation, bytes32(markValue));
         // AUDIT FIX (H-4): CreditIssued is required on EVERY class gate now, bound to the terms.
-        _attest(tokenId, IAttestationOracle.AttestationKind.CreditIssued, bridge.creditTermsHash(terms));
+        _attest(tokenId, IAttestationOracle.AttestationKind.CreditIssued, termsHash);
 
         vm.prank(ops);
         uint256 id = bridge.originate(ops, terms);
@@ -1148,25 +1153,20 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
     }
 
     /// @dev INDEPENDENT MODEL of what `coverShortfall` will deliver for `tokenId` right now:
-    ///      the event's remaining room under its snapshotted cap, clamped by the live reserve.
-    ///      An event that has never drawn would snapshot the CURRENT capacity.
+    ///      every wired event reaches the same physical shared reserve.
     function _eventRoom(uint256 tokenId) internal view returns (uint256) {
         uint256 room = _eventRoomUnclamped(tokenId);
         uint256 reserve = sGrove.coverageReserve();
         return room < reserve ? room : reserve;
     }
 
-    /// @dev As `_eventRoom`, without the reserve clamp (used for the aggregate floor, where the
-    ///      shared reserve is clamped once across all live events rather than per event).
+    /// @dev As `_eventRoom`, before the aggregate floor clamps the shared reserve once across all
+    ///      live events. Under ADR-0035 this is the reserve itself for every wired event.
     function _eventRoomUnclamped(uint256 tokenId) internal view returns (uint256) {
         // The model must mirror the WIRING: with no backstop set, layer 2 does not exist at all.
         if (defaultManager.backstop() != address(sGrove)) return 0;
-        (uint256 drawn, uint256 cap) = sGrove.eventCoverage(tokenId);
-        if (cap == 0) {
-            cap = sGrove.coverageCapacity(); // never drawn: a fresh snapshot would be taken now
-            drawn = 0;
-        }
-        return cap > drawn ? cap - drawn : 0;
+        tokenId; // event identity deliberately cannot change shared physical reach
+        return sGrove.coverageReserve();
     }
 
     /// @dev The TRUE conservative floor for a single live default: its remaining declared
@@ -1215,10 +1215,10 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         want.covered = residual < roomBefore ? residual : roomBefore;
         want.depositorLoss = residual - want.covered;
 
-        _attestLoss(tokenId, loss, bytes32(0));
+        bytes32 lossEvidence = _attestLoss(tokenId, loss, bytes32(0));
         vm.recordLogs();
         vm.prank(ops);
-        defaultManager.realizeLoss(tokenId, loss, bytes32(0));
+        defaultManager.realizeLoss(tokenId, loss, lossEvidence);
 
         got.absorbed = curatorBefore - curator.poolBalance(classId);
         got.covered = reserveBefore - sGrove.coverageReserve();

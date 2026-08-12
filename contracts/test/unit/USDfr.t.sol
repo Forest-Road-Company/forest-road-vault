@@ -74,7 +74,24 @@ contract USDfrTest is TokenLayerFixture {
 
     // ── pause ────────────────────────────────────────────────────────────
 
-    function test_pause_blocksUserTransfersAndMintsButAllowsProtocolBurns() public {
+    /// @notice INVERTED BY AUDIT FIX C4-USDFR-02 — READ THIS BEFORE "RESTORING" IT.
+    ///
+    ///         This test previously asserted, under the name `..._ButAllowsProtocolBurns` and
+    ///         the message "loss and redemption burns survive emergency pause", that a paused
+    ///         USDfr still burned ALICE's balance. Alice is an ordinary KYC'd holder, not a
+    ///         protocol module: the test name claimed a protocol carve-out while the body
+    ///         exercised the USER redemption leg, and it was the only coverage the paused burn
+    ///         path had. That is the defect, not the specification.
+    ///
+    ///         The burn is the protocol's OUTFLOW: `MintRedeemController.redeem` burns a
+    ///         holder's USDfr and releases the USDC behind it. Permitting it under a pause meant
+    ///         the guardian closed the inflow while the reserve kept draining at par. The
+    ///         assertion is therefore inverted, NOT weakened — the burn must now revert. The
+    ///         genuine protocol carve-out (a burn FROM a governance-listed module) is asserted
+    ///         in `test_pause_keepsTheProtocolModuleBurnLive`
+    ///         (`test/audit/Fix_C4USDfr_PointsBrickAndPauseOutflow.t.sol`), which is where the
+    ///         name of this test always belonged.
+    function test_pause_blocksUserTransfersMintsAndTheRedemptionBurn() public {
         vm.prank(address(controller));
         usdfr.mint(alice, 100e18);
 
@@ -89,15 +106,20 @@ contract USDfrTest is TokenLayerFixture {
         vm.prank(address(controller));
         usdfr.mint(alice, 1e18);
 
+        // WAS: `usdfr.burn(alice, 1e18)` succeeding. A user's balance is not a protocol leg.
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         vm.prank(address(controller));
         usdfr.burn(alice, 1e18);
-        assertEq(usdfr.balanceOf(alice), 99e18, "loss and redemption burns survive emergency pause");
+        assertEq(usdfr.balanceOf(alice), 100e18, "a pause must stop the outflow, not only the inflow");
 
         vm.prank(guardian);
         usdfr.unpause();
         vm.prank(alice);
         usdfr.transfer(bob, 1e18);
         assertEq(usdfr.balanceOf(bob), 1e18);
+        vm.prank(address(controller));
+        usdfr.burn(alice, 1e18); // and the redemption burn returns the moment the pause lifts
+        assertEq(usdfr.balanceOf(alice), 98e18);
     }
 
     function test_pause_allowsTransfersBetweenProtocolExemptModules() public {

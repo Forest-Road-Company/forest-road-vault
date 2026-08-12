@@ -81,7 +81,24 @@ contract RecoveryAssessmentFlowTest is CreditLayerFixture {
         assertEq(defaultManager.defaultedContribution(first), 6_000e18);
     }
 
+    /// @dev Stakes `amount` into the sUSDfr vault so there is a senior tranche for the cascade to
+    ///      charge. OWNER DECISION (Forest Road, 2026-08-07): the UNATTESTED past-due cohort is
+    ///      bounded by what `realizeLoss` could ACTUALLY burn from the vault today, so with an
+    ///      empty vault a past-due mark contributes nothing — correctly, since there is no senior
+    ///      NAV to mark and `redemptionTotalAssets()` is zero either way. These assessment tests
+    ///      use the mark to CREATE a non-zero conservative base, so they must stake first. This is
+    ///      a fixture correction, not a weakened assertion: every property they assert
+    ///      (invalidation on every past-due lifecycle transition) is unchanged and still checked.
+    function _stakeSeniors(uint256 amount) internal {
+        _mintUSDfrTo(alice, amount);
+        vm.startPrank(alice);
+        usdfr.approve(address(vault), amount);
+        vault.deposit(amount, alice);
+        vm.stopPrank();
+    }
+
     function test_newPastDueMarkInvalidatesGlobalAssessmentImmediately() public {
+        _stakeSeniors(50_000e18);
         _defaultFilmFacility(6_000e18);
         uint256 pastDueCandidate = _liveFilmFacility(1_000e18);
         uint64 maturity = bridge.facility(pastDueCandidate).maturity;
@@ -94,8 +111,11 @@ contract RecoveryAssessmentFlowTest is CreditLayerFixture {
 
         defaultManager.markPastDue(pastDueCandidate);
 
-        assertEq(defaultManager.pendingSeniorImpairment(), 7_000e18);
-        assertEq(assessed.pendingSeniorImpairment(), 7_000e18, "new past-due risk fails closed");
+        // OWNER DECISION 2026-08-07: 6,000e18 ATTESTED (full weight) + 1,000e18 UNATTESTED at the
+        // governed weight. The invalidation property this test guards is untouched.
+        uint256 mixed = 6_000e18 + registry.weightedPastDueImpairment(1_000e18);
+        assertEq(defaultManager.pendingSeniorImpairment(), mixed);
+        assertEq(assessed.pendingSeniorImpairment(), mixed, "new past-due risk fails closed");
         (,,, bool active,) = assessed.currentAssessment();
         assertFalse(active);
     }
@@ -213,6 +233,7 @@ contract RecoveryAssessmentFlowTest is CreditLayerFixture {
     }
 
     function test_pastDueLifecycleTransitionsAllInvalidateAssessment() public {
+        _stakeSeniors(50_000e18);
         uint256 tokenId = _liveFilmFacility(6_000e18);
         uint64 maturity = bridge.facility(tokenId).maturity;
         vm.warp(uint256(maturity) + defaultManager.graceWindow(FILM) + 1);
@@ -224,8 +245,9 @@ contract RecoveryAssessmentFlowTest is CreditLayerFixture {
 
         // Performing partial repayment re-anchors the past-due mark.
         _repay(tokenId, 0, 1_000e18);
-        assertEq(defaultManager.pendingSeniorImpairment(), 5_000e18);
-        assertEq(assessed.pendingSeniorImpairment(), 5_000e18);
+        uint256 reanchored = registry.weightedPastDueImpairment(5_000e18);
+        assertEq(defaultManager.pendingSeniorImpairment(), reanchored);
+        assertEq(assessed.pendingSeniorImpairment(), reanchored);
         (,,, bool active,) = assessed.currentAssessment();
         assertFalse(active);
 
@@ -239,6 +261,7 @@ contract RecoveryAssessmentFlowTest is CreditLayerFixture {
     }
 
     function test_pastDueToDeclaredConversionInvalidatesEvenWhenAmountIsUnchanged() public {
+        _stakeSeniors(50_000e18);
         uint256 tokenId = _liveFilmFacility(6_000e18);
         uint64 maturity = bridge.facility(tokenId).maturity;
         vm.warp(uint256(maturity) + defaultManager.graceWindow(FILM) + 1);
@@ -253,8 +276,16 @@ contract RecoveryAssessmentFlowTest is CreditLayerFixture {
         vm.prank(servicer);
         defaultManager.declareDefault(tokenId, FILM_REF);
 
-        assertEq(defaultManager.pendingSeniorImpairment(), beforeConversion, "same amount, different legal risk state");
-        assertEq(assessed.pendingSeniorImpairment(), beforeConversion);
+        // INVERTED DELIBERATELY — OWNER DECISION 2026-08-07. The AMOUNT is no longer unchanged
+        // across the conversion, and that is the whole point of the decision: the same principal
+        // carries a heavier forward mark once the attestation quorum has been consumed and
+        // `realizeLoss` has become reachable. The property this test guards — that the conversion
+        // INVALIDATES a standing assessment even though the underlying facility did not move — is
+        // asserted unchanged below, and is now additionally visible in the amount.
+        assertEq(beforeConversion, registry.weightedPastDueImpairment(6_000e18), "unattested: governed weight");
+        assertEq(defaultManager.pendingSeniorImpairment(), 6_000e18, "attested: FULL weight");
+        assertGt(defaultManager.pendingSeniorImpairment(), beforeConversion, "attestation raises the mark");
+        assertEq(assessed.pendingSeniorImpairment(), 6_000e18);
         (,,, bool active,) = assessed.currentAssessment();
         assertFalse(active);
     }

@@ -150,25 +150,26 @@ abstract contract CollateralFixture is Test {
         uint64 maturity,
         bytes32 offchainRef
     ) internal {
-        oracle.setSatisfied(facilityId, IAttestationOracle.AttestationKind.AssignmentExecuted, true);
-        oracle.setSatisfied(facilityId, IAttestationOracle.AttestationKind.UCCFiled, true);
+        bytes32 termsHash = bridge.creditTermsHash(
+            _terms(
+                Config.CLASS_FILM_TAX_CREDITS,
+                borrowerId,
+                stateId,
+                principal,
+                ltvBps,
+                interestRateBps,
+                maturity,
+                offchainRef
+            )
+        );
         oracle.setPayload(
-            facilityId,
-            IAttestationOracle.AttestationKind.CreditIssued,
-            bridge.creditTermsHash(
-                _terms(
-                    Config.CLASS_FILM_TAX_CREDITS,
-                    borrowerId,
-                    stateId,
-                    principal,
-                    ltvBps,
-                    interestRateBps,
-                    maturity,
-                    offchainRef
-                )
-            ),
-            uint64(block.timestamp),
-            true
+            facilityId, IAttestationOracle.AttestationKind.AssignmentExecuted, termsHash, uint64(block.timestamp), true
+        );
+        oracle.setPayload(
+            facilityId, IAttestationOracle.AttestationKind.UCCFiled, termsHash, uint64(block.timestamp), true
+        );
+        oracle.setPayload(
+            facilityId, IAttestationOracle.AttestationKind.CreditIssued, termsHash, uint64(block.timestamp), true
         );
     }
 

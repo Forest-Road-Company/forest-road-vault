@@ -9,6 +9,7 @@ import {SUSDfr} from "../../src/sUSDfr.sol";
 import {IsUSDfr} from "../../src/interfaces/IsUSDfr.sol";
 import {Config} from "../../src/libraries/Config.sol";
 import {Roles} from "../../src/libraries/Roles.sol";
+import {IPointsModule} from "../../src/interfaces/IPointsModule.sol";
 import {TokenLayerFixture} from "../helpers/TokenLayerFixture.sol";
 
 contract SUSDfrTest is TokenLayerFixture {
@@ -146,6 +147,14 @@ contract SUSDfrTest is TokenLayerFixture {
         vault.redeem(shares, bob, queue);
     }
 
+    function test_prepareRedemptionPricing_queueOnly() public {
+        vm.prank(admin);
+        vault.setRedemptionQueue(queue);
+
+        vm.expectRevert(IsUSDfr.SUSDfr_QueueOnly.selector);
+        vault.prepareRedemptionPricing(1e18);
+    }
+
     function test_maxWithdrawAndRedeem_zeroForNonQueue() public {
         _stake(alice, 100e6);
         assertEq(vault.maxWithdraw(alice), 0);
@@ -239,14 +248,32 @@ contract SUSDfrTest is TokenLayerFixture {
     ///      unexercised function. The hook is optional and fail-open, so the view is how an
     ///      operator confirms whether points accrual is wired at all — worth a real assertion,
     ///      not just a line touched.
+    ///
+    ///      RE-POINTED 2026-08-11 (P-48), disposition recorded rather than deleted. This test
+    ///      previously installed `makeAddr("pointsModule")` -- a CODELESS address -- and asserted
+    ///      only that the getter read it back, so it demonstrated the bricked state and asserted
+    ///      nothing about it; the section-5 DoD pass named it a weak assertion on exactly that
+    ///      ground. `setPointsModule` now refuses a codeless module (the C4-USDFR-01 remediation
+    ///      extended to the vault), so the wiring is exercised with a REAL module. The refusal
+    ///      and the brick it prevents are pinned in
+    ///      `test/audit/P48_VaultCodelessPointsModule.t.sol`; no coverage is lost.
     function test_pointsModule_viewReflectsWiring() public {
         vm.prank(admin);
         vault.setPointsModule(address(0));
         assertEq(vault.pointsModule(), address(0), "cleared reads back as disabled");
 
-        address module = makeAddr("pointsModule");
+        address module = address(new SUSDfrViewWiringPoints());
         vm.prank(admin);
         vault.setPointsModule(module);
         assertEq(vault.pointsModule(), module, "wired module reads back");
     }
+}
+
+/// @dev P-48: a real (inert) points module, so the wiring view is exercised without installing
+///      the codeless address the setter now refuses.
+contract SUSDfrViewWiringPoints is IPointsModule {
+    function onSharesTransfer(address, address, uint256) external pure {}
+    function onUSDfrTransfer(address, address, uint256) external pure {}
+    function onCuratorStakeChange(address, uint256, uint256) external pure {}
+    function onCuratorLoss(uint256, uint256, uint256) external pure {}
 }

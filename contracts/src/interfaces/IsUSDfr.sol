@@ -59,6 +59,12 @@ interface IsUSDfr is IERC4626 {
     event YieldNotificationStarted(address indexed module);
     /// @notice Governance cleared a fee-operation lock left behind by a faulty trusted module.
     event FeeOperationEmergencyCleared(address indexed module, uint8 indexed operationKind);
+    /// @notice The queue prepared one settlement chunk against the full remaining settlement
+    ///         outflow bound before taking any price quote.
+    /// @param maxAssets Maximum USDfr that the live settlement can still distribute.
+    /// @param projectedHeld Physical USDfr that would remain if that full bound left the vault.
+    /// @param instantlyRecognized Previously-unvested yield released before pricing.
+    event RedemptionPricingPrepared(uint256 maxAssets, uint256 projectedHeld, uint256 instantlyRecognized);
     /// @notice Timelocked governance changed the prospective annual management-fee rate.
     event ManagementFeeSet(uint16 oldFeeBps, uint16 newFeeBps);
     /// @notice Timelocked governance changed the prospective global performance-fee rate.
@@ -79,6 +85,14 @@ interface IsUSDfr is IERC4626 {
     /// @return managementShares Shares minted for the time-based management fee.
     /// @return performanceShares Shares minted for profit above the high-water mark.
     function accrueFees() external returns (uint256 managementShares, uint256 performanceShares);
+
+    /// @notice Prepares queue redemption pricing against the live settlement's full remaining
+    ///         outflow bound, then checkpoints fees once against the prepared state.
+    /// @dev Queue-only. Using the settlement bound rather than the caller-selected request count
+    ///      makes optional-stream recognition independent of keeper chunking (G4/M-2).
+    /// @param maxAssets Maximum USDfr the settlement can still distribute.
+    /// @return instantlyRecognized Previously-unvested yield released before pricing.
+    function prepareRedemptionPricing(uint256 maxAssets) external returns (uint256 instantlyRecognized);
 
     /// @notice Checkpoints fees and locks checkpoints before an authorized junior-capacity change.
     /// @dev Must be paired atomically with `endFeeNeutralMarkedNavChange` by the same module.

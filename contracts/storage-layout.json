@@ -38,7 +38,9 @@
         "type": "bool",
         "name": "performanceFeeImpairmentSnapshotted"
       }
-    ]
+    ],
+    "namespace": "forestroad.storage.AssessedImpairmentSource",
+    "slot": "0x22d1327051d3790a2a295641453e9e7c93d6a209be7b99c1b2a8eee179860200"
   },
   "contracts/src/AttestationOracle.sol:OracleStorage": {
     "kind": "namespaced",
@@ -58,8 +60,14 @@
       {
         "type": "mapping(uint256 facilityId => uint64)",
         "name": "valuationWatermarks"
+      },
+      {
+        "type": "mapping(bytes32 factKey => FactStatus)",
+        "name": "factStatuses"
       }
-    ]
+    ],
+    "namespace": "forestroad.storage.AttestationOracle",
+    "slot": "0xac9508c5303c175f6440d43a5e3eadcf5afa63ca3c359d94d58c5e5919cebf00"
   },
   "contracts/src/AttestationOracle.sol:Record": {
     "kind": "mapping-value",
@@ -101,7 +109,9 @@
         "type": "mapping(uint256 classId => uint256)",
         "name": "requiredMintAttestations"
       }
-    ]
+    ],
+    "namespace": "forestroad.storage.ClaimBridge",
+    "slot": "0xc9c2da543a2a10e4b712709fb6548fb2c0c97cecbac3457453966d18f1663f00"
   },
   "contracts/src/ClaimBridge.sol:Facility": {
     "kind": "mapping-value",
@@ -238,6 +248,64 @@
       {
         "type": "mapping(bytes32 borrowerId => bool)",
         "name": "borrowerLimitOverridden"
+      },
+      {
+        "type": "uint256",
+        "name": "pastDueWeightBps"
+      }
+    ],
+    "namespace": "forestroad.storage.CollateralRegistry",
+    "slot": "0xd1052ad481f6f823017e987ee43475f3a84883a50e791c5b4260ba144e440700"
+  },
+  "contracts/src/CommitmentLedger.sol:CommitmentLedgerStorage": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "mapping(uint256 eventId => Entry)",
+        "name": "entries"
+      },
+      {
+        "type": "uint256[]",
+        "name": "eventIds"
+      },
+      {
+        "type": "mapping(uint256 eventId => uint256)",
+        "name": "eventIndexPlusOne"
+      },
+      {
+        "type": "uint256",
+        "name": "aggregateDeliverable"
+      },
+      {
+        "type": "uint256",
+        "name": "aggregateRemaining"
+      },
+      {
+        "type": "uint256",
+        "name": "aggregateConsumed"
+      },
+      {
+        "type": "mapping(uint256 eventId => uint8)",
+        "name": "eventMetadata"
+      }
+    ],
+    "namespace": "forestroad.storage.CommitmentLedger",
+    "slot": "0x4284dece5550b2153beac9968b0c4d027165d14c7409a89f67ea4baed9160d00"
+  },
+  "contracts/src/CommitmentLedger.sol:Entry": {
+    "kind": "mapping-value",
+    "fields": [
+      {
+        "type": "uint256",
+        "name": "remainingCoverage"
+      },
+      {
+        "type": "uint256",
+        "name": "remainingPrincipal"
+      },
+      {
+        "type": "uint256",
+        "name": "consumed"
       }
     ]
   },
@@ -256,7 +324,9 @@
         "type": "mapping(address module => bool)",
         "name": "protocolExempt"
       }
-    ]
+    ],
+    "namespace": "forestroad.storage.ComplianceRegistry",
+    "slot": "0x03801aefafc5a4dd742851861c13346935b02c9e4c08bfcf4aed3079668d5300"
   },
   "contracts/src/CuratorModule.sol:ClassPool": {
     "kind": "mapping-value",
@@ -272,6 +342,27 @@
       {
         "type": "uint256",
         "name": "round"
+      },
+      {
+        "type": "uint256",
+        "name": "shareScale"
+      }
+    ]
+  },
+  "contracts/src/CuratorModule.sol:ClosedRound": {
+    "kind": "mapping-value",
+    "fields": [
+      {
+        "type": "uint256",
+        "name": "shares"
+      },
+      {
+        "type": "uint256",
+        "name": "carriedShares"
+      },
+      {
+        "type": "uint256",
+        "name": "shareScale"
       }
     ]
   },
@@ -285,6 +376,10 @@
       {
         "type": "uint256",
         "name": "round"
+      },
+      {
+        "type": "uint256",
+        "name": "shareScale"
       }
     ]
   },
@@ -326,8 +421,30 @@
       {
         "type": "IsUSDfr",
         "name": "feeVault"
+      },
+      {
+        "type": "IReserveManager",
+        "name": "reserveManager"
+      },
+      {
+        "type": "address",
+        "name": "governor"
+      },
+      {
+        "type": "uint64",
+        "name": "custodyPreArmExpiry"
+      },
+      {
+        "type": "uint32",
+        "name": "custodyPreArmCount"
+      },
+      {
+        "type": "mapping(uint256 classId => mapping(uint256 round => ClosedRound))",
+        "name": "closedRounds"
       }
-    ]
+    ],
+    "namespace": "forestroad.storage.CuratorModule",
+    "slot": "0x3ed45dc5309d95eb5c32609ee7ca79f82c5062e7efdb606949190d8a38c9b400"
   },
   "contracts/src/DefaultManager.sol:DefaultStorage": {
     "kind": "namespaced",
@@ -423,6 +540,45 @@
       {
         "type": "uint256",
         "name": "impairmentRevision"
+      },
+      {
+        "type": "mapping(uint256 classId => uint256)",
+        "name": "drawnDefaultPrincipal"
+      },
+      {
+        "type": "uint256",
+        "name": "pastDueReliefAnchor"
+      },
+      {
+        "type": "mapping(uint256 tokenId => uint256)",
+        "name": "coverageRemainingByDefault"
+      },
+      {
+        "type": "uint256",
+        "name": "liveDefaultCoverageRemaining"
+      },
+      {
+        "type": "mapping(uint256 tokenId => ReliefEpisode)",
+        "name": "reliefEpisode"
+      },
+      {
+        "type": "ICommitmentLedger",
+        "name": "commitmentLedger"
+      }
+    ],
+    "namespace": "forestroad.storage.DefaultManager",
+    "slot": "0x336a2060fa754acf2cdfdb8c351983bf3b455537ad219c0e1b705a95a2f8a200"
+  },
+  "contracts/src/DefaultManager.sol:ReliefEpisode": {
+    "kind": "mapping-value",
+    "fields": [
+      {
+        "type": "uint64",
+        "name": "due"
+      },
+      {
+        "type": "uint64",
+        "name": "startedAt"
       }
     ]
   },
@@ -481,8 +637,22 @@
       {
         "type": "IReserveManager",
         "name": "reserves"
+      },
+      {
+        "type": "mapping(address account => bool)",
+        "name": "yieldSink"
+      },
+      {
+        "type": "mapping(address account => bool)",
+        "name": "lossSource"
+      },
+      {
+        "type": "uint256",
+        "name": "subParShortfall"
       }
-    ]
+    ],
+    "namespace": "forestroad.storage.MintRedeemController",
+    "slot": "0x78d32d002402115460f3fdc161605476f91264ca4d3e131f8b3d65ead1f69100"
   },
   "contracts/src/PointsModule.sol:PointsStorage": {
     "kind": "namespaced",
@@ -547,7 +717,9 @@
         "type": "mapping(uint256 classId => uint256)",
         "name": "curatorSurvivalWad"
       }
-    ]
+    ],
+    "namespace": "forestroad.storage.PointsModule",
+    "slot": "0x2b0f9b300e42162fe5738c4f7cc02b34c204f066c1bd41ebe399ed932bb31b00"
   },
   "contracts/src/PointsModule.sol:Position": {
     "kind": "mapping-value",
@@ -630,7 +802,9 @@
         "type": "mapping(uint256 roundId => mapping(uint256 wordIndex => uint256 claimedWord))",
         "name": "claimedBitMap"
       }
-    ]
+    ],
+    "namespace": "forestroad.storage.RecoveryTopUpDistributor",
+    "slot": "0x766d1e5b4c4a9feee10f19eeda7837bd901ae43d964c73e846c8ecdd9a853a00"
   },
   "contracts/src/RecoveryTopUpDistributor.sol:Round": {
     "kind": "mapping-value",
@@ -731,8 +905,14 @@
       {
         "type": "uint256",
         "name": "settlementMinValue"
+      },
+      {
+        "type": "uint256",
+        "name": "nextPricingSessionId"
       }
-    ]
+    ],
+    "namespace": "forestroad.storage.RedemptionQueue",
+    "slot": "0x6ab51628c59659b156fe1c17eb798f5494ec81abdf0900bd9a414fdd72270800"
   },
   "contracts/src/RedemptionQueue.sol:Request": {
     "kind": "array-element",
@@ -777,8 +957,118 @@
       {
         "type": "mapping(uint256 facilityId => uint256)",
         "name": "deployed"
+      },
+      {
+        "type": "IReserveLossAbsorber",
+        "name": "lossAbsorber"
+      },
+      {
+        "type": "IMintRedeemController",
+        "name": "lossController"
+      },
+      {
+        "type": "uint256",
+        "name": "activeReserveLossIncidentId"
+      },
+      {
+        "type": "bytes32",
+        "name": "activeReserveLossEvidenceHash"
+      },
+      {
+        "type": "uint256",
+        "name": "reserveDeficit"
+      },
+      {
+        "type": "mapping(uint256 incidentId => bool)",
+        "name": "reserveLossIncidentUsed"
+      },
+      {
+        "type": "ICuratorModule",
+        "name": "lossCurator"
+      },
+      {
+        "type": "ICascadeBackstop",
+        "name": "lossBackstop"
+      },
+      {
+        "type": "IsUSDfr",
+        "name": "lossVault"
+      },
+      {
+        "type": "IERC20",
+        "name": "lossUSDfr"
+      },
+      {
+        "type": "address",
+        "name": "lossGovernor"
+      },
+      {
+        "type": "address",
+        "name": "lossTimelock"
+      },
+      {
+        "type": "uint256",
+        "name": "recognizedBackingReduction"
+      },
+      {
+        "type": "uint256",
+        "name": "recognizedSurplusAbsorbed"
+      },
+      {
+        "type": "uint256",
+        "name": "recognizedSupplyReduction"
+      },
+      {
+        "type": "uint256",
+        "name": "reserveLossPreArmExpiry"
+      },
+      {
+        "type": "bytes32",
+        "name": "reserveLossPreArmEvidenceHash"
+      },
+      {
+        "type": "bytes32",
+        "name": "reserveLossPreArmTimingHash"
+      },
+      {
+        "type": "bool",
+        "name": "reserveLossPreArmDegraded"
+      },
+      {
+        "type": "bool",
+        "name": "guardianReserveLossArmsEnabled"
+      },
+      {
+        "type": "uint256",
+        "name": "nextReserveLossArmId"
+      },
+      {
+        "type": "uint256",
+        "name": "activeReserveLossArmId"
+      },
+      {
+        "type": "bytes32",
+        "name": "activeReserveLossArmEvidenceHash"
+      },
+      {
+        "type": "mapping(uint256 armId => uint256 nativeUnits)",
+        "name": "reserveLossRecoveryCapacityUnits"
+      },
+      {
+        "type": "uint256",
+        "name": "totalPrincipalImpairment"
+      },
+      {
+        "type": "mapping(uint256 facilityId => uint256)",
+        "name": "principalImpairment"
+      },
+      {
+        "type": "uint256",
+        "name": "exitPrepaidAbsorption"
       }
-    ]
+    ],
+    "namespace": "forestroad.storage.ReserveManager",
+    "slot": "0xc49ad79e2b58679c441432bede06c67f7802343349e70ccf00d8d1ce92bb1b00"
   },
   "contracts/src/SGrove.sol:SGroveStorage": {
     "kind": "namespaced",
@@ -855,7 +1145,9 @@
         "type": "IsUSDfr",
         "name": "feeVault"
       }
-    ]
+    ],
+    "namespace": "forestroad.storage.SGrove",
+    "slot": "0x8947529af82e5c31b771fc0b2221fa39dd660e5ffcb6bd0eae7a66d91fc54b00"
   },
   "contracts/src/SGrove.sol:Unbond": {
     "kind": "array-element",
@@ -948,8 +1240,14 @@
       {
         "type": "uint256",
         "name": "feeOperationSupply"
+      },
+      {
+        "type": "uint64",
+        "name": "vestingEndsAt"
       }
-    ]
+    ],
+    "namespace": "forestroad.storage.SUSDfr",
+    "slot": "0x916ccd28d6453e4642f179fb55de273623b632994ad01fe3a90e7b8b8a7e8900"
   },
   "contracts/src/USDfr.sol:USDfrStorage": {
     "kind": "namespaced",
@@ -962,7 +1260,9 @@
         "type": "IPointsModule",
         "name": "pointsModule"
       }
-    ]
+    ],
+    "namespace": "forestroad.storage.USDfr",
+    "slot": "0xc3fcf06498ffe1eac01a14cc645fb1e6aacc447c7b2a7d46a005df569b521500"
   },
   "contracts/src/WaterfallEngine.sol:WaterfallStorage": {
     "kind": "namespaced",
@@ -1007,6 +1307,8 @@
         "type": "IDefaultManager",
         "name": "defaultManager"
       }
-    ]
+    ],
+    "namespace": "forestroad.storage.WaterfallEngine",
+    "slot": "0xcf0c34fc0be88a30eafd83d03dde401c38c60299c8a6f87d9915e05fa29cdd00"
   }
 }

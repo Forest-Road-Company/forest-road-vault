@@ -84,10 +84,14 @@ minting role already authorizes protocol burns.
 
 ### 7. Vault seed
 
-The permanent anti-inflation seed is $10, not $1,000. It is deposited to the irreversible
-dead sink and that sink is protocol-exempt, so it earns no points. The ERC-4626
-six-decimal virtual-share offset remains the primary inflation defense. The seed is
-small enough that inaccessible shares do not materially capture live users' yield.
+The original clean-v1 decision selected a $10 permanent anti-inflation seed rather than
+$1,000. Following V-01 validation, this launch parameter is amended to **$100** as of
+2026-08-06: at the configured 1.67% reserve ratio it provides $1.67 of available
+liquidity, clearing the $1 queue-settlement floor with margin. It is deposited to the
+irreversible dead sink and that sink is protocol-exempt, so it earns no points. The
+ERC-4626 six-decimal virtual-share offset remains the primary inflation defense. The
+seed remains small enough that inaccessible shares do not materially capture live
+users' yield.
 
 ## Consequences
 
@@ -96,18 +100,19 @@ small enough that inaccessible shares do not materially capture live users' yiel
   this source.
 - The candidate must be deployed fresh on a fork, then fresh on Sepolia, with one manifest
   and frontend configuration updated atomically.
-- Production validation must pin canonical Ethereum USDC, the exact nine attestation
-  kinds, all five active collateral classes, the assessment wrapper, the $10 excluded
-  seed, role topology, and the absence of deferred/legacy modules.
+- Historical v4 evidence remains bound to its $10 excluded seed. Replacement-production
+  validation must pin canonical Ethereum USDC, the exact nine attestation kinds, all
+  five active collateral classes, the assessment wrapper, the **$100 excluded seed**,
+  role topology, and the absence of deferred/legacy modules.
 - Adding another reserve asset, reserve instrument, recovery distributor, attestation
   kind, or compatibility path requires a new decision and audit.
 
 ## Verification
 
-The candidate has been executed on a pinned Ethereum-mainnet fork against canonical USDC:
+The then-current candidate was executed on a pinned Ethereum-mainnet fork against canonical USDC:
 180/180 fork lifecycle, governance, compliance, oracle, points, queue, marked-to-market,
 deployment/handover, and loss-cascade tests pass. That total includes 4/4 exact clean
-deployment, $10 seed, handover, treasury-delegation, strict-validation, manifest, and
+deployment, the then-current $10 seed, handover, treasury-delegation, strict-validation, manifest, and
 broadcast-guard tests. The complete non-fork suite passes with 855 tests and no failures;
 the production frontend passes lint, 321/321 contract↔UI checks, logic/security checks,
 TypeScript compilation, Sepolia production build, strict mainnet-mode production build,

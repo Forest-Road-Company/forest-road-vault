@@ -279,6 +279,44 @@ contract FixH03CuratorFreezeTest is CreditLayerFixture {
         points.onCuratorLoss(FILM, 1, 0);
     }
 
+    /// @dev M-4 regression. This test previously treated a balance-neutral representation
+    ///      change as a real loss epoch; that was unsafe because it froze every curator in the
+    ///      class while the caller could arrange to reconcile its own position. Equal balances
+    ///      now mean no economic loss and therefore must be an exact no-op.
+    function test_M4_equalBalanceLossHookDoesNotCreateAnEpoch() public {
+        _postFirstLoss(anchorCurator, FILM, 1_000_000e18);
+        uint256 epochsBefore = points.curatorLossEpochCount(FILM);
+
+        vm.prank(address(curator));
+        points.onCuratorLoss(FILM, 1_000_000e18, 1_000_000e18);
+
+        assertEq(points.curatorLossEpochCount(FILM), epochsBefore, "balance-neutral hook created a loss epoch");
+        (bool frozen,) = points.curatorFreezeStatus(anchorCurator, FILM);
+        assertFalse(frozen, "balance-neutral hook froze an unrelated curator");
+    }
+
+    /// @dev M-4 end-to-end regression. A real loss legitimately creates one epoch; after both
+    ///      positions reconcile, the share-unit normalization needed by a later post must not
+    ///      manufacture a second epoch or asymmetrically freeze the non-calling curator.
+    function test_M4_shareNormalizationDoesNotCreateALossEpoch() public {
+        _postFirstLoss(anchorCurator, FILM, 600_000e18);
+        _postFirstLoss(secondCurator, FILM, 400_000e18);
+
+        curator.absorbLoss(FILM, 1_000_000e18 - 1);
+        assertEq(points.curatorLossEpochCount(FILM), 1, "the economic loss creates one epoch");
+        points.reconcile(anchorCurator);
+        points.reconcile(secondCurator);
+
+        // The distressed shares/assets ratio forces normalization before this fresh post.
+        _postFirstLoss(anchorCurator, FILM, 1e18);
+
+        assertEq(points.curatorLossEpochCount(FILM), 1, "normalization manufactured a loss epoch");
+        (bool anchorFrozen,) = points.curatorFreezeStatus(anchorCurator, FILM);
+        (bool secondFrozen,) = points.curatorFreezeStatus(secondCurator, FILM);
+        assertFalse(anchorFrozen, "the posting curator was frozen by representation-only accounting");
+        assertFalse(secondFrozen, "an unrelated curator was frozen by representation-only accounting");
+    }
+
     /// @dev The freeze is scoped to curator positions: a share/USDfr position (classId 0) is
     ///      never capped by a class loss.
     function test_H03_shareAndUsdfrPositionsAreUnaffected() public {

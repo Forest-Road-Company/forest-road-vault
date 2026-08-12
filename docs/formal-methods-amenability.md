@@ -106,6 +106,9 @@ production preconditions, it proves:
 - senior loss is nonzero only after curator capacity is exhausted and backstop coverage
   is below the residual.
 
+Under ADR-0035 the backstop capacity in this model is the whole live USDfr reserve. A single event
+may therefore exhaust layer two; later loss reaches senior principal until replenishment.
+
 This artifact is a pure arithmetic model mirroring the split in
 `DefaultManager.realizeLoss`; it does not execute `realizeLoss` itself. Differential
 stateful assertions bind the production split to the model, but that binding is sampled.

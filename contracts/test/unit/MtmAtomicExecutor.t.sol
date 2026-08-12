@@ -69,15 +69,58 @@ contract CrossFacilityThresholdFailureDefaultManager {
     function clearMarginCall(uint256) external pure {}
 }
 
+contract CrossFacilityNotDefaultableManager {
+    uint256 public marginCalls;
+
+    function cureDeadline(uint256) external pure returns (uint64) {
+        return 0;
+    }
+
+    function liquidate(uint256) external pure {
+        revert IDefaultManager.DefaultManager_NotDefaultable(999);
+    }
+
+    function marginCall(uint256) external {
+        ++marginCalls;
+    }
+
+    function clearMarginCall(uint256) external pure {}
+}
+
+contract CrossFacilityCureMissManager {
+    uint256 public marginCalls;
+
+    function cureDeadline(uint256) external pure returns (uint64) {
+        return 1;
+    }
+
+    function liquidate(uint256 tokenId) external pure {
+        // canonical liquidation miss for THIS facility -> the executor may fall through
+        revert IDefaultManager.DefaultManager_ThresholdNotBreached(tokenId, 6500, 8000);
+    }
+
+    function marginCall(uint256) external {
+        ++marginCalls;
+    }
+
+    function clearMarginCall(uint256) external pure {
+        // a cure miss shaped for a DIFFERENT facility must never be accepted as "no action"
+        revert IDefaultManager.DefaultManager_ThresholdNotBreached(999, 6500, 6500);
+    }
+}
+
 contract MtmAtomicExecutorTest is RealOracleFixture {
     uint256 internal constant PRINCIPAL = 500_000e18;
     uint256 internal constant ORIGINAL_MARK = 1_000_000e18;
     uint256 internal constant MARGIN_MARK = 769_230e18; // floor(500k * 10_000 / mark) == 6,500
     uint256 internal constant LIQUIDATION_MARK = 625_000e18; // exactly 8,000 bps
     uint256 internal constant HEALTHY_MARK = 1_000_000e18; // 5,000 bps
+    uint256 internal constant IN_BAND_MARK = 760_000e18; // ~6,578 bps: margin band, below liquidation
 
     address internal keeperA = makeAddr("mtmKeeperA");
     address internal keeperB = makeAddr("mtmKeeperB");
+    /// @dev Holds no role anywhere in the protocol (G8).
+    address internal bystander = makeAddr("mtmBystander");
 
     MtmAtomicExecutor internal executor;
 
@@ -190,17 +233,29 @@ contract MtmAtomicExecutorTest is RealOracleFixture {
         (IAttestationOracle.AttestationInput memory atDeadline, bytes[] memory atDeadlineSigs) =
             _valuation(id, MARGIN_MARK, uint64(block.timestamp));
         bytes32 atDeadlineDigest = realOracle.attestationDigest(atDeadline);
-        (, uint64 acceptedAsOfBefore) = realOracle.latestValuation(id);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IDefaultManager.DefaultManager_ThresholdNotBreached.selector, id, uint256(6500), uint256(6500)
-            )
-        );
-        executor.execute(atDeadline, atDeadlineSigs);
-        assertFalse(realOracle.digestUsed(atDeadlineDigest), "failed second leg rolled back digest");
+        // ASSERTION INVERTED BY THE G8-L1 FIX — read this before "restoring" it.
+        // This leg used to assert that the at-deadline relay REVERTED with
+        // DefaultManager_ThresholdNotBreached(id, 6500, 6500) and rolled the mark back. That
+        // was the defect itself: the cure leg was attempted unconditionally, so a still-breached
+        // mark inside the cure window destroyed the keeper's whole relay and left the book on
+        // the older valuation. The load-bearing property of this test is the STRICT one-second
+        // cure-expiry boundary, and it is asserted more sharply than before: at the deadline no
+        // protective action is taken (no liquidation, no new call, no cure) while the mark
+        // itself now lands. Do not weaken the `Active` / unchanged-deadline assertions.
+        MtmAtomicExecutor.Action atDeadlineAction = executor.execute(atDeadline, atDeadlineSigs);
+        assertEq(uint256(atDeadlineAction), uint256(MtmAtomicExecutor.Action.NoActionAvailable));
+        assertTrue(realOracle.digestUsed(atDeadlineDigest), "the at-deadline mark is kept, not discarded");
         (, uint64 acceptedAsOfAfter) = realOracle.latestValuation(id);
-        assertEq(acceptedAsOfAfter, acceptedAsOfBefore, "failed second leg rolled back mark");
+        assertEq(acceptedAsOfAfter, uint64(deadline), "the at-deadline mark is the accepted one");
+        assertEq(
+            uint256(bridge.facility(id).state), uint256(ClaimBridge.LoanState.Active), "AT the deadline: no liquidation"
+        );
+        assertEq(
+            defaultManager.cureDeadline(id),
+            deadline,
+            "AT the deadline: the standing call is neither cleared nor reopened"
+        );
 
         vm.warp(uint256(deadline) + 1);
         (IAttestationOracle.AttestationInput memory afterDeadline, bytes[] memory afterDeadlineSigs) =
@@ -319,6 +374,101 @@ contract MtmAtomicExecutorTest is RealOracleFixture {
         crossFacilityExecutor.execute(crossFacilityInput, crossFacilitySigs);
         assertEq(crossFacilityProbe.marginCalls(), 0);
         assertFalse(realOracle.digestUsed(crossFacilityDigest));
+    }
+
+    // ── G8 Lows: a bystander must not be able to turn a keeper relay into a total failure ──
+    // Both scenarios below need NO privilege of any kind: `AttestationOracle.attest` is a
+    // permissionless relay of a threshold-signed mark, and `DefaultManager.marginCall` /
+    // `liquidate` are permissionless triggers. That is also why landing the mark instead of
+    // reverting grants the keeper nothing new — anyone could already post the same signed mark
+    // directly to the oracle. Do not "simplify" these back into a plain revert expectation.
+
+    /// @notice G8-L1: a bystander's margin call used to make every executor relay of a
+    ///         still-in-breach mark revert for the whole cure window, discarding the mark.
+    function test_g8_bystanderMarginCallNoLongerRollsBackAnInBreachRelay() public {
+        uint256 id = _liveDigitalFacility();
+
+        (IAttestationOracle.AttestationInput memory seed, bytes[] memory seedSigs) = _freshValuation(id, MARGIN_MARK);
+        vm.prank(bystander);
+        realOracle.attest(seed, seedSigs);
+        vm.prank(bystander);
+        defaultManager.marginCall(id);
+        uint64 standingDeadline = defaultManager.cureDeadline(id);
+        assertGt(standingDeadline, 0, "the bystander opened the call with no privilege at all");
+
+        (IAttestationOracle.AttestationInput memory relay, bytes[] memory relaySigs) = _freshValuation(id, IN_BAND_MARK);
+        bytes32 digest = realOracle.attestationDigest(relay);
+
+        vm.prank(keeperA);
+        MtmAtomicExecutor.Action action = executor.execute(relay, relaySigs);
+
+        assertEq(uint256(action), uint256(MtmAtomicExecutor.Action.NoActionAvailable));
+        assertTrue(realOracle.digestUsed(digest), "the keeper's mark must land, not roll back");
+        (uint256 value,) = realOracle.latestValuation(id);
+        assertEq(value, IN_BAND_MARK, "the deteriorated mark is now on the books");
+        assertEq(defaultManager.cureDeadline(id), standingDeadline, "the standing call is untouched");
+        assertEq(uint256(bridge.facility(id).state), uint256(ClaimBridge.LoanState.Active));
+        (uint256 ltv,) = defaultManager.currentLtvBps(id);
+        assertGe(ltv, 6500, "still in the margin band: no lesser action was skipped");
+        assertLt(ltv, 8000, "and below liquidation: no stronger action was skipped");
+    }
+
+    /// @notice G8-L2: a bystander's liquidation used to brick the executor for that facility
+    ///         permanently — every later relay reverted with DefaultManager_NotDefaultable.
+    function test_g8_bystanderLiquidationNoLongerBricksTheExecutorForThatFacility() public {
+        uint256 id = _liveDigitalFacility();
+
+        (IAttestationOracle.AttestationInput memory seed, bytes[] memory seedSigs) =
+            _freshValuation(id, LIQUIDATION_MARK);
+        vm.prank(bystander);
+        realOracle.attest(seed, seedSigs);
+        vm.prank(bystander);
+        defaultManager.liquidate(id);
+        assertEq(uint256(bridge.facility(id).state), uint256(ClaimBridge.LoanState.Defaulted));
+
+        (IAttestationOracle.AttestationInput memory recovery, bytes[] memory recoverySigs) =
+            _freshValuation(id, HEALTHY_MARK);
+        bytes32 digest = realOracle.attestationDigest(recovery);
+
+        vm.prank(keeperB);
+        MtmAtomicExecutor.Action action = executor.execute(recovery, recoverySigs);
+
+        assertEq(uint256(action), uint256(MtmAtomicExecutor.Action.NoActionAvailable));
+        assertTrue(realOracle.digestUsed(digest), "a defaulted facility must still accept marks");
+        (uint256 value,) = realOracle.latestValuation(id);
+        assertEq(value, HEALTHY_MARK);
+        assertEq(uint256(bridge.facility(id).state), uint256(ClaimBridge.LoanState.Defaulted), "no state change");
+    }
+
+    /// @notice The no-action outcome stays as provenance-strict as the fall-through it sits next
+    ///         to: a NotDefaultable or cure-miss payload naming a DIFFERENT facility is bubbled.
+    function test_g8_noActionOutcomeRejectsCrossFacilityShapedFailures() public {
+        IAttestationOracle.AttestationInput memory notDefaultableInput =
+            _input(997, IAttestationOracle.AttestationKind.Valuation, bytes32(uint256(3e18)), uint64(block.timestamp));
+        bytes32 notDefaultableDigest = realOracle.attestationDigest(notDefaultableInput);
+        CrossFacilityNotDefaultableManager notDefaultableProbe = new CrossFacilityNotDefaultableManager();
+        MtmAtomicExecutor notDefaultableExecutor =
+            new MtmAtomicExecutor(address(realOracle), address(notDefaultableProbe));
+        bytes[] memory notDefaultableSigs = _signedBundle(notDefaultableInput);
+
+        vm.expectRevert(abi.encodeWithSelector(IDefaultManager.DefaultManager_NotDefaultable.selector, 999));
+        notDefaultableExecutor.execute(notDefaultableInput, notDefaultableSigs);
+        assertEq(notDefaultableProbe.marginCalls(), 0);
+        assertFalse(realOracle.digestUsed(notDefaultableDigest));
+
+        IAttestationOracle.AttestationInput memory cureInput =
+            _input(996, IAttestationOracle.AttestationKind.Valuation, bytes32(uint256(4e18)), uint64(block.timestamp));
+        bytes32 cureDigest = realOracle.attestationDigest(cureInput);
+        CrossFacilityCureMissManager cureProbe = new CrossFacilityCureMissManager();
+        MtmAtomicExecutor cureExecutor = new MtmAtomicExecutor(address(realOracle), address(cureProbe));
+        bytes[] memory cureSigs = _signedBundle(cureInput);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IDefaultManager.DefaultManager_ThresholdNotBreached.selector, 999, 6500, 6500)
+        );
+        cureExecutor.execute(cureInput, cureSigs);
+        assertEq(cureProbe.marginCalls(), 0);
+        assertFalse(realOracle.digestUsed(cureDigest));
     }
 
     function _liveDigitalFacility() internal returns (uint256 id) {

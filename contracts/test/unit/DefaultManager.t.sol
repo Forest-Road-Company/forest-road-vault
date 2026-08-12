@@ -39,7 +39,28 @@ contract ToggleCapacityBackstop is ICascadeBackstop {
         return capacity;
     }
 
+    function coverageCapacityAt(uint256 reserve) external view returns (uint256) {
+        if (unavailable) revert("capacity unavailable");
+        return reserve < capacity ? reserve : capacity;
+    }
+
+    function coverageCapParameters() external view returns (uint16 proportionalBps, uint256 absoluteCap) {
+        if (unavailable) revert("capacity unavailable");
+        return (uint16(Config.BPS), capacity);
+    }
+
+    function coverageReserve() external view returns (uint256) {
+        // One unreadable state, one diagnostic: W7's ladder reads the shared reserve before it
+        // asks for any event's counterfactual cap, while the pre-W7 aggregate read did the reverse.
+        if (unavailable) revert("capacity unavailable");
+        return capacity;
+    }
+
     function coverShortfall(uint256, uint256) external pure returns (uint256) {
+        return 0;
+    }
+
+    function remainingCoverage(uint256) external pure returns (uint256) {
         return 0;
     }
 }
@@ -81,6 +102,41 @@ contract DeclaredButMalformedBackstop {
     }
 }
 
+/// @dev W7 pair-return counterpart of `DeclaredButMalformedBackstop`: every other capability is
+///      present, but `coverageCapParameters()` returns only one of its two ABI words.
+contract DeclaredButShortCapParametersBackstop {
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return interfaceId == type(ICascadeBackstop).interfaceId || interfaceId == type(IERC165).interfaceId;
+    }
+
+    function coverageCapacity() external pure returns (uint256) {
+        return 1;
+    }
+
+    function coverageCapacityAt(uint256) external pure returns (uint256) {
+        return 1;
+    }
+
+    function coverageCapParameters() external pure {
+        assembly ("memory-safe") {
+            mstore(0x00, 10000)
+            return(0x00, 0x20)
+        }
+    }
+
+    function coverageReserve() external pure returns (uint256) {
+        return 1;
+    }
+
+    function remainingCoverage(uint256) external pure returns (uint256) {
+        return 0;
+    }
+
+    function coverShortfall(uint256, uint256) external pure returns (uint256) {
+        return 0;
+    }
+}
+
 /// @dev AUDIT R14-04. Models an ALREADY-DEPLOYED backstop that predates the ERC-165 identity
 ///      gate: fully functional capacity, no interface declaration. It starts declaring so it
 ///      can be installed through the ordinary validated path, then drops the declaration.
@@ -105,6 +161,22 @@ contract DroppableIdentityBackstop {
         return capacity;
     }
 
+    function coverageCapacityAt(uint256 reserve) external view returns (uint256) {
+        return reserve < capacity ? reserve : capacity;
+    }
+
+    function coverageCapParameters() external view returns (uint16 proportionalBps, uint256 absoluteCap) {
+        return (uint16(Config.BPS), capacity);
+    }
+
+    function coverageReserve() external view returns (uint256) {
+        return capacity;
+    }
+
+    function remainingCoverage(uint256) external pure returns (uint256) {
+        return 0;
+    }
+
     function coverShortfall(uint256, uint256) external pure returns (uint256) {
         return 0;
     }
@@ -112,6 +184,10 @@ contract DroppableIdentityBackstop {
 
 contract DefaultManagerTest is CreditLayerFixture {
     uint256 internal constant FILM = 1;
+    uint256 internal constant DEFAULT_MANAGER_STORAGE_ROOT =
+        0x336a2060fa754acf2cdfdb8c351983bf3b455537ad219c0e1b705a95a2f8a200;
+    uint256 internal constant LIVE_DEFAULT_COVERAGE_CONSUMED_SLOT = DEFAULT_MANAGER_STORAGE_ROOT + 15;
+    uint256 internal constant COMMITMENT_LEDGER_SLOT = DEFAULT_MANAGER_STORAGE_ROOT + 28;
 
     // ── helpers ──────────────────────────────────────────────────────────
 
@@ -169,7 +245,8 @@ contract DefaultManagerTest is CreditLayerFixture {
         for (uint256 c = 1; c <= Config.NUM_CLASSES; ++c) {
             assertEq(defaultManager.cureWindow(c), Config.DEFAULT_MARGIN_CURE_WINDOW);
         }
-        (address b, address r, address rs, address c_, address cu, address o, address v) = defaultManager.modules();
+        (address b, address r, address rs, address c_, address cu, address o, address v, address ledger) =
+            defaultManager.modules();
         assertEq(b, address(bridge));
         assertEq(r, address(registry));
         assertEq(rs, address(reserves));
@@ -177,7 +254,45 @@ contract DefaultManagerTest is CreditLayerFixture {
         assertEq(cu, address(curator));
         assertEq(o, address(oracle));
         assertEq(v, address(vault));
+        assertGt(ledger.code.length, 0);
         assertEq(defaultManager.backstop(), address(backstopMock));
+    }
+
+    function test_initializeCommitmentLedger_migratesAnUndrawnPreLedgerProxy() public {
+        // A proxy upgraded from the pre-ledger implementation has the append-only tail at zero.
+        // Fabricate that exact state without replacing the implementation or bypassing access
+        // control; the governed migration must deploy and wire one child exactly once.
+        vm.store(address(defaultManager), bytes32(COMMITMENT_LEDGER_SLOT), bytes32(0));
+        vm.prank(admin);
+        defaultManager.initializeCommitmentLedger();
+
+        (,,,,,,, address ledger) = defaultManager.modules();
+        assertGt(ledger.code.length, 0);
+        vm.prank(admin);
+        vm.expectRevert(
+            abi.encodeWithSelector(IDefaultManager.DefaultManager_CommitmentLedgerAlreadySet.selector, ledger)
+        );
+        defaultManager.initializeCommitmentLedger();
+    }
+
+    function test_initializeCommitmentLedger_refusesToEraseConsumedCoverage() public {
+        vm.store(address(defaultManager), bytes32(COMMITMENT_LEDGER_SLOT), bytes32(0));
+        vm.store(address(defaultManager), bytes32(LIVE_DEFAULT_COVERAGE_CONSUMED_SLOT), bytes32(uint256(1)));
+        vm.prank(admin);
+        vm.expectRevert(
+            abi.encodeWithSelector(IDefaultManager.DefaultManager_CommitmentLedgerMigrationUnsafe.selector, 1)
+        );
+        defaultManager.initializeCommitmentLedger();
+    }
+
+    function test_initializeCommitmentLedger_refusesToEraseUndrawnDefaults() public {
+        _defaulted(100_000e18);
+        vm.store(address(defaultManager), bytes32(COMMITMENT_LEDGER_SLOT), bytes32(0));
+        vm.prank(admin);
+        vm.expectRevert(
+            abi.encodeWithSelector(IDefaultManager.DefaultManager_CommitmentLedgerMigrationUnsafe.selector, 100_000e18)
+        );
+        defaultManager.initializeCommitmentLedger();
     }
 
     // ── declareDefault / accelerate ──────────────────────────────────────
@@ -337,6 +452,184 @@ contract DefaultManagerTest is CreditLayerFixture {
         _defaulted(300_000e18);
         assertEq(defaultManager.pendingSeniorImpairment(), 0, "juniors fully cover, senior unmarked");
         assertEq(defaultManager.performanceFeeImpairment(), 300_000e18, "junior cover is not senior performance");
+    }
+
+    function test_reserveWriteDownUsesCuratorThenBackstopThenSenior() public {
+        _postFirstLoss(anchorCurator, FILM, 10e18);
+        _fundBackstop(10e18);
+        _stakeVault(alice, 100e18);
+
+        _armReserveLoss(10);
+        _createReserveShortfall(25e18);
+        _ratifyCurrentReserveLoss(25e18);
+
+        assertEq(curator.poolBalance(FILM), 0, "curator first-loss must be exhausted first");
+        assertEq(usdfr.balanceOf(address(backstopMock)), 0, "sGROVE reserve must absorb second");
+        assertEq(vault.totalAssets(), 95e18, "senior absorbs only the final residual");
+        assertEq(usdfr.totalSupply(), 95e18, "supply falls by the custody loss");
+        assertEq(reserves.totalBackingValue(), 95e18, "backing falls by the paired amount");
+        assertTrue(controller.backingInvariantHolds(), "C-01: no supply-over-backing gap");
+    }
+
+    function test_reserveWriteDownBeyondVaultCapacitySucceedsWhenJuniorsCover() public {
+        _mintUSDfrTo(alice, 100e18);
+        vm.startPrank(alice);
+        usdfr.approve(address(vault), 40e18);
+        vault.deposit(40e18, alice);
+        vm.stopPrank();
+
+        _postFirstLoss(anchorCurator, FILM, 30e18);
+        _fundBackstop(20e18);
+        _armReserveLoss(11);
+        _createReserveShortfall(50e18);
+        _ratifyCurrentReserveLoss(50e18);
+
+        assertEq(curator.poolBalance(FILM), 0, "layer 1 supplies 30");
+        assertEq(usdfr.balanceOf(address(backstopMock)), 0, "layer 2 supplies 20");
+        assertEq(vault.totalAssets(), 40e18, "senior is untouched when juniors cover");
+        assertEq(usdfr.totalSupply(), 100e18, "the 50 junior tokens were burned");
+        assertEq(reserves.totalBackingValue(), 100e18, "the full loss was recorded");
+        assertTrue(controller.backingInvariantHolds(), "junior coverage preserves backing");
+    }
+
+    function test_reserveWriteDownAllocatesCuratorsBySnapshotPoolBalanceWithDeterministicDust() public {
+        uint256[5] memory posted = [uint256(1e18), 1e18, 1e18, 1e18, 2e18];
+        for (uint256 i = 0; i < posted.length; ++i) {
+            _postFirstLoss(anchorCurator, i + 1, posted[i]);
+        }
+
+        _armReserveLoss(12);
+        _createReserveShortfall(1e12); // one native USDC unit; deliberately indivisible by six
+        _ratifyCurrentReserveLoss(1e12);
+
+        uint256[5] memory absorbed =
+            [uint256(166_666_666_669), 166_666_666_666, 166_666_666_666, 166_666_666_666, 333_333_333_333];
+        uint256 sum;
+        for (uint256 i = 0; i < posted.length; ++i) {
+            assertEq(curator.poolBalance(i + 1), posted[i] - absorbed[i], "pool-weighted allocation drift");
+            sum += absorbed[i];
+        }
+        assertEq(sum, 1e12, "all rounding dust must have a deterministic home");
+        assertEq(vault.totalAssets(), 0, "junior capacity prevents senior loss");
+        assertEq(reserves.reserveDeficit(), 0);
+        assertTrue(controller.backingInvariantHolds());
+    }
+
+    function test_reserveWriteDownReusesOneSharedReserveAcrossPartialIncidentWrites() public {
+        _fundBackstop(50e18);
+        _stakeVault(alice, 20e18);
+        (, uint256 expectedIncidentId) = _armReserveLoss(13);
+
+        _createReserveShortfall(30e18);
+        (uint256 incidentId,) = _ratifyCurrentReserveLoss(30e18);
+        _createReserveShortfall(30e18);
+        (uint256 repeatedIncidentId,) = _ratifyCurrentReserveLoss(30e18);
+        assertEq(incidentId, expectedIncidentId);
+        assertEq(repeatedIncidentId, incidentId, "every tranche must reuse the arm-derived incident id");
+
+        (uint256 drawn, uint256 cap) = backstopMock.eventCoverage(incidentId);
+        assertEq(cap, 50e18, "event view must equal cumulative draw once reserve is empty");
+        assertEq(drawn, 50e18, "splitting cannot deliver more than the shared reserve");
+        assertEq(vault.totalAssets(), 10e18, "senior receives only the amount above the shared reserve");
+        assertEq(reserves.reserveDeficit(), 0);
+        assertTrue(controller.backingInvariantHolds());
+    }
+
+    function test_reserveWriteDownCannotMutateF1801FacilityConsumptionAccounting() public {
+        _fundBackstop(200e18);
+        _stakeVault(alice, 100e18);
+        uint256 tokenId = _defaulted(300e18);
+        _attestLoss(tokenId, 50e18, FILM_REF);
+        vm.prank(servicer);
+        defaultManager.realizeLoss(tokenId, 50e18, FILM_REF);
+
+        uint256 consumedByFacility = defaultManager.coverageConsumedByDefault(tokenId);
+        uint256 drawnPrincipal = defaultManager.drawnDefaultPrincipal(FILM);
+        uint256 liveConsumed = defaultManager.liveDefaultCoverageConsumed();
+        uint256 capacityFloor = defaultManager.liveDefaultCapacityFloor();
+        assertGt(consumedByFacility, 0, "fixture must arm F-18-01 accounting");
+        assertEq(capacityFloor, 250e18, "compatibility view must expose the live remaining-principal claim");
+        assertEq(
+            capacityFloor,
+            defaultManager.liveDefaultCoverageRemaining(),
+            "compatibility and canonical observability must agree"
+        );
+
+        (, uint256 expectedIncidentId) = _armReserveLoss(14);
+        _createReserveShortfall(20e18);
+        (uint256 incidentId,) = _ratifyCurrentReserveLoss(20e18);
+        assertEq(incidentId, expectedIncidentId);
+
+        assertEq(defaultManager.coverageConsumedByDefault(tokenId), consumedByFacility);
+        assertEq(defaultManager.drawnDefaultPrincipal(FILM), drawnPrincipal);
+        assertEq(defaultManager.liveDefaultCoverageConsumed(), liveConsumed);
+        assertEq(
+            defaultManager.liveDefaultCapacityFloor(),
+            capacityFloor,
+            "an unrelated custody loss cannot mutate the facility commitment"
+        );
+
+        (uint256 custodyDrawn,) = backstopMock.eventCoverage(incidentId);
+        (uint256 facilityDrawn,) = backstopMock.eventCoverage(tokenId);
+        assertEq(custodyDrawn, 20e18, "custody incident uses its own upper-namespace cap");
+        assertEq(facilityDrawn, consumedByFacility, "facility event remains in the lower namespace");
+        assertLt(tokenId, 1 << 255);
+        assertGe(incidentId, 1 << 255);
+    }
+
+    function test_unabsorbableReserveWriteDownExhaustsCascadeThenRecordsDeficit() public {
+        _postFirstLoss(anchorCurator, FILM, 10e18);
+        _fundBackstop(10e18);
+        _stakeVault(alice, 10e18);
+        _mintUSDfrTo(alice, 20e18); // deliberately unstaked supply beyond all absorber capacity
+        _armReserveLoss(15);
+
+        _createReserveShortfall(50e18);
+        _ratifyCurrentReserveLoss(50e18);
+
+        assertEq(curator.poolBalance(FILM), 0);
+        assertEq(usdfr.balanceOf(address(backstopMock)), 0);
+        assertEq(vault.totalAssets(), 0);
+        assertEq(reserves.reserveDeficit(), 20e18, "unabsorbed remainder is recorded, not rolled back");
+        assertFalse(controller.backingInvariantHolds(), "genuine insolvency freezes mint/redeem");
+    }
+
+    function test_laterReserveLossStillConsumesRefilledJuniorCapitalWhileDeficitIsLatched() public {
+        _postFirstLoss(anchorCurator, FILM, 10e18);
+        _fundBackstop(10e18);
+        _stakeVault(alice, 10e18);
+        _mintUSDfrTo(alice, 20e18);
+        _armReserveLoss(16);
+
+        _createReserveShortfall(50e18);
+        _ratifyCurrentReserveLoss(50e18);
+        assertEq(reserves.reserveDeficit(), 20e18);
+
+        vm.prank(alice);
+        usdfr.transfer(anchorCurator, 5e18);
+        vm.startPrank(anchorCurator);
+        usdfr.approve(address(curator), 5e18);
+        curator.postFirstLoss(FILM, 5e18);
+        vm.stopPrank();
+
+        vm.startPrank(admin);
+        reserves.grantRole(Roles.CONTROLLER_ROLE, admin);
+        vm.stopPrank();
+        usdc.mint(bob, 10e6);
+        vm.prank(bob);
+        usdc.approve(address(reserves), 10e6);
+        vm.prank(admin);
+        reserves.depositUSDC(bob, 10e6);
+        vm.prank(admin);
+        reserves.revokeRole(Roles.CONTROLLER_ROLE, admin);
+
+        _createReserveShortfall(5e18);
+        _ratifyCurrentReserveLoss(5e18);
+
+        assertEq(curator.poolBalance(FILM), 0, "later custody loss must consult refilled layer 1");
+        assertEq(usdfr.totalSupply(), 15e18, "refilled junior capital was burned despite the old deficit");
+        assertEq(reserves.totalBackingValue(), 5e18);
+        assertEq(reserves.reserveDeficit(), 10e18, "latch tracks the measured remaining deficit");
     }
 
     function test_onDefaultResolved_revertsUnlessResolved() public {
@@ -909,6 +1202,13 @@ contract DefaultManagerTest is CreditLayerFixture {
         vm.prank(admin);
         defaultManager.setBackstop(address(declaredMalformed));
 
+        DeclaredButShortCapParametersBackstop shortPair = new DeclaredButShortCapParametersBackstop();
+        vm.expectRevert(
+            abi.encodeWithSelector(IDefaultManager.DefaultManager_InvalidBackstop.selector, address(shortPair))
+        );
+        vm.prank(admin);
+        defaultManager.setBackstop(address(shortPair));
+
         assertEq(defaultManager.backstop(), address(backstopMock));
     }
 
@@ -1014,6 +1314,22 @@ contract DefaultManagerTest is CreditLayerFixture {
         defaultManager.upgradeToAndCall(newImpl, "");
         vm.prank(admin);
         defaultManager.upgradeToAndCall(newImpl, "");
+    }
+
+    function test_upgrade_doesNotClaimAnImpossibleBackstopOrderingGate() public {
+        DroppableIdentityBackstop incumbent = new DroppableIdentityBackstop();
+        incumbent.setCapacity(300_000e18);
+        vm.prank(admin);
+        defaultManager.setBackstop(address(incumbent));
+
+        // It was installable before the identity gate existed. Dropping the declaration models a
+        // still-live pre-ledger SGrove proxy; capability remains the only honest installation
+        // requirement, while UUPS authorization itself makes no impossible in-place promise.
+        incumbent.setDeclares(false);
+        address newImpl = address(new DefaultManager());
+        vm.prank(admin);
+        defaultManager.upgradeToAndCall(newImpl, "");
+        assertEq(defaultManager.backstop(), address(incumbent));
     }
 
     // ── fuzz: cascade ordering is exact for ANY capitalization ───────────

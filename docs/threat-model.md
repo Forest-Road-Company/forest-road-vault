@@ -137,6 +137,10 @@ attestation-trust acceptance (Part 11) exist to manage.
   staked GROVE principal is **never slashed** — the backstop absorbs losses from its funded
   coverage reserve, not by slashing stakers — so the unbond is an exit/voting/obligation delay,
   NOT protection of slashable staker principal (do not represent it as the latter externally).
+- *Backstop exhaustion / report ordering* → ADR-0035 intentionally gives each reported shortfall
+  access to the whole live USDfr reserve. One event can drain layer two completely; senior
+  principal absorbs 100% of later loss until replenishment. Report order therefore allocates the
+  shared protection, an owner-accepted economic consequence that must remain explicit externally.
 - *Sanctions-immune fee wallet (`protocolExempt`)* → accepted (liveness-critical inbound); counsel
   to revisit a sweep-sink / leg-split before third-party capital (OWNER_DECISIONS #5).
 - *Reward sandwich (deposit-before-harvest)* → rewards **stream** over a duration; a
@@ -195,7 +199,7 @@ code defect. Full remediations in `security-review.md`.
 | R5-EC1 | Low | An sGROVE reward slice streamed while `totalStaked == 0` is stranded with no governance sweep; a dominant staker can weaponize it to burn a funder's routed rewards (no attacker profit; custody invariant intact). | **Recommended:** a governance `sweepStrandedRewards()` (ADR-0021 economic decision → Forest Road). |
 | R5-OR1 | Info | (a) `PaymentReceived` is one record slot per facility — a second attested payment overwrites the first before distribution (liveness). (b) Oracle `pause()` blocks only new submissions; the guardian must ALSO pause `DefaultManager`/`ClaimBridge` to freeze the margin/mint path (two-switch coordination). | Ops notes; no code change. |
 | R5-I1 | Info | `liftDefaultFreeze` is per-class, not tokenId-bound — a governance double-lift could reopen the R4-EC2 window (inside the trusted-timelock boundary). | Governance-ops discipline; consider tokenId-binding lifts. |
-| R5-TEST | Med (rigor) | Test-strength gaps: the stateful cascade invariant composes the uncapped mock backstop (cap covered elsewhere); the backing invariant is self-referential with no config-transition fuzz. | R6 fixed the backing half (independent recompute + config fuzz, mutation-proven). |
+| R5-TEST | Med (rigor) | Historical test-strength gap: the stateful cascade invariant used an uncapped mock while the audit-era production backstop was capped; the backing invariant was self-referential with no config-transition fuzz. | R6 fixed the backing half. ADR-0035 later made the production reserve intentionally uncapped per event; current production-backed cascade suites still bind the live shared-reserve behavior. |
 | **R7-SM1** | Low | A facility `originate`d then never funded sits in `Pending` forever (only exit is `Pending→Active` via `fund`); its class/borrower/state concentration exposure is stranded, keeping `CuratorModule._requiredFirstLoss` inflated and curator first-loss headroom locked. **Conservative direction** — only shrinks future capacity, never permits over-concentration; value conservation intact. | **Governance-recoverable WITHOUT an upgrade** (timelock `grantRole(CREDIT_ROLE)` → `recordExposureDecrease`). Proper fix: a future governed `cancel/expire` transition out of `Pending`. Not a redeploy blocker. |
 | ADR27-VAL1 | High (governance trust) | A malicious or unsupported `AssessedImpairmentSource.setAssessment` can reduce the queue haircut to zero while a real senior loss remains likely, allowing early redeemers to shift that loss to stayers. | Timelock-only; amount can never exceed the zero-recovery base, expires after at most 30 days, commits to a published evidence hash, and automatically fails back to zero recovery. It is also bound to `DefaultManager`'s monotonic revision and to the live **risk-state** hash, so every new default/past-due/recovery/realization or curator first-loss change invalidates it immediately. **sGROVE backstop capacity is deliberately excluded from that hash and compared directionally instead (RC-01 era fix for FRV-FS-04): a capacity DECREASE invalidates, a capacity INCREASE does not.** An increase can only make a published assessment more conservative, whereas an exact-match rule let anyone void a depositor-favourable assessment with a dust `fundCoverage` donation, since that entry point is permissionless. Independent valuation-policy and monitoring sign-off remain mainnet gates. |
 | ADR31-EQ1 | Medium (economic) | A single global HWM is not a depositor tax lot: someone entering during a drawdown shares fee-free recovery to the old protocol peak and may share a later fee on pre-entry gains deferred by performance impairment, even while junior support makes queued-exit impairment zero. There is no clawback of crystallized fees after a later loss. | Deliberate scalable design; the Stake surface independently warns whenever `feeExchangeRate() < highWaterMark()`, monitor both values, and obtain economic/legal acceptance. Per-investor lots/share classes are a future redesign, not a parameter change. |
@@ -228,11 +232,11 @@ fork tests and a Halmos proof of the modeled cascade conservation/ordering arith
 Those results support but do not replace the independent reviews, controlled deployment
 ceremony, monitoring, incident response, and ongoing governance obligations.
 
-Forest Road's 2026-07-29 owner decision permits a disposable mainnet deployment for controlled
-testing only. Corrovera now satisfies Forest Road's one-external-audit requirement, but the address
-set remains closed to third-party capital and real legal claims, uses only controlled test wallets
-and an approved test budget, and is not a production release. It exists to perform live-address
-operational qualification; production still requires a fresh deployment and every gate above.
+Forest Road's 2026-07-29 owner decision permits a disposable pre-audit mainnet deployment
+for controlled testing only. It is closed to third-party capital and real legal claims,
+uses only controlled test wallets and an approved test budget, and is not a production
+release. External audit remediation is expected; production requires a fresh deployment
+and every gate above.
 
 The round-4 ADR-0031 review found no High issue and confirmed the holder-harming exit
 defect closed. Forest Road accepted the remaining protocol-under-collection tradeoff.

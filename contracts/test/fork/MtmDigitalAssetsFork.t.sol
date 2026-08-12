@@ -758,8 +758,8 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         uint256 tokenId = _originateDigital(P, V_ORIG, MAX_LTV);
         _fundDigital(tokenId, P);
 
-        // layer 1: 50,000 curator first-loss on class 5. layer 2: a 100,000 sGROVE reserve,
-        // of which the per-EVENT cap (5000 bps, PM-R-07) makes 50,000 reachable.
+        // layer 1: 50,000 curator first-loss on class 5. layer 2: the full 100,000
+        // shared sGROVE reserve under ADR-0035.
         _mintFromUSDC(ops, 500_000e6);
         vm.startPrank(ops);
         usdfr.approve(address(curator), 50_000e18);
@@ -767,7 +767,7 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         usdfr.approve(address(sGrove), 100_000e18);
         sGrove.fundCoverage(100_000e18);
         vm.stopPrank();
-        assertEq(sGrove.coverageCapacity(), 50_000e18, "50% per-event cap on a 100,000 reserve");
+        assertEq(sGrove.coverageCapacity(), 100_000e18, "capacity equals the 100,000 reserve");
 
         uint256 vaultAssetsBefore = vault.totalAssets();
         uint256 supplyBefore = usdfr.totalSupply();
@@ -778,24 +778,24 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         defaultManager.liquidate(tokenId);
 
         // ADR-0022 conservative NAV BEFORE realization: 260,000 at risk, less 50,000 of
-        // curator capital, less the 50,000 the backstop could still cover = 160,000.
+        // curator capital, less the 100,000 shared reserve = 110,000.
         assertEq(defaultManager.declaredDefaultedPrincipal(CLASS5), P, "the whole outstanding entered the pool");
-        assertEq(defaultManager.pendingSeniorImpairment(), 160_000e18, "260k - 50k curator - 50k backstop");
+        assertEq(defaultManager.pendingSeniorImpairment(), 110_000e18, "260k - 50k curator - 100k backstop");
 
-        // realize 200,000 of loss: 50,000 curator + 50,000 backstop + 100,000 senior
-        _attestLoss(tokenId, 200_000e18, bytes32(0));
+        // realize 200,000 of loss: 50,000 curator + 100,000 backstop + 50,000 senior
+        bytes32 lossEvidence = _attestLoss(tokenId, 200_000e18, bytes32(0));
         vm.expectEmit(true, true, false, true, address(defaultManager));
-        emit IDefaultManager.LossRealized(tokenId, CLASS5, 200_000e18, 50_000e18, 50_000e18, 100_000e18);
+        emit IDefaultManager.LossRealized(tokenId, CLASS5, 200_000e18, 50_000e18, 100_000e18, 50_000e18);
         vm.prank(ops);
-        defaultManager.realizeLoss(tokenId, 200_000e18, bytes32(0));
+        defaultManager.realizeLoss(tokenId, 200_000e18, lossEvidence);
 
         // layer by layer, in order, nothing skipped
         assertEq(curator.poolBalance(CLASS5), 0, "layer 1 drained to zero FIRST");
-        assertEq(sGrove.coverageReserve(), 50_000e18, "layer 2 drew exactly its per-event cap");
+        assertEq(sGrove.coverageReserve(), 0, "layer 2 exhausted the shared reserve");
         (uint256 drawn, uint256 cap) = sGrove.eventCoverage(tokenId);
-        assertEq(drawn, 50_000e18, "coverage drawn is recorded per EVENT");
-        assertEq(cap, 50_000e18, "and the cap was snapshotted at the first draw (PM-R-07)");
-        assertEq(vault.totalAssets(), vaultAssetsBefore - 100_000e18, "layer 3 took only the residual");
+        assertEq(drawn, 100_000e18, "coverage drawn is recorded per EVENT");
+        assertEq(cap, 100_000e18, "event view is cumulative draw plus zero live reserve");
+        assertEq(vault.totalAssets(), vaultAssetsBefore - 50_000e18, "layer 3 took only the residual");
 
         // supply and backing fell together (ADR-0012)
         assertEq(supplyBefore - usdfr.totalSupply(), 200_000e18, "the whole loss was burned");
@@ -803,11 +803,11 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         assertEq(registry.classExposure(CLASS5), 60_000e18, "and exposure released in the same transaction");
         assertLe(usdfr.totalSupply(), reserves.totalBackingValue(), "BACKING INVARIANT holds through the cascade");
 
-        // PM-R-11: the remaining 60,000 can no longer net ANY backstop coverage — this event
-        // already consumed its snapshotted cap, so the conservative NAV must stop crediting it.
+        // PM-R-11: the remaining 60,000 can no longer net any backstop coverage because the
+        // physical shared reserve is empty.
         assertEq(defaultManager.defaultedContribution(tokenId), 60_000e18, "60,000 still unrealized");
-        assertEq(defaultManager.liveDefaultCoverageConsumed(), 50_000e18, "and 50,000 of coverage is spent");
-        assertEq(sGrove.coverageCapacity(), 25_000e18, "the raw capacity a FRESH event would see");
+        assertEq(defaultManager.liveDefaultCoverageConsumed(), 100_000e18, "and 100,000 of coverage is spent");
+        assertEq(sGrove.coverageCapacity(), 0, "no live reserve remains");
         assertEq(
             defaultManager.pendingSeniorImpairment(),
             60_000e18,
@@ -1064,11 +1064,20 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
     function _attestDaTerms(uint256 tokenId, uint256 principal, uint16 ltvBps, uint16 interestRateBps, uint64 maturity)
         private
     {
-        _attest(
-            tokenId,
-            IAttestationOracle.AttestationKind.CreditIssued,
-            bridge.creditTermsHash(_daTerms(principal, ltvBps, interestRateBps, maturity))
-        );
+        bytes32 want = bridge.creditTermsHash(_daTerms(principal, ltvBps, interestRateBps, maturity));
+        // P-32: AssignmentExecuted is a deal-identity fact on class 5 as well. If a
+        // preceding negative leg left an arbitrary assignment payload standing, replace
+        // it with the exact terms commitment before exercising the credit/mark branch.
+        (bytes32 assignment,, bool assignmentStanding) =
+            oracle.latestPayload(tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted);
+        if (!assignmentStanding || assignment != want) {
+            _attest(tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, want);
+        }
+        (bytes32 credit,, bool creditStanding) =
+            oracle.latestPayload(tokenId, IAttestationOracle.AttestationKind.CreditIssued);
+        if (!creditStanding || credit != want) {
+            _attest(tokenId, IAttestationOracle.AttestationKind.CreditIssued, want);
+        }
     }
 
     function _fundDigital(uint256 tokenId, uint256 principal) private {

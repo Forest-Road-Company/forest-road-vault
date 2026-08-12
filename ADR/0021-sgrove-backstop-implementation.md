@@ -1,8 +1,8 @@
 # ADR-0021 — sGROVE backstop implementation: the USDfr coverage-reserve model
 
 **Status:** Accepted (2026-07-10, Phase H; coverage model confirmed by the user:
-"(a) and we can always manually add funds"). Amends ADR-0014's cap semantics as noted
-below; calibration remains an economic-review item.
+"(a) and we can always manually add funds"). The USDfr-reserve model remains current; its
+per-event-cap semantics are **superseded by ADR-0035**.
 
 > **AMENDED 2026-07-13 (post-campaign R4-EC1 + audit R5):** Rewards now **STREAM**
 > Synthetix-style over a governance-tunable window (`rewardsDuration`, default 7d) via a
@@ -25,14 +25,13 @@ market, no price oracle worth the manipulation surface it would create).
 
 The backstop's coverage capacity is a **USDfr reserve held by the SGrove contract**,
 funded permissionlessly (`fundCoverage`): the governance-routed protocol fee share,
-Forest Road's ADR-0014 seed (~$5M) and manual top-ups, or anyone. Coverage per event:
-`covered = min(requested, reserve × perEventCapBps)` — ADR-0014's "≤ 50% of staked
-sGROVE per event" cap is **re-based onto the reserve** (the cap's purpose — preserving
-a residual backstop across successive events — carries over exactly; the original
-GROVE-denominated base had no deliverable meaning without a conversion path).
+Forest Road's ADR-0014 seed (~$5M) and manual top-ups, or anyone. ADR-0035 supersedes the
+historical event-cap formula: current delivery is `covered = min(requested, live reserve)`.
+A single shortfall may exhaust the reserve; senior principal then absorbs all subsequent
+loss until real USDfr replenishes it.
 
 **Honesty consequence (state everywhere — docs, risk page, dashboard):** the
-backstop's real capacity is `coverageCapacity()` (reserve × cap), NOT the headline
+backstop's real capacity is `coverageCapacity()` (the live reserve), NOT the headline
 staked-GROVE value. Staked GROVE is never converted, slashed, or seized in v1 —
 stakers' risk is the reward stream (fees routed to coverage instead of rewards) and
 governance's routing power, not principal. Whether GROVE principal should also be
@@ -55,9 +54,10 @@ manipulation surface would be the protocol's weakest point).
   only post-join distributions; index flooring dust is bounded and never in stakers'
   favor.
 - **Coverage:** `fundCoverage` permissionless; `coverShortfall` CREDIT_ROLE
-  (DefaultManager), **never pausable** (the cascade cannot be suppressed —
-  consistent with ADR-0017 §4); rewards and coverage buckets are strictly separate
-  (custody invariant: contract USDfr == reserve + notified − claimed).
+  (DefaultManager/ReserveManager), **never pausable** (the cascade cannot be suppressed —
+  consistent with ADR-0017 §4), and limited only by the live reserve under ADR-0035;
+  rewards and coverage buckets are strictly separate (custody invariant: contract USDfr ==
+  reserve + notified − claimed).
 - **GROVE:** fixed genesis supply to the Forest Road treasury (ADR-0013 control,
   stated honestly), ERC20Votes + Permit, timestamp clock (governance parameters are
   second-denominated).

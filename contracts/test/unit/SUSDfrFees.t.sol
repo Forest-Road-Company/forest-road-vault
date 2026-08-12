@@ -895,6 +895,7 @@ contract SUSDfrFeesTest is TokenLayerFixture {
         uint256 supplyBefore = vault.totalSupply();
 
         HwmRaisingPoints points = new HwmRaisingPoints(vault, usdfr, 100e18);
+        _authorizeYieldSink(address(points)); // R16-M1: mintYield destinations are named
         _receiveYield(address(points), 100e6);
         vm.prank(admin);
         vault.setPointsModule(address(points));

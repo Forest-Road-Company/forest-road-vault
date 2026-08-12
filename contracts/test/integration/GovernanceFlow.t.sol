@@ -5,7 +5,7 @@ import {Config} from "../../src/libraries/Config.sol";
 import {GovernanceFixture} from "../helpers/GovernanceFixture.sol";
 
 /// @dev Phase H end-to-end: the REAL sGROVE backstop as cascade layer 2 (replacing the
-///      Phase E mock), the ADR-0014 per-event cap binding inside a real loss event,
+///      Phase E mock), the ADR-0035 live shared reserve binding inside a real loss event,
 ///      and the fee-share routing surface (coverage + staker rewards) working
 ///      together. ADR-0021 honesty: stakers' GROVE is never converted or seized —
 ///      coverage capacity IS the USDfr reserve.
@@ -21,13 +21,13 @@ contract GovernanceFlowTest is GovernanceFixture {
     }
 
     /// @notice Default → cascade with the REAL backstop: curator first, then the
-    ///         coverage reserve UP TO the 50% per-event cap, then depositors — and
-    ///         the stakers' GROVE stays untouched throughout.
+    ///         live coverage reserve, then depositors — and the stakers' GROVE stays
+    ///         untouched throughout.
     function test_flow_cascadeThroughRealBackstop() public {
         _stake(alice, 2_000_000e6);
         _postFirstLoss(anchorCurator, FILM, 100_000e18);
         _stakeGrove(secondCurator, 1_000_000e18); // GROVE staked — never at risk of conversion
-        _fundCoverage(200_000e18); // the backstop's REAL capacity base
+        _fundCoverage(200_000e18); // the backstop's live reserve
 
         uint256 id = _liveFilmFacility(1_000_000e18);
         _attestDefault(id);
@@ -35,22 +35,22 @@ contract GovernanceFlowTest is GovernanceFixture {
         defaultManager.declareDefault(id, FILM_REF);
         _repay(id, 0, 600_000e18); // recovery
 
-        // shortfall 400k: curator 100k -> backstop min(300k, 200k x 50% = 100k) ->
-        // depositors 200k. The per-event cap binds INSIDE a real loss event.
+        // shortfall 400k: curator 100k -> backstop drains its live 200k ->
+        // depositors 100k. One event can exhaust layer two under ADR-0035.
         uint256 vaultBefore = usdfr.balanceOf(address(vault));
         uint256 groveBefore = grove.balanceOf(address(sGrove));
         vm.prank(servicer);
         _realizeLoss(id, 400_000e18, FILM_REF);
 
         assertEq(curator.poolBalance(FILM), 0, "layer 1 exhausted first");
-        assertEq(sGrove.coverageReserve(), 100_000e18, "layer 2 drew exactly the capped amount");
-        assertEq(vaultBefore - usdfr.balanceOf(address(vault)), 200_000e18, "layer 3 bears the rest");
+        assertEq(sGrove.coverageReserve(), 0, "one event can exhaust layer 2");
+        assertEq(vaultBefore - usdfr.balanceOf(address(vault)), 100_000e18, "layer 3 bears the rest");
         assertEq(grove.balanceOf(address(sGrove)), groveBefore, "staked GROVE untouched (ADR-0021)");
         assertEq(sGrove.stakedOf(secondCurator), 1_000_000e18);
         assertTrue(controller.backingInvariantHolds());
 
-        // a second event draws from the RESIDUAL reserve (the cap's whole purpose)
-        assertEq(sGrove.coverageCapacity(), 50_000e18);
+        // a second event receives zero until permissionless replenishment.
+        assertEq(sGrove.coverageCapacity(), 0);
     }
 
     /// @notice The governance-routed fee share in motion: protocol fees flow to the
@@ -78,7 +78,7 @@ contract GovernanceFlowTest is GovernanceFixture {
         uint256 got = sGrove.claimRewards();
         assertApproxEqAbs(got, 5_000e18, 1e7);
         assertEq(sGrove.coverageReserve(), 5_000e18);
-        assertEq(sGrove.coverageCapacity(), 2_500e18);
+        assertEq(sGrove.coverageCapacity(), 5_000e18);
         assertTrue(controller.backingInvariantHolds());
     }
 

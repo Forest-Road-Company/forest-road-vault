@@ -76,6 +76,24 @@ abstract contract RealOracleFixture is CreditLayerFixture {
         if (kind == IAttestationOracle.AttestationKind.Valuation) {
             return; // valuations only enter through _setValuation (real signed mark)
         }
+        if (_isDealDocumentKind(kind)) {
+            uint8 bit = _dealFactBit(kind);
+            uint256 key = _dealKey(facilityId);
+            if (!ok) {
+                _dealFactRequested[key] &= ~bit;
+                _dealFactBound[key] &= ~bit;
+                vm.prank(admin);
+                realOracle.revoke(facilityId, kind);
+                return;
+            }
+            _dealFactRequested[key] |= bit;
+            bytes32 termsHash = _dealTermsHash[key];
+            if (termsHash != bytes32(0) && (_dealFactBound[key] & bit) == 0) {
+                _attest(facilityId, kind, termsHash, uint64(block.timestamp));
+                _dealFactBound[key] |= bit;
+            }
+            return;
+        }
         if (ok) {
             _attest(
                 facilityId,
@@ -96,7 +114,20 @@ abstract contract RealOracleFixture is CreditLayerFixture {
     /// @dev AUDIT FIX (H-4): the terms commitment enters through a REAL 2-of-n CreditIssued
     ///      bundle, so the mint-gate binding is exercised against production signature logic.
     function _attestCreditTerms(uint256 facilityId, bytes32 termsHash) internal override {
+        uint256 key = _dealKey(facilityId);
+        _dealTermsHash[key] = termsHash;
         _attest(facilityId, IAttestationOracle.AttestationKind.CreditIssued, termsHash, uint64(block.timestamp));
+        uint8 pending = _dealFactRequested[key] & ~_dealFactBound[key];
+        if ((pending & _dealFactBit(IAttestationOracle.AttestationKind.AssignmentExecuted)) != 0) {
+            _attest(
+                facilityId, IAttestationOracle.AttestationKind.AssignmentExecuted, termsHash, uint64(block.timestamp)
+            );
+            _dealFactBound[key] |= _dealFactBit(IAttestationOracle.AttestationKind.AssignmentExecuted);
+        }
+        if ((pending & _dealFactBit(IAttestationOracle.AttestationKind.UCCFiled)) != 0) {
+            _attest(facilityId, IAttestationOracle.AttestationKind.UCCFiled, termsHash, uint64(block.timestamp));
+            _dealFactBound[key] |= _dealFactBit(IAttestationOracle.AttestationKind.UCCFiled);
+        }
     }
 
     function _attestPayment(uint256 tokenId, uint256 interest, uint256 principal) internal override {

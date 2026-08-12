@@ -189,14 +189,49 @@ contract AttestationOracleTest is Test {
         assertTrue(oracle.isSatisfied(FACILITY, IAttestationOracle.AttestationKind.Valuation));
     }
 
-    function test_attest_reAttestNewNonceRefreshesFact() public {
+    /// @notice ⚠ THIS TEST WAS INVERTED BY THE C4-01 FIX — IT USED TO ASSERT THE DEFECT. ⚠
+    ///
+    ///         It was named `test_attest_reAttestNewNonceRefreshesFact` and it asserted, as
+    ///         INTENDED behaviour, that "consume then re-attest with a fresh nonce: fact becomes
+    ///         true again". That is precisely the campaign-4 High finding: because the uniqueness
+    ///         key was the EIP-712 digest (which contains `nonce`) rather than the economic FACT,
+    ///         a single real-world event re-signed under a fresh nonce could be consumed twice.
+    ///         Downstream that meant ONE real loss written down TWICE through the whole cascade
+    ///         (measured: outstanding 2,000,000e18 -> 1,400,000e18 for a single 300,000e18 event).
+    ///
+    ///         The assertion is not weakened, it is REVERSED: the same call sequence must now
+    ///         revert with the exact fact-ledger error. If a future change makes this test pass in
+    ///         its ORIGINAL form again, the finding has been reintroduced.
+    ///         Full repro and rationale: `test/audit/Fix_C401-fact-realised-once.t.sol`.
+    function test_attest_reAttestAfterConsumeIsRejected_C401() public {
         IAttestationOracle.AttestationInput memory a = _attestAssignment();
-        // consume then re-attest with a fresh nonce: fact becomes true again
         vm.prank(creditModule);
         oracle.consume(FACILITY, IAttestationOracle.AttestationKind.AssignmentExecuted);
         assertFalse(oracle.isSatisfied(FACILITY, IAttestationOracle.AttestationKind.AssignmentExecuted));
-        a.nonce = 2;
-        oracle.attest(a, _sigs1(pk1, a));
+
+        a.nonce = 2; // a fresh nonce -> a fresh digest -> the level-1 replay guard is silent
+        bytes[] memory sigs = _sigs1(pk1, a);
+        assertFalse(oracle.digestUsed(oracle.attestationDigest(a)), "C4-01: the replay digest IS fresh");
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAttestationOracle.Oracle_FactAlreadyRealised.selector,
+                oracle.factKey(FACILITY, IAttestationOracle.AttestationKind.AssignmentExecuted, a.payload),
+                IAttestationOracle.FactStatus.Consumed
+            )
+        );
+        oracle.attest(a, sigs);
+        assertFalse(
+            oracle.isSatisfied(FACILITY, IAttestationOracle.AttestationKind.AssignmentExecuted),
+            "C4-01: a spent fact must not come back"
+        );
+
+        // LIVENESS, so the inversion is not a denial of service: a DIFFERENT fact for the same
+        // facility and kind (a genuinely new document) still lands normally.
+        IAttestationOracle.AttestationInput memory next = _input(
+            IAttestationOracle.AttestationKind.AssignmentExecuted, keccak256("doc-2"), uint64(block.timestamp), 3
+        );
+        oracle.attest(next, _sigs1(pk1, next));
         assertTrue(oracle.isSatisfied(FACILITY, IAttestationOracle.AttestationKind.AssignmentExecuted));
     }
 
@@ -511,7 +546,23 @@ contract AttestationOracleTest is Test {
 
         vm.prank(guardian);
         oracle.unpause();
-        oracle.attest(a, _sigs1(pk1, a));
+        // C4-01 NOTE — the resumed submission uses a DIFFERENT payload, not a re-presentation of
+        // the fact just consumed. It previously re-attested the SAME fact under nonce 2, which is
+        // now (correctly) rejected by the fact ledger. The pause assertion is unchanged and
+        // undiminished: what is being proved here is that submissions FLOW again after unpause,
+        // and a fresh fact proves that at full strength. Re-presenting a spent fact would prove
+        // the finding instead.
+        IAttestationOracle.AttestationInput memory resumed = _input(
+            IAttestationOracle.AttestationKind.AssignmentExecuted,
+            keccak256("assignment-doc-after-unpause"),
+            uint64(block.timestamp),
+            3
+        );
+        oracle.attest(resumed, _sigs1(pk1, resumed));
+        assertTrue(
+            oracle.isSatisfied(FACILITY, IAttestationOracle.AttestationKind.AssignmentExecuted),
+            "unpause restores submissions"
+        );
     }
 
     function test_pause_onlyGuardian() public {

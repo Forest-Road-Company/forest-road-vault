@@ -35,6 +35,7 @@ import {Config} from "../src/libraries/Config.sol";
 import {Roles} from "../src/libraries/Roles.sol";
 import {MockERC20} from "../test/helpers/MockERC20.sol";
 import {PrivilegeAudit} from "./PrivilegeAudit.sol";
+import {PrivilegeTopology} from "./generated/PrivilegeTopology.sol";
 
 /// @notice TESTNET deployment of the full Forest Road Vault stack (CLAUDE.md §2.1:
 ///         reproducible, env-parameterized). Mirrors the tested fixture topology
@@ -99,6 +100,19 @@ contract ForestRoadTimelock is TimelockControllerUpgradeable {
 }
 
 contract Deploy is Script {
+    /// @notice The authority handover would leave governance unable to meet its launch quorum.
+    /// @param grove The GROVE proxy.
+    /// @param treasury The genesis treasury whose wallet/staked delegations were measured.
+    /// @param votingPower Current voting power reachable through those delegations.
+    /// @param requiredVotingPower Minimum power required to meet the configured quorum.
+    error DeployGovernanceDeadOnArrival(
+        address grove, address treasury, uint256 votingPower, uint256 requiredVotingPower
+    );
+
+    /// @notice The configured Governor cannot drive the timelock that is about to become admin.
+    /// @param timelock The timelock proxy.
+    error DeployTimelockNotLive(address timelock);
+
     struct D {
         address compliance;
         address usdfr;
@@ -126,6 +140,13 @@ contract Deploy is Script {
     struct Ctx {
         address deployer;
         address opsAdmin;
+        /// @dev H-2/M-6: independent proposal-veto principal. It must never silently default
+        ///      to the deployer or the pause/operations principal.
+        address proposalGuardian;
+        /// @dev AUDIT FIX (D7-01): holder of SETTLEMENT_KEEPER_ROLE on the queue — the only
+        ///      party that may drive `closeEpoch`. Defaults to `opsAdmin` so local/fork runs
+        ///      work unattended; MainnetConfig requires it explicitly and fails closed.
+        address queueKeeper;
         address frTreasury;
         address feeRecipient;
         address anchorCurator;
@@ -238,8 +259,13 @@ contract Deploy is Script {
         uint256 pk = _deployerKey();
         Ctx memory c;
         c.deployer = vm.addr(pk);
-        c.opsAdmin = vm.envOr("OPS_ADMIN", c.deployer);
+        c.opsAdmin = vm.envAddress("OPS_ADMIN");
+        c.proposalGuardian = vm.envAddress("PROPOSAL_GUARDIAN");
+        require(c.opsAdmin != c.deployer, "Deploy: OPS_ADMIN must not be the deployer");
+        require(c.proposalGuardian != c.deployer, "Deploy: proposal guardian must not be the deployer");
+        require(c.proposalGuardian != c.opsAdmin, "Deploy: proposal guardian must be separate from ops");
         c.frTreasury = vm.envOr("FR_TREASURY", c.opsAdmin);
+        c.queueKeeper = vm.envOr("QUEUE_KEEPER", c.opsAdmin);
         c.feeRecipient = vm.envOr("FEE_RECIPIENT", c.frTreasury);
         c.anchorCurator = c.opsAdmin;
         c.attester1 = c.deployer;
@@ -473,7 +499,8 @@ contract Deploy is Script {
             "governor",
             address(new FRGovernor()),
             abi.encodeCall(
-                FRGovernor.initialize, (IVotes(d.votesAggregator), TimelockControllerUpgradeable(payable(d.timelock)))
+                FRGovernor.initialize,
+                (IVotes(d.votesAggregator), TimelockControllerUpgradeable(payable(d.timelock)), c.proposalGuardian)
             )
         );
 
@@ -486,6 +513,14 @@ contract Deploy is Script {
     // ── wiring (mirrors GovernanceFixture; validated post-deploy) ────────
 
     function _wire(D memory d, Ctx memory c) internal {
+        // H-2/M-6: this guard belongs on the shared wiring path, not only in an environment
+        // parser or mainnet wrapper. Every direct fixture, testnet rehearsal and fork deployment
+        // must reject the governance-dead topology where the bootstrap or operational pause key
+        // also owns the proposal veto.
+        require(c.proposalGuardian != address(0), "Deploy: zero proposal guardian");
+        require(c.proposalGuardian != c.deployer, "Deploy: proposal guardian must not be the deployer");
+        require(c.proposalGuardian != c.opsAdmin, "Deploy: proposal guardian must be separate from ops");
+
         // timelock: governor proposes/cancels; execution is open
         TimelockControllerUpgradeable tl = TimelockControllerUpgradeable(payable(d.timelock));
         tl.grantRole(tl.PROPOSER_ROLE(), d.governor);
@@ -551,19 +586,62 @@ contract Deploy is Script {
         reg.grantRole(Roles.CREDIT_ROLE, d.defaultManager);
         ReserveManager(d.reserves).grantRole(Roles.CREDIT_ROLE, d.waterfall);
         ReserveManager(d.reserves).grantRole(Roles.CREDIT_ROLE, d.defaultManager);
-        MintRedeemController(d.controller).grantRole(Roles.CREDIT_ROLE, d.waterfall);
-        MintRedeemController(d.controller).grantRole(Roles.CREDIT_ROLE, d.defaultManager);
+        // AUDIT FIX (R16-M1) — LEAST PRIVILEGE ON THE CONTROLLER'S SUPPLY POWERS. This block used
+        // to grant CREDIT_ROLE (which then gated BOTH `mintYield` and `burnLoss`) to the engine
+        // AND the default manager, so each held both halves of the burn-then-mint composition
+        // that is arbitrary confiscation. `burnLoss` now sits behind `LOSS_BURNER_ROLE`, and the
+        // grants are exactly what each module actually calls: the engine only ever calls
+        // `mintYield`; the default manager burns credit-layer losses, while ReserveManager burns
+        // the arm-bound custody cascade. Neither module receives CREDIT_ROLE here.
+        MintRedeemController(d.controller).grantRole(Roles.CREDIT_ROLE, d.waterfall); // mintYield only
+        MintRedeemController(d.controller).grantRole(Roles.LOSS_BURNER_ROLE, d.defaultManager); // burnLoss only
+        MintRedeemController(d.controller).grantRole(Roles.LOSS_BURNER_ROLE, d.reserves); // custody cascade only
+        // AUDIT FIX (R16-M1). The credit layer may only move supply between these named
+        // endpoints. `mintYield` destinations: the senior vault (interest) and the fee recipient
+        // (protocol and origination fees). `burnLoss` sources: the default manager, which burns
+        // junior capital it has already RECEIVED into itself, and the vault (cascade layer 3,
+        // pro-rata by construction). Nothing else — in particular no user address — is reachable.
+        MintRedeemController(d.controller).setYieldSink(d.vault, true);
+        MintRedeemController(d.controller).setYieldSink(c.feeRecipient, true);
+        MintRedeemController(d.controller).setLossSource(d.defaultManager, true);
+        MintRedeemController(d.controller).setLossSource(d.reserves, true);
+        MintRedeemController(d.controller).setLossSource(d.vault, true);
         CuratorModule(d.curator).grantRole(Roles.CREDIT_ROLE, d.defaultManager);
+        CuratorModule(d.curator).grantRole(Roles.CREDIT_ROLE, d.reserves);
         AttestationOracle(d.oracle).grantRole(Roles.CREDIT_ROLE, d.waterfall);
         AttestationOracle(d.oracle).grantRole(Roles.CREDIT_ROLE, d.defaultManager);
         AttestationOracle(d.oracle).grantRole(Roles.CREDIT_ROLE, d.bridge);
         SGrove(d.sGrove).grantRole(Roles.CREDIT_ROLE, d.defaultManager);
+        SGrove(d.sGrove).grantRole(Roles.CREDIT_ROLE, d.reserves);
+        // AUDIT FIX (D7-01): `closeEpoch` is keeper-gated. Grant TWO holders — the hot keeper
+        // and `opsAdmin` as a manual backstop — so a keeper outage degrades to manual operation
+        // rather than freezing the protocol's only senior exit. See Roles.SETTLEMENT_KEEPER_ROLE.
+        // AUDIT FIX (D7-01 round 5, BLOCKING): fail closed on EVERY path. `_mainnetContext` once
+        // omitted `queueKeeper` entirely, so this granted the role to address(0) and the deploy
+        // still validated green over a senior exit with one usable holder. The guard lives here,
+        // not only in the mainnet validator, because Deploy is reached by the testnet path and by
+        // every fork rehearsal too — all of which rehearsed the defective topology.
+        require(c.queueKeeper != address(0), "Deploy: zero settlement keeper");
+        RedemptionQueue(d.queue).grantRole(Roles.SETTLEMENT_KEEPER_ROLE, c.queueKeeper);
+        RedemptionQueue(d.queue).grantRole(Roles.SETTLEMENT_KEEPER_ROLE, c.opsAdmin);
         SUSDfr(d.vault).grantRole(Roles.FEE_ACCOUNTING_ROLE, d.curator);
         SUSDfr(d.vault).grantRole(Roles.FEE_ACCOUNTING_ROLE, d.sGrove);
         SUSDfr(d.vault).grantRole(Roles.FEE_ACCOUNTING_ROLE, d.defaultManager);
         WaterfallEngine(d.waterfall).grantRole(Roles.SERVICER_ROLE, c.opsAdmin);
         DefaultManager(d.defaultManager).grantRole(Roles.SERVICER_ROLE, c.opsAdmin);
+        ReserveManager(d.reserves).setLossController(d.controller);
+        ReserveManager(d.reserves).setLossAbsorber(d.defaultManager);
+        // ── AUDIT FIX (R6-CF1): the reserve-CUSTODY arm of the curator withdrawal freeze ──
+        // MANDATORY WIRING, validated post-deploy. `CuratorModule.custodyFreezeActive()` reads as
+        // TRUE while no ReserveManager is wired, so omitting this does not open a hole — it bricks
+        // curator withdrawals instead. `setGovernor` is what keeps the guardian pre-arm longer
+        // than the LIVE governance path after governance retunes any of votingDelay /
+        // votingPeriod / timelock minDelay; without it the Config launch constants stand as the
+        // floor, which goes stale silently.
+        CuratorModule(d.curator).setReserveManager(d.reserves);
+        ReserveManager(d.reserves).setReserveLossModules(d.curator, d.sGrove, d.vault, d.governor, d.timelock);
         DefaultManager(d.defaultManager).setBackstop(d.sGrove);
+        CuratorModule(d.curator).setGovernor(d.governor);
         // ── ADR-0022 Option Y + ADR-0023 (senior-side wiring) ─────────────
         // The engine clears a facility's unrealized-impairment mark when a defaulted loan
         // recovers in full (onDefaultResolved), and notifies the vault when yield lands.
@@ -630,15 +708,9 @@ contract Deploy is Script {
         IERC20(d.usdfr).approve(d.vault, seedUSDfr);
         SUSDfr(d.vault).deposit(seedUSDfr, SEED_SINK); // nominal permanently locked floor
 
-        // AUDIT FIX (R7): activate genesis GROVE votes. The fixed supply mints to frTreasury,
-        // but ERC20Votes counts nothing until the holder self-delegates — without this a fresh
-        // deploy has ZERO voting power and no Governor proposal can reach quorum. When the
-        // deployer IS the treasury (testnet shape) it can self-delegate here. On a prod deploy
-        // (frTreasury != deployer) the treasury MUST call grove.delegate(itself) post-deploy —
-        // see the redeploy runbook; the deployer cannot delegate the treasury's votes.
-        if (c.frTreasury == c.deployer) {
-            GroveToken(d.grove).delegate(c.frTreasury);
-        }
+        // GroveToken.initialize self-delegates the genesis treasury before any handover can
+        // occur. `_assertGovernanceLive` independently verifies the effective wallet/staked
+        // voting power immediately before bootstrap authority is surrendered.
     }
 
     /// @dev Local deployments mint their mock USDC. Fork fixtures override this hook to fund
@@ -654,6 +726,10 @@ contract Deploy is Script {
     // ── handover (bootstrap privileges dropped; timelock rules) ─────────
 
     function _handover(D memory d, Ctx memory c) internal {
+        // This MUST remain the first operation. A failed liveness check must leave every
+        // bootstrap privilege intact so the deployment can be corrected or abandoned safely.
+        _assertGovernanceLive(d, c);
+
         // RESERVE_ADMIN can recognize a USDC custody write-down, a governance-level loss
         // decision. Move it to the timelock BEFORE the DEFAULT_ADMIN handover below (this
         // grant needs the deployer's DEFAULT_ADMIN on reserves, which _handoverOne renounces on
@@ -671,26 +747,10 @@ contract Deploy is Script {
                 }
             }
         }
-        address[13] memory modules_ = [
-            d.compliance,
-            d.usdfr,
-            d.reserves,
-            d.controller,
-            d.vault,
-            d.points,
-            d.registry,
-            d.oracle,
-            d.bridge,
-            d.curator,
-            d.waterfall,
-            d.defaultManager,
-            d.assessedImpairmentSource
-        ];
+        address[] memory modules_ = PrivilegeTopology.deployHandoverTargets(_auditTargets(d));
         for (uint256 i = 0; i < modules_.length; ++i) {
             _handoverOne(modules_[i], d.timelock, c);
         }
-        _handoverOne(d.queue, d.timelock, c);
-        _handoverOne(d.sGrove, d.timelock, c);
         // AUDIT FIX (DS-6 + R5 H-1): on the production-shaped handover, revoke the deployer's
         // bootstrap KYC (only needed to mint the locked seed) and, WHEN THE DEPLOYER IS NOT
         // ALSO THE OPS ADMIN, renounce the temporary COMPLIANCE_ADMIN role `_seed`
@@ -732,6 +792,33 @@ contract Deploy is Script {
         tl.renounceRole(tl.DEFAULT_ADMIN_ROLE(), c.deployer);
     }
 
+    /// @dev Refuses to make the timelock sole authority unless the Governor can schedule and
+    ///      execute operations and the treasury's active wallet/staked delegation can meet the
+    ///      configured launch quorum. This is intentionally independent of GroveToken's
+    ///      initializer self-delegation so a later deployment refactor cannot silently restore
+    ///      the governance-dead handover.
+    function _assertGovernanceLive(D memory d, Ctx memory c) internal view {
+        TimelockControllerUpgradeable tl = TimelockControllerUpgradeable(payable(d.timelock));
+        if (!tl.hasRole(tl.PROPOSER_ROLE(), d.governor)) revert DeployTimelockNotLive(d.timelock);
+        if (!tl.hasRole(tl.EXECUTOR_ROLE(), address(0)) && !tl.hasRole(tl.EXECUTOR_ROLE(), d.governor)) {
+            revert DeployTimelockNotLive(d.timelock);
+        }
+
+        address groveDelegatee = IVotes(d.grove).delegates(c.frTreasury);
+        address sGroveDelegatee = IVotes(d.sGrove).delegates(c.frTreasury);
+        uint256 votingPower = IVotes(d.votesAggregator).getVotes(groveDelegatee);
+        if (sGroveDelegatee != groveDelegatee) {
+            votingPower += IVotes(d.votesAggregator).getVotes(sGroveDelegatee);
+        }
+
+        uint256 quorumPower = Config.GROVE_INITIAL_SUPPLY * Config.GOV_QUORUM_FRACTION / 100;
+        uint256 requiredVotingPower = FRGovernor(payable(d.governor)).proposalThreshold();
+        if (quorumPower > requiredVotingPower) requiredVotingPower = quorumPower;
+        if (votingPower < requiredVotingPower) {
+            revert DeployGovernanceDeadOnArrival(d.grove, c.frTreasury, votingPower, requiredVotingPower);
+        }
+    }
+
     function _handoverOne(address module_, address timelock, Ctx memory c) internal {
         ComplianceRegistry m = ComplianceRegistry(module_); // any AccessControl works
         m.grantRole(bytes32(0), timelock);
@@ -753,6 +840,8 @@ contract Deploy is Script {
         vm.serializeUint(j, "deployedAtBlock", block.number);
         vm.serializeAddress(j, "deployer", c.deployer);
         vm.serializeAddress(j, "opsAdmin", c.opsAdmin);
+        vm.serializeAddress(j, "proposalGuardian", c.proposalGuardian);
+        vm.serializeAddress(j, "queueKeeper", c.queueKeeper);
         vm.serializeAddress(j, "frTreasury", c.frTreasury);
         vm.serializeAddress(j, "feeRecipient", c.feeRecipient);
         vm.serializeAddress(j, "anchorCurator", _anchorCurator(c));
@@ -770,10 +859,16 @@ contract Deploy is Script {
         // indistinguishable from one produced by a clean handover. Enumerated with the same
         // library `Validate.s.sol` prints, so console and manifest can never disagree.
         (address[] memory targets, string[] memory names) = PrivilegeAudit.moduleSet(_auditTargets(d));
-        string[] memory deployerHeld = PrivilegeAudit.scanEverything(targets, names, d.timelock, c.deployer);
-        string[] memory opsHeld = PrivilegeAudit.scanEverything(targets, names, d.timelock, c.opsAdmin);
+        string[] memory deployerHeld = PrivilegeAudit.scanEverything(targets, names, d.timelock, d.governor, c.deployer);
+        string[] memory opsHeld = PrivilegeAudit.scanEverything(targets, names, d.timelock, d.governor, c.opsAdmin);
+        string[] memory guardianHeld =
+            PrivilegeAudit.scanEverything(targets, names, d.timelock, d.governor, c.proposalGuardian);
+        string[] memory queueKeeperHeld =
+            PrivilegeAudit.scanEverything(targets, names, d.timelock, d.governor, c.queueKeeper);
         vm.serializeString(j, "retainedPrivileges_deployer", deployerHeld);
         vm.serializeString(j, "retainedPrivileges_opsAdmin", opsHeld);
+        vm.serializeString(j, "retainedPrivileges_proposalGuardian", guardianHeld);
+        vm.serializeString(j, "retainedPrivileges_queueKeeper", queueKeeperHeld);
         // The attester set is a Part 11 human gate, not something a deploy/handover can
         // rotate, so it is the one documented exception to "deployer holds nothing".
         vm.serializeBool(
@@ -781,6 +876,7 @@ contract Deploy is Script {
             "deployerCleanExceptAttester",
             PrivilegeAudit.scan(targets, names, c.deployer, false).length == 0
                 && PrivilegeAudit.scanTimelock(d.timelock, c.deployer, false).length == 0
+                && PrivilegeAudit.scanGovernor(d.governor, c.deployer).length == 0
         );
         vm.serializeAddress(j, "compliance", d.compliance);
         vm.serializeAddress(j, "usdfr", d.usdfr);
@@ -825,27 +921,27 @@ contract Deploy is Script {
     /// @dev Shared shape with `Validate.s.sol` so the manifest receipt and the console
     ///      `RETAINED PRIVILEGE` block enumerate exactly the same surface.
     /// @param d The deployed addresses.
-    /// @return targets The 17 module addresses in canonical order.
-    function _auditTargets(D memory d) internal pure returns (address[17] memory targets) {
-        return [
-            d.compliance,
-            d.usdfr,
-            d.reserves,
-            d.controller,
-            d.vault,
-            d.points,
-            d.registry,
-            d.oracle,
-            d.bridge,
-            d.curator,
-            d.waterfall,
-            d.defaultManager,
-            d.assessedImpairmentSource,
-            d.queue,
-            d.sGrove,
-            d.grove,
-            d.timelock
-        ];
+    /// @return targets The named module addresses in canonical order.
+    function _auditTargets(D memory d) internal pure returns (PrivilegeTopology.ModuleAddresses memory targets) {
+        return PrivilegeTopology.ModuleAddresses({
+            compliance: d.compliance,
+            usdfr: d.usdfr,
+            reserves: d.reserves,
+            controller: d.controller,
+            vault: d.vault,
+            points: d.points,
+            registry: d.registry,
+            oracle: d.oracle,
+            bridge: d.bridge,
+            curator: d.curator,
+            waterfall: d.waterfall,
+            defaultManager: d.defaultManager,
+            assessedImpairmentSource: d.assessedImpairmentSource,
+            queue: d.queue,
+            sGrove: d.sGrove,
+            grove: d.grove,
+            timelock: d.timelock
+        });
     }
 
     function _receivable(string memory name, uint16 maxLtv, uint64 maxMaturity, uint16 concLimit)

@@ -89,25 +89,40 @@ contract BlindSubmissionGasCostTest is RealOracleFixture {
         assertFalse(realOracle.digestUsed(realOracle.attestationDigest(a)), "digest rolled back -> keeper retries");
     }
 
-    /// @notice PRE-FIX WASTE CLASS 2 — mid-band inside the cure window: liquidate misses the hard
-    ///         threshold, `activeCall` is true, and `clearMarginCall` then reverts because the
-    ///         LTV is still at/above the margin-call threshold. Whole transaction reverts.
+    /// @notice WASTE CLASS 2 — CLOSED ON-CHAIN BY THE G8-L1 FIX. Mid-band inside the cure window:
+    ///         liquidate misses the hard threshold and `activeCall` is true. The cure leg used to
+    ///         be attempted unconditionally, so `clearMarginCall` reverted (LTV still at/above the
+    ///         margin-call threshold) and the whole transaction — including the mark — was thrown
+    ///         away. There was never any protective action to take here: the call already stands.
+    /// @dev ASSERTIONS INVERTED DELIBERATELY. This class no longer costs a burnt transaction at
+    ///      all: the relay succeeds, reports `NoActionAvailable` and KEEPS the mark, so the
+    ///      keeper's local prediction is now an optimization rather than the only thing standing
+    ///      between a bystander's margin call and a discarded valuation. Do not "restore" the
+    ///      revert expectation — it asserted the defect.
     function test_gas_wasted_midBandDuringCureWindow() public {
         uint256 id = _liveDigitalFacility();
         (IAttestationOracle.AttestationInput memory a1, bytes[] memory s1) = _freshValuation(id, MARGIN_MARK);
         vm.prank(keeperA);
         executor.execute(a1, s1); // opens the margin call -> cureDeadline != 0
-        assertTrue(defaultManager.cureDeadline(id) != 0, "cure window must be open");
+        uint64 standingDeadline = defaultManager.cureDeadline(id);
+        assertTrue(standingDeadline != 0, "cure window must be open");
 
         (IAttestationOracle.AttestationInput memory a2, bytes[] memory s2) = _freshValuation(id, MIDBAND_MARK);
         (bool ok, uint256 used) = _measure(a2, s2);
-        assertFalse(ok, "mid-band inside the cure window must revert");
-        emit log_named_uint("GAS WASTED mid-band cure-window rvt  ", used);
-        assertFalse(realOracle.digestUsed(realOracle.attestationDigest(a2)), "digest rolled back -> keeper retries");
+        assertTrue(ok, "mid-band inside the cure window is a no-action outcome, not a failure");
+        emit log_named_uint("GAS no-action mid-band cure-window   ", used);
+        assertTrue(realOracle.digestUsed(realOracle.attestationDigest(a2)), "the mark is kept");
+        (uint256 value,) = realOracle.latestValuation(id);
+        assertEq(value, MIDBAND_MARK, "the deteriorated mark is on the books");
+        assertEq(defaultManager.cureDeadline(id), standingDeadline, "the standing call is untouched");
     }
 
-    /// @notice PRE-FIX WASTE CLASS 3 — the facility is already liquidated. `_mtmFacility` reverts
-    ///         DefaultManager_NotDefaultable. The current keeper checks facility state locally.
+    /// @notice WASTE CLASS 3 — CLOSED ON-CHAIN BY THE G8-L2 FIX. The facility is already
+    ///         liquidated, so `_mtmFacility` rejects every protective entry point identically
+    ///         with DefaultManager_NotDefaultable. Bubbling that revert bricked the canonical
+    ///         relay path for the facility permanently, for anyone, after a single permissionless
+    ///         `liquidate` by any bystander.
+    /// @dev ASSERTIONS INVERTED DELIBERATELY — see the note on waste class 2.
     function test_gas_wasted_facilityAlreadyLiquidated() public {
         uint256 id = _liveDigitalFacility();
         (IAttestationOracle.AttestationInput memory a1, bytes[] memory s1) = _freshValuation(id, 625_000e18);
@@ -117,9 +132,12 @@ contract BlindSubmissionGasCostTest is RealOracleFixture {
 
         (IAttestationOracle.AttestationInput memory a2, bytes[] memory s2) = _freshValuation(id, MARGIN_MARK);
         (bool ok, uint256 used) = _measure(a2, s2);
-        assertFalse(ok, "an already-liquidated facility must revert");
-        emit log_named_uint("GAS WASTED already-liquidated revert ", used);
-        assertFalse(realOracle.digestUsed(realOracle.attestationDigest(a2)), "digest rolled back -> keeper retries");
+        assertTrue(ok, "a defaulted facility still accepts marks; it takes no further action");
+        emit log_named_uint("GAS no-action already-liquidated     ", used);
+        assertTrue(realOracle.digestUsed(realOracle.attestationDigest(a2)), "the mark is kept");
+        assertEq(
+            uint256(bridge.facility(id).state), uint256(ClaimBridge.LoanState.Defaulted), "and nothing else changed"
+        );
     }
 
     /// @notice PRE-FIX WASTE CLASS 4 — DefaultManager paused. The current keeper reads both pause

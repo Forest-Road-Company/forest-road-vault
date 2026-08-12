@@ -34,6 +34,9 @@ const PINNED_BLOCK_HASH =
 const SOURCE_COMMIT = "7eef49b61514414aab634408d32f6d354263a192";
 const LOCAL_CHAIN_ID = 31_337;
 const DEPLOYER = manifest.deployer as Address;
+// New manifests record the dedicated holder. The fallback keeps this historical pinned-fork
+// fixture runnable against the pre-D7 Sepolia deployment without mislabelling current behavior.
+const QUEUE_KEEPER = (manifest.queueKeeper ?? manifest.opsAdmin ?? manifest.deployer) as Address;
 const KYC_ACCOUNT = "0x2000000000000000000000000000000000000002" as Address;
 const NON_KYC_ACCOUNT = "0x1000000000000000000000000000000000000001" as Address;
 const CONTRACTS = {
@@ -774,13 +777,13 @@ test("pinned Sepolia fork: injected-wallet browser lifecycle and read reconcilia
     args: [100n],
   });
   const closeHash = await rpc<Hash>("eth_sendTransaction", [
-    {from: DEPLOYER, to: CONTRACTS.queue, data: closeData},
+    {from: QUEUE_KEEPER, to: CONTRACTS.queue, data: closeData},
   ]);
   const closeReceipt = await publicClient.waitForTransactionReceipt({hash: closeHash});
   expect(closeReceipt.status).toBe("success");
   transactionEvidence.push({
-    step: "permissionless keeper closeEpoch(100)",
-    origin: "external local-fork keeper, not the browser UI",
+    step: "role-gated keeper closeEpoch(100)",
+    origin: "configured external local-fork keeper, not the browser UI",
     hash: closeHash,
     blockNumber: closeReceipt.blockNumber.toString(),
     gasUsed: closeReceipt.gasUsed.toString(),

@@ -28,6 +28,8 @@ contract MtmKeeperForkDeploy is Deploy {
         Ctx memory c = Ctx({
             deployer: deployer,
             opsAdmin: deployer,
+            proposalGuardian: attester2,
+            queueKeeper: deployer,
             frTreasury: deployer,
             feeRecipient: deployer,
             anchorCurator: deployer,

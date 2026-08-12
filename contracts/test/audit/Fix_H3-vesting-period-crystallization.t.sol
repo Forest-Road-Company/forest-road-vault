@@ -275,9 +275,11 @@ contract FixH3VestingPeriodCrystallizationTest is CreditLayerFixture {
         assertEq(usdfr.balanceOf(address(vault)), unvested, "and real USDfr is still held");
         assertEq(vault.unvestedYield(), unvested, "the stream survived the burn, as the bound intends");
 
-        // THE HAZARD THIS CLOSES: pricing is degenerate here. Pinned so the magnitude is on the
-        // record and a future change that "fixes" the price silently is caught.
-        assertGt(vault.previewDeposit(1e18), vault.totalSupply(), "a 1-USDfr deposit out-mints the vault");
+        // This test previously asserted that a 1-USDfr deposit out-minted the vault. That was the
+        // stream-entry skim, not a safety property: entry now prices the physical incumbent-owned
+        // balance and must NOT recreate the degenerate quote. The independent distressed-vault
+        // guard below remains fail-closed and still refuses entry.
+        assertLe(vault.previewDeposit(1e18), vault.totalSupply(), "physical entry NAV still out-mints the vault");
 
         // ENTRY IS CLOSED, LOUDLY (prime directive 4) — governance must resolve the wipe. This is
         // the ZERO-base point, the LIMIT of the stranded-stream band, so the `_isDegenerate`
@@ -331,7 +333,9 @@ contract FixH3VestingPeriodCrystallizationTest is CreditLayerFixture {
             Config.SUSDFR_MAX_STRANDED_YIELD_RATIO * vault.totalAssets(),
             "stranded stream past the guard multiple of the deposit base"
         );
-        assertGt(vault.previewDeposit(1e18), vault.totalSupply(), "a 1-USDfr deposit out-mints the vault");
+        // This predecessor assertion expected the very skim now closed by physical-balance entry
+        // pricing; invert it loudly while retaining the independent distressed-vault refusal.
+        assertLe(vault.previewDeposit(1e18), vault.totalSupply(), "physical entry NAV still out-mints the vault");
 
         uint256 supply = vault.totalSupply();
         uint256 aliceValueBefore = vault.convertToAssets(vault.balanceOf(alice));
@@ -377,7 +381,9 @@ contract FixH3VestingPeriodCrystallizationTest is CreditLayerFixture {
             Config.SUSDFR_MAX_STRANDED_YIELD_RATIO * tinyBase,
             "the stranded stream still exceeds the guard multiple of the base"
         );
-        assertGt(vault.previewDeposit(1e18), vault.totalSupply(), "a 1-USDfr deposit still out-mints the vault");
+        // The old assertion enshrined the stream-entry defect. Even one block later, the physical
+        // entry NAV must prevent a newcomer from out-minting all incumbent shares.
+        assertLe(vault.previewDeposit(1e18), vault.totalSupply(), "physical entry NAV still out-mints the vault");
 
         uint256 supply = vault.totalSupply();
         _mintUSDfrTo(bob, 1e18);
@@ -628,6 +634,29 @@ contract FixH3VestingPeriodCrystallizationTest is CreditLayerFixture {
         assertEq(vault.unvestedYield(), 0, "seven daily re-writes must not withhold a 7-day stream");
         assertEq(vault.totalAssets(), usdfr.balanceOf(address(vault)), "all of it credited");
         assertGt(stream, 0, "there was a stream to withhold");
+    }
+
+    /// @dev M-3 REGRESSION. The same-value guard alone was insufficient: alternating two
+    ///      different non-zero values restarted the clock on every call and could withhold the
+    ///      same realized yield forever. Every re-tune must preserve or shorten the absolute
+    ///      deadline established for the active stream.
+    function test_M3_alternatingNonzeroPeriodsCannotExtendTheActiveStream() public {
+        (, uint256 stream) = _startStream();
+        uint64 originalDeadline = vault.vestingDeadline();
+        assertEq(originalDeadline, uint64(block.timestamp + OPTIONAL_STREAM_PERIOD), "initial deadline mismatch");
+
+        for (uint256 i = 0; i < 6; ++i) {
+            vm.warp(block.timestamp + 1 days);
+            uint64 nextPeriod = i % 2 == 0 ? OPTIONAL_STREAM_PERIOD - 1 : OPTIONAL_STREAM_PERIOD;
+            vm.prank(admin);
+            vault.setYieldVestingPeriod(nextPeriod);
+            assertLe(vault.vestingDeadline(), originalDeadline, "a re-tune extended the active stream");
+        }
+
+        vm.warp(originalDeadline);
+        assertEq(vault.unvestedYield(), 0, "alternating periods perpetuated realized yield");
+        assertEq(vault.totalAssets(), usdfr.balanceOf(address(vault)), "all realized yield was not credited");
+        assertGt(stream, 0, "the regression never opened a stream");
     }
 
     // ── the zero-period escape hatch stays a step UP, never down ─────────

@@ -8,23 +8,23 @@ loss cascade underneath.
 Off-chain facts enter only through an m-of-n attested oracle. The protocol integrates no AMM, no
 price feed and no external DeFi protocol; USDC is the only external token.
 
-> **This public review repository contains the production contract source, the runnable public
-> test suite, architecture decisions, security documentation and application.** Live mainnet
-> deployment topology, custody material, operational manifests and private keeper/feed tooling are
-> deliberately excluded. See *What is in this repository* and *What is deliberately withheld*.
+> **This repository currently contains the application and the published documentation — not the
+> contract source.** The contracts are published after the mainnet deployment. Until then, the
+> Sepolia contracts are verified on Etherscan and readable there, and every review round, finding
+> and disposition is published here and on the project site. See *What is in this repository*.
 
 ---
 
 ## Status — read this before anything else
 
-**This protocol is not in production.**
+**This protocol is not live on mainnet, and is not authorized to be.**
 
 | | |
 |---|---|
-| Deployed | Ethereum **Sepolia** plus a restricted disposable Ethereum-mainnet test ceremony. Neither is production. |
-| Mainnet | **Controlled test only.** No third-party capital, real facility, legal claim, public yield representation or production frontend is authorized. Production activation remains separately gated. |
+| Deployed | Ethereum **Sepolia** only. Test assets have no value. |
+| Mainnet | **Not deployed.** Production activation remains blocked by the unchecked launch-runbook gates. |
 | External security audit | **SATISFIED.** Corrovera Security's independent AI-assisted review was received and owner-dispositioned on 4 August 2026. |
-| Open findings | Several; their mechanisms, impacts and dispositions are published. Runnable proofs for live unremediated mechanisms are withheld — see below. |
+| Open findings | Several, published in full — see below. |
 
 The current testnet deployment retains bootstrap admin privileges, uses a mock stablecoin, and runs
 with concentration limits fully open. **Nothing green on that deployment is evidence about a
@@ -35,8 +35,8 @@ representation, and nothing here should be read as representing the instruments 
 
 ## Security posture
 
-Every finding and disposition is published, including what is still open and what was accepted
-rather than fixed. Selected live reproduction material is withheld under the policy below:
+Everything we have found is published, including what is still open and what was accepted rather
+than fixed:
 
 - **Audit register** (`/docs/audit` on the project site) — every review round, each with its
   own findings, severities and remediation history. Fifteen published rounds, most recent
@@ -47,21 +47,15 @@ rather than fixed. Selected live reproduction material is withheld under the pol
 - **Security & testing** (`/docs/security`) — assurance posture and the
   current status of each production gate.
 
-The engineering rounds are internal and do not substitute for external review. The Audit Register
-publishes Corrovera Security's independent AI-assisted review scope, method, findings, limitations
-and Forest Road's dispositions; the raw vendor report remains private under the reproduction policy
-below. Forest Road accepted its two Medium findings with recorded conditions and revisit triggers.
-That review satisfies Forest Road's one-external-audit launch requirement. Its stated scope and
-methodological limits remain part of the evidence and are not upgraded by that policy decision.
+The engineering rounds are internal and do not substitute for external review. Corrovera Security's
+independent AI-assisted review is published in full in the Audit Register; Forest Road accepted its
+two Medium findings with recorded conditions and revisit triggers. That review satisfies Forest
+Road's one-external-audit launch requirement. Its stated scope and methodological limits remain
+part of the evidence and are not upgraded by that policy decision.
 
 ### Reproduction proofs
 
-Reproduction status is stated per finding and must not be inferred merely from inclusion in the
-register. Corrovera explicitly did not generate fork reproductions, and neither of its two findings
-reached its `confirmed` evidence tier. The public test suite includes the other proofs that compile
-without the deliberately withheld live-mainnet ceremony files. Tests that import those files, and
-raw reproduction material for live accepted mechanisms, remain in the private evidence archive and
-are available to an engaged auditor through an appropriate disclosure channel.
+Every finding in the register has a reproducing test. Those proofs are **not** in this repository.
 
 For findings that are **open and exploitable against a live deployment**, the register states the
 mechanism, the impact and the fix, but withholds the reproduction recipe until remediation. That is
@@ -74,10 +68,11 @@ mechanisms that are accepted but not remediated.
 One published finding names a proof that is withheld for a different reason, and we would rather
 say so than let the register imply otherwise. **FRV-DSA-001** (High, Remediated — "Mainnet
 deployment authorization approved parameters without binding principals or artifacts") records that
-the remediation is "proven by a pinned mainnet-fork test". The relevant tests import the withheld
-mainnet deployment scripts. A reader of this public repository therefore cannot run that proof or
-read the ceremony script it exercises, and should treat that disposition as asserted here unless
-Forest Road supplies the private evidence archive directly.
+the remediation is "proven by a pinned mainnet-fork test". That test, and the unit suite that pins
+the same authorization hash, are the two files withheld above because they import the mainnet
+deployment scripts. A reader of this repository can therefore neither run that proof nor read the
+script it exercises, and should treat that one disposition as asserted rather than independently
+reproducible here.
 
 Reviewers, auditors and integrators can request the full evidence archive.
 
@@ -96,37 +91,41 @@ reproduction detail is withheld until the mechanism is remediated. Reporters are
 they ask not to be.
 
 There is no bug bounty at this stage. Nothing here waives any right, but we have no interest in
-pursuing good-faith research: test against your own deployment or a local fork rather than any
-deployed Forest Road address, do not access or modify data that is not yours, and do not degrade
-the service for others.
+pursuing good-faith research: test against your own deployment or a fork rather than the live
+testnet, do not access or modify data that is not yours, and do not degrade the service for others.
 
 ## What is in this repository
 
 ```
-contracts/src        production Solidity contracts
-contracts/test       public unit, integration, invariant, symbolic, audit and fork tests
-contracts/script     generic test/development deployment, validation and QA scripts
-ADR                  architecture decision records
-docs                 threat model, access-control matrix, invariants and review guidance
-frontend             Next.js application and published audit register
+frontend             the Next.js application and the published documentation, including
+                     the full audit register — every round, finding and disposition
 ```
 
-The public snapshot is derived from frozen source commit
-`fa28d0ecccd4b99176da0bc6b4d2fbac88849246`. Public dependency submodules are pinned to the exact
-commits used by that source.
+### What is not here yet, and why
 
-### What is deliberately withheld
+This is a curated snapshot of a private working repository, not a mirror of it, and it is being
+published in two stages.
 
-This is a curated snapshot of a private working repository, not a mirror. The exclusions below
-protect operational controls and live reproduction material; they are not claims that review of
-the published surface alone is sufficient to approve production.
+**Stage one, now — the application and the documentation.** The audit register ships in full,
+including the findings that are still open and the ones accepted rather than fixed. So does the
+invariant specification, the threat model and the access-control matrix. You can read exactly what
+was found and what was decided about it.
+
+**Stage two, after the mainnet deployment — the contract source, the test suite and the ADRs.**
+Holding these back is a deliberate sequencing decision rather than a claim that they are sensitive:
+they publish the deployment topology at the moment we are preparing to deploy it. The tradeoff is
+real and worth stating, because the usual argument runs the other way — publishing source before
+launch means more eyes while nothing is at risk. What blunts the cost here is that the Sepolia
+contracts are already verified on Etherscan and readable today, and mainnet source is verified at
+deployment, so this defers packaging rather than concealment.
+
+Permanently withheld, in both stages:
 
 | Withheld | Why |
 |---|---|
 | The mainnet deployment, validation and handover scripts | `DeployMainnet`, `ValidateMainnet`, `MainnetConfig`, `MainnetConfigReceipt` and `Handover`. They publish the mainnet role topology and the handover sequence. To be revisited after launch. The generic `Deploy`, `Validate`, `QA`, `UpgradeOracle` and `PrivilegeAudit` scripts **are** published — they take every address from configuration, and the test suite does not compile without them. |
-| Five test files that import those scripts | `MainnetDeploymentFork`, `DeployValidateHandoverFork`, `Fix_C01-deploy-tooling`, `DeepSecurityDeploymentAuthorization` and `Fix_A01-timelock-impl-initialiser`. They cannot compile without the withheld scripts, and one unresolved import stops the entire public suite compiling. See *Reproduction proofs*. |
+| Four test files that import those scripts | `MainnetDeploymentFork`, `DeployValidateHandoverFork`, `Fix_C01-deploy-tooling` and `DeepSecurityDeploymentAuthorization` — 74 tests. They cannot compile without the withheld scripts, and one unresolved import stops the entire suite compiling, so the choice was these four or all of it. See *Reproduction proofs* for the one register finding this affects. |
 | The mainnet control-Safe fork test | `MainnetControlSafesFork` pins the exact pre-launch control-wallet topology. It is withheld with the operational address records and will be revisited after launch. |
-| Two live-finding characterization proofs | The `R14_01-FeeShareMintBasis` file and the accepted global-HWM round-trip case in `FeeStackFlow` are executable proofs of unremediated accepted mechanisms. The audit register publishes their mechanisms, impacts, dispositions and revisit conditions; the runnable proofs remain in the private evidence archive. The rest of `FeeStackFlow` remains public. |
 | The off-chain keeper and private bundle feed | Operational infrastructure carrying private-relay, encrypted-bundle delivery and credential-boundary detail. Not required to review the on-chain protocol. |
 | Deployment manifests and reports | Operational records. Live addresses are published on the project site instead, where they can be reconciled against on-chain state. |
 | The launch runbook | Operational and incident procedure. Publishing it carries no benefit to a reader and real downside. |
@@ -138,14 +137,9 @@ Credentials and ceremony records have never been committed to any repository.
 ## Building and testing
 
 ```bash
-git submodule update --init --recursive
-cd contracts
-forge build
-forge test --offline
-
-cd ../frontend
-npm ci
-npm test
+cd frontend
+npm install
+npm test                      # logic, contract↔UI synchronization, and render tests
 NEXT_PUBLIC_CHAIN_ID=11155111 npm run build
 ```
 
@@ -163,9 +157,9 @@ The locked decisions are identified-per-asset collateral rather than a blind poo
 pass-through rather than a fixed rate; Ethereum L1; four credit verticals plus a marked-to-market
 digital-assets class at launch; and the three-layer loss cascade.
 
-The protocol overview and invariant specification are published under
-`frontend/src/content/docs/` and rendered on the project site. The complete public architecture
-decision set is in `ADR/`.
+The protocol overview and the invariant specification are published here under
+`frontend/src/content/docs/`, and rendered on the project site. The full architecture decision
+records arrive with the contract source in stage two.
 
 ## License
 

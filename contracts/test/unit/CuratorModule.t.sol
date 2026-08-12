@@ -175,11 +175,80 @@ contract CuratorModuleTest is CreditLayerFixture {
         // absorb half: share price 0.5
         vm.prank(address(defaultManager));
         curator.absorbLoss(FILM, 200e18);
-        // a fresh 100e18 post must buy 200e18 shares (not dilute unfairly)
+        // normalization rebases the units before a fresh post, preserving economic value
         _postFirstLoss(secondCurator, FILM, 100e18);
         assertEq(curator.poolBalance(FILM), 300e18);
         assertEq(curator.postedOf(FILM, anchorCurator), 200e18, "anchor keeps its diluted value");
         assertEq(curator.postedOf(FILM, secondCurator), 100e18, "fresh post keeps full value");
+    }
+
+    /// @dev D10-02 regression: repeated near-total losses previously multiplied the
+    ///      shares/assets ratio until the next economically meaningful post panicked.
+    function test_repeatedNearTotalLossRepostsRemainRepresentable() public {
+        _postFirstLoss(anchorCurator, FILM, 600_000e18);
+        _postFirstLoss(secondCurator, FILM, 400_000e18);
+
+        for (uint256 i = 0; i < 12; ++i) {
+            uint256 balance = curator.poolBalance(FILM);
+            vm.prank(address(defaultManager));
+            curator.absorbLoss(FILM, balance - 1);
+
+            _postFirstLoss(anchorCurator, FILM, 600_000e18);
+            _postFirstLoss(secondCurator, FILM, 400_000e18);
+
+            balance = curator.poolBalance(FILM);
+            assertGe(curator.poolShares(FILM), balance, "share ratio fell below its lower representation bound");
+            assertLe(curator.poolShares(FILM), balance * 2, "share ratio escaped its representation bound");
+            uint256 posted = curator.postedOf(FILM, anchorCurator) + curator.postedOf(FILM, secondCurator);
+            assertLe(posted, balance, "normalization created a curator claim");
+            assertLe(balance - posted, 2, "normalization lost more than token dust");
+        }
+    }
+
+    function test_shareNormalizationRoundsOnlyTowardThePool() public {
+        address thirdCurator = makeAddr("thirdCurator");
+        vm.prank(complianceAdmin);
+        compliance.setAllowed(thirdCurator, true);
+        vm.prank(admin);
+        curator.setCuratorApproved(FILM, thirdCurator, true);
+
+        _postFirstLoss(anchorCurator, FILM, 600_000e18);
+        _postFirstLoss(secondCurator, FILM, 400_000e18);
+        uint256 balance = curator.poolBalance(FILM);
+        vm.prank(address(defaultManager));
+        curator.absorbLoss(FILM, balance - 1e18);
+
+        uint256 anchorBefore = curator.postedOf(FILM, anchorCurator);
+        uint256 secondBefore = curator.postedOf(FILM, secondCurator);
+        _postFirstLoss(thirdCurator, FILM, 1_000_000e18);
+
+        uint256 anchorAfter = curator.postedOf(FILM, anchorCurator);
+        uint256 secondAfter = curator.postedOf(FILM, secondCurator);
+        assertLe(anchorAfter, anchorBefore, "normalization increased an old claim");
+        assertLe(secondAfter, secondBefore, "normalization increased an old claim");
+        assertLe(anchorBefore - anchorAfter, 1, "anchor lost more than one asset wei");
+        assertLe(secondBefore - secondAfter, 1, "second curator lost more than one asset wei");
+        assertLe(curator.postedOf(FILM, thirdCurator), 1_000_000e18, "new post received excess value");
+    }
+
+    function test_normalizedLegacyStakeRemainsWithdrawable() public {
+        address thirdCurator = makeAddr("thirdCurator");
+        vm.prank(complianceAdmin);
+        compliance.setAllowed(thirdCurator, true);
+        vm.prank(admin);
+        curator.setCuratorApproved(FILM, thirdCurator, true);
+
+        _postFirstLoss(anchorCurator, FILM, 600_000e18);
+        _postFirstLoss(secondCurator, FILM, 400_000e18);
+        uint256 balance = curator.poolBalance(FILM);
+        vm.prank(address(defaultManager));
+        curator.absorbLoss(FILM, balance - 1e18);
+        _postFirstLoss(thirdCurator, FILM, 1_000_000e18);
+
+        uint256 posted = curator.postedOf(FILM, anchorCurator);
+        vm.prank(anchorCurator);
+        curator.withdrawFirstLoss(FILM, posted);
+        assertEq(curator.postedOf(FILM, anchorCurator), 0, "legacy stake did not exit cleanly");
     }
 
     // ── withdrawFirstLoss ────────────────────────────────────────────────
@@ -314,6 +383,44 @@ contract CuratorModuleTest is CreditLayerFixture {
         curator.absorbLoss(FILM, 200e18); // half the pool
         assertEq(curator.postedOf(FILM, anchorCurator), 150e18, "anchor bears 3/4 of the loss");
         assertEq(curator.postedOf(FILM, secondCurator), 50e18, "second bears 1/4");
+    }
+
+    function test_absorbGlobalLoss_snapshotWeightsEveryPoolAndAssignsDustDeterministically() public {
+        uint256[5] memory posted = [uint256(1e18), 1e18, 1e18, 1e18, 2e18];
+        for (uint256 i = 0; i < posted.length; ++i) {
+            _postFirstLoss(anchorCurator, i + 1, posted[i]);
+        }
+
+        vm.prank(address(defaultManager));
+        (uint256 absorbed, uint256 residual) = curator.absorbGlobalLoss(1e12);
+
+        uint256[5] memory allocation =
+            [uint256(166_666_666_669), 166_666_666_666, 166_666_666_666, 166_666_666_666, 333_333_333_333];
+        assertEq(absorbed, 1e12);
+        assertEq(residual, 0);
+        for (uint256 i = 0; i < posted.length; ++i) {
+            assertEq(curator.poolBalance(i + 1), posted[i] - allocation[i]);
+        }
+        assertEq(usdfr.balanceOf(address(defaultManager)), absorbed, "aggregate transfer must match the allocation");
+    }
+
+    function test_absorbGlobalLoss_guardsAndReturnsResidualWhenPoolsAreEmpty() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, anchorCurator, Roles.CREDIT_ROLE
+            )
+        );
+        vm.prank(anchorCurator);
+        curator.absorbGlobalLoss(1e18);
+
+        vm.expectRevert(ICuratorModule.Curator_ZeroAmount.selector);
+        vm.prank(address(defaultManager));
+        curator.absorbGlobalLoss(0);
+
+        vm.prank(address(defaultManager));
+        (uint256 absorbed, uint256 residual) = curator.absorbGlobalLoss(1e18);
+        assertEq(absorbed, 0);
+        assertEq(residual, 1e18);
     }
 
     // ── default freeze (audit R4-EC2) ────────────────────────────────────
@@ -482,6 +589,72 @@ contract CuratorModuleTest is CreditLayerFixture {
         );
         vm.prank(alice);
         curator.unpause();
+    }
+
+    /// @dev This test previously asserted timestamp-only release as safe; an arm now persists
+    ///      until an explicit governance transition consumes it.
+    function test_reserveLossArmBlocksWithdrawalUntilExplicitCancellation() public {
+        _postFirstLoss(anchorCurator, FILM, 100e18);
+        vm.prank(guardian);
+        (uint256 armId,) = reserves.armReserveLossFreeze(keccak256("curator-arm"));
+
+        vm.expectRevert(ICuratorModule.Curator_CustodyLossFrozen.selector);
+        vm.prank(anchorCurator);
+        curator.withdrawFirstLoss(FILM, 1e18);
+
+        vm.warp(block.timestamp + 1000 days);
+        vm.expectRevert(ICuratorModule.Curator_CustodyLossFrozen.selector);
+        vm.prank(anchorCurator);
+        curator.withdrawFirstLoss(FILM, 1e18);
+
+        vm.prank(admin);
+        reserves.cancelAndDisable(armId, keccak256("explicit-cancel"));
+        vm.prank(anchorCurator);
+        curator.withdrawFirstLoss(FILM, 1e18);
+    }
+
+    function test_reserveManagerCannotBeRepointedWhileTheInterlockIsActive() public {
+        _armReserveLoss(502);
+
+        vm.expectRevert(ICuratorModule.Curator_ReserveManagerChangeFrozen.selector);
+        vm.prank(admin);
+        curator.setReserveManager(address(reserves));
+        assertEq(curator.reserveManager(), address(reserves), "failed rebind cannot change the live manager");
+    }
+
+    function test_curatorFreezeSpansLiveShortfallRecognitionAbsorptionAndIncidentClose() public {
+        _postFirstLoss(anchorCurator, FILM, 100e18);
+        vm.prank(address(reserves));
+        usdc.transfer(bob, 10e6);
+
+        vm.expectRevert(ICuratorModule.Curator_CustodyLossFrozen.selector);
+        vm.prank(anchorCurator);
+        curator.withdrawFirstLoss(FILM, 1e18);
+
+        assertEq(reserves.reconcileIdleUSDC(), 10e6);
+        vm.expectRevert(ICuratorModule.Curator_CustodyLossFrozen.selector);
+        vm.prank(anchorCurator);
+        curator.withdrawFirstLoss(FILM, 1e18);
+
+        (uint256 armId,) = _armReserveLoss(501);
+        (uint256 incidentId,) = _ratifyCurrentReserveLoss(10e18);
+        assertEq(reserves.reserveDeficit(), 0);
+        vm.expectRevert(ICuratorModule.Curator_CustodyLossFrozen.selector);
+        vm.prank(anchorCurator);
+        curator.withdrawFirstLoss(FILM, 1e18);
+
+        vm.prank(admin);
+        reserves.finalizeAndDisable(armId, keccak256(abi.encode("finalize", incidentId)));
+        vm.prank(anchorCurator);
+        curator.withdrawFirstLoss(FILM, 1e18);
+    }
+
+    function test_governanceCanUnpauseAfterGuardianPause() public {
+        vm.prank(guardian);
+        curator.pause();
+        vm.prank(admin);
+        curator.governanceUnpause();
+        assertFalse(curator.paused());
     }
 
     // ── upgrade authorization ────────────────────────────────────────────

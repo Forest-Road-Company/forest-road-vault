@@ -18,19 +18,35 @@ interface ICascadeBackstop is IERC165 {
     event ShortfallCovered(address indexed caller, uint256 requested, uint256 covered);
 
     /// @notice Covers up to `amount` of a realized shortfall from backstop capital.
-    /// @param amount The residual loss after curator first-loss absorption.
+    /// @param eventId Identifies the loss event for durable observability. ADR-0035 deliberately
+    ///        gives this key no separate ceiling or reserved allowance.
+    /// @param amount The shortfall remaining after curator first-loss absorption.
     /// @return covered USDfr actually provided (transferred to `msg.sender`); the
-    ///         Phase H implementation caps this per ADR-0014 (≤ 50% of staked sGROVE
-    ///         per event) so it may be less than `amount`.
-    /// @param eventId Identifies the LOSS EVENT being covered — the defaulted facility's
-    ///        `tokenId`. The per-event cap is enforced cumulatively against this key, so a
-    ///        single default cannot draw more by being realized in several calls (PM-R-07).
-    /// @param amount The shortfall the cascade is asking the backstop to absorb.
+    ///         implementation bounds this only by the live coverage reserve, so it may be less
+    ///         than `amount`. Under ADR-0035 one event may exhaust layer two entirely; subsequent
+    ///         loss reaches senior principal until real USDfr replenishes the reserve.
     function coverShortfall(uint256 eventId, uint256 amount) external returns (uint256 covered);
 
-    /// @notice What a single shortfall event could draw from backstop capital right now
-    ///         (ADR-0014 per-event cap on the coverage reserve). Used by the conservative
-    ///         redemption-NAV impairment (ADR-0022) as the sGROVE junior-capacity term — the
-    ///         per-event figure is the conservative (smaller) choice, so it never under-marks.
+    /// @notice The whole live USDfr reserve available to the next reported shortfall.
+    /// @dev ADR-0035 removes the former per-event ceiling. This value is therefore identical to
+    ///      `coverageReserve()` and can fall to zero after one event.
     function coverageCapacity() external view returns (uint256);
+
+    /// @notice Compatibility view for counterfactual accounting; uncapped capacity equals reserve.
+    /// @param reserve The hypothetical live reserve.
+    function coverageCapacityAt(uint256 reserve) external view returns (uint256);
+
+    /// @notice Compatibility parameters for consumers that still express capacity as a formula.
+    /// @dev ADR-0035 fixes these to `(BPS, type(uint256).max)`, the identity function. They are not
+    ///      governance parameters and do not create a per-event ceiling.
+    function coverageCapParameters() external view returns (uint16 proportionalBps, uint256 absoluteCap);
+
+    /// @notice The full USDfr reserve currently held for coverage.
+    function coverageReserve() external view returns (uint256);
+
+    /// @notice The shared live reserve an event would reach if processed next.
+    /// @dev Every event id returns the same value: ADR-0035 creates no event-owned commitment.
+    /// @param eventId Retained for ABI compatibility and observability; it does not affect capacity.
+    /// @return remaining The current shared coverage reserve.
+    function remainingCoverage(uint256 eventId) external view returns (uint256 remaining);
 }

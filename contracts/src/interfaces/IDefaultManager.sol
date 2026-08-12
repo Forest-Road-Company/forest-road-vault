@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {IRevisionedImpairmentSource} from "./IRevisionedImpairmentSource.sol";
+import {IReserveLossAbsorber} from "./IReserveLossAbsorber.sol";
 
 /// @title IDefaultManager — default handling and the three-layer loss cascade
 /// @notice Two remedy families (ADR-0015):
@@ -16,7 +17,10 @@ import {IRevisionedImpairmentSource} from "./IRevisionedImpairmentSource.sol";
 ///         `realizeLoss` executes the cascade ATOMICALLY with the principal write-down
 ///         (ADR-0012): curator first-loss → sGROVE backstop → sUSDfr vault principal,
 ///         in that order, never skipping or inverting a layer (CLAUDE.md §1.3).
-interface IDefaultManager is IRevisionedImpairmentSource {
+/// @dev The inherited `absorbReserveLoss` surface is retained-but-unreachable production ABI.
+///      ReserveManager performs live custody cascades inline; the retained entry emits no event
+///      and must not be represented as coverage of that shipped path.
+interface IDefaultManager is IRevisionedImpairmentSource, IReserveLossAbsorber {
     // ── Events ───────────────────────────────────────────────────────────
     event DefaultDeclared(uint256 indexed tokenId, uint256 indexed classId, bytes32 remedyRef);
     /// @notice The off-chain enforcement trigger (UCC remedies / custodian liquidation).
@@ -38,6 +42,8 @@ interface IDefaultManager is IRevisionedImpairmentSource {
     event RemedyRefSet(uint256 indexed classId, bytes32 remedyRef);
     event CureWindowSet(uint256 indexed classId, uint64 window);
     event BackstopSet(address indexed backstop);
+    /// @notice The append-only per-event commitment ledger wired to this manager.
+    event CommitmentLedgerSet(address indexed ledger);
     /// @notice A receivable facility that ran past `maturity + graceWindow` was flagged past due by
     ///         the permissionless `markPastDue` trigger (AUDIT FIX H-5, REDESIGNED 2026-07-22). This
     ///         is a REVERSIBLE ACCOUNTING mark ONLY. It does NOT transition the facility to
@@ -94,10 +100,14 @@ interface IDefaultManager is IRevisionedImpairmentSource {
     /// @dev Advances on every declared-default, past-due, recovery, realization, and backstop
     ///      wiring transition that can change the conservative impairment state.
     event ImpairmentRevisionAdvanced(uint256 indexed revision);
+    /// @notice Complete protocol-level custody-loss allocation before ReserveManager records the
+    ///         backing reduction. Any non-zero residual is deliberately recorded as insolvency and
+    ///         leaves mint/redeem fail-closed pending governance recapitalisation.
 
     // ── Errors ───────────────────────────────────────────────────────────
     error DefaultManager_ZeroAddress();
     error DefaultManager_ZeroAmount();
+    error DefaultManager_ZeroEvidenceHash();
     error DefaultManager_UnknownClass(uint256 classId);
     error DefaultManager_NotDefaultable(uint256 tokenId);
     /// @notice No attested DefaultDeclared fact for this facility (ADR-0020).
@@ -117,6 +127,11 @@ interface IDefaultManager is IRevisionedImpairmentSource {
     error DefaultManager_BackstopContractViolated(uint256 requested, uint256 covered, uint256 received);
     /// @notice A proposed backstop has no code or cannot return an ABI-encoded capacity.
     error DefaultManager_InvalidBackstop(address backstop);
+    /// @notice A commitment-ledger migration was attempted with live declared principal or
+    ///         consumed layer-2 coverage. Replacing the ledger would erase per-event state.
+    error DefaultManager_CommitmentLedgerMigrationUnsafe(uint256 liveRisk);
+    /// @notice The commitment ledger is already wired; migration is one-way and cannot replace it.
+    error DefaultManager_CommitmentLedgerAlreadySet(address ledger);
     /// @notice `onDefaultResolved` was called for a facility that is not in `Resolved` state.
     error DefaultManager_NotResolved(uint256 tokenId);
     /// @notice `markPastDue` was called on a non-receivable (marked-to-market) facility — those
@@ -136,6 +151,28 @@ interface IDefaultManager is IRevisionedImpairmentSource {
     /// @notice `setGraceWindow` was asked to set a window above `Config.DEFAULT_REDEEM_COOLDOWN`,
     ///         which would let the marking lag exceed the redemption cooldown (AUDIT FIX H-5).
     error DefaultManager_GraceWindowTooLong(uint64 window, uint64 maxWindow);
+    error DefaultManager_ReserveLossCallerNotReserve(address caller);
+    error DefaultManager_InvalidReserveLossIncident(uint256 incidentId);
+    /// @notice `drawForSeniorExit` was called by something other than the wired MintRedeemController
+    ///         (ADR-0034 Y-bis). Caller identity, not a role: there is exactly one correct caller.
+    error DefaultManager_ExitDrawCallerNotController(address caller);
+
+    /// @notice A senior exit drew junior capital forward through the cascade (ADR-0034 Y-bis).
+    /// @param required What the controller asked the junior layers to fund.
+    /// @param curatorAbsorbed Layer 1 — curator first-loss, pro-rata over the standing pools.
+    /// @param backstopCovered Layer 2 — sGROVE, and only for what layer 1 declined.
+    event SeniorExitDrawn(uint256 required, uint256 curatorAbsorbed, uint256 backstopCovered);
+
+    /// @notice Draws junior capital forward to fund a cascade-ordered senior exit price, in the
+    ///         same transaction as the redemption (ADR-0034 Y-bis).
+    /// @dev Callable ONLY by the wired MintRedeemController. Never reverts on insufficiency —
+    ///      returns what the junior layers could actually provide, which may be zero. The drawn
+    ///      USDfr is left standing at the DefaultManager for the CONTROLLER to burn: this contract
+    ///      must not call `burnLoss`, which is `nonReentrant` on a controller already inside
+    ///      `redeem`. See the implementation NatSpec.
+    /// @param required Junior capital the exit price needs, in 18-decimal USDfr units.
+    /// @return drawn USDfr actually transferred here by layers 1 and 2 (`<= required`).
+    function drawForSeniorExit(uint256 required) external returns (uint256 drawn);
 
     // ── Receivable remedy path (SERVICER_ROLE) ───────────────────────────
     /// @notice Declares default: freezes the position (dual-record freeze) and emits
@@ -149,6 +186,17 @@ interface IDefaultManager is IRevisionedImpairmentSource {
     ///         atomically with the principal write-down. If the write-down exhausts the remaining
     ///         outstanding principal, the facility transitions to `Resolved`.
     function realizeLoss(uint256 tokenId, uint256 loss, bytes32 evidenceHash) external;
+
+    function coverageConsumedByDefault(uint256 tokenId) external view returns (uint256 consumed);
+    function liveDefaultCoverageConsumed() external view returns (uint256 consumed);
+    /// @notice Compatibility alias for the live drawn-row deliverable aggregate.
+    /// @dev Its historical storage word remains untouched for upgrade safety.
+    function liveDefaultCapacityFloor() external view returns (uint256 capacityFloor);
+    /// @notice AUDIT FIX (SWEEP-3 F-S3-01) — replaces `liveDefaultCapacityFloor()`. See the
+    ///         implementation NatSpec for why the floor could not be netted without
+    ///         double-subtracting the consumed coverage.
+    function liveDefaultCoverageRemaining() external view returns (uint256 remaining);
+    function coverageRemainingByDefault(uint256 tokenId) external view returns (uint256 remaining);
 
     // ── Past-due accounting trigger (permissionless — on-chain maturity) ──
     /// @notice Permissionlessly flags a RECEIVABLE facility that ran past `maturity + graceWindow`
@@ -205,6 +253,27 @@ interface IDefaultManager is IRevisionedImpairmentSource {
     /// @notice Wires the sGROVE backstop (Phase H). Zero address = no layer 2 yet.
     function setBackstop(address backstop_) external;
 
+    /// @notice Creates the commitment ledger for a pre-ledger proxy after an upgrade.
+    /// @dev Governance-only and one-way. It is permitted only before any layer-2 coverage has
+    ///      been consumed, because creating a fresh ledger after a draw would erase that event's
+    ///      residual-principal record and could overstate future coverage.
+    function initializeCommitmentLedger() external;
+
+    /// @notice Wired module addresses, including the append-only commitment ledger tail.
+    function modules()
+        external
+        view
+        returns (
+            address bridge,
+            address registry,
+            address reserves,
+            address controller,
+            address curator,
+            address oracle,
+            address vault,
+            address commitmentLedger
+        );
+
     // ── Views ────────────────────────────────────────────────────────────
     /// @notice Current attested LTV of a facility in bps (outstanding / mark).
     function currentLtvBps(uint256 tokenId) external view returns (uint256 ltvBps, uint64 asOf);
@@ -255,6 +324,45 @@ interface IDefaultManager is IRevisionedImpairmentSource {
     /// @notice Per-class outstanding principal of loans in default whose loss is not yet
     ///         realized (ADR-0022 impairment pool).
     function declaredDefaultedPrincipal(uint256 classId) external view returns (uint256);
+
+    /// @notice Historical per-class principal of declared facilities that have drawn layer two.
+    /// @dev Retained for observability; ADR-0035 gives the cohort no distinct coverage formula.
+    function drawnDefaultPrincipal(uint256 classId) external view returns (uint256);
+
+    /// @notice Per-class at-risk principal of facilities currently flagged past due by
+    ///         `markPastDue` (AUDIT FIX H-5) — the class breakdown of `pastDueExposure()`.
+    /// @dev Read by `ConservativeImpairmentMath` to rebuild the conservative mark. Part of the
+    ///      published surface so an independent model can recompute `pendingSeniorImpairment()`
+    ///      from first principles instead of trusting it.
+    function pastDuePrincipal(uint256 classId) external view returns (uint256);
+
+    /// @notice The start of the G2W relief ramp for the standing unattested past-due cohort
+    ///         (OWNER DECISION 2026-08-07): the OLDEST live delinquent payment episode's first
+    ///         mark.
+    /// @dev Read by `ConservativeImpairmentMath` to ramp the unattested cohort's forward weight
+    ///      back to full over one `Config.DEFAULT_REDEEM_COOLDOWN`. ZERO MEANS UNSET and fails
+    ///      SAFE to full weight — never read zero as "freshly marked".
+    ///
+    ///      AUDIT FIX (SWEEP-3 S3-F3). This is now a DERIVED minimum over `reliefEpisode` starts,
+    ///      not a timestamp re-armed by whichever `markPastDue` happened to find the cohort empty.
+    ///      A clear-and-re-mark of the same payment episode therefore restores the ORIGINAL start,
+    ///      so the ramp's expiry — the thing that bounds the D5-03 under-mark in TIME — cannot be
+    ///      rewound. It is a MINIMUM (oldest, most elapsed, largest mark) so the residual after a
+    ///      release runs in the over-marking direction.
+    /// @return anchor The block timestamp the oldest live episode's relief began at.
+    function pastDueReliefAnchor() external view returns (uint256 anchor);
+
+    // AUDIT FIX (SWEEP-3 S3-F3) — NO `reliefEpisode(tokenId)` GETTER, AND THAT IS A BUDGET
+    // DECISION, NOT AN OVERSIGHT. The per-facility episode record
+    // (`DefaultManager.DefaultStorage.reliefEpisode`) is the source of truth for the relief clock
+    // and publishing it would be genuinely useful to operations and the audit register. MEASURED:
+    // the two-field getter costs `DefaultManager` 159 runtime bytes and lands it at 24,579 — THREE
+    // BYTES OVER EIP-170. The guard fits (156 bytes spare without it); the getter does not, and a
+    // view is not worth shaving a guard for. The economically meaningful surface is published
+    // anyway: `pastDueReliefAnchor()` IS the derived episode start the redemption price is
+    // computed from, and it is what the S3-F3 acceptance tests assert against. If operations needs
+    // the per-facility breakdown, read the slot with `eth_getStorageAt` off-chain or add it to a
+    // standalone lens contract — do NOT re-add it here without first recovering the budget.
 
     /// @notice The senior (sUSDfr) principal that declared-but-unrealized defaults would impair
     ///         after the junior layers (curator first-loss per class, then sGROVE) absorb — the

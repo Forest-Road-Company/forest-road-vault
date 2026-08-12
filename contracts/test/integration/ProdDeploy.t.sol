@@ -30,13 +30,17 @@ import {Config} from "../../src/libraries/Config.sol";
 ///      testnet deploy relied on via `opsAdmin==deployer`, but here ops is SEPARATE).
 contract ProdDeployTest is Test, Deploy {
     address internal ops = makeAddr("prodOps");
+    address internal proposalGuardian = makeAddr("prodProposalGuardian");
+    address internal queueKeeper = makeAddr("prodQueueKeeper");
     address internal treasury = makeAddr("prodTreasury");
     address internal fees = makeAddr("prodFees");
     address internal attester2Addr = makeAddr("prodAttester2");
 
     function _prodCtx() internal view returns (Ctx memory c) {
         c.deployer = address(this); // the caller of the internal steps IS the deployer
-        c.opsAdmin = ops; // SEPARATE from the deployer — the production shape
+        c.opsAdmin = ops;
+        c.proposalGuardian = proposalGuardian;
+        c.queueKeeper = queueKeeper;
         c.frTreasury = treasury;
         c.feeRecipient = fees;
         c.attester2 = attester2Addr;
@@ -51,11 +55,49 @@ contract ProdDeployTest is Test, Deploy {
         D memory d = _deployAll(c);
         _wire(d, c);
         _seed(d, c);
-        _handover(d, c);
+        this.exposedHandover(d, c);
 
         // seed landed at the permanently-locked sink
         assertGt(SUSDfr(d.vault).balanceOf(SEED_SINK), 0, "seed at sink");
         assertEq(SUSDfr(d.vault).totalSupply(), SUSDfr(d.vault).balanceOf(SEED_SINK), "only the seed exists");
+        assertEq(GroveToken(d.grove).delegates(treasury), treasury, "treasury self-delegated at genesis");
+        assertEq(
+            GroveToken(d.grove).getVotes(treasury), Config.GROVE_INITIAL_SUPPLY, "full genesis voting power active"
+        );
+    }
+
+    /// @notice Handover must fail before its first role change if governance voting power has
+    ///         been cleared, even though the token initializer normally makes genesis live.
+    function test_prodShapedDeploy_refusesGovernanceDeadHandoverAtomically() public {
+        Ctx memory c = _prodCtx();
+        D memory d = _deployAll(c);
+        _wire(d, c);
+        _seed(d, c);
+
+        vm.prank(treasury);
+        GroveToken(d.grove).delegate(address(0));
+
+        uint256 requiredVotingPower = Config.GROVE_INITIAL_SUPPLY * Config.GOV_QUORUM_FRACTION / 100;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Deploy.DeployGovernanceDeadOnArrival.selector, d.grove, treasury, uint256(0), requiredVotingPower
+            )
+        );
+        this.exposedHandover(d, c);
+
+        assertTrue(IAccessControl(d.usdfr).hasRole(bytes32(0), address(this)), "deployer admin preserved");
+        assertTrue(
+            IAccessControl(d.reserves).hasRole(Roles.RESERVE_ADMIN_ROLE, address(this)), "reserve authority preserved"
+        );
+
+        vm.prank(treasury);
+        GroveToken(d.grove).delegate(treasury);
+        this.exposedHandover(d, c);
+        assertFalse(IAccessControl(d.usdfr).hasRole(bytes32(0), address(this)), "handover succeeds once live");
+    }
+
+    function exposedHandover(D memory d, Ctx memory c) external {
+        _handover(d, c);
     }
 
     /// @notice After a prod handover the timelock is sole DEFAULT_ADMIN/UPGRADER, RESERVE_ADMIN
@@ -88,8 +130,10 @@ contract ProdDeployTest is Test, Deploy {
             assertTrue(IAccessControl(mods[i]).hasRole(bytes32(0), d.timelock), "timelock admin");
             assertFalse(IAccessControl(mods[i]).hasRole(bytes32(0), address(this)), "deployer NOT admin");
             assertFalse(IAccessControl(mods[i]).hasRole(bytes32(0), ops), "ops NOT admin (prod)");
+            assertFalse(IAccessControl(mods[i]).hasRole(bytes32(0), queueKeeper), "keeper NOT admin (prod)");
             assertTrue(IAccessControl(mods[i]).hasRole(Roles.UPGRADER_ROLE, d.timelock), "timelock upgrader");
             assertFalse(IAccessControl(mods[i]).hasRole(Roles.UPGRADER_ROLE, address(this)), "deployer NOT upgrader");
+            assertFalse(IAccessControl(mods[i]).hasRole(Roles.UPGRADER_ROLE, queueKeeper), "keeper NOT upgrader");
         }
 
         // MINTER only on the controller; deployer placeholder renounced.
@@ -115,6 +159,12 @@ contract ProdDeployTest is Test, Deploy {
         assertFalse(IAccessControl(d.reserves).hasRole(Roles.CREDIT_ROLE, ops), "ops NOT credit");
         assertFalse(IAccessControl(d.reserves).hasRole(Roles.CREDIT_ROLE, address(this)), "deployer NOT credit");
 
+        // The production keeper is a second holder, distinct from the manual ops backstop,
+        // and receives only the queue's operational settlement role.
+        assertTrue(IAccessControl(d.queue).hasRole(Roles.SETTLEMENT_KEEPER_ROLE, queueKeeper), "dedicated keeper role");
+        assertTrue(IAccessControl(d.queue).hasRole(Roles.SETTLEMENT_KEEPER_ROLE, ops), "ops keeper backstop");
+        assertFalse(IAccessControl(d.queue).hasRole(Roles.GUARDIAN_ROLE, queueKeeper), "keeper NOT guardian");
+
         // Timelock wiring: deployer relinquished its bootstrap timelock admin.
         TimelockControllerUpgradeable tl = TimelockControllerUpgradeable(payable(d.timelock));
         assertFalse(tl.hasRole(tl.DEFAULT_ADMIN_ROLE(), address(this)), "deployer NOT timelock admin");
@@ -134,6 +184,8 @@ contract ProdDeployTest is Test, Deploy {
         Ctx memory c;
         c.deployer = address(this);
         c.opsAdmin = address(this);
+        c.proposalGuardian = proposalGuardian;
+        c.queueKeeper = address(this); // retained testnet holder and ops backstop are the same key
         c.frTreasury = address(this);
         c.feeRecipient = address(this);
         c.attester2 = attester2Addr;
@@ -177,7 +229,9 @@ contract ProdDeployTest is Test, Deploy {
     function test_prodShapedDeploy_opsEqualsDeployer_leavesComplianceRegistryAlive() public {
         Ctx memory c;
         c.deployer = address(this);
-        c.opsAdmin = address(this); // OPS_ADMIN unset -> defaults to the deployer
+        c.opsAdmin = address(this);
+        c.proposalGuardian = proposalGuardian;
+        c.queueKeeper = address(this); // OPS_ADMIN unset: keeper and ops intentionally coincide
         c.frTreasury = address(this);
         c.feeRecipient = address(this);
         c.attester2 = attester2Addr;
@@ -204,7 +258,9 @@ contract ProdDeployTest is Test, Deploy {
     function test_testnetShapedDeploy_runsAndKeepsOpsAdmin() public {
         Ctx memory c;
         c.deployer = address(this);
-        c.opsAdmin = address(this); // testnet: ops == deployer
+        c.opsAdmin = address(this);
+        c.proposalGuardian = proposalGuardian;
+        c.queueKeeper = address(this); // testnet: keeper == ops == deployer
         c.frTreasury = address(this);
         c.feeRecipient = address(this);
         c.attester2 = attester2Addr;

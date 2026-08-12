@@ -45,7 +45,39 @@ contract WaterfallReserveProbe {
     }
 }
 
+/// @dev AUDIT FIX (R16-M4) RESHAPED THIS PROBE, DELIBERATELY. `distribute`'s closing gate is no
+///      longer the ABSOLUTE `backingInvariantHolds()` — that is the defect the finding names,
+///      because it refused even a pure-principal repayment that REPAIRS backing, purely on the
+///      ground that the protocol was already short. The gate is now `recognizedDeficit()` not
+///      increasing across the call, so to keep testing the same property ("the engine refuses a
+///      distribution its controller says made backing worse") the probe must report a deficit
+///      that GROWS rather than a flag that is permanently false.
+///
+///      WHY IT KEYS OFF THE BRIDGE. Both readings are STATICCALLs from the engine, so the probe
+///      cannot flip a flag of its own between them, and every reserve-side hook the engine calls
+///      in these two scenarios is `view` as well. The facility's lifecycle state is the one piece
+///      of real state the call is known to advance, so it is the honest before/after signal.
 contract FalseBackingController {
+    ClaimBridge private immutable bridge;
+    uint256 private immutable tokenId;
+
+    constructor(ClaimBridge bridge_, uint256 tokenId_) {
+        bridge = bridge_;
+        tokenId = tokenId_;
+    }
+
+    function recognizedDeficit() external view returns (uint256) {
+        return bridge.facility(tokenId).state == ClaimBridge.LoanState.Active ? 0 : 1e18;
+    }
+
+    function backingDeficit() external pure returns (uint256) {
+        return 0;
+    }
+
+    function mintableHeadroom() external pure returns (uint256) {
+        return type(uint256).max;
+    }
+
     function backingInvariantHolds() external pure returns (bool) {
         return false;
     }
@@ -197,18 +229,57 @@ contract WaterfallEngineTest is CreditLayerFixture {
         assertTrue(controller.backingInvariantHolds());
     }
 
-    function test_distribute_fullProtocolFeeStillCheckpointsWithoutVaultDelivery() public {
+    /// @notice ═══════════ INVERTED (SWEEP-2 S2-F1) — DO NOT RESTORE THE ORIGINAL ═════════════════
+    ///         THIS TEST ASSERTED THE DEFECT AS A SAFETY PROPERTY. It set the interest protocol fee
+    ///         to `Config.BPS` — 100% — and then pinned the outcome as expected:
+    ///             waterfall.setProtocolFee(uint16(Config.BPS));
+    ///             assertEq(usdfr.balanceOf(feeRecipient) - feeBefore, interest,
+    ///                      "all interest follows the configured fee");
+    ///             assertEq(usdfr.balanceOf(address(vault)), vaultBefore,
+    ///                      "zero senior leg mints nothing to the vault");
+    ///         `setProtocolFee` was the ONLY fee rate in the protocol bounded by nothing but 100%,
+    ///         while `setOriginationFee`, `sUSDfr.setPerformanceFee` and `setManagementFee` all
+    ///         carry permanent caps and two of those are PUBLISHED to holders. Because
+    ///         `_routeInterest` takes this fee FIRST, off the same senior income stream the vault's
+    ///         published 20% performance cap protects, total capture of senior yield was reachable
+    ///         AROUND a cap the protocol advertises as permanent — and the fee recipient holds
+    ///         plain USDfr, so it is not a cascade layer.
+    ///
+    ///         NOT WEAKENED: the CHECKPOINT property this test was named for — that a
+    ///         fee-dominated interest leg still checkpoints correctly and delivers no unvested
+    ///         yield — is still asserted, now at the permanent ceiling instead of at 100%.
+    /// @dev MUTATION: `if (feeBps > Config.MAX_PROTOCOL_FEE_BPS * 5)` in
+    ///      `WaterfallEngine.setProtocolFee` (compiles; both operands still read) -> RED here on
+    ///      the `expectRevert`.
+    function test_distribute_maxProtocolFeeStillCheckpointsAndTheCeilingIsPermanent() public {
         uint256 id = _liveFilmFacility(500_000e18);
+
+        // INVERTED: 100% is refused. So is one basis point over the published ceiling.
+        assertEq(waterfall.maxProtocolFeeBps(), Config.MAX_PROTOCOL_FEE_BPS, "the ceiling is PUBLISHED");
+        vm.expectRevert(abi.encodeWithSelector(IWaterfallEngine.Waterfall_BadFee.selector, uint16(Config.BPS)));
         vm.prank(admin);
         waterfall.setProtocolFee(uint16(Config.BPS));
+        vm.expectRevert(
+            abi.encodeWithSelector(IWaterfallEngine.Waterfall_BadFee.selector, Config.MAX_PROTOCOL_FEE_BPS + 1)
+        );
+        vm.prank(admin);
+        waterfall.setProtocolFee(Config.MAX_PROTOCOL_FEE_BPS + 1);
+
+        vm.prank(admin);
+        waterfall.setProtocolFee(Config.MAX_PROTOCOL_FEE_BPS);
 
         uint256 interest = 40_000e18;
         uint256 vaultBefore = usdfr.balanceOf(address(vault));
         uint256 feeBefore = usdfr.balanceOf(feeRecipient);
         _repay(id, interest, 0);
 
-        assertEq(usdfr.balanceOf(feeRecipient) - feeBefore, interest, "all interest follows the configured fee");
-        assertEq(usdfr.balanceOf(address(vault)), vaultBefore, "zero senior leg mints nothing to the vault");
+        uint256 expectedFee = (interest * Config.MAX_PROTOCOL_FEE_BPS) / Config.BPS;
+        assertEq(usdfr.balanceOf(feeRecipient) - feeBefore, expectedFee, "the fee follows the configured rate");
+        assertEq(
+            usdfr.balanceOf(address(vault)) - vaultBefore,
+            interest - expectedFee,
+            "the senior leg keeps at least 80% of every interest receipt, permanently"
+        );
         assertEq(vault.unvestedYield(), 0);
     }
 
@@ -253,7 +324,7 @@ contract WaterfallEngineTest is CreditLayerFixture {
 
         WaterfallReserveProbe reserveProbe = new WaterfallReserveProbe(address(usdc));
         reserveProbe.configure(0, 2e18);
-        WaterfallEngine probe = _probeWaterfall(address(reserveProbe), address(new FalseBackingController()));
+        WaterfallEngine probe = _probeWaterfall(address(reserveProbe), address(new FalseBackingController(bridge, id)));
         IWaterfallEngine.Payment memory payment = IWaterfallEngine.Payment({
             tokenId: id,
             paymentId: keccak256("dishonest-receipt"),
@@ -276,7 +347,7 @@ contract WaterfallEngineTest is CreditLayerFixture {
 
         WaterfallReserveProbe reserveProbe = new WaterfallReserveProbe(address(usdc));
         reserveProbe.configure(1e18, 1e18);
-        WaterfallEngine probe = _probeWaterfall(address(reserveProbe), address(new FalseBackingController()));
+        WaterfallEngine probe = _probeWaterfall(address(reserveProbe), address(new FalseBackingController(bridge, id)));
         IWaterfallEngine.Payment memory payment = IWaterfallEngine.Payment({
             tokenId: id,
             paymentId: keccak256("false-backing"),

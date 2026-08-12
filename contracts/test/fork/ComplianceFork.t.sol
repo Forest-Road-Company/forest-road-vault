@@ -923,13 +923,35 @@ contract ComplianceForkTest is ForkLifecycleFixture {
     /// @notice The settlement keeper is permissionless, and stays permissionless for a party
     ///         who is BOTH un-KYC'd and sanctioned. `closeEpoch` is the sole liveness path for
     ///         the sUSDfr exit; gating it on compliance state would hand an outage to the list.
-    function test_fork_settlementKeeperIsPermissionlessEvenWhenSanctioned() public onFork {
+    /// @dev AUDIT FIX (D7-01) — this test was `..._settlementKeeperIsPermissionlessEvenWhenSanctioned`
+    ///      and used carol purely as a stand-in for "any address at all". `closeEpoch` is now
+    ///      keeper-gated, so that framing is gone. The property it was really protecting is NOT:
+    ///      compliance must never gate settlement. A sanctioned, never-KYC'd keeper must still be
+    ///      able to settle an epoch for a CLEAN beneficiary, because the alternative is that a
+    ///      sanctions listing against an operator freezes withdrawals for innocent users.
+    ///      Both halves are now asserted: the role is required, and sanctions are irrelevant to it.
+    function test_fork_sanctionsDoNotGateSettlement_butTheKeeperRoleDoes() public onFork {
         _mintFromUSDC(alice, 1_000_000e6);
         uint256 shares = _stake(alice, 400_000e18);
         uint256 reqId = _queue(alice, shares);
 
         compliance.setJurisdictionBlocked(carol, true); // carol: never KYC'd AND sanctioned
         _warp(uint256(Config.DEFAULT_REDEEM_COOLDOWN) + uint256(Config.DEFAULT_EPOCH_DURATION) + 1);
+
+        // (a) THE GATE BITES. Without the role, carol cannot settle — this is the D7-01 fix.
+        vm.prank(carol);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, carol, Roles.SETTLEMENT_KEEPER_ROLE
+            )
+        );
+        queue.closeEpoch(50);
+
+        // (b) SANCTIONS ARE IRRELEVANT TO IT. Give the same sanctioned, never-KYC'd address the
+        // keeper role and it settles normally for a clean beneficiary. Compliance gates who may
+        // HOLD and TRANSFER; it must never gate who may operate the settlement crank.
+        vm.prank(ops); // `ops` is this fixture's DEFAULT_ADMIN (== address(this))
+        queue.grantRole(Roles.SETTLEMENT_KEEPER_ROLE, carol);
 
         vm.prank(carol);
         queue.closeEpoch(50);

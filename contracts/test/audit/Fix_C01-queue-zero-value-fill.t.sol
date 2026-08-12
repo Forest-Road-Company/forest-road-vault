@@ -50,7 +50,7 @@ contract Fix_C01_QueueZeroValueFillTest is CreditLayerFixture {
     ///      so the test observes the resulting STATE in both the fixed and the unfixed world
     ///      (the unfixed contract does not revert here — it silently burns).
     function _tryCloseEpochAsBystander() internal returns (bool ok, bytes memory ret) {
-        vm.prank(carol); // carol is deliberately NOT KYC-allowed
+        vm.prank(settlementKeeper); // carol is deliberately NOT KYC-allowed
         (ok, ret) = address(queue).call(abi.encodeCall(IRedemptionQueue.closeEpoch, (10)));
     }
 

@@ -11,14 +11,16 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 import {IAttestationOracle} from "./interfaces/IAttestationOracle.sol";
 import {ICollateralRegistry} from "./interfaces/ICollateralRegistry.sol";
 import {Config} from "./libraries/Config.sol";
+import {LossEventIds} from "./libraries/LossEventIds.sol";
 import {Roles} from "./libraries/Roles.sol";
 
 /// @title ClaimBridge — tokenized facility positions (the CALIBER analog, ADR-0006)
 /// @notice Each ERC-721 token is the on-chain position of record for one identified,
 ///         lien-perfected facility. THE SYNCHRONIZED MINT GATE (CLAUDE.md §1.3): a
 ///         facility cannot mint unless every attestation kind required for its class is
-///         currently satisfied, the 2-of-n `CreditIssued` quorum commits to EXACTLY the
-///         terms being minted (AUDIT FIX H-4 — full payload binding), AND all on-chain
+///         currently satisfied, and the deal-identity attestations (`AssignmentExecuted`,
+///         `UCCFiled` and `CreditIssued`) commit to EXACTLY the terms being minted (AUDIT
+///         FIX H-4 / P-32 — full payload binding; `Valuation` retains its mark payload), AND all on-chain
 ///         conditions hold (class active, LTV and maturity within class parameters, every
 ///         concentration limit respected — checked atomically through the registry).
 ///         Attestations that merely EXIST at a facility id are not sufficient: they must
@@ -165,6 +167,14 @@ contract ClaimBridge is
     /// @param expected The terms hash of the facility being originated/funded.
     /// @param attested The terms hash actually carried by the attestation (zero if none).
     error Bridge_TermsNotAttested(uint256 facilityId, bytes32 expected, bytes32 attested);
+    /// @notice A deal-identity attestation is present but commits to different terms.
+    /// @param classId The collateral class whose mint gate failed.
+    /// @param kind The deal-identity attestation kind.
+    /// @param expected The terms hash of the facility being originated/funded.
+    /// @param attested The terms hash carried by the attestation.
+    error Bridge_AttestationNotBoundToDeal(
+        uint256 classId, IAttestationOracle.AttestationKind kind, bytes32 expected, bytes32 attested
+    );
     error Bridge_ValuationStale(uint256 tokenIdOrZero, uint64 asOf, uint64 maxAge);
     error Bridge_LtvExceedsValue(uint256 principal, uint256 maxByValue);
     error Bridge_InvalidTransition(uint256 tokenId, LoanState from, LoanState to);
@@ -175,6 +185,7 @@ contract ClaimBridge is
     error Bridge_ClassInactive(uint256 classId);
     error Bridge_NotPending(uint256 tokenId);
     error Bridge_TermsAmendmentNotAttested(uint256 tokenId);
+    error Bridge_FacilityEventNamespaceExhausted(uint256 nextId);
 
     uint16 public constant MAX_INTEREST_RATE_BPS = 10_000;
 
@@ -245,7 +256,7 @@ contract ClaimBridge is
     // ── origination (THE synchronized mint gate) ─────────────────────────
 
     /// @notice Mints the position NFT for an underwritten facility — ONLY if every
-    ///         off-chain condition (required attestations, and a `CreditIssued` quorum
+    ///         off-chain condition (required attestations, with every deal-identity quorum
     ///         committing to EXACTLY these terms) AND on-chain condition (class params,
     ///         LTV, maturity, concentration) holds. Escrow releases off-chain only after
     ///         this token exists.
@@ -260,10 +271,10 @@ contract ClaimBridge is
     ///        - UNBOUNDED PRINCIPAL: for the four Receivable classes nothing on-chain bound
     ///          the amount at all — `ltvBps <= maxLtvBps` is a ratio with no denominator —
     ///          so a bundle diligenced for a $500k receivable could mint any principal.
-    ///      Both close by requiring the 2-of-n `CreditIssued` payload to equal
-    ///      `creditTermsHash(...)` over the exact terms being minted. This reuses the
-    ///      primitive `WaterfallEngine._spendPaymentAttestation` already applies to
-    ///      `PaymentReceived`. Note the attested principal IS the on-chain principal bound:
+    ///      Both close by requiring the deal-identity payloads to equal
+    ///      `creditTermsHash(...)` over the exact terms being minted. `Valuation` is excluded
+    ///      because its payload is the mark. This reuses the
+    ///      `latestPayload` primitive already used by the attestation consumers. Note the attested principal IS the on-chain principal bound:
     ///      the amount is now a signed term, not an originator-chosen input, so the LTV
     ///      ratio's denominator (`principal * BPS / ltvBps`) is attested too.
     /// @param holder Custody address for the position (SPV series custodian).
@@ -304,10 +315,20 @@ contract ClaimBridge is
     function _originate(address holder, Facility memory f) private returns (uint256 tokenId) {
         BridgeStorage storage $ = _storage();
         if (holder == address(0)) revert Bridge_ZeroAddress();
+        // Facility defaults and protocol custody incidents share SGrove's uint256 event key.
+        // Confining sequential facility ids to the lower half makes the upper incident namespace
+        // structurally disjoint without changing any existing id or increment semantics.
+        if (!LossEventIds.isFacilityEvent($.nextId)) {
+            revert Bridge_FacilityEventNamespaceExhausted($.nextId);
+        }
         if (
+            // State concentration is meaningful for tax-credit facilities only. A tax-credit
+            // origination must carry a state key; every other class must carry none, or the
+            // registry's state dimension is either bypassed or polluted by an unrelated class.
             f.principal == 0 || f.borrowerId == bytes32(0) || f.fundingRecipient == address(0) || f.interestRateBps == 0
                 || f.interestRateBps > MAX_INTEREST_RATE_BPS || f.paymentInterval == 0
                 || f.paymentScheduleHash == bytes32(0) || f.offchainRef == bytes32(0)
+                || ((f.classId == Config.CLASS_FILM_TAX_CREDITS) == (f.stateId == bytes32(0)))
         ) revert Bridge_BadFacility();
 
         // ── on-chain conditions ───────────────────────────────────────────
@@ -322,16 +343,9 @@ contract ClaimBridge is
         if (f.renewable != (f.renewalTermsHash != bytes32(0))) revert Bridge_BadFacility();
 
         // ── off-chain conditions: required attestations, all satisfied NOW ─
-        uint256 mask = $.requiredMintAttestations[f.classId];
-        for (uint256 k = 0; k < KIND_COUNT; ++k) {
-            if (mask & (1 << k) != 0) {
-                IAttestationOracle.AttestationKind kind = IAttestationOracle.AttestationKind(uint8(k));
-                if (!$.oracle.isSatisfied($.nextId, kind)) revert Bridge_AttestationMissing(f.classId, kind);
-            }
-        }
-
-        // ── AUDIT FIX (H-4): the attested terms must BE these terms ───────
-        _requireTermsAttested($, $.nextId, _creditTermsHash(f));
+        // AUDIT FIX (P-32): every deal-identity attestation is bound to the same terms hash.
+        // Valuation is deliberately excluded: its payload is the mark, not a deal identity.
+        _requireMintAttestations($, f.classId, $.nextId, _creditTermsHash(f));
 
         // ── marked-to-market extension (ADR-0015): fresh mark, value-bounded draw ─
         if (p.model == ICollateralRegistry.CollateralModel.MarkedToMarket) {
@@ -375,16 +389,9 @@ contract ClaimBridge is
         if (f.maturity <= block.timestamp) revert Bridge_FacilityMatured(tokenId);
         if (f.nextPaymentDue <= block.timestamp) revert Bridge_BadFacility();
 
-        uint256 mask = $.requiredMintAttestations[f.classId];
-        for (uint256 k = 0; k < KIND_COUNT; ++k) {
-            if (mask & (1 << k) != 0) {
-                IAttestationOracle.AttestationKind kind = IAttestationOracle.AttestationKind(uint8(k));
-                if (!$.oracle.isSatisfied(tokenId, kind)) revert Bridge_AttestationMissing(f.classId, kind);
-            }
-        }
-
-        // AUDIT FIX (H-4): the terms binding, re-checked on the funding path.
-        _requireTermsAttested($, tokenId, _creditTermsHash(f));
+        // AUDIT FIX (P-32): re-check every deal-identity attestation against the stored terms;
+        // Valuation retains its mark payload and is checked below by its own freshness/value limb.
+        _requireMintAttestations($, f.classId, tokenId, _creditTermsHash(f));
 
         if (p.model == ICollateralRegistry.CollateralModel.MarkedToMarket) {
             (uint256 value, uint64 asOf) = $.oracle.latestValuation(tokenId);
@@ -576,16 +583,51 @@ contract ClaimBridge is
         return super._update(to, tokenId, auth);
     }
 
-    /// @dev AUDIT FIX (H-4). Requires a CURRENTLY-SATISFIED `CreditIssued` record at
-    ///      `facilityId` whose payload commits to `expected`. Mirrors
-    ///      `WaterfallEngine._spendPaymentAttestation`, minus the consume: the mint gate is
-    ///      re-read on the funding path, so the fact must stay standing rather than be spent.
-    function _requireTermsAttested(BridgeStorage storage $, uint256 facilityId, bytes32 expected) private view {
-        (bytes32 payload,, bool ok) =
-            $.oracle.latestPayload(facilityId, IAttestationOracle.AttestationKind.CreditIssued);
-        if (!ok || payload != expected) {
-            revert Bridge_TermsNotAttested(facilityId, expected, ok ? payload : bytes32(0));
+    /// @dev AUDIT FIX (P-32). Requires every selected mint-gate attestation to be currently
+    ///      satisfied. AssignmentExecuted, UCCFiled and CreditIssued are deal identity facts and
+    ///      must carry the exact `creditTermsHash`; Valuation is intentionally left on its own mark
+    ///      payload and checked by the marked-to-market branch.
+    function _requireMintAttestations(BridgeStorage storage $, uint256 classId, uint256 facilityId, bytes32 termsHash)
+        private
+        view
+    {
+        uint256 mask = $.requiredMintAttestations[classId];
+        // Preserve the original missing-attestation precedence: a present bit is checked before
+        // any payload comparison, so a genuinely absent documentary fact remains
+        // `Bridge_AttestationMissing` rather than looking like a malformed commitment.
+        for (uint256 k = 0; k < KIND_COUNT; ++k) {
+            if (mask & (1 << k) == 0) continue;
+            IAttestationOracle.AttestationKind kind = IAttestationOracle.AttestationKind(uint8(k));
+            (,, bool ok) = $.oracle.latestPayload(facilityId, kind);
+            if (!ok) revert Bridge_AttestationMissing(classId, kind);
         }
+
+        // Check the existing terms-quorum limb first to preserve H-4's established error surface.
+        // Documentary payloads are then checked below; P-32 adds those checks without changing the
+        // diagnostics callers already receive for a mismatched CreditIssued bundle.
+        if (mask & BIT_CREDIT_ISSUED != 0) {
+            (bytes32 payload,,) = $.oracle.latestPayload(facilityId, IAttestationOracle.AttestationKind.CreditIssued);
+            if (payload != termsHash) {
+                revert Bridge_TermsNotAttested(facilityId, termsHash, payload);
+            }
+        }
+
+        for (uint256 k = 0; k < KIND_COUNT; ++k) {
+            if (mask & (1 << k) == 0) continue;
+            IAttestationOracle.AttestationKind kind = IAttestationOracle.AttestationKind(uint8(k));
+            if (_isDealIdentityKind(kind) && kind != IAttestationOracle.AttestationKind.CreditIssued) {
+                (bytes32 payload,,) = $.oracle.latestPayload(facilityId, kind);
+                if (payload != termsHash) {
+                    revert Bridge_AttestationNotBoundToDeal(classId, kind, termsHash, payload);
+                }
+            }
+        }
+    }
+
+    function _isDealIdentityKind(IAttestationOracle.AttestationKind kind) private pure returns (bool) {
+        return kind == IAttestationOracle.AttestationKind.AssignmentExecuted
+            || kind == IAttestationOracle.AttestationKind.UCCFiled
+            || kind == IAttestationOracle.AttestationKind.CreditIssued;
     }
 
     function _facility(BridgeStorage storage $, uint256 tokenId) private view returns (Facility storage f) {

@@ -3,7 +3,11 @@ pragma solidity 0.8.30;
 
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
-import {Roles} from "../src/libraries/Roles.sol";
+import {PrivilegeTopology} from "./generated/PrivilegeTopology.sol";
+
+interface IProposalGuardianView {
+    function proposalGuardian() external view returns (address);
+}
 
 /// @title PrivilegeAudit
 /// @notice Enumerates which privileged (module, role) pairs a given EOA still holds across
@@ -31,37 +35,7 @@ library PrivilegeAudit {
     /// @return ids The role identifiers, in scan order.
     /// @return names The human-readable role names, index-aligned with `ids`.
     function roleSet(bool includeAttester) internal pure returns (bytes32[] memory ids, string[] memory names) {
-        // AUDIT R15-05: FEE_ACCOUNTING_ROLE gates sUSDfr's cross-module fee lock and was absent
-        // here, so the durable handover receipt could not name who held it at genesis.
-        uint256 n = includeAttester ? 12 : 11;
-        ids = new bytes32[](n);
-        names = new string[](n);
-        ids[0] = bytes32(0);
-        names[0] = "DEFAULT_ADMIN_ROLE";
-        ids[1] = Roles.UPGRADER_ROLE;
-        names[1] = "UPGRADER_ROLE";
-        ids[2] = Roles.GUARDIAN_ROLE;
-        names[2] = "GUARDIAN_ROLE";
-        ids[3] = Roles.MINTER_ROLE;
-        names[3] = "MINTER_ROLE";
-        ids[4] = Roles.CONTROLLER_ROLE;
-        names[4] = "CONTROLLER_ROLE";
-        ids[5] = Roles.CREDIT_ROLE;
-        names[5] = "CREDIT_ROLE";
-        ids[6] = Roles.COMPLIANCE_ADMIN_ROLE;
-        names[6] = "COMPLIANCE_ADMIN_ROLE";
-        ids[7] = Roles.RESERVE_ADMIN_ROLE;
-        names[7] = "RESERVE_ADMIN_ROLE";
-        ids[8] = Roles.ORIGINATOR_ROLE;
-        names[8] = "ORIGINATOR_ROLE";
-        ids[9] = Roles.SERVICER_ROLE;
-        names[9] = "SERVICER_ROLE";
-        ids[10] = Roles.FEE_ACCOUNTING_ROLE;
-        names[10] = "FEE_ACCOUNTING_ROLE";
-        if (includeAttester) {
-            ids[11] = Roles.ATTESTER_ROLE;
-            names[11] = "ATTESTER_ROLE";
-        }
+        return PrivilegeTopology.roleSet(includeAttester);
     }
 
     /// @notice The AUTHORITY subset: protocol-level power over value, upgrades, or the role
@@ -74,20 +48,7 @@ library PrivilegeAudit {
     /// @return ids The role identifiers, in scan order.
     /// @return names The human-readable role names, index-aligned with `ids`.
     function authorityRoleSet() internal pure returns (bytes32[] memory ids, string[] memory names) {
-        ids = new bytes32[](6);
-        names = new string[](6);
-        ids[0] = bytes32(0);
-        names[0] = "DEFAULT_ADMIN_ROLE";
-        ids[1] = Roles.UPGRADER_ROLE;
-        names[1] = "UPGRADER_ROLE";
-        ids[2] = Roles.MINTER_ROLE;
-        names[2] = "MINTER_ROLE";
-        ids[3] = Roles.CONTROLLER_ROLE;
-        names[3] = "CONTROLLER_ROLE";
-        ids[4] = Roles.CREDIT_ROLE;
-        names[4] = "CREDIT_ROLE";
-        ids[5] = Roles.RESERVE_ADMIN_ROLE;
-        names[5] = "RESERVE_ADMIN_ROLE";
+        return PrivilegeTopology.authorityRoleSet();
     }
 
     /// @notice `TimelockController`'s OWN role graph.
@@ -101,17 +62,31 @@ library PrivilegeAudit {
     ///      delayed. `CANCELLER_ROLE` is a governance-liveness weapon (it can veto every
     ///      proposal). Both must be enumerated and, in the production shape, asserted absent
     ///      from both EOAs.
+    /// @dev ── AUDIT FIX (SWEEP-3 S3-01) — THIS IS NOW THE SOLE DEFINITION. DO NOT RE-DUPLICATE. ──
+    ///
+    ///      WHAT WAS WRONG. Every MODULE role in this repo is referenced through
+    ///      `src/libraries/Roles.sol`, and the generated `PrivilegeTopology` pins the audit's
+    ///      enumeration to the canonical JSON schema. The TIMELOCK's three roles had no such library:
+    ///      `timelockRoleSet`, `timelockAuthorityRoleSet` and `HandoverOps._timelockRoles` each
+    ///      rebuilt them from `keccak256("...")` STRING LITERALS — EIGHT literals across two files
+    ///      — while `Validate._validateGovernance` reads the same roles from the contract's own
+    ///      `tl.PROPOSER_ROLE()` / `tl.EXECUTOR_ROLE()` getters two hundred lines away. Two
+    ///      enumerations of one quantity, and nothing compared them to each other or to the getters.
+    ///
+    ///      WHY A TYPO WAS INVISIBLE. A mistyped literal makes `scanTimelock` return the EMPTY SET
+    ///      for that role, which SILENTLY SATISFIES every consumer, because all four assert
+    ///      `... .length == 0`. A shrinking role set satisfies a `== 0` assertion MORE easily,
+    ///      never less. MEASURED (sweep round 3): typing `keccak256("CANCELER_ROLE")` here left the
+    ///      whole 1,435-test audit+integration+unit set green, and the same typo in
+    ///      `HandoverOps._timelockRoles` — the list the one-command exit actually DROPS and then
+    ///      asserts none survived — left the entire 121-test deployment-ceremony set green.
+    ///
+    ///      The generated topology reads this set from the deployed Timelock getters, so no
+    ///      consumer can silently drift from the live role graph.
     /// @return ids The timelock role identifiers, in scan order.
     /// @return names The human-readable role names, index-aligned with `ids`.
-    function timelockRoleSet() internal pure returns (bytes32[] memory ids, string[] memory names) {
-        ids = new bytes32[](3);
-        names = new string[](3);
-        ids[0] = keccak256("PROPOSER_ROLE");
-        names[0] = "TIMELOCK_PROPOSER_ROLE";
-        ids[1] = keccak256("CANCELLER_ROLE");
-        names[1] = "TIMELOCK_CANCELLER_ROLE";
-        ids[2] = keccak256("EXECUTOR_ROLE");
-        names[2] = "TIMELOCK_EXECUTOR_ROLE";
+    function timelockRoleSet(address timelock) internal view returns (bytes32[] memory ids, string[] memory names) {
+        return PrivilegeTopology.timelockRoleSet(timelock);
     }
 
     /// @notice The DANGEROUS subset of the timelock's own roles: the ones that confer
@@ -119,15 +94,15 @@ library PrivilegeAudit {
     /// @dev `EXECUTOR_ROLE` is deliberately excluded — it is granted to `address(0)` by
     ///      design, so an EOA additionally holding it confers nothing it does not already
     ///      have. `PROPOSER` + `CANCELLER` are the ones that must never sit on a hot key.
+    /// @dev The generated topology owns this dangerous subset alongside the complete timelock set.
     /// @return ids The role identifiers, in scan order.
     /// @return names The human-readable role names, index-aligned with `ids`.
-    function timelockAuthorityRoleSet() internal pure returns (bytes32[] memory ids, string[] memory names) {
-        ids = new bytes32[](2);
-        names = new string[](2);
-        ids[0] = keccak256("PROPOSER_ROLE");
-        names[0] = "TIMELOCK_PROPOSER_ROLE";
-        ids[1] = keccak256("CANCELLER_ROLE");
-        names[1] = "TIMELOCK_CANCELLER_ROLE";
+    function timelockAuthorityRoleSet(address timelock)
+        internal
+        view
+        returns (bytes32[] memory ids, string[] memory names)
+    {
+        return PrivilegeTopology.timelockAuthorityRoleSet(timelock);
     }
 
     /// @notice Scan the timelock's own role graph for what `subject` holds on it.
@@ -141,12 +116,21 @@ library PrivilegeAudit {
         view
         returns (string[] memory entries)
     {
-        (bytes32[] memory ids, string[] memory names) = dangerousOnly ? timelockAuthorityRoleSet() : timelockRoleSet();
+        (bytes32[] memory ids, string[] memory names) =
+            dangerousOnly ? timelockAuthorityRoleSet(timelock) : timelockRoleSet(timelock);
         address[] memory targets = new address[](1);
         string[] memory targetNames = new string[](1);
         targets[0] = timelock;
         targetNames[0] = "timelock";
         return scanRoles(targets, targetNames, ids, names, subject);
+    }
+
+    /// @notice Enumerates the Governor's proposal-guardian veto, which is not an AccessControl
+    ///         role but can cancel a proposal at every lifecycle stage.
+    function scanGovernor(address governor, address subject) internal view returns (string[] memory entries) {
+        bool held = IProposalGuardianView(governor).proposalGuardian() == subject;
+        entries = new string[](held ? 1 : 0);
+        if (held) entries[0] = "governor.PROPOSAL_GUARDIAN";
     }
 
     /// @notice Scan every (module, role) pair and return the ones `subject` holds.
@@ -205,7 +189,8 @@ library PrivilegeAudit {
     }
 
     /// @notice The COMPLETE privilege receipt for `subject`: every module role (attester
-    ///         included) PLUS the timelock's own PROPOSER/CANCELLER/EXECUTOR roles.
+    ///         included), the timelock's own PROPOSER/CANCELLER/EXECUTOR roles, AND the
+    ///         Governor's non-AccessControl proposal-guardian veto.
     /// @dev AUDIT FIX (C-01 round 2). This is what an operator-facing receipt must print. A
     ///      receipt that omits a role class is the C-01 failure mode (green, detail-free
     ///      output over a dangerous posture) reproduced one layer up.
@@ -230,38 +215,74 @@ library PrivilegeAudit {
         }
     }
 
+    function scanEverything(
+        address[] memory targets,
+        string[] memory targetNames,
+        address timelock,
+        address governor,
+        address subject
+    ) internal view returns (string[] memory entries) {
+        string[] memory modulePairs = scan(targets, targetNames, subject, true);
+        string[] memory timelockPairs = scanTimelock(timelock, subject, false);
+        string[] memory governorPairs = scanGovernor(governor, subject);
+        entries = new string[](modulePairs.length + timelockPairs.length + governorPairs.length);
+        for (uint256 i = 0; i < modulePairs.length; ++i) {
+            entries[i] = modulePairs[i];
+        }
+        for (uint256 i = 0; i < timelockPairs.length; ++i) {
+            entries[modulePairs.length + i] = timelockPairs[i];
+        }
+        for (uint256 i = 0; i < governorPairs.length; ++i) {
+            entries[modulePairs.length + timelockPairs.length + i] = governorPairs[i];
+        }
+    }
+
     /// @notice The canonical AccessControl-bearing module set, as (address, name) lists.
     /// @dev `FRGovernor` is deliberately excluded: it is `Governor`-gated, not AccessControl,
     ///      so `hasRole` would revert. The `TimelockController` IS included — its
     ///      `DEFAULT_ADMIN_ROLE` is the single most dangerous key in the system.
-    /// @param m The 17 module addresses, in the order documented by `NAMES`.
-    /// @return targets The addresses (a copy of `m`).
-    /// @return names The index-aligned module names.
-    function moduleSet(address[17] memory m) internal pure returns (address[] memory targets, string[] memory names) {
-        string[17] memory n = [
-            "compliance",
-            "usdfr",
-            "reserves",
-            "controller",
-            "vault",
-            "points",
-            "registry",
-            "oracle",
-            "bridge",
-            "curator",
-            "waterfall",
-            "defaultManager",
-            "assessedImpairmentSource",
-            "queue",
-            "sGrove",
-            "grove",
-            "timelock"
-        ];
-        targets = new address[](17);
-        names = new string[](17);
-        for (uint256 i = 0; i < 17; ++i) {
-            targets[i] = m[i];
-            names[i] = n[i];
+    /// @param m The named module addresses from the canonical privilege schema.
+    /// @return targets The addresses in generated order.
+    /// @return names The index-aligned generated module names.
+    function moduleSet(PrivilegeTopology.ModuleAddresses memory m)
+        internal
+        pure
+        returns (address[] memory targets, string[] memory names)
+    {
+        (targets, names) = PrivilegeTopology.moduleSet(m);
+        requireDistinctModules(targets);
+    }
+
+    /// @notice Fail LOUDLY if a module list contains a zero address or the same address twice.
+    /// @dev ── AUDIT FIX (SWEEP-3 S3-02) — LOAD-BEARING, DO NOT DELETE. ──────────────────────────
+    ///
+    ///      WHAT WAS WRONG. `moduleSet` supplies the NAMES POSITIONALLY, and the caller supplies a
+    ///      FIXED-LENGTH `address[17]` literal — one each in `Deploy._auditTargets`,
+    ///      `Handover._refreshManifestReceipt` and `Validate._reportPrivilegePosture`. A duplicated
+    ///      or reordered entry therefore both REMOVES a module from every blocking scan AND
+    ///      mislabels the durable receipt, with NO COMPILE ERROR, because the length is unchanged.
+    ///
+    ///      MEASURED (sweep round 3): replacing `a.usdfr` with a duplicate `a.vault` in
+    ///      `Validate._reportPrivilegePosture` let an OPS KEY HOLDING `MINTER_ROLE` ON USDfr —
+    ///      unbacked mint, straight past `MintRedeemController._assertBacking` — pass BOTH
+    ///      `validateDeployment` and `validateHandover` green (`_validateWiring` spells out
+    ///      `!hasRole(MINTER_ROLE, deployer)` and has no ops equivalent, so the authority scan is
+    ///      the SOLE detector). The identical edit in `Handover._refreshManifestReceipt` reddened
+    ///      NOTHING AT ALL — that literal is unreachable from any test.
+    ///
+    ///      WHY THE CHECK LIVES HERE. The three literals are built from three different structs, so
+    ///      they cannot share one expression — but they all funnel through THIS function, so one
+    ///      check covers all three and any future fourth. Every module in the set is a distinct
+    ///      deployed contract, so a duplicate or a zero is unambiguously a mis-copied literal.
+    ///      Pinned by `test_S3_C_theAuditModuleListAndTheHandoverModuleListAgree` and by the
+    ///      end-to-end `test_S3_C_e2e_opsHoldingUsdfrMinterIsRefusedByProductionValidation`.
+    /// @param targets The module addresses to check.
+    function requireDistinctModules(address[] memory targets) internal pure {
+        for (uint256 i = 0; i < targets.length; ++i) {
+            require(targets[i] != address(0), "PrivilegeAudit: module list has a ZERO address");
+            for (uint256 j = 0; j < i; ++j) {
+                require(targets[i] != targets[j], "PrivilegeAudit: module list has a DUPLICATE entry");
+            }
         }
     }
 }

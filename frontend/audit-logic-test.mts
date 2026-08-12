@@ -1243,10 +1243,12 @@ if (!existsSync(new URL("../contracts/src/interfaces/", import.meta.url))) {
       transparencyDashboard.includes("of outstanding loans"),
   );
   check(
-    "transparency: top card shows total and per-event sGROVE backstop",
+    "transparency: top card shows the ADR-0035 shared live sGROVE reserve",
     transparencyDashboard.includes("sGROVE total backstop") &&
       transparencyDashboard.includes("coverageReserve") &&
-      transparencyDashboard.includes("per event"),
+      transparencyDashboard.includes("live callable reserve") &&
+      transparencyDashboard.includes("There is no per-event cap") &&
+      !transparencyDashboard.includes("coverage reserve × per-event cap"),
   );
 
   const redeemCard = readFileSync(

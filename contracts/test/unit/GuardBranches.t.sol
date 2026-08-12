@@ -79,9 +79,15 @@ contract GuardBranchesTest is TokenLayerFixture {
         controller.redeem(0);
     }
 
+    /// @dev AUDIT FIX (R16-M1) CHANGED THIS TEST DELIBERATELY. `mintYield`/`burnLoss` used to
+    ///      carry their own `Controller_ZeroAddress` checks. With the endpoint lists in place
+    ///      those checks became UNREACHABLE — `setYieldSink`/`setLossSource` refuse the zero
+    ///      address, so zero can never be listed — and this round treats an unreachable guard as
+    ///      a defect in itself (see `burnLoss`'s NatSpec on finding M6). They were removed, and
+    ///      zero now falls out of the endpoint check like any other unlisted address.
     function test_controller_mintYield_zeroChecks() public {
         vm.startPrank(creditModule);
-        vm.expectRevert(MintRedeemController.Controller_ZeroAddress.selector);
+        vm.expectRevert(abi.encodeWithSelector(IMintRedeemController.Controller_NotYieldSink.selector, address(0)));
         controller.mintYield(address(0), 1);
         vm.expectRevert(IMintRedeemController.Controller_ZeroAmount.selector);
         controller.mintYield(alice, 0);
@@ -90,10 +96,22 @@ contract GuardBranchesTest is TokenLayerFixture {
 
     function test_controller_burnLoss_zeroChecks() public {
         vm.startPrank(creditModule);
-        vm.expectRevert(MintRedeemController.Controller_ZeroAddress.selector);
+        vm.expectRevert(abi.encodeWithSelector(IMintRedeemController.Controller_NotLossSource.selector, address(0)));
         controller.burnLoss(address(0), 1);
         vm.expectRevert(IMintRedeemController.Controller_ZeroAmount.selector);
         controller.burnLoss(alice, 0);
+        vm.stopPrank();
+    }
+
+    /// @notice AUDIT FIX (R16-M1). The zero address cannot be listed as an endpoint at all, which
+    ///         is what makes the removed `Controller_ZeroAddress` checks unreachable rather than
+    ///         merely unused.
+    function test_controller_endpointListsRefuseTheZeroAddress() public {
+        vm.startPrank(admin);
+        vm.expectRevert(MintRedeemController.Controller_ZeroAddress.selector);
+        controller.setYieldSink(address(0), true);
+        vm.expectRevert(MintRedeemController.Controller_ZeroAddress.selector);
+        controller.setLossSource(address(0), true);
         vm.stopPrank();
     }
 
@@ -186,28 +204,17 @@ contract GuardBranchesTest is TokenLayerFixture {
         manager.depositUSDC(alice, 2e6);
     }
 
-    function test_reserves_writeDownIdleUSDC_exactnessAndBounds() public {
-        vm.prank(alice);
-        usdc.approve(address(reserves), 1e6);
-        vm.prank(creditModule);
-        reserves.depositUSDC(alice, 1e6);
-
-        vm.startPrank(admin);
-        vm.expectRevert(
-            abi.encodeWithSelector(IReserveManager.ReserveManager_WriteDownExceedsIdle.selector, 2e18, 1e18)
-        );
-        reserves.writeDownIdleUSDC(2e18);
-        vm.expectRevert(abi.encodeWithSelector(IReserveManager.ReserveManager_ValueNotUSDCExact.selector, 1));
-        reserves.writeDownIdleUSDC(1);
-        reserves.writeDownIdleUSDC(1e18);
-        vm.stopPrank();
-        assertEq(reserves.idleReserve(), 0);
-    }
-
-    function test_reserves_writeDownIdleUSDC_zeroReverts() public {
+    function test_reserves_ratificationRequiresActiveArmAndPositiveShortfall() public {
+        vm.expectRevert(IReserveManager.ReserveManager_NoActiveArm.selector);
         vm.prank(admin);
-        vm.expectRevert(IReserveManager.ReserveManager_ZeroAmount.selector);
-        reserves.writeDownIdleUSDC(0);
+        reserves.ratifyAndOpen(1, keccak256("missing-arm"), 1e18);
+
+        vm.prank(guardian);
+        bytes32 evidenceHash = keccak256("guard-branch-custody-loss-arm");
+        (uint256 armId,) = reserves.armReserveLossFreeze(evidenceHash);
+        vm.expectRevert(IReserveManager.ReserveManager_ShortfallCured.selector);
+        vm.prank(admin);
+        reserves.ratifyAndOpen(armId, evidenceHash, 1e18);
     }
 
     function test_reserves_recordDeployment_zeroChecks() public {

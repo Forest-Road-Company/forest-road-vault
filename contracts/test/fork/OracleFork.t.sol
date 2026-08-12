@@ -829,13 +829,20 @@ contract OracleForkTest is ForkLifecycleFixture {
     function _attestDaTerms(uint256 facilityId, bytes32 borrowerId, uint256 principal, uint64 maturity, bytes32 ref)
         private
     {
-        bytes32 want = bridge.creditTermsHash(_daTerms(borrowerId, principal, maturity, ref));
+        ClaimBridge.OriginationTerms memory terms = _daTerms(borrowerId, principal, maturity, ref);
+        bytes32 want = bridge.creditTermsHash(terms);
         // Re-signing an identical bundle in the same block would hit the oracle's replay guard
         // (`Oracle_DigestAlreadyUsed`); if the quorum already stands on these terms, leave it.
         (bytes32 have,, bool standing) =
             oracle.latestPayload(facilityId, IAttestationOracle.AttestationKind.CreditIssued);
-        if (standing && have == want) return;
-        _attest(facilityId, IAttestationOracle.AttestationKind.CreditIssued, want);
+        if (!standing || have != want) {
+            _attest(facilityId, IAttestationOracle.AttestationKind.CreditIssued, want);
+        }
+        (bytes32 assignment,, bool assignmentStanding) =
+            oracle.latestPayload(facilityId, IAttestationOracle.AttestationKind.AssignmentExecuted);
+        if (!assignmentStanding || assignment != want) {
+            _attest(facilityId, IAttestationOracle.AttestationKind.AssignmentExecuted, want);
+        }
     }
 
     function _daTerms(bytes32 borrowerId, uint256 principal, uint64 maturity, bytes32 ref)
@@ -843,9 +850,7 @@ contract OracleForkTest is ForkLifecycleFixture {
         view
         returns (ClaimBridge.OriginationTerms memory)
     {
-        return _forkTermsFor(
-            Config.CLASS_DIGITAL_ASSETS, borrowerId, keccak256("US-NY"), principal, 5000, 1000, maturity, ref
-        );
+        return _forkTermsFor(Config.CLASS_DIGITAL_ASSETS, borrowerId, bytes32(0), principal, 5000, 1000, maturity, ref);
     }
 
     /// @notice The margin path runs entirely off the attested mark: LTV is computed from it,

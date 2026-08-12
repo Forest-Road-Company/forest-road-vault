@@ -143,6 +143,12 @@ contract BackingSymbolic is Test {
         reserves.grantRole(Roles.CONTROLLER_ROLE, address(controller));
         reserves.grantRole(Roles.CREDIT_ROLE, address(this));
         controller.grantRole(Roles.CREDIT_ROLE, address(this));
+        // AUDIT FIX (R16-M1): this harness stands in for the whole credit layer, so it takes the
+        // burn role and names itself as both endpoints. That is faithful to production, where
+        // `DefaultManager` burns junior capital it has already received INTO ITSELF.
+        controller.grantRole(Roles.LOSS_BURNER_ROLE, address(this));
+        controller.setYieldSink(address(this), true);
+        controller.setLossSource(address(this), true);
     }
 
     /// @notice Full-domain induction lemma for user mint and redeem. Both real controller

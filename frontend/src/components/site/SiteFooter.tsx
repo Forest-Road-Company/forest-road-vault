@@ -20,7 +20,7 @@ export function SiteFooter() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-x-16 gap-y-2 text-[13px]">
+          <div className="grid grid-cols-2 gap-x-16 gap-y-8 text-[13px] sm:grid-cols-3 sm:gap-y-2">
             <div className="space-y-2">
               <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-faint">
                 Protocol
@@ -54,6 +54,29 @@ export function SiteFooter() {
               <Link href="/terms" className="block text-ink-muted hover:text-ink">
                 Terms
               </Link>
+            </div>
+            <div className="space-y-2">
+              <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-faint">
+                Community
+              </p>
+              {/* External destinations: plain anchors, not next/link — off-origin URLs are never
+                  client-side navigations, so Link adds nothing and obscures the intent. */}
+              <a
+                href="https://discord.gg/3rrEx8bxWr"
+                target="_blank"
+                rel="noreferrer noopener"
+                className="block text-ink-muted hover:text-ink"
+              >
+                Discord
+              </a>
+              <a
+                href="https://x.com/forestroadvault"
+                target="_blank"
+                rel="noreferrer noopener"
+                className="block text-ink-muted hover:text-ink"
+              >
+                X
+              </a>
             </div>
           </div>
         </div>

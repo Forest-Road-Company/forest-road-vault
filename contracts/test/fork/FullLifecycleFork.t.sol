@@ -206,10 +206,10 @@ contract FullLifecycleForkTest is ForkLifecycleFixture {
 
         // Origination without the full attestation set is refused.
         uint256 nextId = bridge.totalOriginated() + 1;
-        _attest(nextId, IAttestationOracle.AttestationKind.AssignmentExecuted, keccak256("assign"));
         ClaimBridge.OriginationTerms memory terms = _forkTerms(
             keccak256("B"), keccak256("US-GA"), 10_000e18, 7500, uint64(block.timestamp + 365 days), keccak256("ref")
         );
+        _attest(nextId, IAttestationOracle.AttestationKind.AssignmentExecuted, bridge.creditTermsHash(terms));
         vm.prank(ops);
         vm.expectRevert();
         bridge.originate(ops, terms);

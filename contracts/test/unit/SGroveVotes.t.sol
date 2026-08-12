@@ -742,8 +742,8 @@ contract SGroveVotesTest is GovernanceFixture {
 
         vm.prank(address(defaultManager));
         uint256 covered = sGrove.coverShortfall(EVENT_1, 80_000e18);
-        assertEq(covered, 50_000e18, "the draw really happened (per-event cap)");
-        assertEq(sGrove.coverageReserve(), 50_000e18);
+        assertEq(covered, 80_000e18, "the uncapped draw really happened");
+        assertEq(sGrove.coverageReserve(), 20_000e18);
 
         assertEq(sGrove.getVotes(alice), aliceVotes, "cascade draw leaves alice's votes intact");
         assertEq(sGrove.getVotes(bob), bobVotes, "and bob's");

@@ -289,6 +289,8 @@ contract AuditRedemptionQueueCooldownAndPricingProofTest is CreditLayerFixture {
         reserves.depositUSDC(address(this), 100_000e6);
         vm.prank(admin);
         controller.grantRole(Roles.CREDIT_ROLE, address(this));
+        vm.prank(admin);
+        controller.setYieldSink(address(vault), true); // R16-M1: named endpoint
         controller.mintYield(address(vault), 100_000e18);
 
         uint256 req = _queueRedeem(bob, attackerShares);
