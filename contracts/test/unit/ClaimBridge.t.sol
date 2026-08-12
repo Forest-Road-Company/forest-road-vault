@@ -29,6 +29,9 @@ contract ReentrantFacilityReceiver is IERC721Receiver {
 }
 
 contract ClaimBridgeTest is CollateralFixture {
+    bytes32 private constant BRIDGE_STORAGE_LOCATION =
+        0xc9c2da543a2a10e4b712709fb6548fb2c0c97cecbac3457453966d18f1663f00;
+
     function test_initialize_rejectsEveryZeroPrincipal() public {
         ClaimBridge impl = new ClaimBridge();
         address[5] memory args = [admin, guardian, admin, address(registry), address(oracle)];
@@ -98,6 +101,35 @@ contract ClaimBridgeTest is CollateralFixture {
         assertEq(registry.classExposure(Config.CLASS_FILM_TAX_CREDITS), f.principal);
     }
 
+    function test_originate_rejectsStateTagOutsideTaxCreditClass() public {
+        ClaimBridge.OriginationTerms memory terms = _terms(
+            Config.CLASS_RENEWABLE_ENERGY,
+            BORROWER_1,
+            STATE_GA,
+            1_000_000e18,
+            7_000,
+            FILM_RATE_BPS,
+            uint64(block.timestamp + 365 days),
+            FILM_REF
+        );
+        _attestTerms(1, terms);
+
+        vm.prank(originator);
+        vm.expectRevert(ClaimBridge.Bridge_BadFacility.selector);
+        bridge.originate(custodian, terms);
+    }
+
+    function test_originate_cannotEnterCustodyEventNamespace() public {
+        bytes32 nextIdSlot = bytes32(uint256(BRIDGE_STORAGE_LOCATION) + 2);
+        vm.store(address(bridge), nextIdSlot, bytes32(uint256(1 << 255)));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(ClaimBridge.Bridge_FacilityEventNamespaceExhausted.selector, uint256(1 << 255))
+        );
+        vm.prank(originator);
+        bridge.originate(custodian, _filmTerms(FILM_RATE_BPS));
+    }
+
     function test_originate_interestRateIsPerFacilityAndSigned() public {
         ClaimBridge.OriginationTerms memory terms = _filmTerms(1500);
         _attestTerms(1, terms);
@@ -138,7 +170,13 @@ contract ClaimBridgeTest is CollateralFixture {
 
     function test_originate_missingDocumentaryAttestationReverts() public {
         ClaimBridge.OriginationTerms memory terms = _filmTerms(FILM_RATE_BPS);
-        oracle.setSatisfied(1, IAttestationOracle.AttestationKind.AssignmentExecuted, true);
+        oracle.setPayload(
+            1,
+            IAttestationOracle.AttestationKind.AssignmentExecuted,
+            bridge.creditTermsHash(terms),
+            uint64(block.timestamp),
+            true
+        );
         oracle.setPayload(
             1,
             IAttestationOracle.AttestationKind.CreditIssued,
@@ -493,14 +531,15 @@ contract ClaimBridgeTest is CollateralFixture {
     }
 
     function _attestTerms(uint256 facilityId, ClaimBridge.OriginationTerms memory terms) internal {
-        oracle.setSatisfied(facilityId, IAttestationOracle.AttestationKind.AssignmentExecuted, true);
-        oracle.setSatisfied(facilityId, IAttestationOracle.AttestationKind.UCCFiled, true);
+        bytes32 termsHash = bridge.creditTermsHash(terms);
         oracle.setPayload(
-            facilityId,
-            IAttestationOracle.AttestationKind.CreditIssued,
-            bridge.creditTermsHash(terms),
-            uint64(block.timestamp),
-            true
+            facilityId, IAttestationOracle.AttestationKind.AssignmentExecuted, termsHash, uint64(block.timestamp), true
+        );
+        oracle.setPayload(
+            facilityId, IAttestationOracle.AttestationKind.UCCFiled, termsHash, uint64(block.timestamp), true
+        );
+        oracle.setPayload(
+            facilityId, IAttestationOracle.AttestationKind.CreditIssued, termsHash, uint64(block.timestamp), true
         );
     }
 }

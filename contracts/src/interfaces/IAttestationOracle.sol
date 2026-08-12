@@ -22,6 +22,23 @@ interface IAttestationOracle {
         TermsAmended
     }
 
+    /// @notice Lifecycle of a single ECONOMIC FACT, keyed by (facilityId, kind, payload).
+    /// @dev AUDIT FIX (C4-01/C4-02). This enum exists because the EIP-712 DIGEST is the wrong
+    ///      uniqueness key: `nonce`, `asOf` and `expiry` are all inside the digest but outside the
+    ///      fact, so the SAME real-world event re-signed under a fresh nonce produced a fresh
+    ///      digest and sailed past `used[digest]`. The fact key is digest-independent, so a fact
+    ///      leaves `None` exactly once and never returns to it. See `attest`.
+    /// @custom:member None Never recorded — the only state from which `attest` accepts the fact.
+    /// @custom:member Recorded Accepted and standing; the credit layer has not spent it yet.
+    /// @custom:member Consumed Spent by a CREDIT_ROLE module (the write-down/distribution ran).
+    /// @custom:member Revoked Governance killed it (C4-02: a DURABLE tombstone, not just a flag).
+    enum FactStatus {
+        None,
+        Recorded,
+        Consumed,
+        Revoked
+    }
+
     /// @notice One attested fact, signed by m-of-n authorized attesters over EIP-712.
     /// @param facilityId The facility.
     /// @param kind The attestation kind.
@@ -67,6 +84,11 @@ interface IAttestationOracle {
     error Oracle_StaleValuation(uint64 asOf, uint64 existing);
     error Oracle_NotSatisfied(uint256 facilityId, AttestationKind kind);
     error Oracle_BadThreshold();
+    /// @notice AUDIT FIX (C4-01/C4-02): this economic fact has already left `None`. It was
+    ///         recorded, spent, or revoked, and no re-signing under a fresh nonce brings it back.
+    /// @param factKey keccak256(abi.encode(facilityId, uint8(kind), payload)) — see `factKey`.
+    /// @param status The terminal-for-`attest` state the fact is already in.
+    error Oracle_FactAlreadyRealised(bytes32 factKey, FactStatus status);
 
     // ── Submission (permissionless relay of attester signatures) ─────────
     /// @notice Records `a` as on-chain truth if at least the kind's threshold of
@@ -123,7 +145,33 @@ interface IAttestationOracle {
     function threshold(AttestationKind kind) external view returns (uint8);
 
     /// @notice True if an attestation digest was already submitted (replay guard).
+    /// @dev NOT a fact-uniqueness guard — it is defeated by re-signing the same fact under a
+    ///      fresh nonce. Read `factStatus` for "has this real-world event already been realised".
     function digestUsed(bytes32 digest) external view returns (bool);
+
+    /// @notice The consume-once key for an economic fact: the (facility, kind, payload) triple,
+    ///         with the digest's replay salt (`nonce`/`asOf`/`expiry`) DELIBERATELY excluded.
+    /// @dev AUDIT FIX (C4-01). Exposed so relayers and attester tooling can check whether a fact
+    ///      is already spent before paying for signatures.
+    /// @param facilityId The facility the fact concerns.
+    /// @param kind The attestation kind.
+    /// @param payload The kind-specific commitment identifying the real-world event.
+    /// @return key keccak256(abi.encode(facilityId, uint8(kind), payload)).
+    function factKey(uint256 facilityId, AttestationKind kind, bytes32 payload) external pure returns (bytes32 key);
+
+    /// @notice Lifecycle state of one economic fact (C4-01/C4-02). `None` is the only state from
+    ///         which `attest` accepts it; the transition out of `None` is irreversible.
+    /// @dev Always `None` for `Valuation`: a valuation is a monotone OBSERVATION SERIES, not a
+    ///      one-shot event, and its uniqueness key is `valuationWatermark`, not the payload. Two
+    ///      genuinely distinct marks may legitimately carry the identical value.
+    /// @param facilityId The facility the fact concerns.
+    /// @param kind The attestation kind.
+    /// @param payload The kind-specific commitment identifying the real-world event.
+    /// @return status `None` if never realised; otherwise `Recorded`, `Consumed` or `Revoked`.
+    function factStatus(uint256 facilityId, AttestationKind kind, bytes32 payload)
+        external
+        view
+        returns (FactStatus status);
 
     /// @notice The EIP-712 digest attesters sign for `a`.
     /// @dev Exposed for signing tools, atomic executors, and replay-safe relayers.

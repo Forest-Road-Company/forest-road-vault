@@ -270,6 +270,21 @@ contract YieldVestingStreamTest is CreditLayerFixture {
     ///      `testFuzz_balanceAlwaysCoversTheUnvestedStream` does NOT catch it — the stake there
     ///      dwarfs the stream, so `held > unvested` survives any re-pricing. The rate, not the
     ///      clamp, is where H-3 shows.)
+    ///
+    ///      AUDIT R16-01 — THE DISTRIBUTION-INSTANT ASSERTION WAS SPLIT, DELIBERATELY. It used to
+    ///      be an unconditional `assertEq(rate_after, rate_before)`: "no jump at the distribution
+    ///      instant". That equality was never a property of the contract — `_capStreamToBase` has
+    ///      always recognized the portion of an oversized delivery it refuses to withhold, which
+    ///      is by design an explicit UPWARD rate step (FRV-FS-03). The equality held here only
+    ///      because the fuzz caps `interest` at 200k against a 400k stake, and the OLD retention
+    ///      target (`K/(K+1)` of the balance) did not bind until a delivery of ~1.2M. R16-01 lowers
+    ///      the target to `1/(K+1)` — because `K/(K+1)` parked healthy vaults on the entry-guard
+    ///      boundary at the maximum-skim point — so the cap now binds inside this fuzz range and
+    ///      the equality is reachable-false. The assertion is NOT weakened: the un-capped branch
+    ///      keeps the exact equality, the capped branch demands a STRICT step UP (the direction is
+    ///      the whole §1.3 monotonicity point, and a downward step would still fail), and `rate` is
+    ///      re-based so every subsequent loop assertion stays live rather than comparing against a
+    ///      stale pre-delivery value.
     function testFuzz_exchangeRateIsMonotonicThroughAStream(uint256 interest, uint256 step, uint64 newPeriod) public {
         interest = bound(interest, 1e18, 200_000e18) / 1e12 * 1e12;
         step = bound(step, 1 hours, 2 days);
@@ -278,8 +293,17 @@ contract YieldVestingStreamTest is CreditLayerFixture {
         _stakeVault(alice, 400_000e18);
         uint256 id = _liveFilmFacility(500_000e18);
         uint256 rate = vault.currentExchangeRate();
-        _distributeInterest(id, interest);
-        assertEq(vault.currentExchangeRate(), rate, "no jump at the distribution instant");
+        uint256 delivered = _distributeInterest(id, interest);
+        uint256 rateAtDistribution = vault.currentExchangeRate();
+        if (vault.unvestedYield() == delivered) {
+            // The whole delivery remains on the optional stream: no recognition, so no step.
+            assertEq(rateAtDistribution, rate, "no jump at the distribution instant");
+        } else {
+            // The single cap recognized an excess immediately; the only permitted movement is up.
+            assertLt(vault.unvestedYield(), delivered, "the cap can only retain less than delivered");
+            assertGt(rateAtDistribution, rate, "a capped delivery stepped the rate down");
+        }
+        rate = rateAtDistribution;
 
         for (uint256 i = 0; i < 8; ++i) {
             vm.warp(block.timestamp + step);

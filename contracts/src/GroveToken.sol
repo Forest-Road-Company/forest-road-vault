@@ -38,7 +38,8 @@ contract GroveToken is
         _disableInitializers();
     }
 
-    /// @notice Initializes GROVE and mints the fixed supply to the treasury.
+    /// @notice Initializes GROVE, mints the fixed supply to the treasury, and activates its
+    ///         genesis voting power by self-delegating the treasury's balance.
     /// @param admin Governance timelock.
     /// @param upgrader Upgrade authority (timelock).
     /// @param treasury Forest Road treasury (receives the full genesis supply).
@@ -52,6 +53,11 @@ contract GroveToken is
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(Roles.UPGRADER_ROLE, upgrader);
         _mint(treasury, Config.GROVE_INITIAL_SUPPLY); // fixed supply — no mint path exists
+        // ERC20Votes does not count an undelegated balance. Delegating here is the only way a
+        // deployment can make a distinct treasury governance-live without asking that Safe to
+        // race a separate transaction before the bootstrap administrator renounces. The
+        // treasury remains free to change or clear its delegation after deployment.
+        _delegate(treasury, treasury);
     }
 
     // ── timestamp clock (governance params are second-denominated) ───────

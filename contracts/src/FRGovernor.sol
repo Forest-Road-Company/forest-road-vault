@@ -6,6 +6,8 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {GovernorUpgradeable} from "@openzeppelin/contracts-upgradeable/governance/GovernorUpgradeable.sol";
 import {GovernorCountingSimpleUpgradeable} from
     "@openzeppelin/contracts-upgradeable/governance/extensions/GovernorCountingSimpleUpgradeable.sol";
+import {GovernorProposalGuardianUpgradeable} from
+    "@openzeppelin/contracts-upgradeable/governance/extensions/GovernorProposalGuardianUpgradeable.sol";
 import {GovernorSettingsUpgradeable} from
     "@openzeppelin/contracts-upgradeable/governance/extensions/GovernorSettingsUpgradeable.sol";
 import {GovernorTimelockControlUpgradeable} from
@@ -38,11 +40,21 @@ contract FRGovernor is
     GovernorUpgradeable,
     GovernorSettingsUpgradeable,
     GovernorCountingSimpleUpgradeable,
+    GovernorProposalGuardianUpgradeable,
     GovernorVotesUpgradeable,
     GovernorVotesQuorumFractionUpgradeable,
     GovernorTimelockControlUpgradeable,
     UUPSUpgradeable
 {
+    /// @notice A reachable proposal guardian is mandatory because the Governor is the Timelock's
+    ///         sole `CANCELLER_ROLE` holder and queued operations otherwise cannot be vetoed.
+    error Governor_ZeroProposalGuardian();
+
+    /// @notice The current proposal guardian may not veto the standalone governance action that
+    ///         removes that guardian. Without this escape hatch a compromised veto key can make
+    ///         its own removal impossible and permanently block every recovery proposal.
+    error Governor_GuardianCannotCancelOwnRotation(uint256 proposalId, address guardian);
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -56,14 +68,72 @@ contract FRGovernor is
     ///        staking cannot move the quorum bar. Fixed here with no setter (`GovernorVotes`), so
     ///        changing it later requires a full UUPS upgrade of this contract through the timelock.
     /// @param timelock The timelock controller (executor; admin of all modules).
-    function initialize(IVotes votesSource, TimelockControllerUpgradeable timelock) external initializer {
+    /// @param proposalGuardian_ The approved multisig allowed to veto a proposal before execution.
+    function initialize(IVotes votesSource, TimelockControllerUpgradeable timelock, address proposalGuardian_)
+        external
+        initializer
+    {
+        if (proposalGuardian_ == address(0)) revert Governor_ZeroProposalGuardian();
         __Governor_init("Forest Road Governor");
         __GovernorSettings_init(Config.GOV_VOTING_DELAY, Config.GOV_VOTING_PERIOD, Config.GOV_PROPOSAL_THRESHOLD);
         __GovernorCountingSimple_init();
+        __GovernorProposalGuardian_init();
         __GovernorVotes_init(votesSource);
         __GovernorVotesQuorumFraction_init(Config.GOV_QUORUM_FRACTION);
         __GovernorTimelockControl_init(timelock);
         __UUPSUpgradeable_init();
+        _setProposalGuardian(proposalGuardian_);
+    }
+
+    /// @notice Rotates the post-queue veto principal through normal governance.
+    /// @dev Zero is rejected because the inherited zero-address fallback gives every proposer a
+    ///      lifecycle-wide cancellation right and would remove the independently approved veto.
+    function setProposalGuardian(address newProposalGuardian) public override onlyGovernance {
+        if (newProposalGuardian == address(0)) revert Governor_ZeroProposalGuardian();
+        _setProposalGuardian(newProposalGuardian);
+    }
+
+    /// @inheritdoc GovernorUpgradeable
+    /// @dev H-2: preserve the guardian's broad emergency veto, except for a standalone call that
+    ///      rotates the guardian itself to a different non-zero principal. A bundle remains
+    ///      vetoable, so this exception cannot smuggle unrelated actions past the safety key.
+    function cancel(
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        bytes32 descriptionHash
+    ) public override returns (uint256) {
+        address guardian = proposalGuardian();
+        if (_msgSender() == guardian && _isStandaloneGuardianRotation(targets, values, calldatas, guardian)) {
+            uint256 proposalId = getProposalId(targets, values, calldatas, descriptionHash);
+            revert Governor_GuardianCannotCancelOwnRotation(proposalId, guardian);
+        }
+        return super.cancel(targets, values, calldatas, descriptionHash);
+    }
+
+    function _isStandaloneGuardianRotation(
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        address currentGuardian
+    ) private view returns (bool) {
+        if (targets.length != 1 || values.length != 1 || calldatas.length != 1) return false;
+        if (targets[0] != address(this) || values[0] != 0 || calldatas[0].length != 36) return false;
+
+        bytes memory callData = calldatas[0];
+        bytes4 selector;
+        uint256 encodedNewGuardian;
+        assembly {
+            selector := mload(add(callData, 32))
+            encodedNewGuardian := mload(add(callData, 36))
+        }
+        // P-41: Solidity's ABI decoder rejects a dirty-padded address. Apply that same
+        // canonicality rule before exempting this proposal from the guardian's veto; masking
+        // alone would misclassify an unexecutable call as a valid guardian rotation.
+        if (encodedNewGuardian >> 160 != 0) return false;
+        address newGuardian = address(uint160(encodedNewGuardian));
+        return
+            selector == this.setProposalGuardian.selector && newGuardian != address(0) && newGuardian != currentGuardian;
     }
 
     // ── required overrides (OZ multiple inheritance) ─────────────────────
@@ -130,6 +200,15 @@ contract FRGovernor is
         bytes32 descriptionHash
     ) internal override(GovernorUpgradeable, GovernorTimelockControlUpgradeable) returns (uint256) {
         return super._cancel(targets, values, calldatas, descriptionHash);
+    }
+
+    function _validateCancel(uint256 proposalId, address caller)
+        internal
+        view
+        override(GovernorUpgradeable, GovernorProposalGuardianUpgradeable)
+        returns (bool)
+    {
+        return super._validateCancel(proposalId, caller);
     }
 
     function _executor()

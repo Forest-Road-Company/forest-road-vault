@@ -465,8 +465,8 @@ export function TransparencyDashboard() {
             </p>
             <p className="mt-1 text-[10.5px] text-on-navy-faint">
               {backstopReserveBps !== null
-                ? `${formatBps(backstopReserveBps)} of loans · $${fmt(coverageCapacity)} per event`
-                : `$${fmt(coverageCapacity)} per-event capacity`}
+                ? `${formatBps(backstopReserveBps)} of loans · $${fmt(coverageCapacity)} live callable reserve`
+                : `$${fmt(coverageCapacity)} live callable reserve`}
             </p>
           </div>
         </div>
@@ -480,9 +480,9 @@ export function TransparencyDashboard() {
           capital is
           shown separately because it is subordinated USDfr already backed by this
           same asset pool, not an additional external asset to add a second time.
-          The sGROVE figure is its total funded USDfr coverage reserve; the
-          separately shown per-event capacity is the maximum callable for one
-          loss event.
+          The sGROVE figure is its total funded USDfr coverage reserve. A loss
+          can call the smaller of its amount and that live shared reserve; each
+          draw depletes the same pool.
         </p>
       </div>
 
@@ -735,11 +735,11 @@ export function TransparencyDashboard() {
         </Panel>
 
         <Panel title="sGROVE backstop" addr={CONTRACTS.sGROVE!}>
-          <Row k="Coverage capacity (per event)" val={`$${fmt(coverageCapacity)}`} />
-          <Row k="Coverage reserve" val={`$${fmt(coverageReserve)}`} />
+          <Row k="Live callable reserve" val={`$${fmt(coverageCapacity)}`} />
+          <Row k="Funded coverage reserve" val={`$${fmt(coverageReserve)}`} />
           <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
-            Capacity is the USDfr coverage reserve × per-event cap, never the market
-            value of staked GROVE.
+            Each loss may call min(loss amount, live USDfr coverage reserve).
+            There is no per-event cap; draws share and deplete the same reserve.
           </p>
         </Panel>
 

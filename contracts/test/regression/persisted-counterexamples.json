@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 1,
+  "canonicalSequence": "sha256(JSON.stringify(call_sequence.map(({sender,addr,calldata}) => lower-case hex fields)))",
+  "coverageSets": {
+    "R4_EC2_DEFAULT_FREEZE": [
+      {
+        "path": "contracts/test/unit/DefaultManager.t.sol",
+        "contract": "DefaultManagerTest",
+        "function": "test_declareDefault_freezesAndEmitsRemedy"
+      },
+      {
+        "path": "contracts/test/unit/CuratorModule.t.sol",
+        "contract": "CuratorModuleTest",
+        "function": "test_freezeOnDefault_blocksWithdrawAndCounts"
+      },
+      {
+        "path": "contracts/test/audit/Fix_H05-mark-past-due.t.sol",
+        "contract": "FixH05MarkPastDueTest",
+        "function": "test_h5_markPastDueLocksOnlyWhatItCreditsAndStillDoesNotFreezeTheClass"
+      }
+    ],
+    "S3_F1_SHARE_RATIO": [
+      {
+        "path": "contracts/test/regression/S3F1_CuratorShareRatio.t.sol",
+        "contract": "S3F1CuratorShareRatioRegression",
+        "function": "test_regression_S3F1_nearTotalLossRepostsNeverOverflowShareAccounting"
+      }
+    ],
+    "CASCADE_SPLIT_FUZZ_SEED": [
+      {
+        "path": "contracts/test/fork/CascadeNavFork.t.sol",
+        "contract": "CascadeNavForkTest",
+        "function": "test_regression_persistedCascadeSplitBoundary",
+        "mustContain": ["0xf589"]
+      }
+    ],
+    "CREDIT_GATE_SEED_22": [
+      {
+        "path": "contracts/test/invariant/ProductionCreditGateInvariants.t.sol",
+        "contract": "INV_CreditGateAndAuthorisation",
+        "function": "test_handler_everyRegisteredSelectorIsLiveAndRevertFree"
+      }
+    ],
+    "QUEUE_ANTIVACUITY_SEED_106": [
+      {
+        "path": "contracts/test/invariant/ProductionQueueInvariants.t.sol",
+        "contract": "INV_RedemptionQueue",
+        "function": "test_antiVacuity_everyAssertedWitnessIsDeterministicallyReachable"
+      }
+    ]
+  },
+  "documentedSeeds": [
+    {
+      "source": "contracts/test/invariant/ProductionCreditGateInvariants.t.sol",
+      "needle": "--fuzz-seed 22",
+      "seed": 22,
+      "finding": "CREDIT_GATE_PER_RUN_REACH_FLAKE",
+      "disposition": "HARNESS_FLAKE_WITH_DETERMINISTIC_REPLACEMENT",
+      "coverageSet": "CREDIT_GATE_SEED_22"
+    },
+    {
+      "source": "docs/remediation/HANDOVER_2026-08-08.md",
+      "needle": "--fuzz-seed 106",
+      "seed": 106,
+      "finding": "QUEUE_PER_RUN_ANTIVACUITY_FLAKE",
+      "disposition": "HARNESS_FLAKE_WITH_DETERMINISTIC_REPLACEMENT",
+      "coverageSet": "QUEUE_ANTIVACUITY_SEED_106"
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact": "contracts/cache/invariant/failures/INV_CascadeSeniority/invariant_INV5_cascadeAllocatesEveryLossExactly",
+      "format": "FOUNDRY_INVARIANT_JSON",
+      "suite": "INV_CascadeSeniority",
+      "invariant": "invariant_INV5_cascadeAllocatesEveryLossExactly",
+      "callCount": 4,
+      "callSequenceSha256": "30b15dab96403c9c5e414c1dbb4f589036c979d5db45ae912de309743375a1b2",
+      "finding": "R4-EC2",
+      "disposition": "SUPERSEDED_GREEN",
+      "coverageSet": "R4_EC2_DEFAULT_FREEZE"
+    },
+    {
+      "artifact": "contracts/cache/invariant/failures/INV_CascadeSeniority/invariant_INV5_layer1CapacityMatchesIndependentModel",
+      "format": "FOUNDRY_INVARIANT_JSON",
+      "suite": "INV_CascadeSeniority",
+      "invariant": "invariant_INV5_layer1CapacityMatchesIndependentModel",
+      "callCount": 7,
+      "callSequenceSha256": "45bbdb96c23b81161959179871e8e2b3c8b876a38c30effe0058e997fc19584e",
+      "finding": "R4-EC2",
+      "disposition": "SUPERSEDED_GREEN",
+      "coverageSet": "R4_EC2_DEFAULT_FREEZE"
+    },
+    {
+      "artifact": "contracts/cache/invariant/failures/INV_CascadeSeniority/invariant_INV5_layer2CapacityMatchesIndependentModel",
+      "format": "FOUNDRY_INVARIANT_JSON",
+      "suite": "INV_CascadeSeniority",
+      "invariant": "invariant_INV5_layer2CapacityMatchesIndependentModel",
+      "callCount": 4,
+      "callSequenceSha256": "b35e657ad6ce6f14e7961a7e24326a63068ef6c238ae66ba2f25b8a96552faeb",
+      "finding": "R4-EC2",
+      "disposition": "SUPERSEDED_GREEN",
+      "coverageSet": "R4_EC2_DEFAULT_FREEZE"
+    },
+    {
+      "artifact": "contracts/cache/invariant/failures/INV_CascadeSeniority/invariant_INV5_neverSkipsOrInvertsALayer",
+      "format": "FOUNDRY_INVARIANT_JSON",
+      "suite": "INV_CascadeSeniority",
+      "invariant": "invariant_INV5_neverSkipsOrInvertsALayer",
+      "callCount": 6,
+      "callSequenceSha256": "235ac868a2371f76d9133bee705c97f93464cb4a4518f1e6e9709c91889b29b3",
+      "finding": "R4-EC2",
+      "disposition": "SUPERSEDED_GREEN",
+      "coverageSet": "R4_EC2_DEFAULT_FREEZE"
+    },
+    {
+      "artifact": "contracts/cache/invariant/failures/INV_CascadeSeniority/invariant_INV6_curatorCapitalIsNeverPaidFromRepayments",
+      "format": "FOUNDRY_INVARIANT_JSON",
+      "suite": "INV_CascadeSeniority",
+      "invariant": "invariant_INV6_curatorCapitalIsNeverPaidFromRepayments",
+      "callCount": 4,
+      "callSequenceSha256": "96db53e24b6fd83de702176c9d7f6ddc92f79cf25d6c51b2d43072cf9b5da4ee",
+      "finding": "R4-EC2",
+      "disposition": "SUPERSEDED_GREEN",
+      "coverageSet": "R4_EC2_DEFAULT_FREEZE"
+    },
+    {
+      "artifact": "contracts/cache/invariant/failures/INV_CascadeSeniority/invariant_INV6_interestSplitsIntoFeeAndSeniorExactly",
+      "format": "FOUNDRY_INVARIANT_JSON",
+      "suite": "INV_CascadeSeniority",
+      "invariant": "invariant_INV6_interestSplitsIntoFeeAndSeniorExactly",
+      "callCount": 4,
+      "callSequenceSha256": "45de06ebd21ce509943864206c24d2d9a03dbe5d5802d837cba63374ba3b0ed3",
+      "finding": "R4-EC2",
+      "disposition": "SUPERSEDED_GREEN",
+      "coverageSet": "R4_EC2_DEFAULT_FREEZE"
+    },
+    {
+      "artifact": "contracts/cache/invariant/failures/INV_CascadeSeniority/invariant_INV6_protocolFeeTookExactlyItsRate",
+      "format": "FOUNDRY_INVARIANT_JSON",
+      "suite": "INV_CascadeSeniority",
+      "invariant": "invariant_INV6_protocolFeeTookExactlyItsRate",
+      "callCount": 33,
+      "callSequenceSha256": "dd47e1aadae393b4eeb90244c630e2eb10a0ee3684c858fe298d12778a1ba898",
+      "finding": "S3-F1",
+      "disposition": "PROMOTED_OPEN_RED",
+      "coverageSet": "S3_F1_SHARE_RATIO"
+    },
+    {
+      "artifact": "contracts/cache/invariant/failures/INV_CascadeSeniority/invariant_INV6_seniorAssetsAreExactlyDepositsPlusYieldMinusCascadeLoss",
+      "format": "FOUNDRY_INVARIANT_JSON",
+      "suite": "INV_CascadeSeniority",
+      "invariant": "invariant_INV6_seniorAssetsAreExactlyDepositsPlusYieldMinusCascadeLoss",
+      "callCount": 3,
+      "callSequenceSha256": "c072d6248d581bc81f3d94fa3bc194592fd5c2b4def7b3dd522280928d0d6448",
+      "finding": "R4-EC2",
+      "disposition": "SUPERSEDED_GREEN",
+      "coverageSet": "R4_EC2_DEFAULT_FREEZE"
+    },
+    {
+      "artifact": "contracts/cache/invariant/failures/INV_CascadeSeniority/invariant_INV7_noWithdrawalEverBreachedSubordination",
+      "format": "FOUNDRY_INVARIANT_JSON",
+      "suite": "INV_CascadeSeniority",
+      "invariant": "invariant_INV7_noWithdrawalEverBreachedSubordination",
+      "callCount": 26,
+      "callSequenceSha256": "2fb6c71028c8ad50bcc6fc104336bbb4998358f33bafb8faf2ff76c80d826312",
+      "finding": "S3-F1",
+      "disposition": "PROMOTED_OPEN_RED",
+      "coverageSet": "S3_F1_SHARE_RATIO"
+    },
+    {
+      "artifact": "contracts/cache/invariant/failures/INV_CascadeSeniority/invariant_INV7_subordinationHeadroomHolds",
+      "format": "FOUNDRY_INVARIANT_JSON",
+      "suite": "INV_CascadeSeniority",
+      "invariant": "invariant_INV7_subordinationHeadroomHolds",
+      "callCount": 4,
+      "callSequenceSha256": "6356d58f1c29a0f65b94a7f5375fc7fc100f4d02f5b6fd9a42d43db278683394",
+      "finding": "R4-EC2",
+      "disposition": "SUPERSEDED_GREEN",
+      "coverageSet": "R4_EC2_DEFAULT_FREEZE"
+    },
+    {
+      "artifact": "contracts/cache/fuzz/failures",
+      "format": "FOUNDRY_FUZZ_SEED_TEXT",
+      "suite": "CascadeNavForkTest",
+      "invariant": "testFuzz_fork_cascadeSplitAndOrdering(uint256)",
+      "seedCount": 1,
+      "shrunkCases": [
+        {
+          "selector": "0x638fd740",
+          "calldataSha256": "9fbc34c5bc6bebb1773cff93f25cb4f42fea4741281daa2958bef172bc7ea84d"
+        }
+      ],
+      "finding": "HISTORICAL_CASCADE_SPLIT",
+      "disposition": "SUPERSEDED_GREEN",
+      "coverageSet": "CASCADE_SPLIT_FUZZ_SEED"
+    }
+  ]
+}

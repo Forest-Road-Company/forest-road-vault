@@ -5,65 +5,58 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {ICascadeBackstop} from "../../src/interfaces/ICascadeBackstop.sol";
+import {Config} from "../../src/libraries/Config.sol";
 
 /// @dev Test stand-in for the Phase H sGROVE backstop, honoring the ICascadeBackstop
 ///      contract EXACTLY (covered <= amount; `covered` USDfr transferred to msg.sender
 ///      within the call) — same pattern as MockAttestationOracle for the Phase D gate.
-///      Coverage capacity = its USDfr balance, optionally limited by `coverageCap`.
-///
-///      AUDIT FIX (PM-R-11). This mock's `coverShortfall` used to IGNORE `eventId` and apply
-///      `coverageCap` per CALL. That silently diverged from the real `SGrove` once PM-R-07 made
-///      the cap cumulative PER EVENT and snapshotted at the event's first draw — so every
-///      mock-based suite (including the whole ADR-0022 conservative-NAV suite) was testing
-///      semantics the production contract no longer had, and could not have caught the NAV
-///      under-marking bug PM-R-11 fixes. A mock whose observable behaviour differs from the
-///      contract it stands in for is a false green by construction, so it now mirrors the real
-///      per-event rule: the cap is snapshotted at an event's first draw and consumed cumulatively.
+///      ADR-0035 mirror: capacity is exactly its live USDfr balance. `eventId` indexes cumulative
+///      observability but never creates a ceiling or snapshot.
 contract MockCascadeBackstop is ICascadeBackstop {
     IERC20 public immutable USDFR;
-    uint256 public coverageCap = type(uint256).max;
 
     mapping(uint256 eventId => uint256) public eventCovered;
-    mapping(uint256 eventId => uint256) public eventCapSnapshot;
 
     constructor(IERC20 usdfr) {
         USDFR = usdfr;
-    }
-
-    function setCoverageCap(uint256 cap) external {
-        coverageCap = cap;
     }
 
     function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
         return interfaceId == type(ICascadeBackstop).interfaceId || interfaceId == type(IERC165).interfaceId;
     }
 
-    /// @dev What a FRESH event could draw right now — mirrors `SGrove.coverageCapacity()`.
+    /// @dev Mirrors the whole live reserve published by `SGrove.coverageCapacity()`.
     function coverageCapacity() external view returns (uint256) {
-        uint256 bal = USDFR.balanceOf(address(this));
-        return bal < coverageCap ? bal : coverageCap;
+        return USDFR.balanceOf(address(this));
     }
 
-    /// @dev Mirrors `SGrove.eventCoverage`.
+    function coverageCapacityAt(uint256 reserve) external pure returns (uint256) {
+        return reserve;
+    }
+
+    function coverageCapParameters() external pure returns (uint16 proportionalBps, uint256 absoluteCap) {
+        return (uint16(Config.BPS), type(uint256).max);
+    }
+
+    function coverageReserve() external view returns (uint256) {
+        return USDFR.balanceOf(address(this));
+    }
+
+    /// @dev Mirrors `SGrove.eventCoverage`: no stored cap, only current shared reach.
     function eventCoverage(uint256 eventId) external view returns (uint256 drawn, uint256 cap) {
-        return (eventCovered[eventId], eventCapSnapshot[eventId]);
+        drawn = eventCovered[eventId];
+        return (drawn, drawn + USDFR.balanceOf(address(this)));
+    }
+
+    function remainingCoverage(uint256) external view returns (uint256 remaining) {
+        return USDFR.balanceOf(address(this));
     }
 
     function coverShortfall(uint256 eventId, uint256 amount) external returns (uint256 covered) {
         uint256 bal = USDFR.balanceOf(address(this));
-        // PM-R-07 semantics: snapshot the cap at the event's FIRST draw, then consume it
-        // cumulatively. A repeat draw against an exhausted event delivers exactly zero.
-        uint256 cap = eventCapSnapshot[eventId];
-        if (cap == 0) {
-            cap = bal < coverageCap ? bal : coverageCap;
-            if (cap != 0) eventCapSnapshot[eventId] = cap;
-        }
-        uint256 already = eventCovered[eventId];
-        uint256 room = cap > already ? cap - already : 0;
-        covered = amount < room ? amount : room;
-        if (covered > bal) covered = bal; // never over-deliver
+        covered = amount < bal ? amount : bal;
         if (covered != 0) {
-            eventCovered[eventId] = already + covered;
+            eventCovered[eventId] += covered;
             // solhint-disable-next-line
             bool ok = USDFR.transfer(msg.sender, covered);
             require(ok, "MockCascadeBackstop: transfer failed");
@@ -90,6 +83,24 @@ contract MisbehavingBackstop is ICascadeBackstop {
 
     function coverageCapacity() external view returns (uint256) {
         return USDFR.balanceOf(address(this));
+    }
+
+    function coverageCapacityAt(uint256 reserve) external pure returns (uint256) {
+        return reserve;
+    }
+
+    function coverageCapParameters() external pure returns (uint16 proportionalBps, uint256 absoluteCap) {
+        return (uint16(Config.BPS), type(uint256).max);
+    }
+
+    function coverageReserve() external view returns (uint256) {
+        return USDFR.balanceOf(address(this));
+    }
+
+    /// @dev Reports no reachable room. This stand-in exists to violate the DELIVERY half of the
+    ///      contract, and `DefaultManager` reverts before it ever reads the ledger.
+    function remainingCoverage(uint256) external pure returns (uint256) {
+        return 0;
     }
 
     function coverShortfall(uint256, uint256 amount) external returns (uint256 covered) {

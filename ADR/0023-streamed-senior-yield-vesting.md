@@ -42,11 +42,12 @@ the launch tradeoff.
    `beginYieldNotification` blocks fee checkpoints across the underlying mint and
    `notifyYield` closes the lock. This prevents a callback from charging against the
    transient balance before the chosen recognition policy is applied.
-5. **Preserve continuity when governance changes a live non-zero schedule.**
+5. **Preserve continuity and a fixed terminal bound when governance changes a live schedule.**
    `setYieldVestingPeriod` crystallizes the old schedule before changing its future
-   pace. Setting the period to zero releases the remaining realized yield upward and
-   checkpoints the resulting performance in that governance transaction. Rewriting
-   the same value is a no-op so governance cannot perpetually restart a stream.
+   pace. The active stream carries an absolute deadline: a non-zero re-tune or rollover
+   may shorten that deadline but never extend it. Setting the period to zero releases
+   the remaining realized yield upward and checkpoints the resulting performance in
+   that governance transaction. Rewriting the same value remains a no-op.
 6. **Preserve the cascade bound for the optional mode.**
    A layer-3 senior burn is bounded by credited `totalAssets()`, not the raw balance,
    so it cannot burn value still withheld in a live stream. Deposits remain closed in

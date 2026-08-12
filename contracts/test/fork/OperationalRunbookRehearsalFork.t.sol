@@ -134,6 +134,8 @@ contract OperationalRunbookRehearsalForkTest is ForkLifecycleFixture {
         Ctx memory c;
         c.deployer = ops;
         c.opsAdmin = ops;
+        c.proposalGuardian = makeAddr("runbookProposalGuardian");
+        c.queueKeeper = ops; // AUDIT FIX (D7-01 round 5): SETTLEMENT_KEEPER_ROLE holder; Deploy._wire fails closed on zero
         c.frTreasury = ops;
         c.feeRecipient = ops;
         c.attester2 = attester2Addr;
@@ -335,21 +337,40 @@ contract OperationalRunbookRehearsalForkTest is ForkLifecycleFixture {
         assertTrue(_saw(logs, keccak256("PastDueCleared(uint256,uint256,uint256)")));
     }
 
-    // ── Section 7.8: permissionless truth recognition + timelock cure ────
+    // ── Section 7.8: permissionless observation + adjudicated loss + timelock cure ────
 
     function test_fork_runbook_reserveShortfall_exactTimelockRecapitalization_andRoleCleanup() public onFork {
-        _mintFromUSDC(alice, 100_000e6);
         uint256 lossUnits = 1_000e6;
+        uint256 lossValue = reserves.normalizeUSDC(lossUnits);
+        _mintFromUSDC(alice, 100_000e6);
+        _stake(alice, lossValue);
+        uint256 supplyBeforeLoss = controller.totalUSDfr();
         uint256 idleBeforeLoss = reserves.idleUSDC();
         uint256 liveBeforeLoss = IERC20(USDC).balanceOf(address(reserves));
         assertEq(idleBeforeLoss, liveBeforeLoss, "precondition: custody and idle ledger agree");
 
         controller.pause();
         deal(USDC, address(reserves), liveBeforeLoss - lossUnits);
-        vm.prank(carol);
-        uint256 reconciled = reserves.reconcileIdleUSDC();
-        assertEq(reconciled, idleBeforeLoss - lossUnits, "anonymous caller only recognized the existing loss");
-        assertFalse(controller.backingInvariantHolds(), "the real shortfall fails closed");
+        uint256 armId;
+        {
+            vm.prank(carol);
+            uint256 observed = reserves.reconcileIdleUSDC();
+            assertEq(observed, lossUnits, "permissionless checkpoint measured the native-unit shortfall");
+            assertEq(reserves.idleUSDC(), idleBeforeLoss, "observation cannot write down backing");
+            assertEq(controller.totalUSDfr(), supplyBeforeLoss, "observation did not move absorbing capital");
+            assertTrue(reserves.reserveLossExitsLocked(), "objective shortfall closes protected exits immediately");
+
+            uint256 expectedIncidentId;
+            bytes32 evidenceHash = keccak256("runbook-reserve-shortfall-arm");
+            vm.prank(ops);
+            (armId, expectedIncidentId) = reserves.armReserveLossFreeze(evidenceHash);
+            vm.prank(timelock);
+            (uint256 incidentId, uint256 actualLoss) = reserves.ratifyAndOpen(armId, evidenceHash, lossValue);
+            assertEq(incidentId, expectedIncidentId, "incident id is derived from the Guardian arm");
+            assertEq(actualLoss, lossValue);
+        }
+        assertEq(controller.totalUSDfr(), supplyBeforeLoss - lossValue, "the loss was allocated before backing fell");
+        assertTrue(controller.backingInvariantHolds(), "reserve-loss allocation preserves backing atomically");
 
         TimelockControllerUpgradeable tl = TimelockControllerUpgradeable(payable(timelock));
         assertFalse(reserves.hasRole(Roles.CONTROLLER_ROLE, address(tl)), "timelock starts without deposit authority");
@@ -361,17 +382,19 @@ contract OperationalRunbookRehearsalForkTest is ForkLifecycleFixture {
 
         // Deliberately fail AFTER the grant and exact deposit. Timelock atomicity must undo
         // the token transfer, ledger credit, allowance consumption and temporary role.
-        (address[] memory badTargets, uint256[] memory badValues, bytes[] memory badCalls) =
-            _recoveryBatch(address(tl), address(recoverySafe), lossUnits, true);
-        bytes32 badSalt = keccak256("runbook-recovery-intentional-rollback");
-        _schedule(tl, badTargets, badValues, badCalls, badSalt);
-        _warp(tl.getMinDelay());
-        vm.expectRevert(IReserveManager.ReserveManager_ZeroAmount.selector);
-        vm.prank(keeperA);
-        tl.executeBatch(badTargets, badValues, badCalls, bytes32(0), badSalt);
+        {
+            (address[] memory badTargets, uint256[] memory badValues, bytes[] memory badCalls) =
+                _recoveryBatch(address(tl), address(recoverySafe), lossUnits, true);
+            bytes32 badSalt = keccak256("runbook-recovery-intentional-rollback");
+            _schedule(tl, badTargets, badValues, badCalls, badSalt);
+            _warp(tl.getMinDelay());
+            vm.expectRevert(IReserveManager.ReserveManager_ZeroAmount.selector);
+            vm.prank(keeperA);
+            tl.executeBatch(badTargets, badValues, badCalls, bytes32(0), badSalt);
+        }
         assertEq(IERC20(USDC).balanceOf(address(recoverySafe)), lossUnits, "failed batch returned Safe funds");
         assertEq(IERC20(USDC).allowance(address(recoverySafe), address(reserves)), lossUnits, "allowance rolled back");
-        assertEq(reserves.idleUSDC(), reconciled, "failed batch returned the ledger");
+        assertEq(reserves.idleUSDC(), idleBeforeLoss - lossUnits, "failed batch returned the ledger");
         assertFalse(reserves.hasRole(Roles.CONTROLLER_ROLE, address(tl)), "failed batch returned the role graph");
 
         (address[] memory targets, uint256[] memory values, bytes[] memory calls) =
@@ -387,12 +410,16 @@ contract OperationalRunbookRehearsalForkTest is ForkLifecycleFixture {
         assertEq(IERC20(USDC).balanceOf(address(reserves)), liveBeforeLoss, "live custody restored exactly");
         assertEq(reserves.idleUSDC(), idleBeforeLoss, "idle ledger restored by the exact deposit path");
         assertGe(reserves.totalBackingValue(), usdfr.totalSupply(), "backing restored before unpause");
+        assertEq(controller.totalUSDfr(), supplyBeforeLoss - lossValue, "recapitalization cannot reverse realized loss");
         assertEq(IERC20(USDC).allowance(address(recoverySafe), address(reserves)), 0, "exact approval consumed");
         assertFalse(reserves.hasRole(Roles.CONTROLLER_ROLE, address(tl)), "temporary deposit role revoked");
         assertFalse(reserves.hasRole(Roles.CONTROLLER_ROLE, address(recoverySafe)), "Safe still has no protocol role");
         assertTrue(_saw(logs, keccak256("RoleGranted(bytes32,address,address)")));
         assertTrue(_saw(logs, keccak256("USDCDeposited(address,uint256,uint256)")));
         assertTrue(_saw(logs, keccak256("RoleRevoked(bytes32,address,address)")));
+
+        vm.prank(timelock);
+        reserves.finalizeAndDisable(armId, keccak256(abi.encode("runbook-finalize", armId)));
 
         controller.unpause();
         assertFalse(controller.paused(), "user controller unpaused only after every post-check");
@@ -564,7 +591,7 @@ contract OperationalRunbookRehearsalForkTest is ForkLifecycleFixture {
         uint64 maturity = uint64(block.timestamp + 180 days);
         ClaimBridge.OriginationTerms memory terms =
             _forkTermsFor(CLASS5, DA_BORROWER, bytes32(0), P, 5000, 1000, maturity, keccak256("runbook-da-ref"));
-        _attest(tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, keccak256("runbook-da-custody"));
+        _attest(tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, bridge.creditTermsHash(terms));
         _attest(tokenId, IAttestationOracle.AttestationKind.Valuation, bytes32(V_ORIG));
         _attest(tokenId, IAttestationOracle.AttestationKind.CreditIssued, bridge.creditTermsHash(terms));
         vm.prank(ops);

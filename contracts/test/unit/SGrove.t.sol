@@ -13,8 +13,7 @@ import {Roles} from "../../src/libraries/Roles.sol";
 import {GovernanceFixture} from "../helpers/GovernanceFixture.sol";
 
 contract SGroveTest is GovernanceFixture {
-    /// @dev PM-R-07: the cap is now per LOSS EVENT (the defaulted facility's tokenId).
-    ///      Existing tests each model a single event, so they all key to the same id.
+    /// @dev ADR-0035 retains event ids for draw observability, never for capacity allocation.
     uint256 internal constant EVENT_1 = 1;
     uint256 internal constant EVENT_2 = 2;
 
@@ -49,9 +48,8 @@ contract SGroveTest is GovernanceFixture {
             abi.encodeCall(SGrove.initialize, (admin, guardian, admin, address(grove), address(usdfr), address(0)))
         );
 
-        (uint64 unbonding, uint16 cap) = sGrove.params();
+        uint64 unbonding = sGrove.params();
         assertEq(unbonding, Config.SGROVE_UNBONDING_PERIOD, "ADR-0014 unbonding");
-        assertEq(cap, Config.SGROVE_PER_EVENT_COVERAGE_CAP_BPS, "ADR-0014 per-event cap");
         (address g, address u, address feeVaultAddr) = sGrove.modules();
         assertEq(g, address(grove));
         assertEq(u, address(usdfr));
@@ -120,10 +118,19 @@ contract SGroveTest is GovernanceFixture {
     function test_fundCoverage_permissionless() public {
         _fundCoverage(100_000e18);
         assertEq(sGrove.coverageReserve(), 100_000e18);
-        assertEq(sGrove.coverageCapacity(), 50_000e18, "capacity = reserve x 50% per-event cap");
+        assertEq(sGrove.coverageCapacity(), 100_000e18, "ADR-0035 capacity is the live reserve");
 
         vm.expectRevert(SGrove.SGrove_ZeroAmount.selector);
         sGrove.fundCoverage(0);
+    }
+
+    function testFuzz_counterfactualCapacityAndPublishedParametersAreExact(uint256 reserve) public view {
+        reserve = bound(reserve, 0, type(uint192).max);
+
+        (uint16 publishedBps, uint256 absoluteCap) = sGrove.coverageCapParameters();
+        assertEq(publishedBps, Config.BPS);
+        assertEq(absoluteCap, type(uint256).max);
+        assertEq(sGrove.coverageCapacityAt(reserve), reserve, "ADR-0035 counterfactual must be identity");
     }
 
     function test_capacityWritersDoNotMutateVaultHurdleDuringPastDueWorkout() public {
@@ -136,7 +143,13 @@ contract SGroveTest is GovernanceFixture {
         uint64 nextDue = bridge.facility(id).nextPaymentDue;
         vm.warp(uint256(nextDue) + defaultManager.graceWindow(Config.CLASS_FILM_TAX_CREDITS) + 1);
         defaultManager.markPastDue(id);
-        assertEq(defaultManager.pendingSeniorImpairment(), 1_000_000e18);
+        // OWNER DECISION (Forest Road, 2026-08-07): an UNATTESTED, permissionless past-due mark
+        // carries the governed forward weight (`CollateralRegistry.pastDueWeightBps`, 50% at
+        // launch) of the charge the cascade could EXECUTE, not the full outstanding an attested
+        // `declareDefault` asserts. The GROSS pool is still the whole 1,000,000e18 — see the
+        // `performanceFeeImpairment` assertions below, which are deliberately unweighted.
+        // The executable clamp is not binding here: the vault holds 1,000,000e18.
+        assertEq(defaultManager.pendingSeniorImpairment(), 500_000e18);
         uint256 hurdleBefore = _vaultHurdleAssets();
         uint256 feeSharesBefore = vault.balanceOf(feeRecipient);
 
@@ -146,25 +159,12 @@ contract SGroveTest is GovernanceFixture {
         sGrove.fundCoverage(1_000_000e18);
         vm.stopPrank();
 
-        assertEq(defaultManager.pendingSeniorImpairment(), 500_000e18);
+        // ADR-0035 makes the whole 1,000,000e18 reserve executable immediately.
+        assertEq(defaultManager.pendingSeniorImpairment(), 0);
         assertEq(defaultManager.performanceFeeImpairment(), 1_000_000e18);
         assertEq(_vaultHurdleAssets(), hurdleBefore, "junior funding must not create a permanent HWM credit");
         (, uint256 fundingFeeShares) = vault.accrueFees();
         assertEq(fundingFeeShares, 0, "permissionless backstop funding is not senior performance");
-
-        vm.prank(admin);
-        sGrove.setPerEventCap(uint16(Config.BPS));
-        assertEq(defaultManager.pendingSeniorImpairment(), 0);
-        assertEq(defaultManager.performanceFeeImpairment(), 1_000_000e18);
-        assertEq(_vaultHurdleAssets(), hurdleBefore, "capacity retuning must not move the stored hurdle");
-
-        vm.prank(admin);
-        sGrove.setPerEventCap(uint16(Config.SGROVE_PER_EVENT_COVERAGE_CAP_BPS));
-        assertEq(defaultManager.pendingSeniorImpairment(), 500_000e18);
-        assertEq(defaultManager.performanceFeeImpairment(), 1_000_000e18);
-        assertEq(_vaultHurdleAssets(), hurdleBefore, "capacity parameter round trip is HWM-neutral");
-        (, uint256 capFeeShares) = vault.accrueFees();
-        assertEq(capFeeShares, 0);
 
         _clearPastDue(id, keccak256("sgrove-capacity-cure"));
         (, uint256 cureFeeShares) = vault.accrueFees();
@@ -172,49 +172,44 @@ contract SGroveTest is GovernanceFixture {
         assertEq(vault.balanceOf(feeRecipient), feeSharesBefore);
     }
 
-    function test_coverShortfall_capsAtHalfTheReserve() public {
+    function test_coverShortfall_drainsOnlyTheLiveReserve() public {
         _fundCoverage(100_000e18);
-        // request beyond capacity: covered == cap, residual stays with the caller
+        // A request inside the live reserve is delivered in full.
         vm.expectEmit(true, false, false, true);
-        emit ICascadeBackstop.ShortfallCovered(address(defaultManager), 80_000e18, 50_000e18);
+        emit ICascadeBackstop.ShortfallCovered(address(defaultManager), 80_000e18, 80_000e18);
         vm.prank(address(defaultManager));
         uint256 covered = sGrove.coverShortfall(EVENT_1, 80_000e18);
-        assertEq(covered, 50_000e18, "per-event cap binds");
-        assertEq(usdfr.balanceOf(address(defaultManager)), 50_000e18, "delivered in-call");
-        assertEq(sGrove.coverageReserve(), 50_000e18, "residual backstop survives");
+        assertEq(covered, 80_000e18, "live reserve is the only bound");
+        assertEq(usdfr.balanceOf(address(defaultManager)), 80_000e18, "delivered in-call");
+        assertEq(sGrove.coverageReserve(), 20_000e18, "physical reserve decremented exactly");
 
-        // AUDIT FIX (PM-R-07): the SAME event cannot come back for more. Its cap was
-        // snapshotted at the first draw and is now fully consumed.
+        // The same event may consume what remains; its id owns no separate allowance.
         vm.prank(address(defaultManager));
-        assertEq(sGrove.coverShortfall(EVENT_1, 80_000e18), 0, "same event is capped cumulatively");
+        assertEq(sGrove.coverShortfall(EVENT_1, 80_000e18), 20_000e18, "same event drains the reserve");
 
-        // a DIFFERENT event re-snapshots against the smaller remaining reserve
+        // A later event gets zero until actual replenishment.
         vm.prank(address(defaultManager));
-        assertEq(sGrove.coverShortfall(EVENT_2, 80_000e18), 25_000e18, "new event: 50% of what remains");
+        assertEq(sGrove.coverShortfall(EVENT_2, 80_000e18), 0, "empty layer two cannot protect later loss");
     }
 
-    /// @dev THE FINDING (PM-R-07). Before the fix the cap was recomputed from the CURRENT
-    ///      reserve on every call, so realizing ONE facility's loss in chunks drew 50%, then
-    ///      50% of the remainder, and so on — approaching the entire reserve. That silently
-    ///      voided the staker protection ADR-0021 advertises: an sGROVE staker could not bound
-    ///      their exposure to a single credit event, which is the whole point of the cap.
-    function test_coverShortfall_chunkingOneEventCannotExceedTheEventCap() public {
+    /// @dev ADR-0035: chunking and one-shot realization share the same physical reserve bound.
+    function test_coverShortfall_chunkingOneEventConsumesExactlyTheReserve() public {
         _fundCoverage(100_000e18);
         uint256 drawn;
-        // ten bites at the same event; pre-fix these would have summed to ~99.9k
+        // Ten bites at the same event consume the same 100k a one-shot request could consume.
         for (uint256 i = 0; i < 10; ++i) {
             vm.prank(address(defaultManager));
             drawn += sGrove.coverShortfall(EVENT_1, 80_000e18);
         }
-        assertEq(drawn, 50_000e18, "chunking buys nothing: one event, one cap");
-        assertEq(sGrove.coverageReserve(), 50_000e18, "half the reserve survives for later events");
+        assertEq(drawn, 100_000e18, "chunking cannot exceed or preserve the shared reserve");
+        assertEq(sGrove.coverageReserve(), 0, "reserve is exhausted");
         (uint256 eventDrawn, uint256 eventCap) = sGrove.eventCoverage(EVENT_1);
-        assertEq(eventDrawn, 50_000e18, "cumulative draw tracked per event");
-        assertEq(eventCap, 50_000e18, "cap snapshotted at the first draw");
+        assertEq(eventDrawn, 100_000e18, "cumulative draw remains observable");
+        assertEq(eventCap - eventDrawn, 0, "live reach is zero, not a frozen snapshot");
     }
 
-    /// @dev Many small chunks must total exactly the cap, not cap-plus-rounding.
-    function testFuzz_coverShortfall_chunkedDrawsNeverExceedTheEventCap(uint256 chunk, uint8 times) public {
+    /// @dev Many small chunks can never exceed the physical reserve.
+    function testFuzz_coverShortfall_chunkedDrawsNeverExceedTheReserve(uint256 chunk, uint8 times) public {
         _fundCoverage(100_000e18);
         chunk = bound(chunk, 1, 60_000e18);
         uint256 n = uint256(bound(times, 1, 20));
@@ -223,7 +218,7 @@ contract SGroveTest is GovernanceFixture {
             vm.prank(address(defaultManager));
             drawn += sGrove.coverShortfall(EVENT_1, chunk);
         }
-        assertLe(drawn, 50_000e18, "cumulative draw never exceeds the per-event cap");
+        assertLe(drawn, 100_000e18, "cumulative draw never exceeds the funded reserve");
         assertEq(sGrove.coverageReserve(), 100_000e18 - drawn, "reserve decremented exactly");
     }
 
@@ -231,7 +226,7 @@ contract SGroveTest is GovernanceFixture {
         _fundCoverage(100_000e18);
         vm.prank(address(defaultManager));
         uint256 covered = sGrove.coverShortfall(EVENT_1, 10_000e18);
-        assertEq(covered, 10_000e18, "requests inside the cap cover fully");
+        assertEq(covered, 10_000e18, "requests inside the reserve cover fully");
     }
 
     function test_coverShortfall_emptyReserveCoversZero() public {
@@ -485,7 +480,7 @@ contract SGroveTest is GovernanceFixture {
     function test_setUnbondingPeriod_upperBound() public {
         vm.startPrank(admin);
         sGrove.setUnbondingPeriod(365 days); // the ceiling is allowed
-        (uint64 p,) = sGrove.params();
+        uint64 p = sGrove.params();
         assertEq(p, 365 days);
         vm.expectRevert(SGrove.SGrove_BadParams.selector);
         sGrove.setUnbondingPeriod(365 days + 1);
@@ -499,22 +494,9 @@ contract SGroveTest is GovernanceFixture {
         vm.expectEmit(false, false, false, true);
         emit SGrove.UnbondingPeriodSet(7 days);
         sGrove.setUnbondingPeriod(7 days);
-        vm.expectEmit(false, false, false, true);
-        emit SGrove.PerEventCapSet(2_500);
-        sGrove.setPerEventCap(2_500);
         vm.expectRevert(SGrove.SGrove_BadParams.selector);
         sGrove.setUnbondingPeriod(0);
-        vm.expectRevert(SGrove.SGrove_BadParams.selector);
-        sGrove.setPerEventCap(0);
-        vm.expectRevert(SGrove.SGrove_BadParams.selector);
-        sGrove.setPerEventCap(10_001);
         vm.stopPrank();
-
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, bytes32(0))
-        );
-        vm.prank(alice);
-        sGrove.setPerEventCap(5_000);
     }
 
     // ── pause: user paths only, never the cascade ────────────────────────
@@ -574,7 +556,7 @@ contract SGroveTest is GovernanceFixture {
         sGrove.upgradeToAndCall(newImpl, "");
     }
 
-    // ── fuzz: reward conservation + cap exactness ────────────────────────
+    // ── fuzz: reward conservation + live-reserve exactness ──────────────
 
     /// @dev Streamed reward accounting conserves value: for any two stakes and two
     ///      streamed distributions (each fully warped through), stakers together can never
@@ -606,20 +588,16 @@ contract SGroveTest is GovernanceFixture {
         assertGe(pa + maxDust, r1, "first stream belongs to the sole staker");
     }
 
-    /// @dev The per-event cap is exact for ANY reserve and request.
-    function testFuzz_coverShortfall_capExact(uint256 reserve, uint256 request, uint16 capBps) public {
-        capBps = uint16(bound(capBps, 1, 10_000));
+    /// @dev ADR-0035 delivery is exact for any reserve and request.
+    function testFuzz_coverShortfall_liveReserveExact(uint256 reserve, uint256 request) public {
         reserve = bound(reserve, 0, 10_000_000e18);
         reserve -= reserve % 1e12;
         request = bound(request, 1, 10_000_000e18);
-        vm.prank(admin);
-        sGrove.setPerEventCap(capBps);
         if (reserve != 0) _fundCoverage(reserve);
 
         vm.prank(address(defaultManager));
         uint256 covered = sGrove.coverShortfall(EVENT_1, request);
-        uint256 cap = reserve * capBps / 10_000;
-        assertEq(covered, request < cap ? request : cap, "covered = min(request, reserve x cap)");
+        assertEq(covered, request < reserve ? request : reserve, "covered = min(request, live reserve)");
         assertEq(sGrove.coverageReserve(), reserve - covered, "reserve decremented exactly");
         assertLe(covered, request, "ICascadeBackstop: covered <= amount");
     }

@@ -29,8 +29,11 @@ import {Roles} from "./libraries/Roles.sol";
 ///
 ///         ICascadeBackstop contract (enforced by DefaultManager's balance-delta
 ///         check): `coverShortfall` transfers exactly `covered <= amount` USDfr to the
-///         caller in-call, where covered = min(amount, reserve x 50% per-event cap,
-///         ADR-0014 — preserving a residual backstop across successive events).
+///         caller in-call, where `covered = min(amount, live coverage reserve)`.
+///         ADR-0035 deliberately removes the former per-event ceiling: one shortfall can
+///         exhaust layer two entirely, after which senior principal absorbs 100% of any
+///         subsequent loss until the reserve is replenished. Report ordering therefore
+///         allocates the shared protection, an owner-accepted consequence.
 ///
 ///         GOVERNANCE (ADR-0026, amending ADR-0013): staking GROVE here does NOT
 ///         disenfranchise the staker. `VotesUpgradeable` checkpoints each staker's
@@ -67,6 +70,9 @@ contract SGrove is
         IERC20 grove;
         IERC20 usdfr;
         uint64 unbondingPeriod;
+        // ADR-0035 tombstone. The former per-event-cap word is retained in place solely so an
+        // implementation upgrade cannot shift the packed fields that follow it. Runtime logic
+        // MUST NOT read or write it.
         uint16 perEventCapBps;
         uint256 totalStaked; // actively staked GROVE (unbonding excluded)
         mapping(address staker => uint256) staked;
@@ -85,9 +91,10 @@ contract SGrove is
         uint64 periodFinish; // timestamp the current stream ends
         uint64 lastUpdateTime; // last time rewardIndexWad was advanced
         uint64 rewardsDuration; // stream window applied to each notifyRewards
-        // ── PM-R-07: per-EVENT cumulative coverage accounting (append-only TAIL) ──
-        // MUST stay last. Inserting these mid-struct would shift every field below them and
-        // corrupt the deployed proxy's state on upgrade.
+        // ── ADR-0035 compatibility tail ──
+        // `eventCovered` remains cumulative observability only; it cannot limit a draw.
+        // `eventCapSnapshot` is a retired storage tombstone and MUST NOT be written. Both fields
+        // remain in place so an implementation upgrade cannot corrupt the tail that follows.
         mapping(uint256 eventId => uint256) eventCovered;
         mapping(uint256 eventId => uint256) eventCapSnapshot;
         // Vault fee-accounting coordinator. Brackets live-capacity changes so
@@ -109,7 +116,6 @@ contract SGrove is
     event RewardsNotified(address indexed notifier, uint256 amount, uint256 rate, uint64 periodFinish);
     event RewardsClaimed(address indexed staker, uint256 amount);
     event UnbondingPeriodSet(uint64 period);
-    event PerEventCapSet(uint16 capBps);
     event RewardsDurationSet(uint64 duration);
 
     error SGrove_ZeroAddress();
@@ -171,10 +177,8 @@ contract SGrove is
         $.usdfr = IERC20(usdfr);
         $.feeVault = IsUSDfr(feeVault);
         $.unbondingPeriod = uint64(Config.SGROVE_UNBONDING_PERIOD);
-        $.perEventCapBps = uint16(Config.SGROVE_PER_EVENT_COVERAGE_CAP_BPS);
         $.rewardsDuration = Config.SGROVE_REWARDS_DURATION;
         emit UnbondingPeriodSet(uint64(Config.SGROVE_UNBONDING_PERIOD));
-        emit PerEventCapSet(uint16(Config.SGROVE_PER_EVENT_COVERAGE_CAP_BPS));
         emit RewardsDurationSet(Config.SGROVE_REWARDS_DURATION);
     }
 
@@ -251,9 +255,11 @@ contract SGrove is
     }
 
     /// @inheritdoc ICascadeBackstop
-    /// @dev NEVER pausable (the cascade cannot be suppressed). Per-event cap: at most
-    ///      `perEventCapBps` of the CURRENT reserve per call (ADR-0014 — a residual
-    ///      backstop survives for subsequent events).
+    /// @dev NEVER pausable (the cascade cannot be suppressed). ADR-0035: there is no per-event
+    ///      ceiling or first-draw snapshot. The first reported shortfall may consume the entire
+    ///      live reserve; later shortfalls then pass wholly to senior principal until real USDfr
+    ///      replenishes layer two. `eventId` remains part of the stable cascade ABI and indexes
+    ///      cumulative observability, but it cannot reserve or reopen an allowance.
     function coverShortfall(uint256 eventId, uint256 amount)
         external
         onlyRole(Roles.CREDIT_ROLE)
@@ -262,47 +268,34 @@ contract SGrove is
     {
         if (amount == 0) revert SGrove_ZeroAmount();
         SGroveStorage storage $ = _storage();
-
-        // AUDIT FIX (PM-R-07): the cap is now enforced CUMULATIVELY PER EVENT, not per call.
-        // It previously recomputed `reserve * capBps` from the CURRENT reserve on every call,
-        // so realizing one facility's loss in chunks drew 50%, then 50% of the remainder, and
-        // so on — approaching the whole reserve. That silently voided the staker protection
-        // ADR-0021 advertises: an sGROVE staker could not bound their exposure to a single
-        // credit event, which is the entire point of a "per-event" cap.
-        //
-        // The cap is SNAPSHOTTED at the event's first draw, so the guarantee is stateable:
-        // one default event can never take more than `capBps` of the coverage reserve AS IT
-        // STOOD when that event began. A later event re-snapshots against the smaller reserve.
-        // Keyed by the defaulted facility's tokenId. A facility that defaults, resolves and
-        // defaults again keeps its earlier consumption — conservative for stakers, and the
-        // safe direction.
-        uint256 cap = $.eventCapSnapshot[eventId];
-        if (cap == 0) {
-            cap = Math.mulDiv($.coverageReserve, $.perEventCapBps, Config.BPS);
-            // only persist a real snapshot; an event that arrives at an empty reserve has
-            // consumed nothing and may still draw once the reserve is funded
-            if (cap != 0) $.eventCapSnapshot[eventId] = cap;
-        }
         uint256 already = $.eventCovered[eventId];
-        uint256 room = cap > already ? cap - already : 0;
-
-        covered = amount < room ? amount : room;
-        if (covered > $.coverageReserve) covered = $.coverageReserve; // never over-deliver
+        uint256 reserve = $.coverageReserve;
+        covered = amount < reserve ? amount : reserve;
         if (covered != 0) {
             $.eventCovered[eventId] = already + covered;
-            $.coverageReserve -= covered;
+            $.coverageReserve = reserve - covered;
             $.usdfr.safeTransfer(msg.sender, covered);
         }
         emit ShortfallCovered(msg.sender, amount, covered);
     }
 
-    /// @notice Coverage already drawn for a loss event, and the cap snapshotted at its first draw.
+    /// @notice Cumulative coverage already drawn for an event and its live reachable ceiling.
+    /// @dev ADR-0035 compatibility view. `cap` is NOT stored or frozen: it is `drawn + live reserve`,
+    ///      so `cap - drawn` is exactly the shared reserve the event could reach if reported next.
+    ///      The retired `eventCapSnapshot` storage remains untouched.
     /// @param eventId The defaulted facility's `tokenId`.
     /// @return drawn Cumulative coverage delivered for this event.
-    /// @return cap The per-event ceiling fixed at the event's first draw (0 = never drawn).
+    /// @return cap The event's cumulative draw plus the current shared reserve.
     function eventCoverage(uint256 eventId) external view returns (uint256 drawn, uint256 cap) {
         SGroveStorage storage $ = _storage();
-        return ($.eventCovered[eventId], $.eventCapSnapshot[eventId]);
+        drawn = $.eventCovered[eventId];
+        return (drawn, drawn + $.coverageReserve);
+    }
+
+    /// @inheritdoc ICascadeBackstop
+    /// @dev ADR-0035: all event ids reach the same live reserve; no event owns a snapshot.
+    function remainingCoverage(uint256) external view returns (uint256 remaining) {
+        return _storage().coverageReserve;
     }
 
     // ── rewards (governance-routed fee share, ADR-0014) ──────────────────
@@ -380,16 +373,6 @@ contract SGrove is
         emit UnbondingPeriodSet(period);
     }
 
-    /// @notice Sets the per-event coverage cap (bps of the current reserve).
-    function setPerEventCap(uint16 capBps) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
-        if (capBps == 0 || capBps > Config.BPS) revert SGrove_BadParams();
-        SGroveStorage storage $ = _storage();
-        $.feeVault.beginFeeNeutralMarkedNavChange();
-        $.perEventCapBps = capBps;
-        $.feeVault.endFeeNeutralMarkedNavChange();
-        emit PerEventCapSet(capBps);
-    }
-
     /// @notice Sets the reward streaming window applied to each `notifyRewards`.
     /// @dev Only when no stream is active (`block.timestamp >= periodFinish`), so a change
     ///      never silently re-times in-flight accrual. Bounded to [1, 365 days].
@@ -430,10 +413,19 @@ contract SGrove is
         return _storage().coverageReserve;
     }
 
-    /// @notice What a single shortfall event could draw right now.
+    /// @notice The whole live USDfr reserve available to the next reported shortfall.
     function coverageCapacity() external view returns (uint256) {
-        SGroveStorage storage $ = _storage();
-        return Math.mulDiv($.coverageReserve, $.perEventCapBps, Config.BPS);
+        return _storage().coverageReserve;
+    }
+
+    /// @inheritdoc ICascadeBackstop
+    function coverageCapacityAt(uint256 reserve) external pure returns (uint256) {
+        return reserve;
+    }
+
+    /// @inheritdoc ICascadeBackstop
+    function coverageCapParameters() external pure returns (uint16 proportionalBps, uint256 absoluteCap) {
+        return (uint16(Config.BPS), type(uint256).max);
     }
 
     /// @notice Claimable rewards for `staker` right now (settled + streamed-so-far).
@@ -473,10 +465,9 @@ contract SGrove is
         return _storage().unbonds[staker];
     }
 
-    /// @notice Current parameters.
-    function params() external view returns (uint64 unbondingPeriod, uint16 perEventCapBps) {
-        SGroveStorage storage $ = _storage();
-        return ($.unbondingPeriod, $.perEventCapBps);
+    /// @notice Current governance-adjustable staking parameter.
+    function params() external view returns (uint64 unbondingPeriod) {
+        return _storage().unbondingPeriod;
     }
 
     /// @notice Wired token addresses (post-deploy validation aid).

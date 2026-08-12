@@ -111,6 +111,7 @@ contract L02FreshProxyOnlyTest is Test, Deploy {
     uint256 internal constant SEED_EVENT_ID = 7;
     uint256 internal constant SEED_EVENT_COVERED = 11e18;
     uint256 internal constant SEED_EVENT_CAP = 22e18;
+    uint16 internal constant LEGACY_CAP_BPS = 5_000;
 
     function setUp() public {
         vm.warp(1_750_000_000);
@@ -163,9 +164,10 @@ contract L02FreshProxyOnlyTest is Test, Deploy {
         assertEq(unbonds.length, 1, "unbond array survived");
         assertEq(unbonds[0].amount, uint192(LEGACY_UNBONDING), "unbond element field 1 (amount) aligns");
         assertEq(unbonds[0].releaseAt, legacyReleaseAt, "unbond element field 2 (releaseAt) aligns");
-        (uint64 unbondingPeriod, uint16 capBps) = upgraded.params();
+        uint64 unbondingPeriod = upgraded.params();
         assertEq(unbondingPeriod, uint64(Config.SGROVE_UNBONDING_PERIOD), "unbondingPeriod aligns");
-        assertEq(capBps, uint16(Config.SGROVE_PER_EVENT_COVERAGE_CAP_BPS), "perEventCapBps aligns");
+        uint256 packedParams = uint256(vm.load(address(upgraded), bytes32(uint256(SGROVE_STORAGE_ROOT) + 1)));
+        assertEq(uint16(packedParams >> 224), LEGACY_CAP_BPS, "retired perEventCapBps tombstone aligns");
         (address g, address u,) = upgraded.modules();
         assertEq(g, address(grove), "grove slot aligns");
         assertEq(u, usdfr, "usdfr slot aligns");
@@ -179,7 +181,9 @@ contract L02FreshProxyOnlyTest is Test, Deploy {
         assertEq(duration, Config.SGROVE_REWARDS_DURATION, "rewardsDuration aligns");
         (uint256 drawn, uint256 cap) = upgraded.eventCoverage(SEED_EVENT_ID);
         assertEq(drawn, SEED_EVENT_COVERED, "eventCovered tail mapping aligns");
-        assertEq(cap, SEED_EVENT_CAP, "eventCapSnapshot tail mapping aligns");
+        assertEq(cap - drawn, SEED_COVERAGE, "ADR-0035 public view uses live reserve");
+        bytes32 retiredCapSlot = keccak256(abi.encode(SEED_EVENT_ID, uint256(SGROVE_STORAGE_ROOT) + 12));
+        assertEq(uint256(vm.load(address(upgraded), retiredCapSlot)), SEED_EVENT_CAP, "retired cap tombstone aligns");
         // the layout is faithful. Everything below is therefore about L-02, not about a
         // mis-modelled stand-in.
 
@@ -599,6 +603,8 @@ contract L02FreshProxyOnlyTest is Test, Deploy {
     function _l02Ctx() internal view returns (Ctx memory c) {
         c.deployer = address(this);
         c.opsAdmin = address(this);
+        c.proposalGuardian = attester2Addr;
+        c.queueKeeper = address(this); // AUDIT FIX (D7-01 round 5): SETTLEMENT_KEEPER_ROLE holder; Deploy._wire fails closed on zero
         c.frTreasury = address(this);
         c.feeRecipient = address(this);
         c.attester2 = attester2Addr;
@@ -636,6 +642,8 @@ contract L02FreshProxyOnlyTest is Test, Deploy {
         a.votesAggregator = d.votesAggregator;
         a.deployer = c.deployer;
         a.opsAdmin = c.opsAdmin;
+        a.proposalGuardian = c.proposalGuardian;
+        a.queueKeeper = c.opsAdmin; // AUDIT FIX (D7-01 round 5): SETTLEMENT_KEEPER_ROLE holder; Deploy._wire fails closed on zero
         a.attester2 = c.attester2;
         a.frTreasury = c.frTreasury;
         a.feeRecipient = c.feeRecipient;
@@ -713,6 +721,7 @@ contract L02FreshProxyOnlyTest is Test, Deploy {
         vm.serializeAddress(objectKey, "sGrove", placeholder);
         vm.serializeAddress(objectKey, "timelock", placeholder);
         vm.serializeAddress(objectKey, "governor", placeholder);
+        vm.serializeAddress(objectKey, "proposalGuardian", placeholder);
         if (aggregator != address(0)) vm.serializeAddress(objectKey, "votesAggregator", aggregator);
         vm.serializeAddress(objectKey, "deployer", placeholder);
         vm.serializeAddress(objectKey, "opsAdmin", placeholder);
@@ -873,7 +882,7 @@ contract LegacySGrove is
         $.grove = IERC20(grove);
         $.usdfr = IERC20(usdfr);
         $.unbondingPeriod = uint64(Config.SGROVE_UNBONDING_PERIOD);
-        $.perEventCapBps = uint16(Config.SGROVE_PER_EVENT_COVERAGE_CAP_BPS);
+        $.perEventCapBps = 5_000; // historical pre-ADR-0035 value; now a retained tombstone
         $.rewardsDuration = Config.SGROVE_REWARDS_DURATION;
     }
 

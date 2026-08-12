@@ -571,7 +571,7 @@ function DarkMetric({label, value, note}: {label: string; value: string; note: s
       <p className="text-[9.5px] font-semibold uppercase tracking-[0.14em] text-on-navy/40">
         {label}
       </p>
-      {/* Carries words ("Immediate") as well as figures, so this is Jost with
+      {/* Carries words ("Immediate") as well as figures, so this is the body face with
           tabular numerals rather than mono. */}
       <p className="tnum mt-1 text-[15px] font-medium text-on-navy">{value}</p>
       <p className="mt-1 text-[10.5px] leading-snug text-on-navy/40">{note}</p>

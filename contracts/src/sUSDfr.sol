@@ -17,11 +17,12 @@ import {IImpairmentSource} from "./interfaces/IImpairmentSource.sol";
 import {IPointsModule} from "./interfaces/IPointsModule.sol";
 import {IsUSDfr} from "./interfaces/IsUSDfr.sol";
 import {Config} from "./libraries/Config.sol";
+import {PointsHookGas} from "./libraries/PointsHookGas.sol";
 import {Roles} from "./libraries/Roles.sol";
 
 /// @title sUSDfr — the yield-bearing vault (ADR-0005)
-/// @notice ERC-4626 vault over USDfr. `totalAssets()` is simply the vault's USDfr
-///         balance: yield arrives as USDfr minted into the vault against attested
+/// @notice ERC-4626 vault over USDfr. `totalAssets()` is the vault's realized USDfr
+///         balance (physical holdings less any optional unvested stream): yield arrives as USDfr minted into the vault against attested
 ///         receipts (WaterfallEngine, Phase E), and value leaves only via the loss
 ///         cascade's final layer (controller burn on the vault balance) or queue-served
 ///         redemptions. The fee-net exchange-rate views rise with yield, fall with an
@@ -34,8 +35,10 @@ import {Roles} from "./libraries/Roles.sol";
 ///         live non-zero schedule is continuity-preserving, while setting it to zero releases
 ///         the remaining realized yield and steps the rate UP — never down.
 ///
-///         ASYMMETRIC EXIT PRICING (ADR-0022 Option Y): entry prices at the realized NAV,
-///         exit prices at `redemptionTotalAssets()` = realized assets LESS the
+///         ASYMMETRIC EXIT PRICING (ADR-0022 Option Y): entry prices include USDfr already
+///         held in an optional unvested-yield stream, so a new entrant cannot buy value earned
+///         by incumbents merely because recognition was deferred. Position views remain at
+///         realized NAV. Exit prices at `redemptionTotalAssets()` = realized assets LESS the
 ///         declared-but-unrealized senior impairment. So a senior cannot exit at pre-loss NAV
 ///         in the `declareDefault` → `realizeLoss` window; the impairment is borne by the
 ///         leaver rather than dumped on the stayers. Redemption NAV <= deposit NAV, always.
@@ -91,6 +94,9 @@ contract SUSDfr is
         uint256 feeOperationMarkedAssets;
         uint256 feeOperationHurdleAssets;
         uint256 feeOperationSupply;
+        // M-3: absolute deadline for the active stream. Governance may shorten it but no
+        // sequence of non-zero period changes or yield notifications may move it later.
+        uint64 vestingEndsAt;
     }
 
     struct FeeCalculation {
@@ -114,7 +120,15 @@ contract SUSDfr is
     uint8 private constant FEE_OPERATION_MARKED_NAV = 1;
     uint8 private constant FEE_OPERATION_YIELD = 2;
 
+    /// @notice A constructor or initializer argument that must be non-zero was zero.
     error SUSDfr_ZeroAddress();
+    /// @notice The proposed points module has no code. Rejected for the same reason
+    ///         `USDfr.setPointsModule` rejects it (C4-USDFR-01): `onSharesTransfer`
+    ///         returns no data, so solc emits an `extcodesize` guard that reverts
+    ///         OUTSIDE the fail-open `try` in `_update` — bricking every share
+    ///         transfer, deposit and redeem in one governance transaction.
+    /// @param module The codeless address that was refused.
+    error SUSDfr_PointsModuleNotAContract(address module);
     /// @notice The requested vesting window exceeds `Config.MAX_YIELD_VESTING_PERIOD`.
     error SUSDfr_VestingPeriodTooLong(uint64 period);
     /// @notice Entry is closed because share pricing is DEGENERATE: shares are outstanding while
@@ -142,6 +156,9 @@ contract SUSDfr is
     /// @param streamTotal `added` plus any unvested remainder rolled over from the prior stream.
     /// @param period The vesting window applied to this stream, in seconds.
     event YieldStreamStarted(uint256 added, uint256 streamTotal, uint64 period);
+
+    /// @notice Absolute terminal timestamp for the active stream (zero when no stream exists).
+    event YieldStreamDeadlineSet(uint64 endsAt);
 
     /// @notice Emitted when an oversized realized-yield delivery is credited immediately
     ///         because withholding the whole amount would close healthy vault entry.
@@ -206,19 +223,21 @@ contract SUSDfr is
     // ── Views ────────────────────────────────────────────────────────────
 
     /// @notice Realized senior yield not yet released into the exchange rate (ADR-0023).
-    /// @dev Decays linearly from `vestingAmount` to zero over `yieldVestingPeriod`. A zero
+    /// @dev Decays linearly from `vestingAmount` to zero by the stream's fixed deadline. A zero
     ///      period disables vesting entirely (instant credit), which is the pre-ADR-0023
     ///      behaviour and the governance escape hatch.
     /// @return The USDfr sitting in the vault that has not yet vested.
     function unvestedYield() public view returns (uint256) {
         SUSDfrStorage storage $ = _storage();
-        uint256 period = $.yieldVestingPeriod;
         uint256 amount = $.vestingAmount;
-        if (period == 0 || amount == 0) return 0;
-        uint256 elapsed = block.timestamp - $.lastYieldAt;
-        if (elapsed >= period) return 0;
+        if ($.yieldVestingPeriod == 0 || amount == 0) return 0;
+        uint256 end = _vestingEnd($);
+        uint256 start = $.lastYieldAt;
+        if (block.timestamp >= end || end <= start) return 0;
+        uint256 period = end - start;
+        uint256 remaining = end - block.timestamp;
         // rounds DOWN, so vesting errs slightly FAST — never withholds more than it should
-        return Math.mulDiv(amount, period - elapsed, period, Math.Rounding.Floor);
+        return Math.mulDiv(amount, remaining, period, Math.Rounding.Floor);
     }
 
     /// @notice Vault assets backing the share price: USDfr held, LESS yield still vesting.
@@ -273,6 +292,12 @@ contract SUSDfr is
     function vestingSchedule() external view returns (uint256 amount, uint64 startedAt) {
         SUSDfrStorage storage $ = _storage();
         return ($.vestingAmount, $.lastYieldAt);
+    }
+
+    /// @notice The immutable-or-shortening deadline of the current stream.
+    function vestingDeadline() external view returns (uint64) {
+        SUSDfrStorage storage $ = _storage();
+        return $.vestingAmount == 0 ? 0 : _vestingEnd($);
     }
 
     /// @inheritdoc IsUSDfr
@@ -338,6 +363,25 @@ contract SUSDfr is
     }
 
     /// @inheritdoc IsUSDfr
+    function prepareRedemptionPricing(uint256 maxAssets) external nonReentrant returns (uint256 instantlyRecognized) {
+        SUSDfrStorage storage $ = _storage();
+        if (msg.sender != $.redemptionQueue) revert SUSDfr_QueueOnly();
+
+        // G4/M-2: recognize once against the settlement-wide remaining outflow ceiling, not
+        // against the caller-selected request count. For an unchanged stream, H - B remains
+        // constant as each chunk pays A and reduces both held assets and remaining budget by A,
+        // so later chunks cannot manufacture another NAV step.
+        instantlyRecognized = _capStreamToBase(maxAssets);
+        // Checkpoint AFTER recognition so selection and execution observe the same fee-adjusted
+        // supply. The recognized gain is not ratcheted into the HWM and therefore cannot escape
+        // its configured performance fee.
+        _accrueFees();
+        uint256 held = IERC20(asset()).balanceOf(address(this));
+        uint256 projectedHeld = maxAssets < held ? held - maxAssets : 0;
+        emit RedemptionPricingPrepared(maxAssets, projectedHeld, instantlyRecognized);
+    }
+
+    /// @inheritdoc IsUSDfr
     function beginFeeNeutralMarkedNavChange()
         external
         onlyRole(Roles.FEE_ACCOUNTING_ROLE)
@@ -394,12 +438,12 @@ contract SUSDfr is
 
     /// @notice The asset base redemptions price against: realized assets LESS the
     ///         declared-but-unrealized senior impairment (ADR-0022 Option Y).
-    /// @dev This is the ONLY asymmetry between the entry and exit price. `totalAssets()`,
-    ///      `convertToAssets`, `convertToShares`, `previewDeposit`, `previewMint` and
-    ///      `currentExchangeRate()` all remain the REALIZED NAV, deliberately:
-    ///      - deposits must not be priced off a forward mark (that is usd.ai's optimistic-deposit
-    ///        half, rejected in ADR-0022 as conflicting with ADR-0002 variable-yield pass-through
-    ///        and carrying securities-characterization weight, brief Part 0.5);
+    /// @dev `totalAssets()`, `convertToAssets`, `convertToShares`, and
+    ///      `currentExchangeRate()` remain REALIZED-NAV views. `previewDeposit` and
+    ///      `previewMint` are intentionally more conservative: they also include USDfr already
+    ///      held in the unvested stream, which is realised cash earned by incumbents rather than
+    ///      a forward mark. This closes the stream-entry transfer without adopting the rejected
+    ///      optimistic-deposit treatment of unrealised credit.
     ///      - `currentExchangeRate()` is the §1.3 monotonicity subject and must keep tracking
     ///        realized value, so a *declared* default does not read as a silent rate fall.
     ///      Because the impairment is subtracted, `redemptionTotalAssets() <= totalAssets()`
@@ -484,81 +528,45 @@ contract SUSDfr is
         return (paused() || _isDegenerate()) ? 0 : super.maxMint(receiver);
     }
 
-    /// @notice True when vault entry must be REFUSED because share pricing is DEGENERATE — either
-    ///         the deposit base has collapsed to zero, or the vault holds a STRANDED unvested-yield
-    ///         stream that dwarfs the deposit base. In both cases a deposit would mint shares against
-    ///         a base that is about to grow under the entrant's feet, letting them skim value from
-    ///         incumbents.
-    /// @dev AUDIT H-3 (remediation, then RESIDUAL). Two distinct-looking hazards, ONE root cause:
-    ///      the entry share price is set by `totalAssets()` (OZ's un-overridden `_convertToShares`),
-    ///      but the vault physically holds MORE USDfr than `totalAssets()` reports — the realized-
-    ///      but-unvested yield stream (`unvestedYield()`), which `totalAssets()` excludes under
-    ///      ADR-0023. That stream WILL vest into `totalAssets()` over the coming window. A depositor
-    ///      who enters while the stream is large relative to the base buys shares cheaply (priced on
-    ///      the small base) and then captures a pro-rata slice of the stream as it vests —
-    ///      extracting from the incumbents who actually funded it.
+    /// @notice Exact-share quote for a deposit, priced on all USDfr already held by the vault.
+    /// @dev C4 stream-entry remediation: `totalAssets()` deliberately excludes unvested yield,
+    ///      but that cash belongs to incumbent shares. Pricing a newcomer only on realized NAV
+    ///      let it acquire part of the old stream as it vested. The physical pre-deposit balance
+    ///      is the conservative entry NAV and makes that transfer non-positive. Fee shares due
+    ///      now are still simulated exactly as they are for every other conversion.
+    function previewDeposit(uint256 assets) public view override(ERC4626Upgradeable, IERC4626) returns (uint256) {
+        return Math.mulDiv(
+            assets,
+            _feeAdjustedSupply() + 10 ** _decimalsOffset(),
+            IERC20(asset()).balanceOf(address(this)) + 1,
+            Math.Rounding.Floor
+        );
+    }
+
+    /// @notice Asset quote for minting shares at the same physical-balance entry NAV.
+    function previewMint(uint256 shares) public view override(ERC4626Upgradeable, IERC4626) returns (uint256) {
+        return Math.mulDiv(
+            shares,
+            IERC20(asset()).balanceOf(address(this)) + 1,
+            _feeAdjustedSupply() + 10 ** _decimalsOffset(),
+            Math.Rounding.Ceil
+        );
+    }
+
+    /// @notice True when entry remains administratively closed around an abnormal collapsed-NAV
+    ///         or stranded-stream state.
+    /// @dev Deposit and mint pricing now include the physical unvested balance, so the historical
+    ///      stream skim is closed independently of this predicate. The existing fail-closed band
+    ///      remains as defence in depth and as an operational signal: normal yield delivery and
+    ///      queue outflow are kept inside it by `_capStreamToBase`, while a realized loss that
+    ///      strands most of a stream still requires explicit recovery rather than fresh capital
+    ///      entering a distressed vault. `totalSupply() == 0` remains a valid first-deposit path.
     ///
-    ///      HOW THE STATE IS REACHED: `DefaultManager.realizeLoss` bounds the layer-3 senior burn by
-    ///      `totalAssets()` (the VESTED figure), so a maximal-but-legal `depositorLoss ==
-    ///      totalAssets()` writes the deposit base down to nothing while leaving the whole unvested
-    ///      stream standing (`held == unvested`). The base then recovers a sliver each block as the
-    ///      stream vests, so the hazard is NOT the `totalAssets() == 0` POINT — it is the whole
-    ///      neighbourhood where the stranded stream still dominates the base. A shares-per-asset
-    ///      (`totalSupply()/totalAssets()`) guard clears that neighbourhood ~96s post-wipe while the
-    ///      stream is still ~6874x the base — reopening entry deep inside the profitable band — which
-    ///      is why the predicate keys on the STREAM, not on the supply ratio.
-    ///
-    ///      THE PREDICATE keys on exactly the quantity the hazard depends on: the STRANDED STREAM
-    ///      versus the DEPOSIT BASE. Entry closes when `unvestedYield() > K * totalAssets()` for a
-    ///      modest `K` (`Config.SUSDFR_MAX_STRANDED_YIELD_RATIO`, currently 3). This is scale-free (a
-    ///      dimensionless ratio of two USDfr quantities), so it holds identically at every vault
-    ///      size, and — unlike a shares-per-asset guard, which reopens ~96s post-wipe with the stream
-    ///      still thousands× the base — it closes entry across the WHOLE upper portion of the
-    ///      profitable band: every state where the stranded stream still exceeds `K×` the base, i.e.
-    ///      is more than `K/(K+1)` (~75% at `K=3`) of the vault's USDfr balance. It does NOT fire
-    ///      across the ENTIRE band down to zero, and must not: it deliberately REOPENS once the stream
-    ///      has largely vested (`unvestedYield() <= K * totalAssets()`, stream a minority of the
-    ///      balance), because at that point a fresh deposit's skim is bounded. `_capStreamToBase`
-    ///      couples this guard to the ACTUAL staked base on BOTH sides: a delivery too large for the
-    ///      live base (`notifyYield`, finding FRV-FS-03) and an outflow that shrinks the base under a
-    ///      live stream (`_withdraw`, finding RC-03) both retain only the safe portion and recognize
-    ///      the excess immediately. Therefore neither a legitimate payment nor an ordinary queue
-    ///      settlement can close entry; what remains able to push the ratio into the closed
-    ///      `(K, ∞)` region is a realized LOSS, which burns the recognized base while leaving an
-    ///      already-live stream physically present, and a governance re-pricing of the vesting
-    ///      window. The residual open sub-band `(0, K]` is the audit's accepted trade-off: below it
-    ///      the skim never exceeds ~75% (the OLD `K=10` left this band open all the way to a ~91%
-    ///      skim — finding #3).
-    ///
-    ///      THE ZERO-BASE POINT is caught EXPLICITLY (`assets == 0 -> true`) rather than left to the
-    ///      ratio: a wipe that leaves NO active stream (`unvestedYield() == 0` while `totalAssets()
-    ///      == 0`) still has shares outstanding against a zero base — the classic first-depositor /
-    ///      inflation mint (`previewDeposit(1e18) ~= 1e18 * (totalSupply + 1e6) / 1`, ~10^18x the
-    ///      supply for one USDfr) — but `0 > K * 0` is false, so the ratio ALONE would reopen it.
-    ///      This clause subsumes the former `_isWiped()` point guard as the band's limit, and also
-    ///      short-circuits the `K * assets` multiply cleanly.
-    ///
-    ///      WHY `unvestedYield()` IS THE RIGHT ACCESSOR: in the ratio branch (`assets > 0`) the
-    ///      vault necessarily holds `held > unvested`, so `unvestedYield()` and `held -
-    ///      totalAssets()` COINCIDE exactly — both name the same stranded pool, the USDfr physically
-    ///      present but excluded from the pricing base. The two can only diverge below the
-    ///      inductively-maintained `held >= unvested` bound, i.e. at `assets == 0`, which this
-    ///      function has already returned `true` for. A direct USDfr DONATION raises `held` AND
-    ///      `totalAssets()` together (it lands in the base immediately, is never stranded), so it
-    ///      never inflates the skimmable pool; the stranded pool is precisely the unvested stream.
-    ///      `unvestedYield()` reads the LIVE withheld amount (post-H-3 crystallization). See
-    ///      `test_strandedStreamBandClosesEntry_*`.
-    ///
-    ///      Entry FAILS LOUDLY here (prime directive 4): a base collapsed this far is a governance
-    ///      event — the outstanding shares must be resolved (recapitalized or retired via an
-    ///      upgrade/migration) before new capital may enter. Exits are deliberately NOT blocked: a
-    ///      degenerate vault must still settle its queue, and at a near-zero base those exits pay
-    ///      near-zero, which is correct.
-    ///
-    ///      `totalSupply() == 0` short-circuits to false so the legitimate first-deposit /
-    ///      anti-inflation-seed path is never caught (there are no incumbents to dilute).
+    ///      The collapsed-rate test deliberately uses realized NAV and par, not the fee HWM. It
+    ///      protects entrants when little or no physical value remains; the physical-balance quote
+    ///      separately prevents a newcomer from acquiring incumbent unvested cash.
     /// @return True when `totalSupply() != 0` and either `totalAssets() == 0` or
-    ///         `unvestedYield() > Config.SUSDFR_MAX_STRANDED_YIELD_RATIO * totalAssets()`.
+    ///         `unvestedYield() >= Config.SUSDFR_MAX_STRANDED_YIELD_RATIO * totalAssets()`.
     function _isDegenerate() internal view returns (bool) {
         uint256 supply = totalSupply();
         if (supply == 0) return false; // no incumbents: first-deposit / anti-inflation-seed path
@@ -580,13 +588,14 @@ contract SUSDfr is
             Math.mulDiv(10 ** decimals(), assets + 1, supply + 10 ** _decimalsOffset(), Math.Rounding.Floor)
                 * Config.SUSDFR_DEGENERATE_RATE_DIVISOR < 10 ** (decimals() - _decimalsOffset())
         ) return true;
-        // stranded-stream skim band: the withheld yield the vault holds but has not yet credited
-        // dwarfs the base the entry price is set on. `assets > 0` here, so this equals
-        // `held - totalAssets() > K * totalAssets()` exactly — the true skimmable pool.
-        return unvestedYield() > Config.SUSDFR_MAX_STRANDED_YIELD_RATIO * assets;
+        // AUDIT R16-01 / merge P-19: retain the fail-closed equality boundary. Physical-balance
+        // entry pricing independently closes the value transfer and the held/(K+1) stream cap
+        // parks healthy operation a factor of K^2 away, but `>=` preserves the pinned abnormal
+        // boundary and prevents a future entry-basis refactor from silently reopening it.
+        return unvestedYield() >= Config.SUSDFR_MAX_STRANDED_YIELD_RATIO * assets;
     }
 
-    /// @notice Deposits `assets`, minting shares to `receiver` at the realized NAV.
+    /// @notice Deposits `assets`, minting shares to `receiver` at the physical-balance entry NAV.
     /// @dev Adds the DEGENERATE-pricing guard in front of the ERC-4626 flow so the revert carries a
     ///      SPECIFIC error rather than the generic max-capacity one (`maxDeposit` reports 0 in
     ///      the same state, so without this override OZ would mask the cause). See `_isDegenerate()`.
@@ -686,7 +695,16 @@ contract SUSDfr is
 
     /// @notice Sets (or clears, with zero) the participation-points module. The hook
     ///         observes share balance changes; it never affects transfer validity.
+    /// @dev P-48: a CODELESS module is refused, identically to `USDfr.setPointsModule`
+    ///      (src/USDfr.sol:143) and for the identical reason. `onSharesTransfer` returns no
+    ///      data, so solc emits an `extcodesize` guard BEFORE the call and therefore OUTSIDE
+    ///      the fail-open `try` in `_update` — a codeless module makes the fail-open hook fail
+    ///      CLOSED and bricks every share transfer, deposit and REDEEM (the senior exit) in a
+    ///      single governance transaction. `P48_VaultCodelessPointsModule.t.sol` pins both the
+    ///      guard and the bricked state it prevents.
+    /// @param module The points ledger, or zero to disable the hook entirely.
     function setPointsModule(address module) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (module != address(0) && module.code.length == 0) revert SUSDfr_PointsModuleNotAContract(module);
         _storage().pointsModule = IPointsModule(module);
         emit PointsModuleUpdated(module);
     }
@@ -763,16 +781,16 @@ contract SUSDfr is
     ///      rises by the delivered amount, so `totalAssets()` is unchanged. Any still-unvested
     ///      remainder is rolled into the new stream.
     ///
-    ///      OVERSIZED-DELIVERY SAFETY (FRV-FS-03): entry pricing deliberately excludes the
-    ///      unvested stream. With very little live stake, withholding an entire large payment
-    ///      could make `unvestedYield() > K * totalAssets()` and close the sole senior entry
-    ///      point even though the protocol is healthy. The new stream is therefore capped at
-    ///      `K/(K+1)` of the vault's post-delivery physical USDfr; any excess is recognized
-    ///      immediately. This is an explicit UPWARD rate step on cash already received, never
-    ///      forward income or a downward repricing. It avoids both rejecting a servicing
-    ///      receipt and admitting deposits against an oversized excluded stream. The cap
-    ///      mathematically guarantees the delivery itself cannot trip the entry guard. A later
-    ///      realized loss may still strand the stream and close entry, as intended.
+    ///      OVERSIZED-DELIVERY SAFETY (FRV-FS-03): entry pricing includes the physical unvested
+    ///      balance, so it independently prevents a newcomer from acquiring incumbent yield.
+    ///      With very little live stake, however, withholding an entire large payment could make
+    ///      `unvestedYield() >= K * totalAssets()` and trip the defence-in-depth entry closure in
+    ///      an otherwise healthy vault. The new stream is therefore capped at `1/(K+1)` of the
+    ///      post-delivery physical USDfr; any excess is recognized immediately. This is an
+    ///      explicit UPWARD rate step on cash already received, never forward income or a
+    ///      downward repricing. The cap mathematically guarantees the delivery itself cannot trip
+    ///      the operational guard. A later realized loss may still strand the stream and close
+    ///      entry, as intended.
     ///
     ///      Between the delivery and this call the vault is transiently over-valued. The
     ///      WaterfallEngine first calls `beginYieldNotification`, which leaves this vault's
@@ -784,14 +802,19 @@ contract SUSDfr is
         _requireFeeOperation($, FEE_OPERATION_YIELD);
         if (amount != 0 && $.yieldVestingPeriod != 0) {
             uint256 pending = unvestedYield(); // MUST be read before the fields are overwritten
+            uint64 oldEnd = _vestingEnd($);
+            uint64 proposedEnd = uint64(block.timestamp + $.yieldVestingPeriod);
+            uint64 end = pending != 0 && oldEnd > block.timestamp && oldEnd < proposedEnd ? oldEnd : proposedEnd;
             $.vestingAmount = pending + amount;
             $.lastYieldAt = uint64(block.timestamp);
+            $.vestingEndsAt = end;
             // One shared boundary rule for inflow and outflow (see `_capStreamToBase`): it caps
             // the stream against the post-delivery balance and recognizes any excess at once,
             // emitting `YieldInstantlyRecognized`. `YieldStreamStarted` therefore reports the
             // stream actually retained.
-            _capStreamToBase();
+            _capStreamToBase(0);
             emit YieldStreamStarted(amount, $.vestingAmount, $.yieldVestingPeriod);
+            emit YieldStreamDeadlineSet($.vestingEndsAt);
         }
         _clearFeeOperation($);
     }
@@ -811,12 +834,11 @@ contract SUSDfr is
     ///      the period cannot un-mint. Shortening was the mirror: it stepped the rate UP and let
     ///      a depositor capture the unvested stream.
     ///
-    ///      So the pending remainder is crystallized against the OLD period and the clock is
-    ///      restarted BEFORE the new period is written. Immediately after the call, elapsed is
-    ///      zero, so `unvestedYield()` returns exactly that same remainder for ANY non-zero new
-    ///      period: `totalAssets()`, and hence the instantaneous exchange rate, are UNCHANGED
-    ///      across the setter in both directions, mid-stream and after completion. A completed
-    ///      stream crystallizes to zero and is retired. Only the pace of future release changes.
+    ///      So the pending remainder is crystallized against the OLD schedule before the new
+    ///      policy is written. The stream's absolute deadline may move earlier but never later:
+    ///      alternating two different non-zero periods therefore cannot perpetually restart an
+    ///      already-realized stream. Continuity is preserved at the setter timestamp and a
+    ///      completed stream is retired rather than resurrected.
     ///
     ///      THE ONE DISCONTINUITY, deliberate: `period == 0` is the documented instant-credit
     ///      escape hatch, so it releases the crystallized remainder immediately. That is a step
@@ -844,13 +866,22 @@ contract SUSDfr is
         _accrueFees();
         // MUST be read against the OLD period, before the write below
         uint256 pending = unvestedYield();
-        $.vestingAmount = pending;
+        uint64 oldEnd = _vestingEnd($);
         $.lastYieldAt = uint64(block.timestamp);
         $.yieldVestingPeriod = period;
+        if (period == 0 || pending == 0) {
+            $.vestingAmount = 0;
+            $.vestingEndsAt = 0;
+        } else {
+            uint64 proposedEnd = uint64(block.timestamp + period);
+            $.vestingAmount = pending;
+            $.vestingEndsAt = oldEnd > block.timestamp && oldEnd < proposedEnd ? oldEnd : proposedEnd;
+        }
         // the crystallized stream is a state transition in its own right (CLAUDE.md §3.1):
         // nothing newly delivered, `pending` re-based to start now under the new window
         emit YieldStreamStarted(0, pending, period);
         emit YieldVestingPeriodSet(period);
+        emit YieldStreamDeadlineSet($.vestingEndsAt);
         // `period == 0` deliberately recognizes the pending stream immediately. Charge the
         // resulting realized performance in this same, explicit governance transaction.
         if (period == 0) _accrueFees();
@@ -901,7 +932,7 @@ contract SUSDfr is
         // Preserve the pre-flow ASSET hurdle and add exactly the principal delivered.
         // A per-share ratchet alone forgets live drawdown when realized entry NAV differs
         // from conservative marked NAV.
-        _adjustHighWaterMarkForAssetFlow($, hurdleBefore, supplyBefore, assets, true);
+        _adjustHighWaterMarkForAssetFlow($, hurdleBefore, supplyBefore, assets, true, 0);
     }
 
     /// @dev Vault exit: only the redemption queue may withdraw/redeem (ADR-0010).
@@ -914,11 +945,14 @@ contract SUSDfr is
         if (caller != $.redemptionQueue) revert SUSDfr_QueueOnly();
         uint256 supplyBefore = totalSupply();
         uint256 hurdleBefore = _highWaterMarkAssets($, supplyBefore);
+        // R16-02: cap against the post-outflow physical balance before the ERC-4626 burn and
+        // transfer. This keeps the stream boundary true throughout the transfer's hooks.
+        uint256 recognized = _capStreamToBase(assets);
         super._withdraw(caller, receiver, owner, assets, shares);
         // Preserve both sides of the dual-NAV exit law. The asset carry protects stayers
         // during a genuine drawdown; the pro-rata carry prevents a leaver priced on
         // junior-supported redemption NAV from shedding deferred performance-fee exposure.
-        _adjustHighWaterMarkForAssetFlow($, hurdleBefore, supplyBefore, assets, false);
+        _adjustHighWaterMarkForAssetFlow($, hurdleBefore, supplyBefore, assets, false, recognized);
         // AUDIT FIX (RC-03): `notifyYield` caps the stream at exactly `K/(K+1)` of the
         // balance, which leaves the vault sitting ON the `_isDegenerate` boundary — zero
         // slack when the balance divides exactly. Assets leaving here shrink `totalAssets()`
@@ -926,7 +960,6 @@ contract SUSDfr is
         // the closed region and shut the sole senior entry point during ordinary settlement.
         // Re-capping against the post-outflow balance holds `unvestedYield() <= K *
         // totalAssets()` at all times. It only ever moves NAV up, never down.
-        _capStreamToBase();
     }
 
     /// @dev Crystallizes both vault-level fees by minting shares to the protocol recipient.
@@ -1094,7 +1127,9 @@ contract SUSDfr is
         return supply + calc.managementShares + calc.performanceShares;
     }
 
-    /// @dev Realized-NAV entry conversion, net of all fee shares due at this timestamp.
+    /// @dev Generic realized-NAV conversion, net of all fee shares due at this timestamp.
+    ///      Deposit/mint quotes deliberately override this with the physical-balance entry NAV;
+    ///      see `previewDeposit` and `previewMint`.
     function _convertToShares(uint256 assets, Math.Rounding rounding) internal view override returns (uint256) {
         return Math.mulDiv(assets, _feeAdjustedSupply() + 10 ** _decimalsOffset(), totalAssets() + 1, rounding);
     }
@@ -1144,7 +1179,8 @@ contract SUSDfr is
         uint256 hurdleBefore,
         uint256 supplyBefore,
         uint256 assets,
-        bool increase
+        bool increase,
+        uint256 uncheckpointedGain
     ) private {
         uint256 hurdleAfter;
         if (increase) {
@@ -1159,17 +1195,25 @@ contract SUSDfr is
             );
             hurdleAfter = Math.max(assetCarry, proRataCarry);
         }
-        _setHighWaterMarkForAssetHurdle($, hurdleAfter, totalSupply());
+        _setHighWaterMarkForAssetHurdle($, hurdleAfter, totalSupply(), uncheckpointedGain);
     }
 
     /// @dev Re-anchors the per-share HWM to an ASSET hurdle at `supply`. The current
     ///      conservative rate remains a lower bound only for rounding dust; after a
     ///      checkpoint an honest fee-neutral flow cannot put marked assets above the
     ///      preserved hurdle.
-    function _setHighWaterMarkForAssetHurdle(SUSDfrStorage storage $, uint256 hurdleAssets, uint256 supply) private {
+    function _setHighWaterMarkForAssetHurdle(
+        SUSDfrStorage storage $,
+        uint256 hurdleAssets,
+        uint256 supply,
+        uint256 uncheckpointedGain
+    ) private {
         uint256 adjusted =
             Math.mulDiv(hurdleAssets, 10 ** decimals(), supply + 10 ** _decimalsOffset(), Math.Rounding.Ceil);
-        uint256 currentRate = _feeExchangeRateAtSupply(supply, Math.Rounding.Ceil);
+        uint256 markedAssets = _performanceFeeTotalAssets();
+        markedAssets = markedAssets > uncheckpointedGain ? markedAssets - uncheckpointedGain : 0;
+        uint256 currentRate =
+            Math.mulDiv(10 ** decimals(), markedAssets + 1, supply + 10 ** _decimalsOffset(), Math.Rounding.Ceil);
         if (currentRate > adjusted) adjusted = currentRate;
         if (adjusted != $.highWaterMark) {
             emit HighWaterMarkAdjusted($.highWaterMark, adjusted);
@@ -1269,36 +1313,58 @@ contract SUSDfr is
         }
     }
 
-    /// @dev Caps the live vesting stream to `K/(K+1)` of the CURRENT physical balance,
-    ///      recognizing any excess immediately. This is the shared boundary rule used by
-    ///      `notifyYield` (on inflow) and `_withdraw` (on outflow).
+    /// @dev Caps the live vesting stream to `1/(K+1)` of the physical balance that remains
+    ///      after the pending outflow, recognizing any excess immediately. This is the single
+    ///      boundary rule used by `notifyYield` (zero outflow), queue pricing, and `_withdraw`.
     ///
-    ///      The cap guarantees the entry guard cannot fire from the operation that triggered
-    ///      it: afterwards `unvestedYield() == streamTotal <= floor(held * K / (K+1))` and
-    ///      `totalAssets() == held - streamTotal`, so `streamTotal > K * totalAssets()`
-    ///      reduces to `(K+1) * streamTotal > K * held`, which the floor makes impossible.
+    ///      SECURITY BOUNDARY: this cap is no longer used to claim a bound on an entrant's
+    ///      economic skim. The old bound was false because return-on-deposit increases as the
+    ///      deposit shrinks. `previewDeposit`/`previewMint` now price all physical USDfr already
+    ///      held by the vault, making the transfer from incumbents non-positive at every deposit
+    ///      size. This cap remains only to keep healthy operations out of the fail-closed
+    ///      stranded-stream band.
+    ///
+    ///      Retaining the smaller `held/(K+1)` side of the boundary leaves a genuine minority
+    ///      stream and avoids parking a healthy vault exactly on `_isDegenerate()`'s strict
+    ///      inequality. The cap guarantees entry cannot close from the operation that triggered
+    ///      it: `unvestedYield() <= held/(K+1)` while `totalAssets() >= K*held/(K+1)`.
     ///
     ///      Recognizing the excess is an explicit UPWARD rate step on cash already held; it
     ///      never creates value, never re-prices downward, and never touches forward income.
     ///      Like the `notifyYield` rollover, it restarts the clock for the retained stream,
     ///      which only slows recognition — the conservative direction. The retained amount is
     ///      non-increasing across successive calls, so the stream cannot be perpetuated.
-    function _capStreamToBase() private {
+    /// @param pendingOutflow USDfr committed to leave this vault in this transaction but not
+    ///        transferred yet. Zero on the inflow leg.
+    function _capStreamToBase(uint256 pendingOutflow) private returns (uint256 instantlyRecognized) {
         SUSDfrStorage storage $ = _storage();
         uint256 pending = unvestedYield();
-        if (pending == 0) return;
+        if (pending == 0) return 0;
+        uint64 end = _vestingEnd($);
 
         uint256 retained;
         if ($.yieldVestingPeriod != 0 && totalSupply() != 0) {
             uint256 held = IERC20(asset()).balanceOf(address(this));
+            held = held > pendingOutflow ? held - pendingOutflow : 0;
             uint256 k = Config.SUSDFR_MAX_STRANDED_YIELD_RATIO;
-            retained = Math.mulDiv(held, k, k + 1, Math.Rounding.Floor);
-            if (pending <= retained) return; // already inside the boundary — nothing to do
+            retained = held / (k + 1);
+            if (pending <= retained) return 0; // already inside the boundary — nothing to do
         }
 
         $.vestingAmount = retained;
         $.lastYieldAt = uint64(block.timestamp);
-        emit YieldInstantlyRecognized(pending - retained);
+        $.vestingEndsAt = retained == 0 ? 0 : end;
+        instantlyRecognized = pending - retained;
+        emit YieldInstantlyRecognized(instantlyRecognized);
+    }
+
+    /// @dev Upgrade-safe fallback: deployments predating M-3 have a zero appended deadline, so
+    ///      their active stream keeps its original `lastYieldAt + yieldVestingPeriod` end.
+    function _vestingEnd(SUSDfrStorage storage $) private view returns (uint64) {
+        uint64 end = $.vestingEndsAt;
+        if (end != 0) return end;
+        if ($.vestingAmount == 0 || $.yieldVestingPeriod == 0) return 0;
+        return uint64(uint256($.lastYieldAt) + uint256($.yieldVestingPeriod));
     }
 
     /// @dev Observes every share balance change for the points ledger (ADR-0016).
@@ -1329,9 +1395,13 @@ contract SUSDfr is
         // transfer, or redemption burn. A revert here degrades points accrual, nothing more.
         IPointsModule points = $.pointsModule;
         if (address(points) != address(0)) {
+            // F-18-02: use the same enforceable floor and retained epilogue reserve as USDfr.
+            // Caller-controlled underfunding reverts the whole share move; a sufficiently
+            // funded hook failure remains fail-open and repairable through reconcile.
+            uint256 hookGas = PointsHookGas.hookGasLimit();
             // FAIL-OPEN, with telemetry (P-04) so a dropped transition is observable and
             // repairable via PointsModule.reconcile.
-            try points.onSharesTransfer(from, to, value) {}
+            try points.onSharesTransfer{gas: hookGas}(from, to, value) {}
             catch {
                 emit PointsHookFailed(from, to, value);
             }

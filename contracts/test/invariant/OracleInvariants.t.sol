@@ -38,18 +38,30 @@ contract OracleInvariants is Test {
         oracle.grantRole(Roles.CREDIT_ROLE, address(handler));
         vm.stopPrank();
         targetContract(address(handler));
-        bytes4[] memory selectors = new bytes4[](5);
+        bytes4[] memory selectors = new bytes4[](9);
         selectors[0] = OracleHandler.attestFact.selector;
         selectors[1] = OracleHandler.consumeFact.selector;
         selectors[2] = OracleHandler.revokeFact.selector;
         selectors[3] = OracleHandler.setThreshold.selector;
         selectors[4] = OracleHandler.warp.selector;
+        // C4-01 / C4-02: the two actions that drive INTO the illegal region. Removing either
+        // silently deletes this campaign's only stateful coverage of fact-level replay.
+        selectors[5] = OracleHandler.replayRealisedFact.selector;
+        selectors[6] = OracleHandler.replayStaleValuation.selector;
+        selectors[7] = OracleHandler.revokeThenReplayFact.selector;
+        // AUDIT R17-01: the ONLY action that reaches the shape where the fact LEDGER is the sole
+        // refusal (the live-record shadow guard structurally cannot fire once the slot has moved
+        // on). Without it the ledger guard is deletable with the whole C4-01 regression file
+        // green — measured. Registering the selector is the whole point; adding the handler
+        // function alone changes nothing here.
+        selectors[8] = OracleHandler.replaySupersededFact.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
     /// @notice INVARIANT (differential parity): the oracle's entire visible state
     ///         equals the ghost model at every boundary — facts require threshold
     ///         signatures and vanish only via consume/revoke.
+    /// forge-config: default.fuzz.seed = "0x0000000000000000000000000000000000000000000000000000000000000001"
     function invariant_oracle_ghostParity() public view {
         for (uint256 f = 0; f < 3; ++f) {
             for (uint8 k = 0; k < 8; ++k) {
@@ -76,6 +88,7 @@ contract OracleInvariants is Test {
     ///      replay of an older but validly-signed mark straight into
     ///      `ReserveManager.totalBackingValue()`.
 
+    /// forge-config: default.fuzz.seed = "0x0000000000000000000000000000000000000000000000000000000000000001"
     function invariant_oracle_watermarkNeverRegresses() public view {
         for (uint256 f = 0; f <= 3; ++f) {
             assertEq(
@@ -86,8 +99,58 @@ contract OracleInvariants is Test {
         }
     }
 
-    /// @notice Anti-vacuity.
-    function invariant_callSummary() public view {
-        handler.callCount();
+    /// @notice INVARIANT (C4-01 / C4-02): every economic fact the model has seen realised is, in
+    ///         the contract, in a state `attest` refuses — and it NEVER returns to `None`. This is
+    ///         the "one real loss, one write-down" property at the layer that produces it.
+    /// @dev The ghost is keyed exactly as the contract keys it: (facility, kind, payload), with
+    ///      the digest's nonce/asOf/expiry salt excluded. Divergence here means either a fact came
+    ///      back to life (the finding) or the key drifted from the contract's.
+    /// forge-config: default.fuzz.seed = "0x0000000000000000000000000000000000000000000000000000000000000001"
+    function invariant_oracle_factLedgerIsConsumeOnce() public view {
+        uint256 n = handler.factCount();
+        for (uint256 i = 0; i < n; ++i) {
+            (uint256 facilityId, IAttestationOracle.AttestationKind kind, bytes32 payload) = handler.factAt(i);
+            IAttestationOracle.FactStatus onChain = oracle.factStatus(facilityId, kind, payload);
+            assertEq(
+                uint256(onChain),
+                uint256(handler.ghostFactStatus(oracle.factKey(facilityId, kind, payload))),
+                "C4-01: fact ledger diverged from the independent ghost"
+            );
+            assertTrue(
+                onChain != IAttestationOracle.FactStatus.None,
+                "C4-01: a realised fact returned to None -- it is re-attestable again"
+            );
+        }
+    }
+
+    /// @notice INVARIANT (C4-01, non-vacuity): the campaign must actually REACH the illegal
+    ///         region, not merely avoid it. Six vacuous suites have been caught in this
+    ///         engagement; a pre-filtered handler would make the invariant above decoration.
+    function afterInvariant() public view {
+        assertGt(handler.callCount(), 0, "VACUOUS: oracle handler executed no successful action");
+        assertGt(
+            handler.ghostBlockedFactReplays(),
+            0,
+            "VACUOUS: no already-realised fact was ever re-presented -- C4-01 is untested here"
+        );
+        assertGt(
+            handler.ghostBlockedRevokedReplays(),
+            0,
+            "VACUOUS: no REVOKED fact was ever re-presented -- C4-02 is untested here"
+        );
+        assertGt(
+            handler.ghostBlockedStaleValuations(),
+            0,
+            "VACUOUS: the 9th kind's watermark replay path was never exercised"
+        );
+        // AUDIT R17-01. Without this the campaign can satisfy every assertion above using only
+        // replays the LIVE-RECORD shadow guard already catches, and the primary fact-ledger guard
+        // stays deletable. This counter only advances on replays where the record has provably
+        // moved on, i.e. where the ledger is the sole refusal.
+        assertGt(
+            handler.ghostBlockedSupersededReplays(),
+            0,
+            "VACUOUS: no SUPERSEDED fact was ever re-presented -- the fact ledger is untested here"
+        );
     }
 }

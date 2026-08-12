@@ -180,6 +180,32 @@ liquidity bps 5000→167.
   `CreditInvariants` — 11 credit invariants now pass at 32,768 calls each with zero handler
   reverts. Unit + fuzz coverage in `test/audit/OptionYConservativeNAV.t.sol` (15 tests).
 
+> **ADR-0035 SUPERSESSION (2026-08-11).** The following W7 account is retained as historical
+> evidence for the capped tree. Current SGrove has no event ceiling or first-draw snapshot.
+> `CommitmentLedger` still enumerates events because principal sizes, classes and curator pools are
+> not recoverable from aggregates, but every row now reaches the one shared live reserve. A single
+> event may exhaust it; senior principal absorbs subsequent loss until replenishment.
+
+**Per-event allocation ladder (W7, superseded by ADR-0035; 2026-08-10).** W6's unconditional subtraction
+of curator capital from aggregate drawn room was not a valid worst-order convention. It correctly
+bounded a cohort where the pool extinguished the small event and stranded its room, but it also
+subtracted 15,000e18 from a funded control whose principals dominated every room in both executable
+orders. The cascade delivered 390,000e18 in either order while the mark credited 375,000e18.
+
+No aggregate replacement exists. SGrove snapshots each undrawn event's cap against the reserve
+standing at that event's own first draw, so the answer depends on event count and per-event
+principal. `CommitmentLedger` now registers a row when a default is declared, before any layer-2
+draw, and keeps that row's class, residual principal, committed room and drawn status current. The
+conservative view walks the live rows in forward and reverse declaration order. For each row it
+consumes the remaining curator pool for that class, then uses the committed room for a drawn event
+or `coverageCapacityAt(reserveThen)` for an undrawn event, always bounded by residual principal and
+the shared physical reserve. The lower total junior delivery of those two full-realization orders
+is credited. This exactly reproduces the executed forward/reverse cascade on the published W7
+scenario set, fixes the stranded-room trigger, and leaves the no-stranding control at its exact
+390,000e18 delivery. The discounted past-due cohort retains policy priority over junior capacity;
+its per-class curator credit and one synthetic fresh-event layer-2 cap are allocated before the
+declared-event ladder.
+
 **Still open on this ADR:** the economic-review calibration (§X.5) and the counsel-review mark
 methodology (§Y.4) both remain unsigned-off, and are Part 11 gate inputs.
 

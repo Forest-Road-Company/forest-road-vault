@@ -32,6 +32,17 @@ may fill **partially** (strict FIFO: nobody behind it receives anything meaningf
 before it is whole); its owner can claim partial fills immediately while the remainder
 keeps its head-of-queue position.
 
+### Superseded 2026-08-06 — keeper-gated settlement
+
+The permissionless-caller decision above is superseded by D7-01. Because the queue samples
+idle-liquidity budget inside `closeEpoch`, a caller could place both a flash-liquidity change and
+settlement in one transaction. `closeEpoch` therefore requires `SETTLEMENT_KEEPER_ROLE`, held by a
+dedicated single-role hot EOA and the operations Safe as a manual backstop. The gate changes only who
+may trigger settlement; FIFO, pricing, budget, cooldown, pause, and claim semantics remain on-chain.
+
+This deliberately introduces an availability dependency on two keeper holders. A working,
+funded, monitored keeper and rehearsed Safe fallback are mandatory before deploying the gate.
+
 ## 3. No cancellation
 
 A queued request cannot be withdrawn. Cancellation enables queue-jump gaming (request

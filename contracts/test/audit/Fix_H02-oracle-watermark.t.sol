@@ -239,9 +239,11 @@ contract FixH02OracleWatermarkTest is Test {
         oracle.attest(older, sigs);
     }
 
-    /// @dev Non-Valuation kinds neither set nor are gated by the watermark (a revoked
-    ///      documentary fact keeps its payload for audit, unchanged behaviour).
-    function test_h02_nonValuationKindsAreUnaffected() public {
+    /// @dev Non-Valuation kinds neither set nor are gated by the valuation watermark, but they
+    ///      remain one-shot economic facts. This test previously asserted that a revoked fact
+    ///      could be replayed with an older `asOf` and fresh nonce; C4-01 proved that behavior
+    ///      was the defect, so the replay expectation is inverted loudly here.
+    function test_h02_nonValuationKindsIgnoreWatermarkButRemainOneShot() public {
         uint64 t = uint64(block.timestamp);
         IAttestationOracle.AttestationInput memory doc = IAttestationOracle.AttestationInput({
             facilityId: FACILITY,
@@ -264,13 +266,43 @@ contract FixH02OracleWatermarkTest is Test {
         assertEq(asOf, t);
         assertFalse(satisfied);
 
-        // an older documentary fact may still be re-attested (no monotonicity rule)
+        // ⚠ THE NEXT BLOCK WAS INVERTED BY THE C4-02 FIX — IT USED TO ASSERT THE DEFECT. ⚠
+        //
+        // It read: "an older documentary fact may still be re-attested (no monotonicity rule)",
+        // and it re-presented THE IDENTICAL REVOKED FACT under nonce 16 at an older `asOf` and
+        // asserted it was ACCEPTED (`assertTrue(satisfied)`). That is campaign-4 finding C4-02
+        // verbatim: governance `revoke` was cosmetic on 8 of the 9 kinds, because the uniqueness
+        // key was the digest (which carries the nonce) rather than the economic fact. The same
+        // shape on `LossRealized` let a REVOKED loss be written down anyway.
+        //
+        // The test's genuine intent — "documentary kinds carry no `asOf` monotonicity rule, unlike
+        // Valuation" — is PRESERVED IN FULL below, and is now proved with a NEW documentary fact
+        // (which is what an older filing actually is) instead of by resurrecting a revoked one.
+        // The watermark assertions are untouched. Rationale and repro:
+        // `test/audit/Fix_C401-fact-realised-once.t.sol`.
         doc.asOf = t - 100;
         doc.nonce = 16;
         one[0] = _sign(pk1, doc);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAttestationOracle.Oracle_FactAlreadyRealised.selector,
+                oracle.factKey(FACILITY, IAttestationOracle.AttestationKind.AssignmentExecuted, doc.payload),
+                IAttestationOracle.FactStatus.Revoked
+            )
+        );
         oracle.attest(doc, one);
         (, asOf, satisfied) = oracle.latestPayload(FACILITY, IAttestationOracle.AttestationKind.AssignmentExecuted);
-        assertEq(asOf, t - 100);
+        assertEq(asOf, t, "C4-02: the revoked fact did not come back and did not move the record");
+        assertFalse(satisfied, "C4-02: revocation is durable");
+
+        // THE PRESERVED PROPERTY: documentary kinds have NO monotonicity rule. A DIFFERENT
+        // documentary fact with an OLDER `asOf` lands normally — which `Valuation` would reject.
+        doc.payload = keccak256("an-earlier-assignment-document");
+        doc.nonce = 17;
+        one[0] = _sign(pk1, doc);
+        oracle.attest(doc, one);
+        (, asOf, satisfied) = oracle.latestPayload(FACILITY, IAttestationOracle.AttestationKind.AssignmentExecuted);
+        assertEq(asOf, t - 100, "documentary kinds accept an older observation time");
         assertTrue(satisfied);
         assertEq(oracle.valuationWatermark(FACILITY), 0);
     }

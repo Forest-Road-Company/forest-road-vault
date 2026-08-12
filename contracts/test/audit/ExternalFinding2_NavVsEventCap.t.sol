@@ -7,31 +7,11 @@ import {AssessedImpairmentSource} from "../../src/AssessedImpairmentSource.sol";
 import {GovernanceFixture} from "../helpers/GovernanceFixture.sol";
 import {Config} from "../../src/libraries/Config.sol";
 
-/// @title PM-R-11 — conservative NAV vs the PM-R-07 per-EVENT coverage cap
-/// @notice REGRESSION SUITE for the finding reported 2026-07-21.
-///
-///         THE BUG. `DefaultManager.pendingSeniorImpairment()` netted the residual declared
-///         default against `backstop.coverageCapacity()` — the GLOBAL figure describing what a
-///         *fresh* event could draw right now. Since PM-R-07 the sGROVE cap is cumulative PER
-///         EVENT and snapshotted at that event's first draw, so an event that has already drawn
-///         can only reach `snapshot - drawn`. After a partial `realizeLoss` the two diverge, the
-///         NAV netted more coverage than the loss could actually reach, `redemptionTotalAssets()`
-///         read HIGH, and a queued senior exited above the true conservative floor — pushing the
-///         difference onto the seniors who stayed. Measured at 150,000 USDfr on a 1M reserve.
-///         That also contradicted the function's own NatSpec, which claimed it "never under-marks".
-///
-///         THE FIX (PM-R-11). `DefaultManager` now tracks the sGROVE coverage consumed by
-///         still-live declared defaults and deducts it from the netted capacity. There is no
-///         enumerable set of declared facilities, so the deduction is an AGGREGATE rather than a
-///         per-facility netting. That is deliberate and it errs the safe way: the deduction is at
-///         least as large as any single event's consumption, so the netted coverage never exceeds
-///         what the declared defaults can genuinely still draw. It may OVER-mark impairment (NAV
-///         lower, exits cheaper, remaining seniors protected) and can no longer under-mark.
-///
-///         These tests run against the REAL `SGrove`, deliberately. The ADR-0022 suite uses
-///         `MockCascadeBackstop`, whose `coverShortfall` IGNORED `eventId` and capped per CALL —
-///         it could not express PM-R-07's semantics, which is exactly why this went unnoticed.
-///         (The mock has since been corrected to mirror the real per-event cap.)
+/// @title ADR-0035 — conservative NAV against one uncapped live reserve
+/// @notice This historical PM-R-11 suite is retained and deliberately re-pointed. The owner
+///         decision removes the event ceiling that created its original drawn/undrawn split;
+///         every live event now reaches the same physical reserve and replenishment is immediately
+///         executable. The tests continue to run against the real SGrove.
 contract ExternalFinding2NavVsEventCapTest is GovernanceFixture {
     uint256 internal constant FILM = 1;
 
@@ -44,14 +24,10 @@ contract ExternalFinding2NavVsEventCapTest is GovernanceFixture {
         vm.stopPrank();
     }
 
-    /// @dev The coverage genuinely still reachable BY THIS EVENT, per PM-R-07: the cap
-    ///      snapshotted at its first draw, less what it has consumed, bounded by the reserve.
+    /// @dev ADR-0035: `eventCoverage` publishes cumulative draw plus live shared reach, never a
+    ///      frozen snapshot. The subtraction therefore equals the physical reserve.
     function _trueRemainingRoomFor(uint256 tokenId) internal view returns (uint256) {
         (uint256 drawn, uint256 cap) = sGrove.eventCoverage(tokenId);
-        if (cap == 0) {
-            cap = sGrove.coverageCapacity(); // never drawn: a fresh snapshot would be taken now
-            drawn = 0;
-        }
         uint256 room = cap > drawn ? cap - drawn : 0;
         uint256 reserve = sGrove.coverageReserve();
         return room < reserve ? room : reserve;
@@ -61,6 +37,36 @@ contract ExternalFinding2NavVsEventCapTest is GovernanceFixture {
     function _trueFloorFor(uint256 tokenId, uint256 remainingDeclared) internal view returns (uint256) {
         uint256 room = _trueRemainingRoomFor(tokenId);
         return remainingDeclared > room ? remainingDeclared - room : 0;
+    }
+
+    /// @dev Independent reconstruction of the public risk fingerprint. The hash is deliberately
+    /// checked from getters here so a mutation that swaps the live reachable-coverage ledger for
+    /// the deprecated floor cannot hide behind the revision counter changing on the same draw.
+    function _riskHashFromPublicState() internal view returns (bytes32 stateHash) {
+        stateHash = keccak256(
+            abi.encode(
+                block.chainid,
+                address(defaultManager),
+                defaultManager.impairmentRevision(),
+                address(curator),
+                defaultManager.backstop(),
+                defaultManager.liveDefaultCoverageConsumed(),
+                defaultManager.liveDefaultCoverageRemaining(),
+                defaultManager.pastDueExposure()
+            )
+        );
+        for (uint256 classId = 1; classId <= Config.NUM_CLASSES; ++classId) {
+            stateHash = keccak256(
+                abi.encode(
+                    stateHash,
+                    classId,
+                    defaultManager.declaredDefaultedPrincipal(classId),
+                    defaultManager.pastDuePrincipal(classId),
+                    curator.poolBalance(classId),
+                    defaultManager.drawnDefaultPrincipal(classId)
+                )
+            );
+        }
     }
 
     // ── the regression ───────────────────────────────────────────────────
@@ -97,15 +103,34 @@ contract ExternalFinding2NavVsEventCapTest is GovernanceFixture {
         assertTrue(active, "beneficial global coverage preserves the assessment");
     }
 
-    /// @notice THE FIX. After a partial realization consumes part of the event's snapshotted cap,
-    ///         the reported impairment is at or above the true floor — never below it.
+    /// @notice THE FIX, RE-POINTED BY ADR-0035. After a partial realization, the reported
+    ///         impairment equals the floor supported by remaining principal and shared reserve.
+    /// @dev ═══════ INVERTED LOUDLY (SWEEP-3 F-S3-01, MEDIUM) — DO NOT REVERT THESE LINES ═══════
+    ///      THIS TEST USED TO MEASURE THE DEFECT AND CALL IT ACCEPTABLE. Its final assertion read
+    ///      `assertEq(reported, remainingDeclared - (sGrove.coverageCapacity() - partialLoss),
+    ///      "nets capacity MINUS consumed coverage")` and the line under it LOGGED
+    ///      `reported - trueFloor` as a "conservative over-mark" without asserting on it. On the
+    ///      shipped tree that log printed EXACTLY 150,000e18 — precisely the magnitude this test's
+    ///      own comment says PM-R-11 corrected, in the other direction. PM-R-11 overshot, and the
+    ///      one test positioned to catch it printed the number instead of asserting it.
+    ///      ROOT CAUSE: `consumed` was subtracted TWICE — once implicitly, because
+    ///      `liveDefaultCapacityFloor` was recorded from the capacity read AFTER the draw, and once
+    ///      explicitly in `ConservativeImpairmentMath`. See the SWEEP-3 F-S3-01 blocks on
+    ///      `DefaultManager._drawLayer2ForLiveDefault` and `ConservativeImpairmentMath`.
+    ///      The mark now lands EXACTLY on this file's own `_trueFloorFor` definition: conservative
+    ///      means "never below the floor", not "arbitrarily above it".
+    /// @dev MUTATION: in `ConservativeImpairmentMath`, restore
+    ///      `uint256 drawnCap = floorNow < currentCap ? floorNow : currentCap;
+    ///       drawnCap = drawnCap > consumed ? drawnCap - consumed : 0;`
+    ///      (compiles; both operands still read) -> RED here on the equality and on the
+    ///      zero-over-mark assertion.
     function test_pmr11_partialRealizationNeverUnderMarksSeniorImpairment() public {
         assertEq(curator.poolBalance(FILM), 0, "precondition: empty curator pool isolates layer 2");
 
         uint256 reserve = 1_000_000e18;
         _seedCoverage(reserve);
-        uint256 freshCapacity = reserve * Config.SGROVE_PER_EVENT_COVERAGE_CAP_BPS / Config.BPS;
-        assertEq(sGrove.coverageCapacity(), freshCapacity, "fresh capacity is capBps of the reserve");
+        uint256 freshCapacity = reserve;
+        assertEq(sGrove.coverageCapacity(), freshCapacity, "ADR-0035 capacity is the live reserve");
 
         uint256 principal = 2_000_000e18;
         uint256 id = _liveFilmFacility(principal);
@@ -125,15 +150,32 @@ contract ExternalFinding2NavVsEventCapTest is GovernanceFixture {
             _trueFloorFor(id, principal),
             "pre-draw: reported == true floor exactly"
         );
+        assertEq(
+            defaultManager.impairmentRiskStateHash(),
+            _riskHashFromPublicState(),
+            "risk fingerprint must include the public reachable-coverage ledger"
+        );
+
+        bytes32 riskBeforeDraw = defaultManager.impairmentRiskStateHash();
 
         // Realize a PARTIAL loss, fully absorbed by sGROVE, consuming part of the event's cap.
         uint256 partialLoss = freshCapacity * 3 / 5;
         vm.prank(servicer);
         _realizeLoss(id, partialLoss, FILM_REF);
+        assertNotEq(
+            defaultManager.impairmentRiskStateHash(),
+            riskBeforeDraw,
+            "risk identity must commit the newly reachable-coverage ledger"
+        );
+        assertEq(
+            defaultManager.impairmentRiskStateHash(),
+            _riskHashFromPublicState(),
+            "risk fingerprint lost the post-draw reachable-coverage ledger"
+        );
 
         (uint256 drawn, uint256 snapshot) = sGrove.eventCoverage(id);
         assertEq(drawn, partialLoss, "sGROVE covered the whole partial loss");
-        assertEq(snapshot, freshCapacity, "the event's cap was snapshotted at its first draw");
+        assertEq(snapshot - drawn, sGrove.coverageReserve(), "event view exposes live shared reach");
         assertEq(defaultManager.liveDefaultCoverageConsumed(), partialLoss, "consumption is tracked");
         // The per-facility view the independent invariant model reads (PM-R-11): the facility's
         // remaining at-risk contribution falls by exactly the realized loss.
@@ -150,10 +192,22 @@ contract ExternalFinding2NavVsEventCapTest is GovernanceFixture {
         // THE PROPERTY. Before PM-R-11 this was `reported < trueFloor` by 150,000e18.
         assertGe(reported, trueFloor, "PM-R-11: reported impairment is NEVER below the true floor");
 
-        // And the exact arithmetic: capacity, less what this default already spent.
-        uint256 nettable = sGrove.coverageCapacity() - partialLoss;
-        assertEq(reported, remainingDeclared - nettable, "nets capacity MINUS consumed coverage");
+        // ═════ INVERTED (SWEEP-3 F-S3-01) — the over-mark is ASSERTED AWAY, not logged ═════
+        // The old body computed `nettable = sGrove.coverageCapacity() - partialLoss`, which is the
+        // POST-draw capacity minus the draw — the consumed coverage removed a second time. The
+        // event's own remaining room is its SNAPSHOT less its draw, bounded by the live reserve,
+        // which is exactly `_trueRemainingRoomFor`. The mark now equals the floor to the wei.
+        assertEq(
+            reported,
+            remainingDeclared - _trueRemainingRoomFor(id),
+            "F-S3-01: nets the event's OWN remaining room -- `consumed` subtracted exactly once"
+        );
         emit log_named_uint("conservative over-mark (USDfr, 18dp)", reported - trueFloor);
+        assertEq(
+            reported - trueFloor,
+            0,
+            "F-S3-01: the drawn cohort must not be over-marked -- this printed 150,000e18 pre-fix"
+        );
     }
 
     /// @notice The consequence that matters: the vault's redemption NAV sits at or below the
@@ -189,16 +243,11 @@ contract ExternalFinding2NavVsEventCapTest is GovernanceFixture {
         );
     }
 
-    // ── the round-2 follow-up: capacity inflation must not re-open the bug ──
+    // ── ADR-0035 follow-up: replenishment immediately re-arms shared protection ──
 
-    /// @notice A permissionless `fundCoverage` top-up AFTER a partial draw must not hand the
-    ///         drawn default coverage it can no longer reach.
-    /// @dev The first PM-R-11 patch netted `coverageCapacity() - consumed` against a LIVE
-    ///      capacity. `fundCoverage` is role-less and unpausable, so anyone could raise the
-    ///      capacity mid-workout and push the mark back below the true floor — the original bug,
-    ///      through a second door. The netting is now additionally pinned to the capacity that
-    ///      stood at the draw.
-    function test_pmr11_fundCoverageTopUpCannotReInflateTheNetting() public {
+    /// @notice A permissionless top-up after a partial draw is real executable protection and
+    ///         must lower the mark by exactly the newly reachable amount.
+    function test_pmr11_fundCoverageTopUpImmediatelyRearmsTheSharedReserve() public {
         _seedCoverage(1_000_000e18);
         uint256 id = _liveFilmFacility(2_000_000e18);
         _attestDefault(id);
@@ -215,23 +264,55 @@ contract ExternalFinding2NavVsEventCapTest is GovernanceFixture {
         uint256 remainingDeclared = defaultManager.declaredDefaultedPrincipal(FILM);
         assertGe(markBefore, _trueFloorFor(id, remainingDeclared), "precondition: conservative");
 
-        // Anyone tops the reserve up. The drawn event's ceiling is unchanged (its cap was
-        // snapshotted at its first draw), so the mark must not fall.
+        // Anyone tops the reserve up; ADR-0035 makes it immediately reachable by this row.
         uint256 capacityBefore = sGrove.coverageCapacity();
         _seedCoverage(5_000_000e18);
         assertGt(sGrove.coverageCapacity(), capacityBefore, "precondition: capacity really did jump");
 
         uint256 markAfter = defaultManager.pendingSeniorImpairment();
-        assertEq(markAfter, markBefore, "a top-up must not lower the mark for an already-drawn default");
-        assertGe(
-            markAfter,
-            _trueFloorFor(id, defaultManager.declaredDefaultedPrincipal(FILM)),
-            "still at or above the true conservative floor"
-        );
+        assertLt(markAfter, markBefore, "real replenishment must lower the executable loss mark");
+        assertEq(markAfter, _trueFloorFor(id, remainingDeclared), "mark equals the live executable floor");
     }
 
-    /// @notice Governance raising `perEventCapBps` after a partial draw must not re-open it either.
-    function test_pmr11_perEventCapRaiseCannotReInflateTheNetting() public {
+    /// @notice A top-up is shared by drawn and undrawn rows; neither owns a frozen allocation.
+    function test_f1801_fundCoverageTopUpProtectsTheWholeLiveCohort() public {
+        _seedCoverage(1_000_000e18);
+
+        uint256 drawnId = _liveFilmFacility(2_000_000e18);
+        _attestDefault(drawnId);
+        vm.prank(servicer);
+        defaultManager.declareDefault(drawnId, FILM_REF);
+
+        uint256 partialDraw = sGrove.coverageCapacity() * 3 / 5;
+        vm.prank(servicer);
+        _realizeLoss(drawnId, partialDraw, FILM_REF);
+
+        uint256 undrawnId = _liveFilmFacility(1_000_000e18);
+        _attestDefault(undrawnId);
+        vm.prank(servicer);
+        defaultManager.declareDefault(undrawnId, FILM_REF);
+
+        assertEq(
+            defaultManager.drawnDefaultPrincipal(FILM),
+            defaultManager.defaultedContribution(drawnId),
+            "only the facility that consumed coverage is floor-constrained"
+        );
+        uint256 markBefore = defaultManager.pendingSeniorImpairment();
+        uint256 gross = defaultManager.performanceFeeImpairment();
+        assertGt(gross - markBefore, 0, "precondition: live junior credit exists");
+        uint256 drawnRoomBefore = _trueRemainingRoomFor(drawnId);
+
+        _seedCoverage(5_000_000e18);
+
+        uint256 markAfter = defaultManager.pendingSeniorImpairment();
+
+        assertGt(_trueRemainingRoomFor(drawnId), drawnRoomBefore, "drawn row reaches replenished reserve");
+        assertEq(markAfter, 0, "replenished reserve covers the whole live cohort");
+        assertEq(gross, defaultManager.performanceFeeImpairment(), "gross loss identity changed");
+    }
+
+    /// @notice Compatibility capacity parameters are the uncapped identity and cannot be governed.
+    function test_pmr11_capacityParametersEncodeTheUncappedIdentity() public {
         _seedCoverage(1_000_000e18);
         uint256 id = _liveFilmFacility(2_000_000e18);
         _attestDefault(id);
@@ -241,18 +322,10 @@ contract ExternalFinding2NavVsEventCapTest is GovernanceFixture {
         uint256 partialDraw = sGrove.coverageCapacity() * 3 / 5; // hoisted (prank consumption)
         vm.prank(servicer);
         _realizeLoss(id, partialDraw, FILM_REF);
-        uint256 markBefore = defaultManager.pendingSeniorImpairment();
-
-        uint256 capacityBefore = sGrove.coverageCapacity();
-        vm.prank(admin);
-        sGrove.setPerEventCap(uint16(Config.BPS)); // 100% — the largest possible raise
-        assertGt(sGrove.coverageCapacity(), capacityBefore, "precondition: capacity really did jump");
-
-        assertEq(
-            defaultManager.pendingSeniorImpairment(),
-            markBefore,
-            "a cap raise must not lower the mark for an already-drawn default"
-        );
+        (uint16 bps, uint256 absoluteCap) = sGrove.coverageCapParameters();
+        assertEq(bps, Config.BPS, "identity bps");
+        assertEq(absoluteCap, type(uint256).max, "no absolute event cap");
+        assertEq(sGrove.coverageCapacityAt(sGrove.coverageReserve()), sGrove.coverageReserve());
     }
 
     /// @notice The pinned floor must be dropped once no live default holds consumption, so an
@@ -287,15 +360,8 @@ contract ExternalFinding2NavVsEventCapTest is GovernanceFixture {
         assertEq(expected, 0, "sanity: the topped-up capacity fully covers this default");
     }
 
-    /// @notice DRAIN-TO-ZERO then REFILL must not re-seed the capacity floor.
-    /// @dev Round-3 audit finding, and the third variant of this same defect. The floor used
-    ///      `0` as a "not yet set" sentinel, but zero is a LEGITIMATE floor: `coverShortfall`
-    ///      clamps `covered` to the reserve, so an event whose cap was snapshotted against a
-    ///      LARGER reserve can, once other events have drawn the reserve down, take what is left
-    ///      to zero. The next draw then read `floorNow == 0` as "unset" and re-seeded the floor at
-    ///      the post-refill capacity — handing live defaults coverage no event could reach, with
-    ///      NO governance action required, since `fundCoverage` is permissionless.
-    function test_pmr11_drainToZeroThenRefillDoesNotReSeedTheFloor() public {
+    /// @notice DRAIN-TO-ZERO then REFILL immediately restores executable layer-two capacity.
+    function test_pmr11_drainToZeroThenRefillRearmsTheSharedReserve() public {
         _seedCoverage(1_000_000e18);
 
         // Deep senior book so layer 3 can absorb whatever layer 2 does not.
@@ -305,59 +371,28 @@ contract ExternalFinding2NavVsEventCapTest is GovernanceFixture {
         vault.deposit(8_000_000e18, alice);
         vm.stopPrank();
 
-        // A snapshots its cap against the FULL reserve by drawing a dust amount.
+        // A can drain the whole shared reserve in one realization.
         uint256 a = _liveFilmFacility(3_000_000e18);
         _attestDefault(a);
         vm.prank(servicer);
         defaultManager.declareDefault(a, FILM_REF);
         vm.prank(servicer);
-        _realizeLoss(a, 1, FILM_REF);
-        (, uint256 snapA) = sGrove.eventCoverage(a);
-        assertEq(snapA, 500_000e18, "A's cap snapshotted against the full 1M reserve");
-
-        // B drains the reserve down below A's snapshot.
-        // A DIFFERENT borrower, so the two facilities do not trip the per-borrower
-        // concentration limit while still sharing the one global coverage reserve.
-        _mintUSDfrTo(alice, 2_000_000e18);
-        uint256 b = _originateFilm(BORROWER_2, STATE_GA, 2_000_000e18);
-        _fundFacility(b, 2_000_000e18);
-        _attestDefault(b);
-        vm.prank(servicer);
-        defaultManager.declareDefault(b, FILM_REF);
-        vm.prank(servicer);
-        _realizeLoss(b, 500_000e18, FILM_REF);
-
-        // ...and C drains it further. Each fresh event's cap is only half of what is LEFT, so it
-        // takes two of them to get the reserve strictly below A's (larger, earlier) snapshot.
-        _mintUSDfrTo(alice, 1_000_000e18);
-        uint256 c = _originateFilm(keccak256("borrower-3"), STATE_GA, 1_000_000e18);
-        _fundFacility(c, 1_000_000e18);
-        _attestDefault(c);
-        vm.prank(servicer);
-        defaultManager.declareDefault(c, FILM_REF);
-        vm.prank(servicer);
-        _realizeLoss(c, 250_000e18, FILM_REF);
-        assertLt(sGrove.coverageReserve(), snapA, "reserve now strictly below A's snapshot");
-
-        // A draws again: its room exceeds what is left, so `covered` clamps to the reserve and
-        // takes it to (near) zero — driving the capacity, and therefore the floor, to zero.
-        vm.prank(servicer);
-        _realizeLoss(a, 600_000e18, FILM_REF);
-        assertEq(sGrove.coverageCapacity(), 0, "capacity, and so the pinned floor, is now zero");
+        _realizeLoss(a, 1_000_000e18, FILM_REF);
+        assertEq(sGrove.coverageCapacity(), 0, "first event exhausted layer two");
         assertGt(defaultManager.liveDefaultCoverageConsumed(), 0, "live defaults hold consumption");
 
-        // Anyone refills the reserve, hugely. This must NOT lift the pinned floor.
-        _seedCoverage(20_000_000e18);
-        assertGt(sGrove.coverageCapacity(), 0, "precondition: capacity jumped");
+        // Anyone refills the reserve; the still-live event can use it immediately.
+        _seedCoverage(500_000e18);
+        assertEq(sGrove.coverageCapacity(), 500_000e18, "replenishment restored live capacity");
 
-        // A further draw by a still-live default must not re-seed the floor upward.
         vm.prank(servicer);
-        _realizeLoss(a, 100_000e18, FILM_REF);
+        _realizeLoss(a, 500_000e18, FILM_REF);
+        assertEq(sGrove.coverageCapacity(), 0, "same event can consume the replenishment");
 
-        assertGe(
+        assertEq(
             defaultManager.pendingSeniorImpairment(),
             _trueFloorFor(a, defaultManager.declaredDefaultedPrincipal(FILM)),
-            "PM-R-11 round 3: drain-then-refill must not push the mark below the true floor"
+            "mark follows the physical reserve after drain and refill"
         );
     }
 
@@ -417,8 +452,8 @@ contract ExternalFinding2NavVsEventCapTest is GovernanceFixture {
     ///      more than the event's room.
     function test_pmr11_recordsCoveredNotRequestedResidual() public {
         _seedCoverage(200_000e18);
-        uint256 room = sGrove.coverageCapacity(); // 50% of 200k = 100k
-        assertEq(room, 100_000e18, "precondition: the event can draw at most 100k");
+        uint256 room = sGrove.coverageCapacity();
+        assertEq(room, 200_000e18, "precondition: the event can draw the whole reserve");
 
         uint256 id = _liveFilmFacility(600_000e18);
         _attestDefault(id);
@@ -464,12 +499,9 @@ contract ExternalFinding2NavVsEventCapTest is GovernanceFixture {
         vm.prank(servicer);
         defaultManager.declareDefault(second, FILM_REF);
 
-        // The fresh capacity is smaller now (the reserve was drawn down), but nothing is
-        // deducted on top of it, because no live default has consumed anything.
-        assertEq(
-            defaultManager.pendingSeniorImpairment(),
-            500_000e18 - sGrove.coverageCapacity(),
-            "a closed default leaves no residue on the next one"
-        );
+        // The shared reserve still exceeds the second principal, and the closed event leaves no
+        // event-owned residue to deduct from it. The later default is therefore fully covered.
+        assertGt(sGrove.coverageCapacity(), 500_000e18, "fixture: shared reserve must cover the later default");
+        assertEq(defaultManager.pendingSeniorImpairment(), 0, "a closed default leaves no residue on the next one");
     }
 }

@@ -364,7 +364,10 @@ contract QueueDeepForkTest is ForkLifecycleFixture {
         assertEq(budget, usdcIdle, "the full returned principal is distributable");
 
         // PERMISSIONLESS: an unprivileged, non-KYC'd address settles the epoch
-        vm.prank(carol);
+        // AUDIT FIX (D7-01): closeEpoch is keeper-gated. The fork harness itself holds
+        // SETTLEMENT_KEEPER_ROLE (Deploy grants it to c.queueKeeper == c.deployer), so this
+        // call needs no prank. It previously pranked an outsider to show settlement was
+        // permissionless; that property is deliberately gone.
         queue.closeEpoch(10);
         (, uint256 rem, uint256 claimable,,) = queue.request(id);
         assertEq(rem, 0, "filled in full once liquidity returned");
@@ -915,7 +918,10 @@ contract QueueDeepForkTest is ForkLifecycleFixture {
         uint256 rateBefore = vault.currentExchangeRate();
 
         // PERMISSIONLESS: settled by `carol`, who is not KYC'd and holds no role anywhere.
-        vm.prank(carol);
+        // AUDIT FIX (D7-01): closeEpoch is keeper-gated. The fork harness itself holds
+        // SETTLEMENT_KEEPER_ROLE (Deploy grants it to c.queueKeeper == c.deployer), so this
+        // call needs no prank. It previously pranked an outsider to show settlement was
+        // permissionless; that property is deliberately gone.
         queue.closeEpoch(50);
 
         uint256 headAfter = queue.head();
@@ -1008,9 +1014,6 @@ contract QueueDeepForkTest is ForkLifecycleFixture {
         returns (uint256 tokenId)
     {
         tokenId = bridge.totalOriginated() + 1;
-        _attest(tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, keccak256("qdf-assign"));
-        _attest(tokenId, IAttestationOracle.AttestationKind.UCCFiled, keccak256("qdf-ucc"));
-        // AUDIT FIX (H-4): the CreditIssued quorum commits to these exact terms.
         uint64 maturity = uint64(block.timestamp + 300 days);
         ClaimBridge.OriginationTerms memory terms = _forkTermsFor(
             classId,
@@ -1022,7 +1025,11 @@ contract QueueDeepForkTest is ForkLifecycleFixture {
             maturity,
             keccak256("qdf-ref")
         );
-        _attest(tokenId, IAttestationOracle.AttestationKind.CreditIssued, bridge.creditTermsHash(terms));
+        bytes32 termsHash = bridge.creditTermsHash(terms);
+        // P-32: every selected deal-identity fact commits to the exact terms.
+        _attest(tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, termsHash);
+        _attest(tokenId, IAttestationOracle.AttestationKind.UCCFiled, termsHash);
+        _attest(tokenId, IAttestationOracle.AttestationKind.CreditIssued, termsHash);
 
         vm.prank(ops);
         uint256 id = bridge.originate(ops, terms);

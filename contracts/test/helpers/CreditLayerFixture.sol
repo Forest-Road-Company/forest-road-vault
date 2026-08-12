@@ -47,6 +47,16 @@ abstract contract CreditLayerFixture is TokenLayerFixture {
     bytes32 internal BORROWER_2 = keccak256("borrower-2");
     bytes32 internal BORROWER_DESK = keccak256("forest-road-digital-desk"); // related party (ADR-0015)
     bytes32 internal STATE_GA = keccak256("US-GA");
+    uint256 internal lossEvidenceSequence;
+
+    // P-32 fixture plumbing: documentary mint-gate facts are bound to the first terms hash
+    // registered for a facility. Several existing helpers land AssignmentExecuted/UCCFiled before
+    // they call `_attestCreditTerms`; defer those two writes until the hash is known, and never
+    // rebind them when a later (substituting) CreditIssued payload is installed.
+    mapping(uint256 => bytes32) internal _dealTermsHash;
+    mapping(uint256 => uint8) internal _dealFactRequested;
+    mapping(uint256 => uint8) internal _dealFactBound;
+    uint256 internal _dealFixtureEpoch;
 
     uint256 internal constant BIT_ASSIGNMENT = 1 << uint256(IAttestationOracle.AttestationKind.AssignmentExecuted);
     uint256 internal constant BIT_UCC = 1 << uint256(IAttestationOracle.AttestationKind.UCCFiled);
@@ -64,6 +74,13 @@ abstract contract CreditLayerFixture is TokenLayerFixture {
 
     function setUp() public virtual override {
         super.setUp();
+        // Some discriminator tests deliberately rebuild the whole fixture by calling
+        // `super.setUp()` inside a test. Facility ids restart at one on the new bridge, while
+        // these bookkeeping maps live on the test contract; namespace them by deployment epoch
+        // so stale bindings from the prior fixture cannot suppress the new oracle writes.
+        unchecked {
+            ++_dealFixtureEpoch;
+        }
         vm.warp(1_750_000_000);
 
         // ── collateral layer ─────────────────────────────────────────────
@@ -206,14 +223,41 @@ abstract contract CreditLayerFixture is TokenLayerFixture {
         registry.grantRole(Roles.CREDIT_ROLE, address(defaultManager)); // exposure decreases (loss)
         reserves.grantRole(Roles.CREDIT_ROLE, address(waterfall)); // deployment and repayments
         reserves.grantRole(Roles.CREDIT_ROLE, address(defaultManager)); // write-downs
-        controller.grantRole(Roles.CREDIT_ROLE, address(waterfall)); // mintYield
-        controller.grantRole(Roles.CREDIT_ROLE, address(defaultManager)); // burnLoss
+        // AUDIT FIX (R16-M1), mirroring `Deploy.s.sol`: the powers are split, so the engine can
+        // ONLY mint and the manager can ONLY burn, and each may only touch a named endpoint.
+        controller.grantRole(Roles.CREDIT_ROLE, address(waterfall)); // mintYield only
+        controller.grantRole(Roles.LOSS_BURNER_ROLE, address(defaultManager)); // burnLoss only
+        controller.grantRole(Roles.LOSS_BURNER_ROLE, address(reserves)); // custody cascade only
+        controller.setYieldSink(address(vault), true);
+        controller.setYieldSink(feeRecipient, true);
+        controller.setLossSource(address(defaultManager), true);
+        controller.setLossSource(address(reserves), true);
+        controller.setLossSource(address(vault), true);
         curator.grantRole(Roles.CREDIT_ROLE, address(defaultManager)); // absorbLoss
+        curator.grantRole(Roles.CREDIT_ROLE, address(reserves)); // classless custody absorption
         vault.grantRole(Roles.FEE_ACCOUNTING_ROLE, address(curator));
         vault.grantRole(Roles.FEE_ACCOUNTING_ROLE, address(defaultManager));
         waterfall.grantRole(Roles.SERVICER_ROLE, servicer);
         defaultManager.grantRole(Roles.SERVICER_ROLE, servicer);
         defaultManager.setBackstop(address(backstopMock));
+        reserves.setLossAbsorber(address(defaultManager));
+        // The reserve binding validates this reverse edge, so establish it first exactly as
+        // production deployment does. Merging the binding guard with the older fixture order
+        // otherwise rejects setup before any test can execute.
+        curator.setReserveManager(address(reserves));
+        reserves.setReserveLossModules(
+            address(curator),
+            address(backstopMock),
+            address(vault),
+            address(reserveLossGovernor),
+            address(reserveLossTimelock)
+        );
+        // AUDIT FIX (R6-CF1): the curator's custody-loss freeze reads the reserve's loss window.
+        // Wired here exactly as `Deploy.s.sol` wires it — an unwired module reads as FROZEN, so
+        // omitting this in the fixture would silently mean the whole suite tests the fail-closed
+        // branch instead of the real predicate.
+        controller.revokeRole(Roles.CREDIT_ROLE, address(reserveLossAbsorber));
+        controller.revokeRole(Roles.LOSS_BURNER_ROLE, address(reserveLossAbsorber));
         // ADR-0022 Option Y: the engine clears a facility's unrealized-impairment contribution
         // when a defaulted loan recovers in full, and the vault prices exits on what remains.
         defaultManager.grantRole(Roles.CREDIT_ROLE, address(waterfall)); // onDefaultResolved
@@ -223,6 +267,17 @@ abstract contract CreditLayerFixture is TokenLayerFixture {
         // base remains DefaultManager. Tests must not bypass this mandatory valuation layer.
         vault.setImpairmentSource(address(assessedImpairmentSource));
         vault.setRedemptionQueue(address(queue)); // ADR-0010: the sole vault exit
+        // AUDIT FIX (D7-01): `closeEpoch` is keeper-gated. The fixture stands in for the
+        // deployment, so it grants the role the way the deploy script does. Two holders,
+        // mirroring the production posture (hot keeper + manual backstop):
+        //   • the test contract, so the ~142 existing `queue.closeEpoch(...)` call sites keep
+        //     testing what they were written to test rather than all collapsing onto the
+        //     access-control revert;
+        //   • an explicit `settlementKeeper` actor for tests that need a named holder.
+        // The gate itself is exercised deliberately in Fix_D701-keeper-gate.t.sol — granting
+        // here must NOT be mistaken for coverage of the modifier.
+        queue.grantRole(Roles.SETTLEMENT_KEEPER_ROLE, address(this));
+        queue.grantRole(Roles.SETTLEMENT_KEEPER_ROLE, settlementKeeper);
 
         _postWireOracle(); // real-oracle fixtures grant roles here (no-op for mock)
 
@@ -257,6 +312,25 @@ abstract contract CreditLayerFixture is TokenLayerFixture {
 
     /// @dev Marks a fact satisfied (mock: direct set; real: m-of-n signatures).
     function _setSatisfied(uint256 facilityId, IAttestationOracle.AttestationKind kind, bool ok) internal virtual {
+        if (_isDealDocumentKind(kind)) {
+            uint8 bit = _dealFactBit(kind);
+            uint256 key = _dealKey(facilityId);
+            if (!ok) {
+                _dealFactRequested[key] &= ~bit;
+                _dealFactBound[key] &= ~bit;
+                MockAttestationOracle(address(oracle)).setSatisfied(facilityId, kind, false);
+                return;
+            }
+            _dealFactRequested[key] |= bit;
+            bytes32 termsHash = _dealTermsHash[key];
+            if (termsHash != bytes32(0) && (_dealFactBound[key] & bit) == 0) {
+                MockAttestationOracle(address(oracle)).setPayload(
+                    facilityId, kind, termsHash, uint64(block.timestamp), true
+                );
+                _dealFactBound[key] |= bit;
+            }
+            return;
+        }
         MockAttestationOracle(address(oracle)).setSatisfied(facilityId, kind, ok);
     }
 
@@ -272,9 +346,41 @@ abstract contract CreditLayerFixture is TokenLayerFixture {
     ///      satisfied the gate at `nextId` immediately before originating, which made
     ///      attestation and terms agree by construction and this bug class invisible.
     function _attestCreditTerms(uint256 facilityId, bytes32 termsHash) internal virtual {
+        uint256 key = _dealKey(facilityId);
+        _dealTermsHash[key] = termsHash;
         MockAttestationOracle(address(oracle)).setPayload(
             facilityId, IAttestationOracle.AttestationKind.CreditIssued, termsHash, uint64(block.timestamp), true
         );
+        uint8 pending = _dealFactRequested[key] & ~_dealFactBound[key];
+        if ((pending & _dealFactBit(IAttestationOracle.AttestationKind.AssignmentExecuted)) != 0) {
+            MockAttestationOracle(address(oracle)).setPayload(
+                facilityId,
+                IAttestationOracle.AttestationKind.AssignmentExecuted,
+                termsHash,
+                uint64(block.timestamp),
+                true
+            );
+            _dealFactBound[key] |= _dealFactBit(IAttestationOracle.AttestationKind.AssignmentExecuted);
+        }
+        if ((pending & _dealFactBit(IAttestationOracle.AttestationKind.UCCFiled)) != 0) {
+            MockAttestationOracle(address(oracle)).setPayload(
+                facilityId, IAttestationOracle.AttestationKind.UCCFiled, termsHash, uint64(block.timestamp), true
+            );
+            _dealFactBound[key] |= _dealFactBit(IAttestationOracle.AttestationKind.UCCFiled);
+        }
+    }
+
+    function _dealKey(uint256 facilityId) internal view returns (uint256) {
+        return uint256(keccak256(abi.encode(_dealFixtureEpoch, facilityId)));
+    }
+
+    function _isDealDocumentKind(IAttestationOracle.AttestationKind kind) internal pure returns (bool) {
+        return kind == IAttestationOracle.AttestationKind.AssignmentExecuted
+            || kind == IAttestationOracle.AttestationKind.UCCFiled;
+    }
+
+    function _dealFactBit(IAttestationOracle.AttestationKind kind) internal pure returns (uint8) {
+        return uint8(1 << uint8(kind));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────
@@ -471,6 +577,9 @@ abstract contract CreditLayerFixture is TokenLayerFixture {
 
     /// @dev Test convenience for a fully attested loss execution.
     function _realizeLoss(uint256 tokenId, uint256 loss, bytes32 evidenceHash) internal {
+        if (evidenceHash == bytes32(0)) {
+            evidenceHash = keccak256(abi.encode("fixture-loss-event", tokenId, loss, ++lossEvidenceSequence));
+        }
         _attestLoss(tokenId, loss, evidenceHash);
         vm.prank(servicer);
         defaultManager.realizeLoss(tokenId, loss, evidenceHash);

@@ -48,7 +48,7 @@ hence the timelock + (prod) no-EOA rule.
 | AssessedImpairmentSource *(included in clean mainnet v1; first exercised on Sepolia)* | Publish/clear a time-limited, revision-bound professional senior-impairment assessment; change its zero-recovery base source (which clears the assessment) |
 | WaterfallEngine | `setProtocolFee`, `setOriginationFee`, `setFeeRecipient`, `setDefaultManager` |
 | DefaultManager | `setRemedyRef`, `setCureWindow`, `setGraceWindow`, `setBackstop` |
-| SGrove | `setUnbondingPeriod`, `setPerEventCap`, **`setRewardsDuration`** (audit R4-EC1) |
+| SGrove | `setUnbondingPeriod`, **`setRewardsDuration`** (audit R4-EC1) |
 | PointsModule | `setRate`, `setUSDfrMultiplier`, `setCuratorMultiplier`, `setCuratorModule` (multiples bounded; changes apply forward, never retroactively) |
 
 ### Operational roles (Forest Road, single-purpose)

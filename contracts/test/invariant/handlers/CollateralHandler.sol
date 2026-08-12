@@ -391,6 +391,25 @@ contract CollateralHandler is Test {
     ///      left it, so presenting a terms payload can never accidentally satisfy the gate —
     ///      that is what keeps the two seeds independent.
     function _presentTerms(Candidate memory c) private {
+        // P-32: documentary gate facts are deal identities too. Keep the handler's
+        // deliberate CreditIssued divergence as the H-4 negative control, but make the
+        // assignment/UCC facts valid for the candidate terms so a positive seeded shape is
+        // rejected (or admitted) for the reason the independent model selected.
+        bytes32 termsHash = _termsHash(c);
+        if (modelAttestationMask[c.nextId] & BIT_ASSIGNMENT != 0) {
+            oracle.setPayload(
+                c.nextId,
+                IAttestationOracle.AttestationKind.AssignmentExecuted,
+                termsHash,
+                uint64(block.timestamp),
+                true
+            );
+        }
+        if (modelAttestationMask[c.nextId] & BIT_UCC != 0) {
+            oracle.setPayload(
+                c.nextId, IAttestationOracle.AttestationKind.UCCFiled, termsHash, uint64(block.timestamp), true
+            );
+        }
         bytes32 payload = c.bindTerms ? _termsHash(c) : _divergentTermsHash(c);
         oracle.setPayload(
             c.nextId,
@@ -629,7 +648,7 @@ contract CollateralHandler is Test {
         _shape(
             Config.CLASS_FILM_TAX_CREDITS,
             borrowers[2],
-            bytes32(0),
+            states[1],
             100_000e18,
             0,
             0,
@@ -654,7 +673,7 @@ contract CollateralHandler is Test {
         _shape(
             Config.CLASS_FILM_TAX_CREDITS,
             borrowers[2],
-            bytes32(0),
+            states[1],
             250_000e18,
             0,
             0,
@@ -823,6 +842,13 @@ contract CollateralHandler is Test {
     ///         `CollateralRegistry._checkConcentration`, so the reason is checked too, not
     ///         merely the fact of failure.
     function _predict(Candidate memory c, ClassRef memory r) internal view returns (bytes4) {
+        // P-45: the bridge validates the state tag before it reaches the mint gate.
+        // Tax-credit facilities require a concrete state key; every other class must
+        // carry the zero sentinel. Keep the independent model in the same order so an
+        // invalid tag cannot be misreported as an attestation or concentration failure.
+        if ((c.classId == Config.CLASS_FILM_TAX_CREDITS) == (c.stateId == bytes32(0))) {
+            return ClaimBridge.Bridge_BadFacility.selector;
+        }
         if (!_gateOk(c.classId, c.nextId)) return ClaimBridge.Bridge_AttestationMissing.selector;
         // AUDIT FIX (H-4): existence is not enough — the standing payload must commit to
         // these exact terms. Checked in the contract's order: after the bits, before the mark.

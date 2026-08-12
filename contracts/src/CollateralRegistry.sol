@@ -8,6 +8,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {ICollateralRegistry} from "./interfaces/ICollateralRegistry.sol";
 import {Config} from "./libraries/Config.sol";
+import {IsUSDfr} from "./interfaces/IsUSDfr.sol";
 import {Roles} from "./libraries/Roles.sol";
 
 /// @title CollateralRegistry
@@ -100,6 +101,15 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         // wind-down borrower) stays expressible and cannot be confused with "use the global".
         mapping(bytes32 borrowerId => uint16) borrowerLimitOverrideBps;
         mapping(bytes32 borrowerId => bool) borrowerLimitOverridden;
+        // ── OWNER DECISION 2026-08-07 (G2W): unattested past-due forward weight ─────────
+        // (append-only TAIL; must stay last.) The credit-risk policy weight that
+        // `DefaultManager.pendingSeniorImpairment()` applies to the UNATTESTED, permissionless
+        // past-due pool. It lives here, with the other governed credit-risk parameters (advance
+        // rates, concentration limits), and NOT in DefaultManager, because DefaultManager has
+        // very little EIP-170 headroom and is contended by three workstreams.
+        //
+        // ZERO MEANS UNSET, NOT "NO MARK" — see `pastDueWeightBps()`.
+        uint256 pastDueWeightBps;
     }
 
     // keccak256(abi.encode(uint256(keccak256("forestroad.storage.CollateralRegistry")) - 1)) & ~bytes32(uint256(0xff))
@@ -168,6 +178,192 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         // A tightened limit can put a standing book in breach with no exposure moving;
         // report it here rather than waiting for the next origination or repayment.
         _syncClassBreaches($);
+    }
+
+    /// @inheritdoc ICollateralRegistry
+    /// @dev OWNER DECISION (Forest Road, 2026-08-07). See
+    ///      `Config.DEFAULT_PAST_DUE_WEIGHT_BPS` for the derivation of the launch value and
+    ///      `DefaultManager.pendingSeniorImpairment` for how it is applied.
+    ///
+    ///      DO NOT DELETE THE ZERO SUBSTITUTION. This slot is appended to a namespaced storage
+    ///      struct, so it reads ZERO on every proxy upgraded from a pre-G2W implementation. Zero
+    ///      would mean "an unattested past-due mark carries no forward weight at all", which
+    ///      re-opens H-5 (the permissionless senior protection disappears while a conflicted
+    ///      servicer sits on the declaration — finding A-02 records that the attester IS the
+    ///      servicer) and D5-03 (seniors priced at par while underwater). Reading zero as
+    ///      "governance has not spoken, use the derived default" makes the SAFE value the one an
+    ///      un-migrated proxy gets, and removes any need for a reinitializer.
+    function pastDueWeightBps() public view returns (uint256 bps) {
+        bps = _storage().pastDueWeightBps;
+        if (bps == 0) bps = Config.DEFAULT_PAST_DUE_WEIGHT_BPS;
+    }
+
+    /// @inheritdoc ICollateralRegistry
+    /// @dev OWNER DECISION (Forest Road, 2026-08-07). Rounds UP: over-marking is the safe
+    ///      direction (D5-03 records that UNDER-marking is the dangerous one), so the rounding
+    ///      dust always lands against the exiting senior rather than in their favour.
+    ///
+    ///      CORRECTED (SWEEP-1 VAC-F1, 2026-08-08) — THIS HELPER IS NOT ON THE VALUE PATH, AND
+    ///      THIS NOTE USED TO CLAIM IT WAS. It read: "DO NOT DELETE OR INLINE-SIMPLIFY THIS TO A
+    ///      PASS-THROUGH. It is the single place the unattested past-due charge is discounted;
+    ///      deleting the multiply restores the defect." MEASURED: neutralising the multiply here
+    ///      (`amount * pastDueWeightBps() * 0`, compiling, both operands still referenced) left
+    ///      `test_g2w_headlineScenarioNoLongerHaltsTheSeniorExit` and
+    ///      `test_g2w_theUnattestedMarkStillStrictlyDepressesTheExit` GREEN, and reddened only the
+    ///      two tests that call this helper AS THEIR OWN ORACLE. `pendingSeniorImpairment()` never
+    ///      calls it: `conservativeSeniorMark` carries its own weighting, applied AFTER its clamp,
+    ///      and `Fix_G2W-...t.sol` says so in its own body ("a DIFFERENT function from the one on
+    ///      the value path"). The prior campaign's `M28_weighted_helper_is_passthrough` "DET_RED"
+    ///      therefore proved an ORACLE moved, not that a live guard was killed.
+    ///
+    ///      WHAT IT IS FOR, STATED HONESTLY: it is the canonical, single-definition form of the
+    ///      unattested discount — the reference every off-chain consumer, dashboard and test
+    ///      oracle reads. AUDIT FIX (SWEEP-2 CSG-F5): this sentence used to end "...and the thing
+    ///      `conservativeSeniorMark`'s inline weighting MUST AGREE WITH". IT CANNOT, AND MUST NOT BE
+    ///      MADE TO. This helper has NO relief-ramp term, so it agrees with the value path only at
+    ///      `elapsed == 0` and disagrees at every later point (MEASURED: helper 200,000e18 vs value
+    ///      path 300,000e18 mid-ramp). Its seven in-tree oracle uses are all at `elapsed == 0`,
+    ///      which is why nothing caught it. A dashboard reading it mid-ramp UNDER-reports the
+    ///      discount by up to 100%; route such a consumer through `pastDueRampWeightBps(elapsed)`.
+    ///      Keep it, keep it exact, and keep the round-UP direction (D5-03 records that
+    ///      UNDER-marking is the dangerous one). But do NOT rely on a mutation here to certify the
+    ///      value path, and do not add a "load-bearing" claim back without a named test on the
+    ///      settlement path that falsifies it.
+    function weightedPastDueImpairment(uint256 amount) public view returns (uint256) {
+        return (amount * pastDueWeightBps() + Config.BPS - 1) / Config.BPS;
+    }
+
+    /// @inheritdoc ICollateralRegistry
+    /// @dev OWNER DECISION (Forest Road, 2026-08-07). THE RELIEF RAMP: the unattested weight is a
+    ///      BENEFIT OF THE DOUBT WITH AN EXPIRY, not a permanent discount.
+    ///
+    ///      WHY IT EXPIRES. The doubt being extended is precisely "the servicer may not yet have had
+    ///      time to attest". After one `Config.DEFAULT_REDEEM_COOLDOWN` — the same window a senior
+    ///      must wait to exit — that doubt is spent: nobody has declared a default, nobody has
+    ///      cleared the mark, and the facility is still overdue. So the relief winds off on its own,
+    ///      with NO transaction from anyone, and the pre-G2W loud stop returns. This is what bounds
+    ///      the D5-03 under-mark to a window instead of leaving it permanent.
+    ///
+    ///      LINEAR, AND MONOTONE NON-DECREASING IN `elapsed`. `w(0) = w0`, `w(ramp) = BPS`, and in
+    ///      between `w0 + (BPS - w0)*elapsed/ramp`. Monotonicity matters: the reported mark must
+    ///      never fall as time passes with nothing else changing, or a redeemer could profit purely
+    ///      by waiting. Falsified by `testFuzz_g2w_ramp_theMarkNeverFallsAsTimePasses`.
+    ///      (CITATION CORRECTED, SWEEP-1 VAC-F8: the name previously given here,
+    ///      `test_g2w_ramp_theWeightIsMonotoneNonDecreasingInElapsed`, does not exist in the tree.
+    ///      An unfollowable citation defeats the whole point of the "DO NOT DELETE, falsified by X"
+    ///      convention — the next engineer greps, finds nothing, and concludes the guard is unpinned.)
+    ///
+    ///      THE `elapsed >= ramp` EARLY RETURN IS NOT AN OPTIMISATION — DO NOT DELETE IT. Without
+    ///      it the linear term overshoots `BPS` for `elapsed > ramp`, i.e. an unattested mark past
+    ///      the ramp would be charged MORE than an attested declared default of the same size, and
+    ///      at large `elapsed` the multiply overflows. It is also the path an UNSET anchor takes
+    ///      (`elapsed == block.timestamp`), which is the fail-safe. Falsified by
+    ///      `test_g2w_ramp_theWeightShapeIsPinnedToLiterals` (CITATION CORRECTED, SWEEP-1 VAC-F8:
+    ///      the name previously given, `test_g2w_ramp_pastTheRampTheWeightIsExactlyFullAndNeverMore`,
+    ///      does not exist) and
+    ///      `test_g2w_ramp_anUnsetAnchorFailsSafeToFullWeight`.
+    ///      WHY THIS READS THE VAULT ITSELF INSTEAD OF BEING HANDED `totalAssets()`. Originally an
+    ///      EIP-170 budget decision: generating the `IsUSDfr(...).totalAssets()` call inside
+    ///      `DefaultManager.pendingSeniorImpairment` cost that contract a measured 115 bytes it did
+    ///      not have. THAT REASON EXPIRED AT THE MERGE — the conservative-NAV arithmetic now lives
+    ///      in `ConservativeImpairmentMath`, which is a fresh ~2 KB contract with room to spare, so
+    ///      the call could be moved back. IT WAS DELIBERATELY NOT MOVED, for a reason that does not
+    ///      expire: the vault read and the weight it feeds are ONE governed policy statement, and
+    ///      keeping them in the same timelocked module means governance can never end up with a
+    ///      weight it controls applied to a ceiling it does not. Moving it would also be a value-path
+    ///      change with no test motivating it. The trade, unchanged: `CollateralRegistry` — which
+    ///      has ~9.8 KB spare — carries a read edge to `sUSDfr`.
+    ///
+    ///      THE RECURSION TRAP MOVED HERE WITH IT. `totalAssets()` is
+    ///      `USDfr.balanceOf(vault) - unvestedYield()`: two storage reads and a token balance, none
+    ///      of which touches an impairment source. IT MUST NEVER BECOME `redemptionTotalAssets()`,
+    ///      which calls back through `AssessedImpairmentSource` into
+    ///      `DefaultManager.pendingSeniorImpairment` and therefore into THIS function — every
+    ///      redemption would become an unbounded recursion.
+    ///
+    ///      `vault` IS CALLER-SUPPLIED AND THAT IS SAFE HERE. This function is `view`, writes
+    ///      nothing, and its only production caller is `DefaultManager`, which passes its own
+    ///      governance-configured vault. A third party calling it with a fabricated `vault` gets a
+    ///      fabricated number back and moves no state; there is nothing to authenticate.
+    /// @param pastDueSenior The past-due cohort's post-junior senior residual.
+    /// @param residual The TOTAL post-junior senior residual (both cohorts), unweighted.
+    /// @param vault The `sUSDfr` vault whose `totalAssets()` is layer 3's hard ceiling in
+    ///        `realizeLoss`. Supplied by `DefaultManager` from its own configured storage.
+    /// @param anchor `DefaultManager.pastDueReliefAnchor` — when the unattested cohort last went
+    ///        empty -> non-empty. ZERO (unset) yields `elapsed == block.timestamp`, which is past
+    ///        the ramp and therefore FULL weight: the fail-safe.
+    /// @return mark The TOTAL conservative senior mark: the attested cohort at full weight plus the
+    ///         unattested cohort clamped to executable capacity and then ramp-weighted.
+    function conservativeSeniorMark(uint256 pastDueSenior, uint256 residual, address vault, uint256 anchor)
+        external
+        view
+        returns (uint256 mark)
+    {
+        // `residual >= pastDueSenior` is a theorem of `DefaultManager.pendingSeniorImpairment`,
+        // proved in that function's NatSpec. It is not re-checked here (house rule M6).
+        uint256 declaredSenior = residual - pastDueSenior; // ATTESTED: full weight, never clamped
+        uint256 vaultAssets = IsUSDfr(vault).totalAssets();
+        uint256 elapsed = block.timestamp - anchor;
+        // (1) THE EXECUTABLE BOUND, FIRST — and it never expires, because it is a structural fact
+        //     about `realizeLoss`, not a benefit of the doubt. LOAD-BEARING: replacing
+        //     `executable` with `vaultAssets` hands the unattested cohort the capacity the ATTESTED
+        //     cohort can already spend this block, which double-counts layer 3. Falsified by
+        //     `test_g2w_attestedCohortHasFirstClaimOnTheExecutableCapacity`.
+        uint256 executable = vaultAssets > declaredSenior ? vaultAssets - declaredSenior : 0;
+        uint256 amount = pastDueSenior < executable ? pastDueSenior : executable;
+        // (2)+(3) THE RAMPED WEIGHT, SECOND. ORDER IS LOAD-BEARING — DO NOT SWAP. Weighting first
+        //     and clamping second collapses to the clamp whenever the mark is large
+        //     (`min(w*P, E) == E`), which is precisely the case the owner decision is about, and
+        //     the fix then silently does nothing at any facility size above the clamp. Falsified by
+        //     `test_g2w_clampBeforeWeightIsNotTheSameAsWeightBeforeClamp`.
+        uint256 ramp = Config.DEFAULT_REDEEM_COOLDOWN;
+        if (elapsed >= ramp) return declaredSenior + amount; // relief EXPIRED (or anchor unset)
+        uint256 w0 = pastDueWeightBps();
+        // Rounds UP, like `weightedPastDueImpairment`: over-marking is the safe direction, so the
+        // rounding dust lands against the exiting senior rather than in their favour.
+        mark = declaredSenior + (amount * (w0 + ((Config.BPS - w0) * elapsed) / ramp) + Config.BPS - 1) / Config.BPS;
+    }
+
+    /// @inheritdoc ICollateralRegistry
+    /// @dev OWNER DECISION (Forest Road, 2026-08-07). Exposed so operations, the audit register and
+    ///      the frontend can answer "when does the loud stop return?" without re-deriving the ramp,
+    ///      and so the reference model in `test/invariant/CreditInvariants.t.sol` can bound the
+    ///      contract without duplicating the formula.
+    ///
+    ///      DELIBERATELY NOT USED BY `conservativeSeniorMark`. Inlining the ramp there is one
+    ///      `SLOAD`-free branch; routing it through this function would make a mutation of THIS
+    ///      body move both the contract and every test expectation derived from it in lockstep, and
+    ///      the mutation would survive. The shape assertions in
+    ///      `Fix_G2W-unattested-past-due-weight.t.sol` are pinned to LITERALS for the same reason.
+    function pastDueRampWeightBps(uint256 elapsed) external view returns (uint256 bps) {
+        if (elapsed >= Config.DEFAULT_REDEEM_COOLDOWN) return Config.BPS;
+        bps = pastDueWeightBps();
+        bps += ((Config.BPS - bps) * elapsed) / Config.DEFAULT_REDEEM_COOLDOWN;
+    }
+
+    /// @inheritdoc ICollateralRegistry
+    /// @dev OWNER DECISION (Forest Road, 2026-08-07). Timelocked governance only.
+    ///
+    ///      BOTH BOUNDS ARE LOAD-BEARING; DO NOT DELETE EITHER.
+    ///        - `bps == 0` is rejected: a zero weight neuters `markPastDue` entirely and re-opens
+    ///          H-5/D5-03. The decision was to weight the unattested mark DOWN, never off.
+    ///        - `bps >= Config.BPS` is rejected: at or above parity the unattested mark carries the
+    ///          same (or a greater) forward weight as an ATTESTED declared default — exactly the
+    ///          defect the weight exists to close. Governance must not restore it by transaction.
+    ///
+    ///      OPERATIONAL NOTE — PAIR AN INCREASE WITH `AssessedImpairmentSource.clearAssessment()`.
+    ///      This setter does NOT advance `DefaultManager.impairmentRevision`, so a professional
+    ///      assessment standing under the old weight survives the change. The directions are not
+    ///      symmetric: a DECREASE lowers `DefaultManager.pendingSeniorImpairment()` and the wrapper
+    ///      caps the assessment at that live base, so it takes effect immediately; an INCREASE
+    ///      raises the base while the (lower) assessment continues to price redemptions until it
+    ///      expires — bounded by `MAX_ASSESSMENT_TTL` (30 days) and clearable in one transaction by
+    ///      the same timelock that calls this function. Deliberately not wired through the revision
+    ///      counter: it would need a storage write on a `view` path, which is impossible.
+    function setPastDueWeight(uint256 bps) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (bps == 0 || bps >= Config.BPS) revert Registry_InvalidPastDueWeight(bps);
+        _storage().pastDueWeightBps = bps;
+        emit PastDueWeightSet(bps);
     }
 
     /// @notice Sets the per-borrower concentration limit (bps of total book).

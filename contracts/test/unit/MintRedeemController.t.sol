@@ -146,25 +146,35 @@ contract MintRedeemControllerTest is TokenLayerFixture {
         controller.mintYield(alice, 1e18);
     }
 
+    /// @dev AUDIT FIX (R16-M1/M2) CHANGED THIS TEST DELIBERATELY. It used to burn `alice`, an
+    ///      ordinary KYC'd holder, and passed — which is the finding: `USDfr.burn` takes no
+    ///      allowance, so this was a forced, non-pro-rata seizure from one named holder. The burn
+    ///      now targets the governance-named loss source (the vault, cascade layer 3).
     function test_burnLoss_burnsAndEmits() public {
         _mintUSDfr(alice, 100e6);
+        vm.prank(alice);
+        usdfr.transfer(address(vault), 10e18);
         vm.expectEmit(true, false, false, true, address(controller));
-        emit IMintRedeemController.LossBurned(alice, 10e18);
+        emit IMintRedeemController.LossBurned(address(vault), 10e18);
         vm.prank(creditModule);
-        controller.burnLoss(alice, 10e18);
-        assertEq(usdfr.balanceOf(alice), 90e18);
+        controller.burnLoss(address(vault), 10e18);
+        assertEq(usdfr.balanceOf(address(vault)), 0);
     }
 
-    function test_burnLoss_onlyCreditRole() public {
+    function test_burnLoss_onlyLossBurnerRole() public {
         vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, Roles.CREDIT_ROLE)
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, alice, Roles.LOSS_BURNER_ROLE
+            )
         );
         vm.prank(alice);
-        controller.burnLoss(alice, 1);
+        controller.burnLoss(address(vault), 1);
     }
 
     function test_writedownThenBurnLoss_restoresInvariant() public {
         _mintUSDfr(alice, 100e6);
+        vm.prank(alice);
+        usdfr.transfer(address(vault), 10e18);
         vm.prank(creditModule);
         reserves.recordDeployment(1, borrower, 50e6);
 
@@ -174,8 +184,27 @@ contract MintRedeemControllerTest is TokenLayerFixture {
         assertFalse(controller.backingInvariantHolds());
 
         vm.prank(creditModule);
-        controller.burnLoss(alice, 10e18);
+        controller.burnLoss(address(vault), 10e18);
         assertTrue(controller.backingInvariantHolds());
+    }
+
+    function test_burnLoss_reducesExistingDeficitExactlyWithoutRequiringImmediateSolvency() public {
+        _mintUSDfr(alice, 100e6);
+        vm.prank(alice);
+        usdfr.transfer(address(vault), 20e18);
+        vm.startPrank(creditModule);
+        reserves.recordDeployment(1, borrower, 50e6);
+        reserves.recordPrincipalWritedown(1, 20e18);
+        controller.burnLoss(address(vault), 5e18);
+        vm.stopPrank();
+
+        assertEq(controller.totalUSDfr(), 95e18);
+        assertEq(controller.backingValue(), 80e18);
+        assertFalse(controller.backingInvariantHolds(), "partial absorption leaves only the genuine residual deficit");
+
+        vm.prank(creditModule);
+        controller.burnLoss(address(vault), 15e18);
+        assertTrue(controller.backingInvariantHolds(), "the final absorption restores absolute backing");
     }
 
     // ── views ────────────────────────────────────────────────────────────

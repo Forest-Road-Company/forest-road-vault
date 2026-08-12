@@ -73,7 +73,7 @@ abstract contract GovernanceFixture is CreditLayerFixture {
                 address(
                     new ERC1967Proxy(
                         address(new FRGovernor()),
-                        abi.encodeCall(FRGovernor.initialize, (IVotes(address(votesAggregator)), timelock))
+                        abi.encodeCall(FRGovernor.initialize, (IVotes(address(votesAggregator)), timelock, guardian))
                     )
                 )
             )
@@ -92,10 +92,8 @@ abstract contract GovernanceFixture is CreditLayerFixture {
         waterfall.grantRole(bytes32(0), address(timelock));
         vm.stopPrank();
 
-        // FR treasury self-delegates so genesis votes are active (ADR-0013 control);
-        // one tick so the checkpoint is visible at proposal snapshots (clock - 1)
-        vm.prank(frTreasury);
-        grove.delegate(frTreasury);
+        // GroveToken self-delegates the treasury during initialization. Advance one tick so
+        // that genesis checkpoint is visible at Governor proposal snapshots (clock - 1).
         vm.warp(block.timestamp + 1);
     }
 

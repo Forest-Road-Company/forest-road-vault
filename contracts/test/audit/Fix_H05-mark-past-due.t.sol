@@ -58,7 +58,12 @@ contract FixH05MarkPastDueTest is CreditLayerFixture {
         uint256 baseImpair = defaultManager.pendingSeniorImpairment();
         uint256 id = _markPastDueFilm(PRINCIPAL);
         assertEq(defaultManager.pastDueContribution(id), PRINCIPAL, "precondition: marked at full outstanding");
-        assertEq(defaultManager.pendingSeniorImpairment(), baseImpair + PRINCIPAL, "precondition: NAV depressed");
+        // INVERTED DELIBERATELY (OWNER DECISION 2026-08-07): was `baseImpair + PRINCIPAL`.
+        assertEq(
+            defaultManager.pendingSeniorImpairment(),
+            baseImpair + _weightedPastDue(PRINCIPAL),
+            "precondition: NAV depressed at the governed unattested weight"
+        );
 
         // Ordinary performing repayment in full - NOT a servicer clearPastDue, NOT a declareDefault.
         // NOTE: `vm.expectEmit` binds to the next EXTERNAL call, and the past-due cure fires deep
@@ -100,10 +105,13 @@ contract FixH05MarkPastDueTest is CreditLayerFixture {
         assertEq(reserves.deployedTo(id), remaining, "precondition: deployedTo fell by the paydown");
         assertEq(defaultManager.pastDueContribution(id), remaining, "the mark re-anchored DOWN to live deployedTo");
         assertEq(defaultManager.pastDueExposure(), remaining, "pastDueExposure tracks the re-anchor");
+        // INVERTED DELIBERATELY (OWNER DECISION 2026-08-07): was `baseImpair + remaining`. The
+        // RE-ANCHOR (the property this test guards) is asserted on the gross pool above; only the
+        // forward weight the re-anchored mark carries changed.
         assertEq(
             defaultManager.pendingSeniorImpairment(),
-            baseImpair + remaining,
-            "NAV depressed only by the still-deployed remainder, not the whole snapshot"
+            baseImpair + _weightedPastDue(remaining),
+            "NAV depressed only by the still-deployed remainder, at the governed unattested weight"
         );
         // still flagged (partial) — a nonzero contribution means the mark persists, so the servicer
         // can still clear the residual (or a further repayment re-anchors it) when it fully cures.
@@ -117,6 +125,15 @@ contract FixH05MarkPastDueTest is CreditLayerFixture {
     event RemedyInitiated(uint256 indexed tokenId, uint256 indexed classId, bytes32 remedyRef);
 
     // ── helpers ──────────────────────────────────────────────────────────
+
+    /// @dev The forward senior charge an UNATTESTED past-due mark of `amount` produces, per the
+    ///      OWNER DECISION of 2026-08-07. Computed from the GOVERNED parameter rather than from a
+    ///      literal, so a governance re-tune moves the expectation with the policy instead of
+    ///      silently reddening the suite. The executable clamp is not binding in these fixtures
+    ///      (the vault is seeded far above the mark); the clamp has its own suite.
+    function _weightedPastDue(uint256 amount) internal view returns (uint256) {
+        return registry.weightedPastDueImpairment(amount);
+    }
 
     /// @dev Stakes `amount` USDfr into the sUSDfr vault so the conservative-NAV mark is observable.
     function _seedSeniors(uint256 amount) internal {
@@ -209,8 +226,21 @@ contract FixH05MarkPastDueTest is CreditLayerFixture {
         assertEq(defaultManager.pastDueContribution(id), PRINCIPAL, "full outstanding entered the past-due pool");
         assertEq(defaultManager.defaultedContribution(id), 0, "NOT in the declared-default pool");
         assertEq(defaultManager.declaredDefaultedPrincipal(FILM), 0, "declared-default class pool untouched");
+        // INVERTED DELIBERATELY — OWNER DECISION (Forest Road, 2026-08-07): "An unattested,
+        // permissionless past-due mark should NOT carry the same forward weight as an attested
+        // declared default." This assertion previously read `impairBefore + PRINCIPAL`, i.e. it
+        // pinned the DEFECT: a no-role, no-attestation call asserting a 100%-LGD outcome on the
+        // whole outstanding. The GROSS pool is unchanged (asserted above); what changed is the
+        // FORWARD WEIGHT it carries into the conservative redemption NAV.
         assertEq(
-            defaultManager.pendingSeniorImpairment(), impairBefore + PRINCIPAL, "senior impairment marks (no junior)"
+            defaultManager.pendingSeniorImpairment(),
+            impairBefore + _weightedPastDue(PRINCIPAL),
+            "unattested past-due marks at the governed weight, not at par-loss"
+        );
+        assertLt(
+            defaultManager.pendingSeniorImpairment() - impairBefore,
+            PRINCIPAL,
+            "an UNATTESTED mark must be strictly lighter than an attested declared default"
         );
         assertEq(defaultManager.pastDueExposure(), PRINCIPAL, "pastDueExposure records the mark");
         assertLt(vault.previewRedeem(10 ** vault.decimals()), exitBefore, "senior exit price fell on the past-due mark");
@@ -301,12 +331,32 @@ contract FixH05MarkPastDueTest is CreditLayerFixture {
 
     // ── FINDING #1 (griefing): markPastDue does NOT freeze the curator ────
 
-    /// @notice REGRESSION (finding #1, griefing). `markPastDue` does NOT freeze the curator: a
-    ///         bystander cannot lock first-loss withdrawals on a reversible past-due mark. Contrast
-    ///         with `declareDefault`, which DOES freeze (a real `realizeLoss` it could front-run).
-    function test_h5_markPastDueDoesNotFreezeTheCurator() public {
-        // zero the class first-loss target so `headroom == posted` and the ONLY thing that could
-        // block a withdrawal is the default freeze — isolating exactly what this test asserts.
+    /// @notice ═══════════════ INVERTED (SWEEP-2 CSG-F1) — DO NOT RESTORE THE ORIGINAL ═══════════
+    ///         THIS TEST USED TO ASSERT THE DEFECT AS A SAFETY PROPERTY. Its body was:
+    ///             curator.setFirstLossTarget(FILM, 0);   // "so the ONLY thing that could block a
+    ///                                                    //  withdrawal is the default freeze"
+    ///             _postFirstLoss(anchorCurator, FILM, 50_000e18);
+    ///             _markPastDueFilm(PRINCIPAL);           // PRINCIPAL == 400,000e18
+    ///             curator.withdrawFirstLoss(FILM, 50_000e18);   // no revert
+    ///             assertEq(curator.poolBalance(FILM), 0, "withdrawal succeeded ...");
+    ///         i.e. it pinned, as expected behaviour, a curator emptying cascade layer 1 while a
+    ///         400,000e18 past-due mark was crediting that exact capital in the conservative senior
+    ///         NAV (`ConservativeImpairmentMath` credits layer 1 at `min(declared + pastDue,
+    ///         poolBalance)`). Zeroing the target — the line written to ISOLATE the freeze — is
+    ///         precisely the one-call route SWEEP-2 CSG-F1 measured (`setFirstLossTarget` has no
+    ///         lower bound and is the only governance input to the old requirement).
+    ///
+    ///         WHAT IS PRESERVED, BECAUSE IT IS A GENUINE H-5 PROPERTY: a past-due mark still does
+    ///         NOT FREEZE the class. `unresolvedDefaults` stays 0, the refusal is
+    ///         `Curator_HeadroomExceeded` and NOT `Curator_ClassDefaultFrozen`, and capital ABOVE
+    ///         what the mark credits still leaves freely. A bystander locks exactly the principal
+    ///         their mark puts at risk — never the pool, never the class.
+    /// @dev MUTATION: drop the `marked` term from `CuratorModule._requiredFirstLoss` (i.e. return
+    ///      `required` alone, `marked` still computed and referenced in a no-op comparison so it
+    ///      still compiles) -> RED here on the first `expectRevert`.
+    function test_h5_markPastDueLocksOnlyWhatItCreditsAndStillDoesNotFreezeTheClass() public {
+        // Zero the class first-loss target. In the pre-fix build this made `headroom == posted`;
+        // it is now the exact route CSG-F1 named, and it must no longer free credited capital.
         vm.prank(admin);
         curator.setFirstLossTarget(FILM, 0);
 
@@ -314,12 +364,25 @@ contract FixH05MarkPastDueTest is CreditLayerFixture {
         _postFirstLoss(anchorCurator, FILM, posted);
 
         _markPastDueFilm(PRINCIPAL);
-        assertEq(curator.unresolvedDefaults(FILM), 0, "curator NOT frozen by a past-due mark");
+        assertEq(curator.unresolvedDefaults(FILM), 0, "NOT a class freeze: a past-due mark must never arm R4-EC2");
+        assertEq(defaultManager.pastDuePrincipal(FILM), PRINCIPAL, "precondition: the mark stands at full principal");
+        assertEq(
+            curator.headroom(FILM), 0, "the mark credits the WHOLE pool (400,000e18 > 50,000e18), so none may leave"
+        );
 
-        // the curator can still withdraw its first-loss (target zeroed above, so headroom == posted)
+        // INVERTED: the withdrawal the original test asserted must now be REFUSED, and refused on
+        // the HEADROOM rule rather than a freeze.
+        vm.expectRevert(abi.encodeWithSelector(ICuratorModule.Curator_HeadroomExceeded.selector, FILM, posted, 0));
         vm.prank(anchorCurator);
-        curator.withdrawFirstLoss(FILM, posted); // no revert
-        assertEq(curator.poolBalance(FILM), 0, "withdrawal succeeded - the pool was never frozen");
+        curator.withdrawFirstLoss(FILM, posted);
+        assertEq(curator.poolBalance(FILM), posted, "layer-1 capital the senior price is crediting stayed put");
+
+        // ...and it is a FLOOR, not a freeze: capital ABOVE the credited amount still leaves.
+        _postFirstLoss(anchorCurator, FILM, PRINCIPAL + 25_000e18);
+        assertEq(curator.headroom(FILM), 75_000e18, "only the marked principal is locked");
+        vm.prank(anchorCurator);
+        curator.withdrawFirstLoss(FILM, 75_000e18); // no revert
+        assertEq(curator.poolBalance(FILM), PRINCIPAL, "exactly the credited principal remains locked");
 
         // by contrast, a genuine declared default DOES freeze the class
         uint256 id2 = _liveFilmFacility(PRINCIPAL);
@@ -358,7 +421,17 @@ contract FixH05MarkPastDueTest is CreditLayerFixture {
         assertEq(defaultManager.pastDueContribution(id), 0, "per-facility past-due contribution cleared");
         assertEq(defaultManager.declaredDefaultedPrincipal(FILM), PRINCIPAL, "recorded into the declared pool");
         assertEq(defaultManager.defaultedContribution(id), PRINCIPAL, "counted once, in the declared pool");
-        assertEq(defaultManager.pendingSeniorImpairment(), impairPastDue, "NAV impairment identical - no double count");
+        // INVERTED DELIBERATELY — OWNER DECISION (Forest Road, 2026-08-07). This assertion used to
+        // read "NAV impairment identical before and after the conversion", which is precisely the
+        // defect: it pinned the unattested mark to the SAME forward weight as the attested one.
+        // The no-double-count property (the thing this test actually guards) is fully asserted by
+        // the four pool assertions above — released from past-due, recorded into declared, counted
+        // once. What the conversion now does is RAISE the mark to full weight, because the
+        // attestation quorum has been consumed and `realizeLoss` has become reachable.
+        uint256 impairDeclared = defaultManager.pendingSeniorImpairment();
+        assertEq(impairDeclared, PRINCIPAL, "the ATTESTED declared default carries FULL forward weight");
+        assertGt(impairDeclared, impairPastDue, "attestation STRICTLY increases the forward weight");
+        assertEq(impairPastDue, _weightedPastDue(PRINCIPAL), "the unattested mark carried the governed weight");
     }
 
     // ── FINDING #1 (reversibility / terminal reachability) ────────────────
@@ -380,7 +453,9 @@ contract FixH05MarkPastDueTest is CreditLayerFixture {
         _seedSeniors(1_000_000e18);
         uint256 exitClean = vault.previewRedeem(10 ** vault.decimals());
         uint256 id = _markPastDueFilm(PRINCIPAL);
-        assertEq(defaultManager.pendingSeniorImpairment(), PRINCIPAL, "marked while past due");
+        // INVERTED DELIBERATELY (OWNER DECISION 2026-08-07): was `PRINCIPAL` — the defect's
+        // equal-footing mark. The clear path this test guards is unchanged.
+        assertEq(defaultManager.pendingSeniorImpairment(), _weightedPastDue(PRINCIPAL), "marked while past due");
         assertLt(vault.previewRedeem(10 ** vault.decimals()), exitClean, "NAV depressed by the mark");
 
         // A PARTIAL performing paydown re-anchors the mark DOWN but leaves the facility flagged (still
@@ -579,10 +654,36 @@ contract FixH05MarkPastDueTest is CreditLayerFixture {
 
     /// @notice A senior who requested exit while a facility was performing cannot settle at PAR once
     ///         that facility is marked past due INSIDE the redeemer's cooldown — because
-    ///         `markPastDue` now depresses the conservative NAV, and the queue settles at that rate.
+    ///         `markPastDue` depresses the conservative NAV, and the queue settles at that rate.
     ///         (Residual, honestly stated in NatSpec: the anchors differ, so a redeemer whose
     ///         cooldown elapses BEFORE the mark lands can still exit at par — that par-exit window is
     ///         narrowed, not closed.)
+    /// @dev RE-POINTED TO THE RAMP MODEL, NOT WEAKENED (OWNER DECISION 2026-08-07 / G2W).
+    ///
+    ///      WHAT CHANGED AND WHY. The final assertion used to read
+    ///      `assertApproxEqAbs(claimable, impairedExit, 1e12)` — "the settlement price equals the
+    ///      price standing at the moment of the mark". That equality was only ever true because the
+    ///      mark was STATIC once made. It is not an anti-par safety property, it is a statement
+    ///      that nothing further happens between the mark and the settlement, and under the relief
+    ///      ramp something does: the unattested weight winds UP from 5,000 bps towards full as the
+    ///      remaining cooldown elapses. Keeping the old equality would have meant asserting that
+    ///      the relief must NOT expire, i.e. pinning the thing the ramp exists to remove.
+    ///
+    ///      SO IT IS TIGHTENED, IN THE DIRECTION THAT PROTECTS THE STAYING SENIOR. The test now
+    ///      asserts the settlement price is STRICTLY BELOW the mark-time price and pins it to the
+    ///      exact ramped weight computed from `Config` constants — an independent recomputation,
+    ///      not a read of `pastDueRampWeightBps`, so a mutation of the ramp reddens this test
+    ///      instead of moving the expectation with it. `assertLt(claimable, parExit)` — the
+    ///      property this test actually guards — is untouched and still first-class.
+    ///
+    ///      THE UNCOMFORTABLE HALF, STATED RATHER THAN HIDDEN. Alice requested BEFORE the mark, so
+    ///      she settles part-way up the ramp (14 of 21 days => 8,333 bps) rather than at full
+    ///      weight. She therefore still leaves with more than a zero-recovery outcome would leave
+    ///      her, and the seniors who stay wear that difference. That is exactly the bounded
+    ///      under-mark window Forest Road accepted; a senior who requests AT or AFTER the mark
+    ///      cannot settle before `requestedAt + DEFAULT_REDEEM_COOLDOWN`, by which point the weight
+    ///      is full — asserted separately in
+    ///      `test_g2w_ramp_aSeniorWhoRequestsAtTheMarkCannotSettleBeforeFullWeight`.
     function test_h5_queuedSeniorCannotSettleAtParOncePastDue() public {
         // lower the grace so the mark lands well inside the cooldown (structural bound still holds)
         vm.startPrank(admin);
@@ -616,18 +717,40 @@ contract FixH05MarkPastDueTest is CreditLayerFixture {
         assertLt(block.timestamp, queue.eligibleToSettleAt(reqId), "the mark lands while the request is still cooling");
         vm.prank(carol);
         defaultManager.markPastDue(id);
+        uint256 markedAt = block.timestamp; // the cohort relief anchor
         // the facility stayed Active; only the conservative NAV moved
         assertEq(uint256(bridge.facility(id).state), uint256(ClaimBridge.LoanState.Active), "still Active");
         uint256 impairedExit = vault.previewRedeem(shares);
         assertLt(impairedExit, parExit, "the exit price is marked down before the request can settle");
+        assertEq(
+            impairedExit,
+            parExit - PRINCIPAL * Config.DEFAULT_PAST_DUE_WEIGHT_BPS / Config.BPS,
+            "at the instant of the mark the relief is at its maximum: the launch weight, nothing more"
+        );
 
         // the cooldown elapses; the queue settles at the marked-down rate, not at par
-        vm.warp(queue.eligibleToSettleAt(reqId));
+        uint256 settleAt = queue.eligibleToSettleAt(reqId);
+        vm.warp(settleAt);
         queue.closeEpoch(10);
         (, uint256 remaining, uint256 claimable,,) = queue.request(reqId);
         assertEq(remaining, 0, "fully served: budget was not the constraint");
         assertLt(claimable, parExit, "the queued senior settles BELOW par, having been marked mid-cooldown");
-        assertApproxEqAbs(claimable, impairedExit, 1e12, "settled at exactly the conservative past-due rate");
+        // THE RE-POINT. The relief has partly wound off between the mark and the settlement, so the
+        // settlement price is STRICTLY WORSE for the leaver than the mark-time price — the ramp
+        // moving in the direction that protects whoever stays. Recomputed here from `Config`
+        // constants, deliberately NOT from `registry.pastDueRampWeightBps`, so that a mutation of
+        // the ramp reddens this assertion instead of sliding the expectation with it.
+        assertLt(claimable, impairedExit, "the relief wound OFF between the request's mark and its settlement");
+        uint256 elapsed = settleAt - markedAt;
+        assertLt(elapsed, Config.DEFAULT_REDEEM_COOLDOWN, "precondition: alice settles part-way up the ramp");
+        uint256 rampedBps = Config.DEFAULT_PAST_DUE_WEIGHT_BPS
+            + ((Config.BPS - Config.DEFAULT_PAST_DUE_WEIGHT_BPS) * elapsed) / Config.DEFAULT_REDEEM_COOLDOWN;
+        assertApproxEqAbs(
+            claimable,
+            parExit - (PRINCIPAL * rampedBps + Config.BPS - 1) / Config.BPS,
+            1e12,
+            "settled at exactly the RAMPED conservative past-due rate for its own elapsed"
+        );
 
         vm.prank(alice);
         uint256 assets = queue.claim(reqId);

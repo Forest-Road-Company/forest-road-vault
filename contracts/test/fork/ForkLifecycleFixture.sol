@@ -99,6 +99,7 @@ abstract contract ForkLifecycleFixture is Test, Deploy {
 
     bool internal forkReady;
     uint256 internal attestationNonce;
+    uint256 internal workoutEvidenceNonce;
 
     /// @dev Guards every fork test. Unlike the previous `forkOnly` pattern — which silently
     ///      returned and let the test report PASS while executing NOTHING — this SKIPS
@@ -126,6 +127,8 @@ abstract contract ForkLifecycleFixture is Test, Deploy {
         Ctx memory c;
         c.deployer = ops;
         c.opsAdmin = ops; // testnet shape: one operator holds the ops roles
+        c.proposalGuardian = makeAddr("forkProposalGuardian");
+        c.queueKeeper = ops; // AUDIT FIX (D7-01 round 5): SETTLEMENT_KEEPER_ROLE holder
         c.frTreasury = ops;
         c.feeRecipient = ops;
         c.attester2 = attester2Addr;
@@ -151,6 +154,17 @@ abstract contract ForkLifecycleFixture is Test, Deploy {
         grove = GroveToken(dep.grove);
         sGrove = SGrove(dep.sGrove);
         timelock = dep.timelock;
+
+        // AUDIT FIX (D7-01): `closeEpoch` is keeper-gated. `Deploy` grants
+        // SETTLEMENT_KEEPER_ROLE to `c.queueKeeper` and `c.opsAdmin`, both of which default to
+        // `c.deployer` — the test contract — in a fork run, so the existing call sites keep
+        // working. Asserted rather than assumed: if the deploy wiring regresses, these fixtures
+        // must fail LOUDLY here rather than have every queue test collapse onto an
+        // access-control revert that looks like a queue bug.
+        require(
+            RedemptionQueue(dep.queue).hasRole(Roles.SETTLEMENT_KEEPER_ROLE, address(this)),
+            "ForkLifecycleFixture: deploy did not grant SETTLEMENT_KEEPER_ROLE to the harness"
+        );
 
         // The deploy granted ATTESTER_ROLE to `c.deployer` (the keyless test contract) and to
         // `attester2Addr`. Add the first SIGNING key so a genuine 2-of-n bundle can be formed.
@@ -231,13 +245,12 @@ abstract contract ForkLifecycleFixture is Test, Deploy {
         uint64 maturity,
         bytes32 offchainRef
     ) internal {
-        _attest(facilityId, IAttestationOracle.AttestationKind.AssignmentExecuted, keccak256("assign"));
-        _attest(facilityId, IAttestationOracle.AttestationKind.UCCFiled, keccak256("ucc"));
-        _attest(
-            facilityId,
-            IAttestationOracle.AttestationKind.CreditIssued,
-            bridge.creditTermsHash(_forkTerms(borrowerId, stateId, principal, ltvBps, maturity, offchainRef))
-        );
+        bytes32 termsHash =
+            bridge.creditTermsHash(_forkTerms(borrowerId, stateId, principal, ltvBps, maturity, offchainRef));
+        // P-32: documentary facts are deal identities, not existence-only flags.
+        _attest(facilityId, IAttestationOracle.AttestationKind.AssignmentExecuted, termsHash);
+        _attest(facilityId, IAttestationOracle.AttestationKind.UCCFiled, termsHash);
+        _attest(facilityId, IAttestationOracle.AttestationKind.CreditIssued, termsHash);
     }
 
     /// @dev Originate a FILM facility through the real m-of-n mint gate, then fund it.
@@ -301,16 +314,25 @@ abstract contract ForkLifecycleFixture is Test, Deploy {
 
     /// @dev Realize a loss using a fresh exact LossRealized attestation. A distinct
     ///      attestation is required for every chunk because the amount is value-bearing.
-    function _attestLoss(uint256 tokenId, uint256 loss, bytes32 evidenceHash) internal {
+    function _attestLoss(uint256 tokenId, uint256 loss, bytes32 evidenceHash)
+        internal
+        returns (bytes32 resolvedEvidenceHash)
+    {
+        resolvedEvidenceHash = evidenceHash;
+        if (resolvedEvidenceHash == bytes32(0)) {
+            resolvedEvidenceHash = keccak256(abi.encode("fork-loss-event", tokenId, loss, ++workoutEvidenceNonce));
+        }
         _attest(
-            tokenId, IAttestationOracle.AttestationKind.LossRealized, keccak256(abi.encode(tokenId, loss, evidenceHash))
+            tokenId,
+            IAttestationOracle.AttestationKind.LossRealized,
+            keccak256(abi.encode(tokenId, loss, resolvedEvidenceHash))
         );
     }
 
     function _realizeLoss(uint256 tokenId, uint256 loss, bytes32 evidenceHash) internal {
-        _attestLoss(tokenId, loss, evidenceHash);
+        bytes32 resolvedEvidenceHash = _attestLoss(tokenId, loss, evidenceHash);
         vm.prank(ops);
-        defaultManager.realizeLoss(tokenId, loss, evidenceHash);
+        defaultManager.realizeLoss(tokenId, loss, resolvedEvidenceHash);
     }
 
     function _forkTerms(

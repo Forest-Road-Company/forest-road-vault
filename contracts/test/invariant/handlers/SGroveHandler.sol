@@ -9,7 +9,7 @@ import {USDfr} from "../../../src/USDfr.sol";
 import {Config} from "../../../src/libraries/Config.sol";
 
 /// @dev Bounded handler for the sGROVE backstop (fail_on_revert = true). Per-call
-///      DIFFERENTIAL asserts pin the per-event coverage cap; ghosts let the invariant
+///      DIFFERENTIAL asserts pin ADR-0035's shared-reserve draw; ghosts let the invariant
 ///      functions prove custody and reward conservation.
 contract SGroveHandler is Test {
     GroveToken internal grove;
@@ -182,36 +182,27 @@ contract SGroveHandler is Test {
         callCount++;
     }
 
-    /// @dev DIFFERENTIAL per-event cap check (ADR-0014): covered is exactly
-    ///      min(request, reserve x capBps) at every fuzzed draw.
-    /// @dev PM-R-07: the differential model is now PER EVENT, not per call. The cap is
-    ///      snapshotted at an event's first draw and consumed cumulatively, so the expected
-    ///      figure is min(request, snapshotCap - alreadyDrawn) — a repeat draw on an exhausted
-    ///      event must deliver exactly zero. Bounded to a few event ids so the fuzzer actually
-    ///      REVISITS events; otherwise every call would be a fresh event and the cumulative
-    ///      rule would never be exercised (the anti-vacuity point).
+    /// @dev ADR-0035 differential: covered is exactly `min(request, live reserve)`. Event ids are
+    ///      deliberately revisited so cumulative observability is also checked across chunks.
     function coverShortfall(uint256 eventId, uint256 amount) external {
         eventId = bound(eventId, 1, 3);
         amount = bound(amount, 1, 1_000_000e18);
         uint256 reserveBefore = sGrove.coverageReserve();
-        (, uint16 capBps) = sGrove.params();
-        (uint256 drawnBefore, uint256 snapshot) = sGrove.eventCoverage(eventId);
-        // an event that has never drawn against a funded reserve snapshots now
-        uint256 cap = snapshot != 0 ? snapshot : reserveBefore * capBps / Config.BPS;
-        uint256 room = cap > drawnBefore ? cap - drawnBefore : 0;
-        uint256 expected = amount < room ? amount : room;
-        if (expected > reserveBefore) expected = reserveBefore;
+        (uint256 drawnBefore, uint256 reachableBefore) = sGrove.eventCoverage(eventId);
+        uint256 expected = amount < reserveBefore ? amount : reserveBefore;
         uint256 callerBefore = usdfr.balanceOf(coverageCaller);
 
         vm.prank(coverageCaller);
         uint256 covered = sGrove.coverShortfall(eventId, amount);
 
-        assertEq(covered, expected, "CAP: covered != min(request, per-EVENT room)");
+        assertEq(covered, expected, "ADR-0035: covered != min(request, shared reserve)");
         assertEq(usdfr.balanceOf(coverageCaller) - callerBefore, covered, "ICascadeBackstop delivery");
         assertEq(sGrove.coverageReserve(), reserveBefore - covered, "reserve decrement exact");
-        (uint256 drawnAfter,) = sGrove.eventCoverage(eventId);
+        (uint256 drawnAfter, uint256 reachableAfter) = sGrove.eventCoverage(eventId);
         assertEq(drawnAfter, drawnBefore + covered, "per-event cumulative tracking exact");
-        assertLe(drawnAfter, cap, "PM-R-07: cumulative draw NEVER exceeds the event cap");
+        assertEq(reachableBefore, drawnBefore + reserveBefore, "event view before draw is not live");
+        assertEq(reachableAfter, drawnAfter + sGrove.coverageReserve(), "event view after draw is not live");
+        assertEq(reachableAfter, reachableBefore, "draw must transfer reserve into cumulative observability exactly");
         callCount++;
     }
 

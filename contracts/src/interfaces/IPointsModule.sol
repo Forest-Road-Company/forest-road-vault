@@ -24,12 +24,10 @@ interface IPointsModule {
     ///      It carries no dilution ratio, so the ledger distrusts every cached balance in the
     ///      class — conservative, never over-crediting. Prefer the three-argument form.
     /// @notice Notifies the points ledger that a class absorbed a loss, with the pool balances
-    ///         bracketing the absorption (CuratorModule-only). Absorption leaves curator shares
-    ///         untouched and only reduces the pool balance, so every curator's posted first-loss
-    ///         is diluted by exactly `poolBalanceAfter / poolBalanceBefore`. Supplying the ratio
-    ///         lets the ledger write stale cached balances down exactly — without which a
-    ///         curator who tops back up to their pre-loss notional keeps the destroyed capital's
-    ///         maturity ramp (H-03).
+    ///         bracketing the absorption (CuratorModule-only). Equal balances are ignored because
+    ///         a representation-only normalization is not an economic loss. For an economic loss,
+    ///         the ratio lets the ledger write cached balances down without iterating curators
+    ///         (H-03/M-4).
     /// @param classId The collateral class that absorbed the loss.
     /// @param poolBalanceBefore The class first-loss pool balance immediately before absorption.
     /// @param poolBalanceAfter The class first-loss pool balance immediately after absorption.

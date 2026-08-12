@@ -38,6 +38,10 @@ interface ICollateralRegistry {
     event BorrowerLimitOverrideCleared(bytes32 indexed borrowerId);
     event StateLimitSet(uint16 limitBps);
     event ConcentrationFloorSet(uint256 floor);
+    /// @notice Governance changed the forward weight of an UNATTESTED past-due mark
+    ///         (OWNER DECISION 2026-08-07).
+    /// @param bps The new weight, in bps of the executable senior charge.
+    event PastDueWeightSet(uint256 bps);
 
     /// @notice A class crossed FROM within its concentration limit TO above it
     ///         (AUDIT FIX M-02). This is a book-shrink artefact: an amortising
@@ -105,6 +109,13 @@ interface ICollateralRegistry {
     ///         concentration arithmetic is provably overflow-free. Fails loudly with a
     ///         decodable error rather than an arithmetic panic.
     error Registry_PrincipalTooLarge();
+    /// @notice `setPastDueWeight` was asked for a weight of zero (which re-opens H-5/D5-03 by
+    ///         disabling the only permissionless senior protection on receivables) or a weight of
+    ///         `Config.BPS` or more (which restores the defect the weight exists to fix: an
+    ///         unattested mark carrying the same forward weight as an attested declared default).
+    ///         OWNER DECISION 2026-08-07. DO NOT DELETE EITHER BOUND.
+    /// @param bps The rejected weight.
+    error Registry_InvalidPastDueWeight(uint256 bps);
     error Registry_ConcentrationExceeded(uint256 classId, uint256 wouldBe, uint256 limit);
     error Registry_BorrowerConcentrationExceeded(bytes32 borrowerId, uint256 wouldBe, uint256 limit);
     error Registry_StateConcentrationExceeded(bytes32 stateId, uint256 wouldBe, uint256 limit);
@@ -152,6 +163,59 @@ interface ICollateralRegistry {
         external
         view
         returns (bool classOver, bool borrowerOver, bool stateOver);
+
+    /// @notice The forward weight, in bps, that an UNATTESTED permissionless past-due mark
+    ///         (`DefaultManager.markPastDue`) carries in the conservative redemption NAV,
+    ///         relative to an ATTESTED declared default (OWNER DECISION 2026-08-07).
+    /// @dev Governed credit-risk policy, so it lives with the advance rates and concentration
+    ///      limits rather than in DefaultManager (which is EIP-170 constrained and contended).
+    ///      Never returns zero: an unset slot reads `Config.DEFAULT_PAST_DUE_WEIGHT_BPS`.
+    /// @return bps The effective weight, strictly between 0 and `Config.BPS`.
+    function pastDueWeightBps() external view returns (uint256 bps);
+
+    /// @notice Applies the governed unattested-past-due weight to an executable senior charge.
+    /// @dev Called by `DefaultManager.pendingSeniorImpairment` on the past-due cohort's charge
+    ///      AFTER the executable bound has been applied. Rounds UP (over-mark is the safe
+    ///      direction). OWNER DECISION 2026-08-07 — DO NOT turn this into a pass-through.
+    /// @param amount The executable senior charge attributable to the past-due cohort.
+    /// @return weighted The discounted charge that enters the conservative redemption NAV.
+    function weightedPastDueImpairment(uint256 amount) external view returns (uint256 weighted);
+
+    /// @notice The TOTAL conservative senior mark: the attested cohort at full weight plus the
+    ///         unattested past-due cohort, clamped to executable capacity and ramp-weighted.
+    /// @dev OWNER DECISION 2026-08-07. Clamps `pastDueSenior` to the senior absorption capacity
+    ///      `realizeLoss` could actually reach today (`vaultAssets` less the attested cohort's prior
+    ///      claim), THEN applies the governed weight, which itself ramps from
+    ///      `pastDueWeightBps()` back to `Config.BPS` over one `Config.DEFAULT_REDEEM_COOLDOWN`.
+    ///      Both the CLAMP-BEFORE-WEIGHT order and the ramp's expiry are load-bearing; see the
+    ///      implementation NatSpec.
+    /// @param pastDueSenior The past-due cohort's post-junior senior residual.
+    /// @param residual The TOTAL post-junior senior residual (both cohorts), unweighted.
+    /// @param vault The `sUSDfr` vault whose `totalAssets()` is layer 3's hard ceiling in
+    ///        `realizeLoss`. Read here rather than passed in as a number so the governed weight and
+    ///        the ceiling it is applied to stay in one timelocked module; see the implementation
+    ///        NatSpec, which also carries the recursion warning.
+    /// @param anchor `DefaultManager.pastDueReliefAnchor`. ZERO (unset) fails SAFE to full weight.
+    /// @return mark The total conservative senior impairment entering the redemption NAV.
+    function conservativeSeniorMark(uint256 pastDueSenior, uint256 residual, address vault, uint256 anchor)
+        external
+        view
+        returns (uint256 mark);
+
+    /// @notice The forward weight, in bps, an unattested past-due mark carries after `elapsed`
+    ///         seconds of its relief ramp (OWNER DECISION 2026-08-07).
+    /// @dev Ramps linearly from `pastDueWeightBps()` at `elapsed == 0` to `Config.BPS` at
+    ///      `elapsed >= Config.DEFAULT_REDEEM_COOLDOWN`, and stays at `Config.BPS` thereafter.
+    ///      A read-only convenience for operations and reference models; the mark itself does NOT
+    ///      route through it (see the implementation NatSpec for why).
+    /// @param elapsed Seconds since `DefaultManager.pastDueReliefAnchor`.
+    /// @return bps The effective weight, in `[pastDueWeightBps(), Config.BPS]`.
+    function pastDueRampWeightBps(uint256 elapsed) external view returns (uint256 bps);
+
+    /// @notice Governance sets the forward weight of an unattested past-due mark.
+    /// @dev Rejects 0 (re-opens H-5/D5-03) and `Config.BPS` or more (restores the defect).
+    /// @param bps The new weight, strictly between 0 and `Config.BPS`.
+    function setPastDueWeight(uint256 bps) external;
 
     /// @notice Bitmap of classes currently above their limit; bit `classId - 1` set.
     /// @dev Recomputed from the book on every call — never served from a cached slot, so it

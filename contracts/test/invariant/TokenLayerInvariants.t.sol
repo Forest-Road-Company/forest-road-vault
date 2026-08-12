@@ -15,8 +15,21 @@ contract TokenLayerInvariants is TokenLayerFixture {
 
     function setUp() public override {
         super.setUp();
-        handler =
-            new TokenLayerHandler(usdc, usdfr, compliance, reserves, controller, vault, complianceAdmin, creditModule);
+        // AUDIT C4-USDFR-02/03: wire the campaign the way `Deploy.s.sol` wires mainnet — the
+        // registry installed on the token, and the value-custodying modules listed as
+        // protocol-exempt. Without this the emergency-pause carve-out has no directory to
+        // consult and the paused-state invariants below would test a configuration the
+        // protocol never ships.
+        vm.startPrank(admin);
+        usdfr.setComplianceModule(address(compliance));
+        compliance.setProtocolExempt(address(vault), true);
+        compliance.setProtocolExempt(address(reserves), true);
+        compliance.setProtocolExempt(address(controller), true);
+        vm.stopPrank();
+
+        handler = new TokenLayerHandler(
+            usdc, usdfr, compliance, reserves, controller, vault, complianceAdmin, creditModule, guardian, admin
+        );
         targetContract(address(handler));
     }
 
@@ -65,9 +78,55 @@ contract TokenLayerInvariants is TokenLayerFixture {
         assertEq(usdfr.totalSupply(), tracked, "SUPPLY LEAKED TO UNTRACKED ADDRESS");
     }
 
-    /// @notice The handler must actually be exercising the system (anti-vacuity).
-    function invariant_callSummary() public view {
-        // no assertion — surfaced via -vv for run inspection; kept cheap
-        handler.callCount();
+    /// @notice INVARIANT (AUDIT C4-USDFR-02, emergency pause): a paused USDfr settles NO user
+    ///         outflow. The burn is the outflow leg — `MintRedeemController.redeem` burns a
+    ///         holder's USDfr and releases the USDC behind it — and the old carve-out let it
+    ///         through unconditionally, so pausing closed the inflow and left the reserve
+    ///         draining at par. `TokenLayerHandler.pausedUserRedeem` drives exactly this region
+    ///         on every call, funding the position itself so it can never be filtered away.
+    function invariant_pause_settlesNoUserOutflow() public view {
+        assertEq(handler.pausedUserOutflows(), 0, "PAUSED USDfr SETTLED A USER REDEMPTION");
+        assertEq(handler.pausedUserSupplyDrops(), 0, "USDfr SUPPLY FELL ON A USER LEG WHILE PAUSED");
+    }
+
+    /// @notice INVARIANT (AUDIT C4-USDFR-02, cascade liveness): the same pause must never
+    ///         freeze the loss cascade. `DefaultManager` burns from itself or from the vault,
+    ///         both governance-listed, and that leg stays executable while paused. This is the
+    ///         counterweight to the invariant above: tightening the pause must not buy safety
+    ///         by deadlocking loss absorption.
+    function invariant_pause_neverFreezesTheLossCascade() public view {
+        assertEq(handler.pausedCascadeBurnsBlocked(), 0, "PAUSE FROZE THE LOSS CASCADE BURN LEG");
+    }
+
+    /// @notice INVARIANT (AUDIT C4-USDFR-01, points brick): governance can never configure the
+    ///         token into a state where an ordinary transfer reverts. `onUSDfrTransfer` returns
+    ///         no data, so solc's `extcodesize` guard fires outside the fail-open `try`; a
+    ///         codeless module therefore bricked every transfer, mint and burn.
+    function invariant_pointsModule_canNeverBrickTheToken() public view {
+        assertEq(handler.codelessPointsInstalls(), 0, "A CODELESS POINTS MODULE WAS INSTALLED");
+        assertEq(handler.tokenBrickedByPointsModule(), 0, "THE POINTS MODULE BRICKED USDfr TRANSFERS");
+    }
+
+    /// @notice REACHABILITY, asserted deterministically rather than left to the fuzzer's draw:
+    ///         both illegal regions really are entered by the handler, and neither action is a
+    ///         no-op that returns before it reaches the guard.
+    function test_reachability_handlerEntersBothIllegalRegions() public {
+        handler.pausedUserRedeem(0, 5_000e6);
+        handler.pausedCascadeBurn(0, 1_000e6);
+        handler.installCodelessPointsModule(uint256(uint160(makeAddr("someWallet"))), 1, 10e6);
+
+        assertGt(handler.pausedUserProbes(), 0, "VACUOUS: the paused-redemption region was never entered");
+        assertGt(handler.pausedCascadeProbes(), 0, "VACUOUS: the paused-cascade region was never entered");
+        assertGt(handler.codelessPointsProbes(), 0, "VACUOUS: the codeless-points region was never entered");
+
+        assertEq(handler.pausedUserOutflows(), 0, "PAUSED USDfr SETTLED A USER REDEMPTION");
+        assertEq(handler.pausedUserSupplyDrops(), 0, "USDfr SUPPLY FELL ON A USER LEG WHILE PAUSED");
+        assertEq(handler.pausedCascadeBurnsBlocked(), 0, "PAUSE FROZE THE LOSS CASCADE BURN LEG");
+        assertEq(handler.codelessPointsInstalls(), 0, "A CODELESS POINTS MODULE WAS INSTALLED");
+        assertEq(handler.tokenBrickedByPointsModule(), 0, "THE POINTS MODULE BRICKED USDfr TRANSFERS");
+    }
+
+    function afterInvariant() public view {
+        assertGt(handler.callCount(), 0, "VACUOUS: token handler executed no successful action");
     }
 }

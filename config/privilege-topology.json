@@ -1,0 +1,228 @@
+{
+  "version": 1,
+  "libraryNotes": [
+    "A QUEUE_ROLE existed through Phase H but was never consumed. The vault gates its exit by the configured redemption-queue address, which is the stronger check; it was removed at Phase I cleanup."
+  ],
+  "roles": [
+    {
+      "name": "DEFAULT_ADMIN_ROLE",
+      "declared": false,
+      "id": "zero",
+      "authority": true,
+      "operational": false,
+      "includeInAssertions": true,
+      "holder": "Governance **timelock**",
+      "purpose": "Admin of all roles (grant/revoke); every parameter setter.",
+      "notice": "Inherited AccessControl administrator; represented by bytes32(0)."
+    },
+    {
+      "name": "UPGRADER_ROLE",
+      "declared": true,
+      "id": "keccak-name",
+      "authority": true,
+      "operational": false,
+      "includeInAssertions": true,
+      "holder": "Governance **timelock**",
+      "purpose": "Authorizes upgrades on role-gated UUPS modules.",
+      "notice": "May authorize UUPS upgrades. Held only by the governance timelock."
+    },
+    {
+      "name": "GUARDIAN_ROLE",
+      "declared": true,
+      "id": "keccak-name",
+      "authority": false,
+      "operational": true,
+      "includeInAssertions": true,
+      "holder": "Guardian",
+      "purpose": "Pause/unpause user paths and create one persistent reserve-loss arm; cannot release, renew, adjudicate, or execute the cascade.",
+      "notice": "Emergency pause/unpause on value-moving paths. Cannot upgrade or move value."
+    },
+    {
+      "name": "MINTER_ROLE",
+      "declared": true,
+      "id": "keccak-name",
+      "authority": true,
+      "operational": false,
+      "includeInAssertions": true,
+      "holder": "MintRedeemController",
+      "purpose": "Mint and burn USDfr through the backing-checked controller path.",
+      "notice": "May mint USDfr. Held only by the MintRedeemController."
+    },
+    {
+      "name": "CONTROLLER_ROLE",
+      "declared": true,
+      "id": "keccak-name",
+      "authority": true,
+      "operational": false,
+      "includeInAssertions": true,
+      "holder": "MintRedeemController",
+      "purpose": "ReserveManager deposit/release custody operations.",
+      "notice": "Reserve custody operations (deposit/release). Held only by the MintRedeemController."
+    },
+    {
+      "name": "CREDIT_ROLE",
+      "declared": true,
+      "id": "keccak-name",
+      "authority": true,
+      "operational": false,
+      "includeInAssertions": true,
+      "holder": "WaterfallEngine, DefaultManager, ClaimBridge",
+      "purpose": "Trusted internal credit-module primitives; never an EOA.",
+      "notice": "Principal deployment, atomic payment receipt, and writedown. Held by credit modules."
+    },
+    {
+      "name": "LOSS_BURNER_ROLE",
+      "declared": true,
+      "id": "keccak-name",
+      "authority": true,
+      "operational": false,
+      "includeInAssertions": true,
+      "holder": "DefaultManager, ReserveManager",
+      "purpose": "Burn protocol-owned junior capital and pro-rata senior vault assets during authenticated loss cascades; never held by WaterfallEngine or an EOA.",
+      "notice": "May burn USDfr to realize an authenticated loss. Held only by DefaultManager and ReserveManager.",
+      "dev": "AUDIT R16-M1: burnLoss is deliberately split from CREDIT_ROLE so the repayment engine cannot compose mint and burn authority."
+    },
+    {
+      "name": "FEE_ACCOUNTING_ROLE",
+      "declared": true,
+      "id": "keccak-name",
+      "authority": true,
+      "operational": false,
+      "includeInAssertions": true,
+      "holder": "CuratorModule, SGrove, DefaultManager",
+      "purpose": "Bracket fee-neutral junior-capacity changes; never an EOA.",
+      "notice": "May bracket a junior-capacity change so the vault preserves its asset-denominated performance-fee hurdle. Held only by the curator, sGROVE, and DefaultManager modules."
+    },
+    {
+      "name": "COMPLIANCE_ADMIN_ROLE",
+      "declared": true,
+      "id": "keccak-name",
+      "authority": false,
+      "operational": true,
+      "includeInAssertions": true,
+      "holder": "Ops / compliance",
+      "purpose": "KYC allow-list and jurisdiction blocklist; cannot set protocol exemptions.",
+      "notice": "Manages KYC allowlist and jurisdiction blocklist entries."
+    },
+    {
+      "name": "RESERVE_ADMIN_ROLE",
+      "declared": true,
+      "id": "keccak-name",
+      "authority": true,
+      "operational": false,
+      "includeInAssertions": true,
+      "holder": "Governance **timelock**",
+      "purpose": "Ratify bounded reserve losses and account physically recovered reserve capital.",
+      "notice": "Reserve configuration and conservative USDC custody write-downs."
+    },
+    {
+      "name": "ORIGINATOR_ROLE",
+      "declared": true,
+      "id": "keccak-name",
+      "authority": false,
+      "operational": true,
+      "includeInAssertions": true,
+      "holder": "Ops (Forest Road)",
+      "purpose": "Originate facilities through ClaimBridge.",
+      "notice": "May originate facilities (Phase D)."
+    },
+    {
+      "name": "ATTESTER_ROLE",
+      "declared": true,
+      "id": "keccak-name",
+      "authority": false,
+      "operational": false,
+      "includeInAssertions": false,
+      "holder": "The m-of-n attester keys",
+      "purpose": "Authorized EIP-712 signers; the oracle verifies bundles against current holders.",
+      "notice": "Authorized attesters (Phase G, ADR-0007)."
+    },
+    {
+      "name": "SERVICER_ROLE",
+      "declared": true,
+      "id": "keccak-name",
+      "authority": false,
+      "operational": true,
+      "includeInAssertions": true,
+      "holder": "Ops (Forest Road)",
+      "purpose": "Facility funding, repayment distribution, default, acceleration, loss realization, and cure operations.",
+      "notice": "Servicing operations: facility funding, repayment distribution, default declaration, and loss realization. Held by Forest Road servicing keys until Phase G binds these paths to attested facts; the role then gates who may execute an already-attested action, not what is true."
+    },
+    {
+      "name": "SETTLEMENT_KEEPER_ROLE",
+      "declared": true,
+      "id": "keccak-name",
+      "authority": false,
+      "operational": true,
+      "includeInAssertions": true,
+      "holder": "Dedicated queue keeper + ops-Safe backstop",
+      "purpose": "Drive RedemptionQueue.closeEpoch and choose when its contract-bounded liquidity snapshot is taken.",
+      "notice": "Drives RedemptionQueue.closeEpoch. Operational, not governance or upgrade authority: it initiates a financially effective settlement and controls when its budget is sampled, but cannot choose recipients, reorder FIFO, set parameters, or exceed the contract-enforced budget and pricing rules.",
+      "dev": "AUDIT FIX D7-01: closeEpoch samples the epoch liquidity budget as a spot read and the fill loop re-reads it every chunk. While permissionless, a caller could hold flash liquidity across both reads; measured excess budget was $1.62M from Morpho alone and $4.31M from stacked Aave and Morpho borrowing. A flash loan cannot span two transactions, so the keeper gate closes the vector at its root. This supersedes ADR-0018 section 2's permissionless-settlement design. Grant the role to at least two holders: a hot keeper and a manual ops-multisig backstop. A total keeper outage is bounded only by governance regranting the role. A permissionless grace fallback was rejected because it would restore the flash vector whenever the keeper missed the window."
+    }
+  ],
+  "timelockRoles": [
+    {
+      "getter": "PROPOSER_ROLE",
+      "displayName": "TIMELOCK_PROPOSER_ROLE",
+      "authority": true
+    },
+    {
+      "getter": "CANCELLER_ROLE",
+      "displayName": "TIMELOCK_CANCELLER_ROLE",
+      "authority": true
+    },
+    {
+      "getter": "EXECUTOR_ROLE",
+      "displayName": "TIMELOCK_EXECUTOR_ROLE",
+      "authority": false
+    }
+  ],
+  "modules": [
+    {"field": "compliance", "name": "compliance", "contract": "ComplianceRegistry", "handover": true, "deployHandover": true},
+    {"field": "usdfr", "name": "usdfr", "contract": "USDfr", "handover": true, "deployHandover": true},
+    {"field": "reserves", "name": "reserves", "contract": "ReserveManager", "handover": true, "deployHandover": true},
+    {"field": "controller", "name": "controller", "contract": "MintRedeemController", "handover": true, "deployHandover": true},
+    {"field": "vault", "name": "vault", "contract": "SUSDfr", "handover": true, "deployHandover": true},
+    {"field": "points", "name": "points", "contract": "PointsModule", "handover": true, "deployHandover": true},
+    {"field": "registry", "name": "registry", "contract": "CollateralRegistry", "handover": true, "deployHandover": true},
+    {"field": "oracle", "name": "oracle", "contract": "AttestationOracle", "handover": true, "deployHandover": true},
+    {"field": "bridge", "name": "bridge", "contract": "ClaimBridge", "handover": true, "deployHandover": true},
+    {"field": "curator", "name": "curator", "contract": "CuratorModule", "handover": true, "deployHandover": true},
+    {"field": "waterfall", "name": "waterfall", "contract": "WaterfallEngine", "handover": true, "deployHandover": true},
+    {"field": "defaultManager", "name": "defaultManager", "contract": "DefaultManager", "handover": true, "deployHandover": true},
+    {"field": "assessedImpairmentSource", "name": "assessedImpairmentSource", "contract": "AssessedImpairmentSource", "handover": true, "deployHandover": true},
+    {"field": "queue", "name": "queue", "contract": "RedemptionQueue", "handover": true, "deployHandover": true},
+    {"field": "sGrove", "name": "sGrove", "contract": "SGrove", "handover": true, "deployHandover": true},
+    {"field": "grove", "name": "grove", "contract": "GroveToken", "handover": true, "deployHandover": false},
+    {"field": "timelock", "name": "timelock", "contract": "ForestRoadTimelock", "handover": false, "deployHandover": false}
+  ],
+  "deploymentExclusions": [
+    {
+      "field": "mtmExecutor",
+      "contracts": ["MtmAtomicExecutor"],
+      "reason": "Immutable, non-AccessControl atomic executor; no role graph exists to scan or hand over."
+    },
+    {
+      "field": "governor",
+      "contracts": ["FRGovernor"],
+      "reason": "Governor-authorized rather than AccessControl-authorized; hasRole scanning is inapplicable."
+    },
+    {
+      "field": "votesAggregator",
+      "contracts": ["GroveVotesAggregator"],
+      "reason": "Immutable, role-less IVotes view aggregator."
+    },
+    {
+      "field": "stable",
+      "contracts": ["MockERC20"],
+      "reason": "External canonical USDC in production and a role-less mock in local deployments."
+    }
+  ],
+  "infrastructureExclusions": [
+    {
+      "contract": "ERC1967Proxy",
+      "reason": "Proxy shell; the implementation behind each proxy is classified separately."
+    }
+  ]
+}

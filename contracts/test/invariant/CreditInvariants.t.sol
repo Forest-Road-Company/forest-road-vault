@@ -50,7 +50,7 @@ contract CreditInvariants is CreditLayerFixture {
         handler.setVaultAdmin(admin);
         targetContract(address(handler));
         // ghost-free helper views must not be fuzzed as actions
-        bytes4[] memory selectors = new bytes4[](19);
+        bytes4[] memory selectors = new bytes4[](21);
         selectors[0] = CreditHandler.depositAndStake.selector;
         selectors[1] = CreditHandler.originate.selector;
         selectors[2] = CreditHandler.fund.selector;
@@ -78,19 +78,28 @@ contract CreditInvariants is CreditLayerFixture {
         // pass the mandated impairment invariants unseen.
         selectors[14] = CreditHandler.markPastDue.selector;
         selectors[15] = CreditHandler.clearPastDue.selector;
-        // AUDIT C-30: `MockCascadeBackstop.setCoverageCap` had ZERO callers anywhere, so every
-        // campaign ran with the per-event cap effectively unlimited and layer 2's capacity
-        // degenerated to the raw balance. The production per-event cap (PM-R-07) was never
-        // exercised at a BINDING value, so these invariants could not tell "layer 2 limited by
-        // capital" from "layer 2 limited by the governed cap". Registering the selector is the
-        // whole point: adding the handler function alone changes nothing here.
-        selectors[16] = CreditHandler.setBackstopEventCap.selector;
+        // ADR-0035 anti-vacuity: repeatedly assert that the mock's compatibility capacity is the
+        // raw live balance, matching production, rather than leaving that identity unexercised.
+        selectors[16] = CreditHandler.checkUncappedBackstopCapacity.selector;
         // ADR-0031: governance may vary the global performance fee prospectively.
         // Exercise the setter and its old-rate crystallization in the stateful campaign.
         selectors[17] = CreditHandler.retunePerformanceFee.selector;
         // ADR-0031: management fee is both stateful and time-dependent. Fuzz the
         // setter so the geometric-retention branch below is live and bounded.
         selectors[18] = CreditHandler.retuneManagementFee.selector;
+        // AUDIT R16-01: `repay` bounds interest to a flat window, so whether a delivery is large
+        // ENOUGH RELATIVE TO THE LIVE BASE to drive `_capStreamToBase` past its retention target
+        // was left to luck — the campaign never systematically visited the parked state where the
+        // R16-01 skim lives. This action sizes the payment off the vault's own cash and asserts
+        // the parked ratio per call. Registering the selector is the whole point.
+        selectors[19] = CreditHandler.deliverOversizedYield.selector;
+        // OWNER DECISION 2026-08-07 (G2W): the unattested past-due weight RAMPS back to full over
+        // one redemption cooldown, and `invariant_pendingImpairmentNeverUnderMarks` now models that
+        // ramp. Random sequencing reaches the EXPIRED half of it in only ~11 of 256 default-profile
+        // runs (measured), which is luck, not coverage -- exactly the shape of the two vacuous
+        // invariants this repository has already been bitten by. This reach action drives the
+        // expiry deterministically whenever a cohort is standing.
+        selectors[20] = CreditHandler.expireReliefRamp.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
@@ -100,11 +109,21 @@ contract CreditInvariants is CreditLayerFixture {
         assertLe(controller.totalUSDfr(), controller.backingValue(), "BACKING VIOLATED");
     }
 
-    /// @notice INVARIANT (waterfall conservation): cumulative fee + senior yield
-    ///         exactly equals cumulative interest distributed.
+    /// @notice INVARIANT (waterfall conservation): cumulative fee + senior yield + cumulative
+    ///         withheld protocol fee exactly equals cumulative interest distributed.
+    /// @dev AUDIT FIX (ADV-1) — STRENGTHENED FROM TWO LEGS TO THREE, NOT WEAKENED. This read
+    ///      `ghostFees() + ghostVaultYield() == ghostInterestDistributed()`, the two-way identity
+    ///      `interest == fee + toVault`. That identity was already stale under the R16-M5 headroom
+    ///      clamp and is definitively false under ADV-1's senior-impairment fee withholding, whose
+    ///      whole point is that some interest is RETAINED AS BACKING rather than minted. Folding
+    ///      the withheld amount back into `ghostFees` would have kept the old shape green while
+    ///      destroying the ability of `CreditHandler.repay`'s per-call `DIFF: fee split` assert to
+    ///      reconcile against the fee recipient's REAL balance — the weakening this file must not
+    ///      accept. Every unit of interest is still accounted for, to the wei, in exactly one of
+    ///      three named legs.
     function invariant_waterfall_conservesValue() public view {
         assertEq(
-            handler.ghostFees() + handler.ghostVaultYield(),
+            handler.ghostFees() + handler.ghostVaultYield() + handler.ghostFeeWithheldForImpairment(),
             handler.ghostInterestDistributed(),
             "WATERFALL CONSERVATION VIOLATED"
         );
@@ -127,7 +146,9 @@ contract CreditInvariants is CreditLayerFixture {
     function invariant_exchangeRate_neverFallsWithoutLossOrFee() public view {
         uint256 rate = vault.currentExchangeRate();
         uint256 floor = handler.rateFloor();
-        if (rate >= floor) return;
+        // The handler's fee-parameter checkpoints already permit one wei of share-price
+        // rounding. Apply the same tolerance before classifying a decline as economically due.
+        if (rate >= floor || floor - rate <= 1) return;
 
         bool managementDue =
             vault.managementFeeBps() != 0 && block.timestamp > vault.lastFeeAccrual() && vault.totalSupply() != 0;
@@ -183,8 +204,14 @@ contract CreditInvariants is CreditLayerFixture {
         bool belowLaunchFloor = realizedRate * Config.SUSDFR_DEGENERATE_RATE_DIVISOR < par;
         // Independent reference model of SUSDfr._isDegenerate. Keep every economic clause here:
         // omitting the R15-01 launch floor made this invariant misclassify a correctly closed vault.
+        // AUDIT R16-01: the stranded-stream comparison is `>=`. Entry must be CLOSED on the exact
+        // boundary `unvestedYield() == K * totalAssets()` — the point of maximum tolerated skim,
+        // which the old strict `>` left open and which the old `_capStreamToBase` retention of
+        // `K/(K+1)` of the balance parked healthy vaults on exactly. A `>` here would let a vault
+        // sitting on the boundary be classified "solvent" and then fail the `SOLVENT VAULT CLOSED`
+        // arm; it is the model, not the guard, that must follow.
         bool closed = supply != 0
-            && (assets == 0 || belowLaunchFloor || vault.unvestedYield() > Config.SUSDFR_MAX_STRANDED_YIELD_RATIO * assets);
+            && (assets == 0 || belowLaunchFloor || vault.unvestedYield() >= Config.SUSDFR_MAX_STRANDED_YIELD_RATIO * assets);
         if (closed) {
             assertEq(vault.maxDeposit(address(this)), 0, "DEGENERATE VAULT STILL ACCEPTS DEPOSITS");
             assertEq(vault.maxMint(address(this)), 0, "DEGENERATE VAULT STILL ACCEPTS MINTS");
@@ -267,7 +294,7 @@ contract CreditInvariants is CreditLayerFixture {
     ///      actually reached the drained-then-refilled coverage state, not merely how many times
     ///      `stressCoverageFloor` was called. Read here so the number is visible in traces rather
     ///      than assumed; see the MEASURED REACH block below for what it measured.
-    function invariant_callSummary() public view {
+    function invariant_reachTelemetry() public view {
         handler.callCount();
         handler.ghostFloorDrains();
         // AUDIT FIX (H-5) past-due reach telemetry (see the MEASURED REACH block on
@@ -280,6 +307,32 @@ contract CreditInvariants is CreditLayerFixture {
         handler.ghostPastDueAutoReleases();
         handler.ghostPastDueReanchors();
         handler.pastDueFlaggedCount();
+        // OWNER DECISION 2026-08-07 (G2W) relief-ramp reach: how many observations this run fell
+        // INSIDE the ramp versus PAST its expiry. Surfaced here so the split is visible in traces
+        // rather than assumed; asserted non-vacuous in `afterInvariant`.
+        handler.ghostRampObservedInside();
+        handler.ghostRampObservedExpired();
+    }
+
+    function afterInvariant() public view {
+        assertGt(handler.callCount(), 0, "VACUOUS: credit handler executed no successful action");
+        // OWNER DECISION 2026-08-07 (G2W) — PER-RUN ANTI-VACUITY FOR THE RELIEF RAMP.
+        // `invariant_pendingImpairmentNeverUnderMarks` now models the RAMPED weight. A model that
+        // is never evaluated with a live unattested cohort constrains nothing, and this repository
+        // has already shipped two invariants that passed only because their handler never reached
+        // the region. So: any run that marked a facility past due must have taken at least one
+        // observation with that cohort standing. Deliberately NOT "must observe both halves" —
+        // crossing the 21-day expiry needs a warp that a 128-call run is not guaranteed to draw,
+        // and a per-run assertion that can fail by luck is worse than no assertion. The CAMPAIGN-
+        // level split (both halves non-zero across 256 runs) is measured out-of-band and recorded
+        // in the MEASURED REACH block below; re-measure it if the handler's action mix changes.
+        if (handler.ghostPastDueMarks() > 0) {
+            assertGt(
+                handler.ghostRampObservedInside() + handler.ghostRampObservedExpired(),
+                0,
+                "VACUOUS: marks happened but the relief ramp was never observed with a standing cohort"
+            );
+        }
     }
 
     /// @notice INVARIANT (ADR-0022 / PM-R-11): the conservative redemption NAV NEVER under-marks
@@ -353,9 +406,50 @@ contract CreditInvariants is CreditLayerFixture {
     ///      contract's re-anchored term, always a valid LOWER bound -> a valid floor), while the
     ///      ceiling sums the handler's own snapshot, re-anchored DOWN in lockstep on each performing
     ///      repay (an upper bound tracking the contract's honest term -> a valid ceiling). The one
-    ///      contract read here — `liveDefaultCoverageConsumed()` — only SELECTS which backstop-room
-    ///      formula mirrors the contract's own branch; the tight per-event `room` that catches the
-    ///      three PM-R-11 variants is unchanged.
+    ///      ADR-0035 gives every wired event the same live-reserve room. The model still bounds
+    ///      each row by its own principal, then clamps the cohort once by the reserve actually
+    ///      held so multiple events cannot double-count capital.
+    ///      OWNER DECISION 2026-08-07 (G2W) — THE HONEST FLOOR FOR THE UNATTESTED COHORT MOVED,
+    ///      THE INVARIANT'S STATEMENT DID NOT. This invariant says "the reported impairment is
+    ///      never below the honest conservative floor". What changed is the definition of the
+    ///      honest floor for the PAST-DUE cohort, and it changed because Forest Road decided that
+    ///      an unattested, permissionless mark must not carry the same forward weight as an
+    ///      attested declared default. The floor is therefore recomputed here in the same two
+    ///      steps the contract uses, from INDEPENDENT inputs:
+    ///        - the past-due cohort's own post-junior residual, from the handler's ghost set and
+    ///          live `reserves.deployedTo` (never from `DefaultManager.pastDuePrincipal`);
+    ///        - clamped to the senior absorption capacity `realizeLoss` could actually reach today
+    ///          (`sUSDfr.totalAssets()`, read from the VAULT, less the attested cohort's prior
+    ///          claim — the attested cohort can call `realizeLoss` this block, the past-due cohort
+    ///          structurally cannot);
+    ///        - then multiplied by the governed weight, rounding DOWN where the contract rounds UP,
+    ///          so the recomputed value stays a strict LOWER bound and cannot false-fail.
+    ///
+    ///      THE ATTESTED HALF IS UNTOUCHED — it is neither clamped nor weighted nor ramped, here or
+    ///      in the contract, so a genuine near-total senior loss on the attested path still has to
+    ///      clear the full, unmodified floor.
+    ///
+    ///      MEASURED RAMP REACH, DEFAULT PROFILE (256 runs x depth 128), clean build, counted by
+    ///      writing `afterInvariant` telemetry to a file and aggregating ACROSS runs — an in-memory
+    ///      counter cannot do this, because invariant state reverts between runs and would only
+    ///      ever show the last one:
+    ///        - 85 of 256 runs marked at least one facility past due;
+    ///        - all 85 of those took at least one observation INSIDE the relief ramp;
+    ///        - 39 of 256 runs took at least one observation PAST its expiry (93 observations).
+    ///      Without `CreditHandler.expireReliefRamp` the expired half was reached in only 11 of 256
+    ///      runs (20 observations) — reachable by luck, not by coverage. That is why the reach
+    ///      action exists; re-measure both numbers if the action mix changes.
+    ///
+    ///      THE BOUND IS PROVED, NOT ASSUMED. Write `D` for the attested senior residual, `P` for
+    ///      the past-due one, `V` for vault assets and `w` for the weight. The model's junior
+    ///      credit is deliberately the MOST generous honest figure, so `D_model <= D_contract` and
+    ///      `P_model <= P_contract`. Then
+    ///      `D_model + w*min(P_model, V - D_model) <= D_contract + w*min(P_contract, V - D_contract)`
+    ///      in every case: if `V <= D_contract` the model is at most `(1-w)D_model + wV <= D_contract`;
+    ///      if neither side clamps it is termwise; if the contract clamps the model is at most
+    ///      `(1-w)D_model + wV <= (1-w)D_contract + wV`; and if only the model clamps then
+    ///      `P_contract >= P_model > V - D_model` makes the contract strictly larger. So the
+    ///      assertion remains one-sided in the safe direction.
     function invariant_pendingImpairmentNeverUnderMarks() public view {
         // Layer 1, exactly as the contract does it: per-class curator first-loss.
         uint256 residual;
@@ -382,28 +476,88 @@ contract CreditInvariants is CreditLayerFixture {
         // MOST GENEROUS honest figure for the junior layer, which makes the resulting floor the
         // LOWEST honest floor — so asserting the contract is at or above it is the strict test.
         uint256 room;
+        // OWNER DECISION 2026-08-07 (G2W): an INDEPENDENT UPPER bound on the contract's past-due
+        // senior residual, from the handler's own snapshot ghost (the same ghost the over-marks
+        // ceiling uses, re-anchored DOWN in lockstep on every performing repay). It must be an
+        // UPPER bound, not a lower one: the model attributes as much of the recomputed floor as
+        // possible to the DISCOUNTED cohort, which is what makes the resulting floor the LOWEST
+        // honest floor and therefore the strict test. Accumulated for EVERY flagged facility
+        // regardless of live `deployedTo`, so a mark the contract still holds against a
+        // written-down facility cannot fall out of the bound.
+        uint256 pastDueCeiling;
+        uint256 held = usdfr.balanceOf(address(backstopMock));
         uint256 n = handler.facilitiesLength();
         for (uint256 i = 0; i < n; ++i) {
             uint256 id = handler.facilities(i);
-            if (!handler.isDefaultedFacility(id)) continue;
-            if (defaultManager.defaultedContribution(id) == 0) continue;
-            room += handler.backstopRoomFor(id);
+            if (handler.isPastDueFacility(id)) pastDueCeiling += handler.pastDueSnapshotOf(id);
+            uint256 candidateRoom;
+            uint256 eventPrincipal;
+            if (handler.isDefaultedFacility(id)) {
+                eventPrincipal = defaultManager.defaultedContribution(id);
+                if (eventPrincipal == 0) continue;
+                candidateRoom = handler.backstopRoomFor(id);
+            } else if (handler.isPastDueFacility(id) && reserves.deployedTo(id) != 0) {
+                // A past-due facility has not drawn, but if it proceeds to default it reaches the
+                // same shared reserve as every declared event.
+                eventPrincipal = reserves.deployedTo(id);
+                candidateRoom = backstopMock.coverageCapacity();
+            } else {
+                continue;
+            }
+            // F1: a room is deliverable only against THIS event's remaining principal.  The
+            // shared reserve is clamped after summing these per-event deliverables; using the
+            // pooled principal here would recreate the exact over-credit the SGrove acceptance
+            // test exposes.
+            if (candidateRoom > eventPrincipal) candidateRoom = eventPrincipal;
+            // Saturating rather than breaking: `room` still stops at what the backstop actually
+            // holds, but the loop must run to completion so `pastDueCeiling` is total.
+            if (room < held) room = candidateRoom >= held - room ? held : room + candidateRoom;
         }
-        uint256 held = usdfr.balanceOf(address(backstopMock));
-        if (room > held) room = held;
-        // AUDIT FIX (H-5): when NO live declared default has drawn coverage
-        // (`liveDefaultCoverageConsumed() == 0`), the contract nets the WHOLE residual — declared AND
-        // past-due — against `coverageCapacity()` (== the backstop's held balance). A past-due-only
-        // residual reaches the loop above as ZERO room (past-due facilities never draw, so they have
-        // no event room), so without lifting `room` to `held` here the recomputed floor would exceed
-        // the contract's honest value and FALSE-FAIL a funded backstop. The lift is gated on the SAME
-        // condition the contract branches on, and is a strict no-op in the consumed != 0 regime the
-        // three known under-marking variants live in — so their kills are unchanged (the tight
-        // per-event `room` still governs there). This mirrors the contract; it does not trust it (the
-        // netting FLOOR is still recomputed from `residual` and `room`, never read back).
-        if (defaultManager.liveDefaultCoverageConsumed() == 0 && held > room) room = held;
 
         uint256 trueFloor = residual > room ? residual - room : 0;
+
+        // ── OWNER DECISION 2026-08-07 (G2W) ───────────────────────────────
+        // Split the recomputed floor into the ATTESTED cohort (full weight, never clamped, never
+        // weighted) and the UNATTESTED past-due cohort. Attribute the MAXIMUM defensible amount to
+        // the discounted cohort: with `w < 1` the reported figure falls as the past-due share
+        // rises, so this yields the lowest honest floor and keeps the assertion strict.
+        uint256 pastDueSenior = pastDueCeiling < trueFloor ? pastDueCeiling : trueFloor;
+        if (pastDueSenior != 0) {
+            uint256 declaredSenior = trueFloor - pastDueSenior;
+            // The EXECUTABLE bound, recomputed from the VAULT rather than from DefaultManager:
+            // `realizeLoss` reverts once the senior slice exceeds `totalAssets()`, and the
+            // attested cohort — which can call it this block — has first claim on that capacity.
+            uint256 executable = vault.totalAssets();
+            executable = executable > declaredSenior ? executable - declaredSenior : 0;
+            if (pastDueSenior > executable) pastDueSenior = executable;
+            // Governed weight, RAMPED. Reading the parameter is reading GOVERNANCE state, and the
+            // anchor is read from the handler's mirror of the contract's GROSS emptiness test --
+            // neither is the impairment arithmetic this invariant is checking, so the model stays
+            // independent of the thing under test. The ramp itself is recomputed here from `Config`
+            // constants and is NOT read from `registry.pastDueRampWeightBps`: routing it through
+            // the contract's own view would move the floor in lockstep with any mutation of the
+            // ramp and the mutation would survive.
+            //
+            // WHY THE RAMP HAD TO BE MODELLED AT ALL. Before this, the model used the FLOOR weight
+            // `pastDueWeightBps()`, which is a valid lower bound at every elapsed -- and therefore
+            // passed without ever constraining the ramp. An invariant that cannot fail in the
+            // region it claims to cover is worth nothing; with `w(t)` modelled, any mutation that
+            // makes the contract's weight LOWER than the honest ramp (dropping the interpolation,
+            // shortening the elapsed, interpolating towards the floor instead of towards `BPS`)
+            // now drives the contract below this floor and reddens here.
+            //
+            // STILL ONE-SIDED. It rounds DOWN where the contract rounds UP, so the recomputed value
+            // remains a strict LOWER bound and cannot false-fail on rounding.
+            uint256 w = registry.pastDueWeightBps();
+            uint256 elapsed = block.timestamp - handler.ghostReliefAnchor();
+            if (elapsed >= Config.DEFAULT_REDEEM_COOLDOWN) {
+                w = Config.BPS;
+            } else {
+                w += ((Config.BPS - w) * elapsed) / Config.DEFAULT_REDEEM_COOLDOWN;
+            }
+            trueFloor = declaredSenior + (pastDueSenior * w) / Config.BPS;
+        }
+
         assertGe(
             defaultManager.pendingSeniorImpairment(),
             trueFloor,

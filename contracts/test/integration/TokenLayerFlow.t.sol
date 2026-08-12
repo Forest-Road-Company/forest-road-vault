@@ -78,7 +78,9 @@ contract TokenLayerFlowTest is TokenLayerFixture {
                 IMintRedeemController.Controller_BackingInvariantViolated.selector, 1_001e18, 1_000e18
             )
         );
-        controller.mintYield(alice, 1e18);
+        // R16-M1: `alice` is no longer a reachable yield destination at all; target the vault
+        // so this test keeps measuring the BACKING refusal it was written for.
+        controller.mintYield(address(vault), 1e18);
     }
 
     function test_negativeQA_redeemBeyondIdleLiquidityBlocked() public {

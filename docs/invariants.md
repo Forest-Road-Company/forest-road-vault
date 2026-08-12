@@ -63,7 +63,9 @@ principal**, in that order, never skipping or inverting a layer.
 `curator.absorbLoss` (layer 1) → `sGrove.coverShortfall` on the residual (layer 2, with a
 strict `received == covered` equality check — audit R1 fix L) → depositor burn on what
 remains (layer 3), then the write-down is paired atomically with the burns so the backing
-assertion never observes an intermediate violation. The cascade path is **never pausable**.
+assertion never observes an intermediate violation. ADR-0035 bounds layer two only by its live
+USDfr reserve: one shortfall can exhaust it, after which senior principal absorbs every subsequent
+loss until real USDfr replenishes the reserve. The cascade path is **never pausable**.
 
 **Tests and symbolic checks.** `invariant_cascade_orderingHolds`,
 `invariant_curator_subordinationRespected`, and

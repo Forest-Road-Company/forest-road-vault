@@ -97,6 +97,8 @@ contract GovernanceForkTest is ForkLifecycleFixture {
         Ctx memory hc;
         hc.deployer = ops;
         hc.opsAdmin = ops;
+        hc.proposalGuardian = makeAddr("governanceForkProposalGuardian");
+        hc.queueKeeper = ops; // AUDIT FIX (D7-01 round 5): SETTLEMENT_KEEPER_ROLE holder; Deploy._wire fails closed on zero
         hc.frTreasury = ops;
         hc.feeRecipient = ops;
         hc.attester2 = attester2Addr;
@@ -1110,15 +1112,11 @@ contract GovernanceForkTest is ForkLifecycleFixture {
         assertEq(address(governor).balance, 0);
     }
 
-    /// @notice HONEST NEGATIVE RESULT, not a happy path. Once an operation is QUEUED there is
-    ///         NO emergency brake: `_wire` grants `CANCELLER_ROLE` to the Governor alone,
-    ///         `_handover` renounces the deployer's timelock admin, and `Governor.cancel` only
-    ///         accepts `Pending` proposals — so no guardian, operator or voter can stop a
-    ///         queued operation, and the Governor could only cancel via a fresh 10-day
-    ///         proposal, which outlives the 2-day window. The 2-day delay is a WARNING period,
-    ///         not a vetoable one. Asserted here so the property cannot regress unnoticed.
-    function test_govFork_noOneCanCancelAQueuedOperation() public onFork {
-        Prop memory p = _bpsProp(9_500, "FR-18: nobody can stop this once queued");
+    /// @notice G1c regression. This test previously asserted that an unstoppable queued
+    ///         operation was safe; it is not. The approved proposal guardian now reaches the
+    ///         Governor's Timelock cancellation role without holding that role directly.
+    function test_govFork_proposalGuardianCanCancelQueuedOperation() public onFork {
+        Prop memory p = _bpsProp(9_500, "G1c: guardian can stop this once queued");
         uint256 id = _propose(p, ops);
         _warp(uint256(Config.GOV_VOTING_DELAY) + 1);
         governor.castVote(id, 1);
@@ -1130,9 +1128,12 @@ contract GovernanceForkTest is ForkLifecycleFixture {
 
         bytes32 cancellerRole = tl.CANCELLER_ROLE();
         assertTrue(tl.hasRole(cancellerRole, address(governor)), "only the Governor holds CANCELLER");
-        assertFalse(tl.hasRole(cancellerRole, ops), "not the operator/guardian EOA");
+        assertFalse(tl.hasRole(cancellerRole, ops), "not the operator EOA");
         assertFalse(tl.hasRole(cancellerRole, alice));
         assertFalse(tl.hasRole(tl.DEFAULT_ADMIN_ROLE(), ops), "and no EOA can grant itself CANCELLER");
+        address vetoPrincipal = governor.proposalGuardian();
+        assertTrue(vetoPrincipal != address(0), "deployment must bind an approved veto principal");
+        assertTrue(vetoPrincipal != ops, "M-5/M-6: the veto principal must be separate from ops");
 
         // the operator cannot cancel the timelock operation
         vm.expectRevert(
@@ -1140,15 +1141,22 @@ contract GovernanceForkTest is ForkLifecycleFixture {
         );
         tl.cancel(opId);
 
-        // nor can the PROPOSER withdraw it at the Governor level once it has left Pending
-        vm.expectRevert(abi.encodeWithSelector(IGovernor.GovernorUnableToCancel.selector, id, ops));
+        // An unrelated account cannot route the Governor's Timelock role.
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IGovernor.GovernorUnableToCancel.selector, id, alice));
         governor.cancel(p.targets, p.values, p.calldatas, dh);
 
-        // so it lands, unopposed, the moment the delay elapses
+        // The approved guardian can, and cancellation consumes both Governor and Timelock state.
+        vm.prank(vetoPrincipal);
+        governor.cancel(p.targets, p.values, p.calldatas, dh);
+        _assertState(id, IGovernor.ProposalState.Canceled, "guardian veto recorded by Governor");
+        assertFalse(tl.isOperation(opId), "queued Timelock operation was disarmed");
+
         _warp(Config.TIMELOCK_MIN_DELAY);
+        vm.expectRevert();
         governor.execute(p.targets, p.values, p.calldatas, dh);
         (, uint16 bps) = queue.epochParams();
-        assertEq(bps, 9_500, "the queued change was unstoppable, exactly as the wiring implies");
+        assertEq(bps, 167, "the vetoed change must never land");
     }
 
     /// @notice A proposal whose action REVERTS takes nothing with it: the batch is atomic, the

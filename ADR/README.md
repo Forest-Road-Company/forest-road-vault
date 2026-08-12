@@ -20,14 +20,14 @@ without their input), **Resolved** (settled; challengeable on technical grounds)
 | [0011](0011-kyc-compliance-gating.md) | KYC gating; broad access policy | Resolved (Forest Road) |
 | [0012](0012-backing-invariant.md) | On-chain backing-invariant enforcement | Accepted |
 | [0013](0013-governance-forest-road-controlled.md) | Governance Forest-Road-controlled at launch | Resolved (Forest Road) |
-| [0014](0014-sgrove-backstop-parameters.md) | sGROVE backstop parameters | Resolved (calibration pending economic review) |
+| [0014](0014-sgrove-backstop-parameters.md) | sGROVE backstop parameters | Resolved; per-event cap superseded by ADR-0035 |
 | [0015](0015-digital-assets-collateral-class.md) | Digital Assets class: marked-to-market, related-party | Resolved (Forest Road, added mid-build) |
 | [0016](0016-points-system.md) | Participation points: time-weighted, identity-keyed, honest framing | Resolved (Forest Road, added mid-build) |
 | [0017](0017-credit-layer-mechanics.md) | Historical credit-layer mechanics; clean-v1 surface superseded by ADR-0030 | Superseded in part |
 | [0018](0018-redemption-queue-mechanics.md) | RedemptionQueue settlement: stable-liquidity budget, chunked permissionless close, no cancellation, points stop at request | Accepted |
 | [0019](0019-origination-fee.md) | Origination fee: per-class OID at funding, fee capitalized + minted to feeRecipient | Accepted |
 | [0020](0020-attestation-oracle-implementation.md) | AttestationOracle: relayed EIP-712 bundles, m-of-n on identical payloads, consume/revoke lifecycle, attested-fact re-wiring | Accepted |
-| [0021](0021-sgrove-backstop-implementation.md) | sGROVE backstop: USDfr coverage-reserve model (no GROVE conversion), per-event cap re-based, OZ Governor/timelock | Accepted (user-confirmed) |
+| [0021](0021-sgrove-backstop-implementation.md) | sGROVE backstop: USDfr coverage-reserve model (no GROVE conversion), OZ Governor/timelock | Accepted; per-event cap superseded by ADR-0035 |
 | [0022](0022-redemption-cooldown-and-conservative-nav.md) | Forced 21-day redemption cooldown (decoupled from the epoch) + conservative-redemption NAV | Accepted (user-confirmed; calibration + declared-default mark are review-gated) |
 | [0023](0023-streamed-senior-yield-vesting.md) | Optional senior-yield vesting: launch recognizes realized interest immediately and checkpoints fees atomically; governance may later enable tested linear smoothing | Accepted; launch default amended to zero vesting (2026-07-30) |
 | [0025](0025-internal-idle-stable-accounting.md) | Internal idle-stable accounting: idleReserve() reads storage not balanceOf (closes M-04 as a class); measured-delta deposits close fee-on-transfer; emergency levers may move backing DOWN on authority, UP only on proof | Accepted (Forest Road direction; the "counts unverifiable value" trade-off is flagged for audit) |
@@ -35,6 +35,9 @@ without their input), **Resolved** (settled; challengeable on technical grounds)
 | [0027](0027-assessed-recovery-and-discretionary-topups.md) | Professionally assessed recovery marks for redemption pricing + separately funded discretionary recovery top-ups | Sepolia deployed/tested; mainnet valuation, funding, disclosure, and deployment remain gated |
 | [0028](0028-retire-self-funded-dsra.md) | Historical transition: retire self-funded DSRA; clean v1 removes the legacy surface entirely | Superseded by ADR-0030 |
 | [0029](0029-mainnet-v1-feature-scope.md) | Mainnet v1 scope: Points required; all five classes active; USDC-only; reserve-instrument valuation excluded; recovery top-up distributor deferred | Locked (Forest Road) |
-| [0030](0030-clean-mainnet-v1-contract-surface.md) | Clean mainnet-v1 contract surface: exact attestations, USDC-only custody, no DSRA/reserve-instrument legacy, pause-safe internal loss paths, $10 excluded seed | Locked (Forest Road) |
+| [0030](0030-clean-mainnet-v1-contract-surface.md) | Clean mainnet-v1 contract surface: exact attestations, USDC-only custody, no DSRA/reserve-instrument legacy, pause-safe internal loss paths, $100 excluded seed (V-01 amendment) | Locked (Forest Road) |
 | [0031](0031-protocol-level-fees.md) | Protocol-level fees: 10% interest, global-HWM performance 10% at launch (20% cap), management 0% at launch (2% cap) | Locked (Forest Road) |
 | [0032](0032-roleless-mtm-executor-and-redundant-keepers.md) | Immutable roleless MTM executor with canonical action selection and two independently operated private keepers | Accepted; deployment, drills and external audit pending |
+| [0033](0033-authenticated-reserve-loss-cascade.md) | Authenticated custody-loss incidents; surplus then curator pools, sGROVE and senior; residual-deficit latch with governed resolution | Accepted (Forest Road direction) |
+| [0034](0034-exit-pricing-in-cascade-order.md) | All capital at risk but losses borne in cascade order at all times; sub-par exit prices off the post-cascade residual, ordering encoded as an invariant, slippage protection on `redeem` | Accepted (Forest Road direction); disclosure surfaces counsel-review |
+| [0035](0035-sgrove-absorbs-without-a-per-event-cap.md) | sGROVE absorbs from the whole live reserve; no per-event ceiling or snapshot | Accepted (Forest Road, 2026-08-11); Part 11 gate 5 review pending |

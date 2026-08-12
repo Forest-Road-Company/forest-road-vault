@@ -21,6 +21,8 @@ contract TokenLayerHandler is Test {
     MintRedeemController internal controller;
     SUSDfr internal vault;
     address internal creditModule;
+    address internal guardian;
+    address internal governance;
 
     address[3] public actors;
     uint256[4] public facilities = [uint256(1), 2, 3, 4];
@@ -28,6 +30,22 @@ contract TokenLayerHandler is Test {
     // ── ghost state ──────────────────────────────────────────────────────
     uint256 public rateFloor; // reset on explicit loss or evented vault-fee dilution
     uint256 public callCount;
+
+    // AUDIT C4-USDFR-02 ghosts. `pausedUserOutflows` and `pausedUserSupplyDrops` MUST stay at
+    // zero; `pausedUserProbes` proves the illegal region was actually entered rather than
+    // filtered away at the top of the action (the campaign-5 lesson).
+    uint256 public pausedUserProbes;
+    uint256 public pausedUserOutflows;
+    uint256 public pausedUserSupplyDrops;
+    // Liveness counterweight: the loss cascade must remain executable UNDER the pause.
+    uint256 public pausedCascadeProbes;
+    uint256 public pausedCascadeBurnsBlocked;
+
+    // AUDIT C4-USDFR-01 ghosts. `codelessPointsInstalls` and `tokenBrickedByPointsModule` MUST
+    // stay at zero; `codelessPointsProbes` proves the region was entered.
+    uint256 public codelessPointsProbes;
+    uint256 public codelessPointsInstalls;
+    uint256 public tokenBrickedByPointsModule;
 
     constructor(
         MockERC20 usdc_,
@@ -37,8 +55,12 @@ contract TokenLayerHandler is Test {
         MintRedeemController controller_,
         SUSDfr vault_,
         address complianceAdmin_,
-        address creditModule_
+        address creditModule_,
+        address guardian_,
+        address governance_
     ) {
+        guardian = guardian_;
+        governance = governance_;
         usdc = usdc_;
         usdfr = usdfr_;
         compliance = compliance_;
@@ -186,6 +208,136 @@ contract TokenLayerHandler is Test {
     function warp(uint256 secs) external {
         secs = bound(secs, 1 hours, 90 days);
         vm.warp(block.timestamp + secs);
+        callCount++;
+    }
+
+    // ── AUDIT C4-USDFR-02: drive the ILLEGAL region (a paused user outflow) ──
+
+    /// @dev Pauses USDfr and then tries to settle an ordinary holder's redemption. There is NO
+    ///      pre-filter: the action FUNDS a redeemable position itself, so every single call
+    ///      reaches the region the guard is supposed to close. A handler that returned early
+    ///      whenever the fuzzer had not happened to produce a position would make
+    ///      `invariant_pause_settlesNoUserOutflow` decoration.
+    ///      Ghost contract: `pausedUserOutflows` / `pausedUserSupplyDrops` must remain zero.
+    function pausedUserRedeem(uint256 actorSeed, uint256 seed) external {
+        address actor = actors[actorSeed % 3];
+        uint256 usdcIn = bound(seed, 1e6, 1_000_000e6);
+        usdc.mint(actor, usdcIn);
+        vm.startPrank(actor);
+        usdc.approve(address(controller), usdcIn);
+        controller.mint(usdcIn);
+        vm.stopPrank();
+
+        uint256 bal = usdfr.balanceOf(actor);
+        uint256 idle = usdc.balanceOf(address(reserves)) * 1e12;
+        uint256 redeemable = bal < idle ? bal : idle;
+        redeemable -= redeemable % 1e12; // whole USDC units; >= 1e18 by construction
+
+        if (!usdfr.paused()) {
+            vm.prank(guardian);
+            usdfr.pause();
+        }
+        pausedUserProbes++;
+
+        uint256 supplyBefore = usdfr.totalSupply();
+        vm.prank(actor);
+        try controller.redeem(redeemable) returns (uint256) {
+            pausedUserOutflows++;
+        } catch {}
+        if (usdfr.totalSupply() < supplyBefore) pausedUserSupplyDrops++;
+
+        vm.prank(guardian);
+        usdfr.unpause();
+        callCount++;
+    }
+
+    /// @dev LIVENESS COUNTERWEIGHT to `pausedUserRedeem`: the same pause must NOT freeze the
+    ///      loss cascade. The vault is a governance-listed protocol module, so
+    ///      `burnLoss(vault, x)` — the shape `DefaultManager` uses — must still execute. Ghost
+    ///      contract: `pausedCascadeBurnsBlocked` must remain zero.
+    function pausedCascadeBurn(uint256 facilitySeed, uint256 seed) external {
+        uint256 facilityId = facilities[facilitySeed % 4];
+
+        // Manufacture a genuinely absorbable loss rather than filtering the action away when
+        // the fuzzer has not produced one: fund the vault with USDfr and deploy matching
+        // principal, so `max` is always non-zero and the region is always entered.
+        uint256 usdcIn = bound(seed, 1e6, 100_000e6);
+        address funder = actors[0];
+        usdc.mint(funder, usdcIn);
+        vm.startPrank(funder);
+        usdc.approve(address(controller), usdcIn);
+        controller.mint(usdcIn);
+        usdfr.transfer(address(vault), usdcIn * 1e12);
+        vm.stopPrank();
+        vm.prank(creditModule);
+        reserves.recordDeployment(facilityId, makeAddr("cascadeEscrow"), usdcIn);
+
+        uint256 deployed = reserves.deployedTo(facilityId);
+        uint256 vaultBal = usdfr.balanceOf(address(vault));
+        uint256 amount = deployed < vaultBal ? deployed : vaultBal;
+        amount = bound(seed, 1, amount);
+
+        if (!usdfr.paused()) {
+            vm.prank(guardian);
+            usdfr.pause();
+        }
+        pausedCascadeProbes++;
+
+        // Burn first, then write the backing down: a burn without a matching write-down only
+        // ever moves supply DOWN relative to backing, so `_assertBacking` cannot trip on the
+        // intermediate state, and a blocked burn leaves backing untouched.
+        bool burned;
+        vm.startPrank(creditModule);
+        try controller.burnLoss(address(vault), amount) {
+            burned = true;
+        } catch {
+            pausedCascadeBurnsBlocked++;
+        }
+        if (burned) reserves.recordPrincipalWritedown(facilityId, amount);
+        vm.stopPrank();
+
+        vm.prank(guardian);
+        usdfr.unpause();
+        if (burned) rateFloor = vault.currentExchangeRate(); // an explicit loss resets the floor
+        callCount++;
+    }
+
+    // ── AUDIT C4-USDFR-01: drive the ILLEGAL region (a codeless points module) ──
+
+    /// @dev Asks governance to install a fuzz-derived address as the points module and then
+    ///      probes a transfer that MUST succeed. No pre-filter: the funding happens BEFORE the
+    ///      install (a bricked token cannot mint), and the probe runs unconditionally. Ghost
+    ///      contract: `codelessPointsInstalls` and `tokenBrickedByPointsModule` must stay zero.
+    function installCodelessPointsModule(uint256 addrSeed, uint256 actorSeed, uint256 seed) external {
+        uint256 idx = actorSeed % 3;
+        address actor = actors[idx];
+        // reduce BEFORE adding: `actorSeed + 1` panics on `type(uint256).max`, and the fuzzer
+        // reaches that boundary — `fail_on_revert = true` makes a handler panic a suite failure
+        address counterparty = actors[(idx + 1) % 3];
+        uint256 usdcIn = bound(seed, 1e6, 1_000e6);
+        usdc.mint(actor, usdcIn);
+        vm.startPrank(actor);
+        usdc.approve(address(controller), usdcIn);
+        controller.mint(usdcIn);
+        vm.stopPrank();
+
+        address candidate = address(uint160(bound(addrSeed, 1, type(uint160).max)));
+        codelessPointsProbes++;
+        vm.prank(governance);
+        try usdfr.setPointsModule(candidate) {
+            if (candidate.code.length == 0) codelessPointsInstalls++;
+        } catch {}
+
+        vm.prank(actor);
+        try usdfr.transfer(counterparty, 1) {}
+        catch {
+            tokenBrickedByPointsModule++;
+        }
+
+        // Restore, so a brick cannot cascade into unrelated actions and mask itself as a
+        // generic `fail_on_revert` failure instead of the named ghost above.
+        vm.prank(governance);
+        usdfr.setPointsModule(address(0));
         callCount++;
     }
 

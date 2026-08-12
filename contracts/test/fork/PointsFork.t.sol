@@ -638,11 +638,9 @@ contract PointsForkTest is ForkLifecycleFixture {
         );
     }
 
-    /// @notice GAS GRIEFING probe: try/catch does not protect against a callee that BURNS
-    ///         all forwarded gas (EIP-150 gives it 63/64 of what is left). With an ordinary
-    ///         transaction gas budget the transfer must still complete — but the budget
-    ///         REQUIRED rises, and this test quantifies by how much rather than asserting a
-    ///         vague "it works".
+    /// @notice GAS GRIEFING probe: the F-18-02 policy rejects caller-controlled
+    ///         underfunding before the optional hook, while a sufficiently funded transfer
+    ///         still completes when the hook deliberately burns its allowance.
     function test_fork_gasBurningPointsModuleCannotDoSTransfers() public onFork {
         GasBurnerPoints burner = new GasBurnerPoints();
         assertEq(_mintFromUSDC(alice, 1_000_000e6), 1e24, "position");
@@ -657,13 +655,12 @@ contract PointsForkTest is ForkLifecycleFixture {
         assertLt(healthyCost, 100_000, "baseline: a healthy transfer is well under 100k gas");
 
         usdfr.setPointsModule(address(burner));
-        // The 63/64 rule bounds the grief: the callee cannot take the last 1/64, so the
-        // requirement is roughly `64 x (post-hook epilogue)` of headroom, not unbounded.
-        // Grid logged so the threshold is a measured number in the record, not folklore.
+        // Calls below the shared floor must fail closed rather than commit value while
+        // silently dropping the hook's two accounting legs.
         for (uint256 cap = 100_000; cap <= 250_000; cap += 25_000) {
             console2.log("burner-module transfer, gas cap / succeeded:", cap, _probeTransfer(cap));
         }
-        assertTrue(_probeTransfer(200_000), "an ordinary wallet gas budget still completes");
+        assertFalse(_probeTransfer(200_000), "caller-selected underfunding must fail closed");
 
         vm.prank(alice);
         bool ok = usdfr.transfer{gas: 2_000_000}(bob, 1e23);

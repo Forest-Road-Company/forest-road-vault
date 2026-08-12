@@ -239,7 +239,7 @@ contract FixH2RecoveryThenWriteOffTest is GovernanceFixture {
         vm.prank(servicer);
         defaultManager.declareDefault(id2, FILM_REF);
 
-        // The fresh event's own reachable coverage, computed independently of DefaultManager.
+        // The fresh event's reachable shared reserve, computed independently of DefaultManager.
         uint256 capacity = sGrove.coverageCapacity();
         uint256 reserve = sGrove.coverageReserve();
         uint256 room = capacity < reserve ? capacity : reserve;
@@ -249,7 +249,7 @@ contract FixH2RecoveryThenWriteOffTest is GovernanceFixture {
         assertEq(
             defaultManager.pendingSeniorImpairment(),
             trueFloor,
-            "H-2: a fresh default nets its OWN capacity, not one crippled by a dead event"
+            "H-2: a fresh default nets live shared reserve, not state retained by a dead event"
         );
     }
 

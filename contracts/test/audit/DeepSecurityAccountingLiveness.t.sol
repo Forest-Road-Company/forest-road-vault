@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {ICollateralRegistry} from "../../src/interfaces/ICollateralRegistry.sol";
+import {ICuratorModule} from "../../src/interfaces/ICuratorModule.sol";
 import {Config} from "../../src/libraries/Config.sol";
 import {CreditLayerFixture} from "../helpers/CreditLayerFixture.sol";
 
@@ -9,7 +10,31 @@ import {CreditLayerFixture} from "../helpers/CreditLayerFixture.sol";
 contract DeepSecurityAccountingLivenessTest is CreditLayerFixture {
     uint256 internal constant FILM = Config.CLASS_FILM_TAX_CREDITS;
 
-    function test_excessCuratorCapitalCanRaiseSettlementThenBeWithdrawn() public {
+    /// @notice ══════════ INVERTED (SWEEP-2 CSG-F1) — DO NOT RESTORE THE ORIGINAL ASSERTIONS ══════
+    ///         THIS TEST WAS THE FINDING, WRITTEN DOWN AS EXPECTED LIVENESS, AND ITS NAME SAID SO:
+    ///         `test_excessCuratorCapitalCanRaiseSettlementThenBeWithdrawn`. Its closing block read:
+    ///             // A merely past-due facility does not freeze curator withdrawals. Class exposure
+    ///             // is 20m but the requirement is capped at the fixed 10m target, so the same 10m
+    ///             // can leave after the higher settlement price has been locked in.
+    ///             vm.prank(secondCurator);
+    ///             curator.withdrawFirstLoss(FILM, target);
+    ///             assertEq(curator.poolBalance(FILM), target);
+    ///             assertEq(usdfr.balanceOf(secondCurator), target);
+    ///         That is layer-1 capital walking out AFTER it had removed the conservative senior mark
+    ///         and AFTER a senior settlement had been priced and locked at the improved level — the
+    ///         cascade run backwards, with the senior queue paid out of a credit the junior then
+    ///         withdrew. It is exactly the "post to lift the mark, settle, withdraw" round trip
+    ///         SWEEP-2 CSG-F1 measured at 350,000e18 of destroyed senior exit value on a smaller
+    ///         book. `min(firstLossTarget, classExposure)` was the wrong bound; the conservative
+    ///         NAV credits `min(declared + pastDue, poolBalance)`.
+    ///
+    ///         WHAT REMAINS TRUE AND IS STILL ASSERTED: everything up to the settlement. The
+    ///         second curator's capital DOES lift the mark, the improved quote IS what the epoch
+    ///         locks in, and the claim pays it. Only the exit is now refused, and refused on the
+    ///         HEADROOM rule — the class is still not frozen (`unresolvedDefaults == 0`).
+    /// @dev MUTATION: drop the `marked` term from `CuratorModule._requiredFirstLoss` -> RED here on
+    ///      the `expectRevert`.
+    function test_excessCuratorCapitalRaisesSettlementAndIsThenLockedIn() public {
         uint256 seniorAssets = 50_000_000e18;
         uint256 requestAssetTarget = 100_000e18;
         uint256 target = Config.DEFAULT_FIRST_LOSS_PER_CLASS;
@@ -33,7 +58,11 @@ contract DeepSecurityAccountingLivenessTest is CreditLayerFixture {
         vm.warp(uint256(nextDue) + uint256(defaultManager.graceWindow(FILM)) + 1);
         defaultManager.markPastDue(facilityId);
 
-        assertEq(defaultManager.pendingSeniorImpairment(), principal - target);
+        // OWNER DECISION (Forest Road, 2026-08-07): the past-due cohort's post-curator residual is
+        // `principal - target`, but it is UNATTESTED, so it enters the conservative NAV at the
+        // governed weight rather than on the same footing as an attested declared default. The
+        // executable clamp is not binding here (50m of senior assets stand behind a 10m residual).
+        assertEq(defaultManager.pendingSeniorImpairment(), registry.weightedPastDueImpairment(principal - target));
         uint256 impairedQuote = vault.previewRedeem(requestShares);
 
         // A second approved curator temporarily posts exactly the pool's excess headroom.
@@ -49,20 +78,24 @@ contract DeepSecurityAccountingLivenessTest is CreditLayerFixture {
         assertEq(sharesRemaining, 0);
         assertEq(assetsClaimable, temporarilyImprovedQuote);
 
-        // A merely past-due facility does not freeze curator withdrawals. Class exposure
-        // is 20m but the requirement is capped at the fixed 10m target, so the same 10m
-        // can leave after the higher settlement price has been locked in.
+        // INVERTED (SWEEP-2 CSG-F1). The mark credits `min(declared + pastDue, poolBalance)` —
+        // here the WHOLE 20m pool against a 20m past-due principal — so NOTHING may leave, and the
+        // second curator's capital cannot fund the improved settlement and then walk.
+        assertEq(curator.unresolvedDefaults(FILM), 0, "still NOT a class freeze: this is a headroom floor");
+        assertEq(curator.headroom(FILM), 0, "the past-due mark credits the entire pool");
+        vm.expectRevert(
+            abi.encodeWithSelector(ICuratorModule.Curator_HeadroomExceeded.selector, FILM, target, uint256(0))
+        );
         vm.prank(secondCurator);
         curator.withdrawFirstLoss(FILM, target);
-        assertEq(curator.poolBalance(FILM), target);
-        assertEq(defaultManager.pendingSeniorImpairment(), principal - target);
-        assertEq(usdfr.balanceOf(secondCurator), target);
+        assertEq(curator.poolBalance(FILM), 2 * target, "layer-1 capital that lifted the mark stayed put");
+        assertEq(defaultManager.pendingSeniorImpairment(), 0, "and the mark it lifted stays lifted");
+        assertEq(usdfr.balanceOf(secondCurator), 0, "no junior capital escaped the settlement it priced");
 
         uint256 aliceBefore = usdfr.balanceOf(alice);
         vm.prank(alice);
         queue.claim(requestId);
         assertEq(usdfr.balanceOf(alice) - aliceBefore, temporarilyImprovedQuote);
-        assertGt(temporarilyImprovedQuote, vault.previewRedeem(requestShares));
     }
 
     function test_pausedReserveManagerDoesNotBlockNeverPausableLossRecognition() public {

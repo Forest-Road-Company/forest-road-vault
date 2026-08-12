@@ -3,6 +3,7 @@ pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {ComplianceRegistry} from "../../src/ComplianceRegistry.sol";
 import {MintRedeemController} from "../../src/MintRedeemController.sol";
@@ -11,6 +12,9 @@ import {SUSDfr} from "../../src/sUSDfr.sol";
 import {USDfr} from "../../src/USDfr.sol";
 import {Roles} from "../../src/libraries/Roles.sol";
 import {MockERC20} from "./MockERC20.sol";
+import {MockCascadeBackstop} from "./MockCascadeBackstop.sol";
+import {MockReserveLossAbsorber} from "./MockReserveLossAbsorber.sol";
+import {MockReserveLossCurator, MockReserveLossGovernor, MockReserveLossTimelock} from "./MockReserveLossModules.sol";
 
 /// @dev Deploys the full token layer behind ERC1967 proxies with a realistic role
 ///      topology, mirroring what the deployment script will do:
@@ -22,6 +26,10 @@ import {MockERC20} from "./MockERC20.sol";
 abstract contract TokenLayerFixture is Test {
     address internal admin = makeAddr("admin");
     address internal guardian = makeAddr("guardian");
+    /// @dev Holder of `SETTLEMENT_KEEPER_ROLE` (AUDIT FIX D7-01): the only party that may drive
+    ///      `RedemptionQueue.closeEpoch`. Distinct from `admin` on purpose, so a test cannot pass
+    ///      by accidentally holding admin.
+    address internal settlementKeeper = makeAddr("settlementKeeper");
     address internal complianceAdmin = makeAddr("complianceAdmin");
     address internal creditModule = makeAddr("creditModule");
     address internal feeRecipient = makeAddr("feeRecipient");
@@ -35,6 +43,11 @@ abstract contract TokenLayerFixture is Test {
     ReserveManager internal reserves;
     MintRedeemController internal controller;
     SUSDfr internal vault;
+    MockReserveLossCurator internal reserveLossCurator;
+    MockCascadeBackstop internal reserveLossBackstop;
+    MockReserveLossGovernor internal reserveLossGovernor;
+    MockReserveLossTimelock internal reserveLossTimelock;
+    MockReserveLossAbsorber internal reserveLossAbsorber;
 
     MockERC20 internal usdc; // 6 decimals
     MockERC20 internal dai; // 18 decimals
@@ -99,13 +112,46 @@ abstract contract TokenLayerFixture is Test {
             )
         );
 
+        reserveLossCurator = new MockReserveLossCurator(IERC20(address(usdfr)), address(vault), address(reserves));
+        reserveLossBackstop = new MockCascadeBackstop(IERC20(address(usdfr)));
+        reserveLossTimelock = new MockReserveLossTimelock();
+        reserveLossGovernor = new MockReserveLossGovernor(address(reserveLossTimelock));
+        reserveLossAbsorber = new MockReserveLossAbsorber(controller, address(vault), address(reserves));
+
         // ── role wiring (as the deploy script will do; validated post-deploy) ─
         vm.startPrank(admin);
         usdfr.grantRole(Roles.MINTER_ROLE, address(controller));
         usdfr.renounceRole(Roles.MINTER_ROLE, admin); // no leftover deployer privileges
         reserves.grantRole(Roles.CONTROLLER_ROLE, address(controller));
         reserves.grantRole(Roles.CREDIT_ROLE, creditModule);
+        // AUDIT FIX (R16-M1): `burnLoss` moved off CREDIT_ROLE onto LOSS_BURNER_ROLE, and both
+        // endpoints are now governance-named. This mirrors `Deploy.s.sol`: `creditModule` stands
+        // in for DefaultManager (mints yield AND burns loss from itself / the vault), and the
+        // absorber stands in for its reserve-loss hook (burns the vault only).
         controller.grantRole(Roles.CREDIT_ROLE, creditModule);
+        controller.grantRole(Roles.LOSS_BURNER_ROLE, creditModule);
+        controller.grantRole(Roles.LOSS_BURNER_ROLE, address(reserveLossAbsorber));
+        controller.grantRole(Roles.LOSS_BURNER_ROLE, address(reserves));
+        controller.setYieldSink(address(vault), true);
+        controller.setYieldSink(feeRecipient, true);
+        controller.setLossSource(address(vault), true);
+        // AUDIT FIX (R17): `creditModule` is an EOA and is no longer listable as a loss source —
+        // `setLossSource` refuses a codeless account, because listing a wallet would restore
+        // finding M2 (a forced, non-pro-rata seizure of one named holder) in one routine-looking
+        // timelock transaction. No test in the tree burns FROM `creditModule`; it burns from the
+        // vault, exactly as `DefaultManager` does. `reserveLossAbsorber` below is the contract
+        // stand-in for the cascade's reserve-loss hook.
+        controller.setLossSource(address(reserveLossAbsorber), true);
+        controller.setLossSource(address(reserves), true);
+        reserves.setLossController(address(controller));
+        reserves.setLossAbsorber(address(reserveLossAbsorber));
+        reserves.setReserveLossModules(
+            address(reserveLossCurator),
+            address(reserveLossBackstop),
+            address(vault),
+            address(reserveLossGovernor),
+            address(reserveLossTimelock)
+        );
         vm.stopPrank();
 
         // ── stables ──────────────────────────────────────────────────────
@@ -145,5 +191,44 @@ abstract contract TokenLayerFixture is Test {
         reserves.depositUSDC(creditModule, usdcAmount);
         vm.prank(creditModule);
         controller.mintYield(to, usdcAmount * 1e12);
+    }
+
+    /// @dev AUDIT FIX (R16-M1). Names an extra `mintYield` destination, for the handful of suites
+    ///      that deliberately deliver yield somewhere other than the vault or the fee recipient.
+    function _authorizeYieldSink(address account) internal {
+        vm.prank(admin);
+        controller.setYieldSink(account, true);
+    }
+
+    /// @dev AUDIT FIX (R16-M1/M2). Names an extra `burnLoss` source.
+    function _authorizeLossSource(address account) internal {
+        vm.prank(admin);
+        controller.setLossSource(account, true);
+    }
+
+    function _armReserveLoss(uint256 context) internal returns (uint256 armId, uint256 incidentId) {
+        vm.prank(guardian);
+        (armId, incidentId) = reserves.armReserveLossFreeze(keccak256(abi.encode("custody-loss-arm", context)));
+    }
+
+    function _createReserveShortfall(uint256 value) internal {
+        uint256 units = reserves.denormalizeUSDC(value);
+        vm.prank(address(reserves));
+        usdc.transfer(borrower, units);
+    }
+
+    function _ratifyCurrentReserveLoss(uint256 approvedMaxLoss)
+        internal
+        returns (uint256 incidentId, uint256 actualLoss)
+    {
+        (uint256 armId,, bytes32 evidenceHash,) = reserves.reserveLossArm();
+        vm.prank(admin);
+        (incidentId, actualLoss) = reserves.ratifyAndOpen(armId, evidenceHash, approvedMaxLoss);
+    }
+
+    function _openReserveLossIncident(uint256 incidentNonce) internal returns (uint256 incidentId) {
+        vm.prank(admin);
+        incidentId =
+            reserves.openReserveLossIncident(incidentNonce, keccak256(abi.encode("custody-loss", incidentNonce)));
     }
 }

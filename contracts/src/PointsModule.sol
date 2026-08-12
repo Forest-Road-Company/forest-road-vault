@@ -77,6 +77,16 @@ contract PointsModule is Initializable, AccessControlUpgradeable, UUPSUpgradeabl
     }
 
     /// @dev A rate epoch: the rate/multipliers active from `start` until the next epoch.
+    ///
+    ///      AUDIT FIX (G1b): LAYOUT-FROZEN: this is an ARRAY element (`rateEpochs` below) and it
+    ///      was the one fixed-stride struct in the protocol carrying no such warning, while
+    ///      `SGrove.Unbond` and `RedemptionQueue.Request` both did. Array elements are laid out
+    ///      contiguously, so adding, reordering or retyping ANY field changes the stride and
+    ///      shifts every epoch after index 0 on the deployed proxy — silently repricing every
+    ///      historical accrual interval. NEVER extend this struct on an upgrade; tail-extend the
+    ///      namespaced `PointsStorage` root (or a mapping-value struct) instead. Do not delete
+    ///      this warning: `tools/check-storage-layout.mjs` now REQUIRES that marker on every
+    ///      fixed-stride struct it reaches, and deleting it fails the gate.
     struct RateEpoch {
         uint64 start;
         uint32 usdfrMultBps;
@@ -269,17 +279,18 @@ contract PointsModule is Initializable, AccessControlUpgradeable, UUPSUpgradeabl
     }
 
     /// @notice Records that `classId` absorbed a loss, WITH the pool balances that bracket the
-    ///         absorption (CuratorModule-only). `absorbLoss` leaves every curator's shares
-    ///         untouched and only reduces the pool balance, so each curator's posted first-loss
-    ///         is diluted by exactly `poolBalanceAfter / poolBalanceBefore`; recording that
-    ///         ratio lets the ledger write cached balances down exactly, without a per-curator
-    ///         hook, and therefore blend maturity correctly when a curator tops back up (H-03).
+    ///         absorption (CuratorModule-only). Equal balances are a balance-neutral accounting
+    ///         operation, not a loss, and are ignored so representation changes cannot freeze a
+    ///         whole class (M-4). For an economic loss, the supplied ratio writes cached balances
+    ///         down without a per-curator hook and preserves correct maturity blending on a later
+    ///         top-up (H-03).
     /// @param classId The collateral class that absorbed the loss.
     /// @param poolBalanceBefore The class first-loss pool balance immediately before absorption.
     /// @param poolBalanceAfter The class first-loss pool balance immediately after absorption.
     function onCuratorLoss(uint256 classId, uint256 poolBalanceBefore, uint256 poolBalanceAfter) external {
         PointsStorage storage $ = _storage();
         if (msg.sender != $.curatorModule) revert Points_OnlyCurator();
+        if (poolBalanceBefore == poolBalanceAfter) return;
         _recordCuratorLoss($, classId, poolBalanceBefore, poolBalanceAfter);
     }
 
