@@ -95,7 +95,7 @@ export function SectionHead({
         <p
           className={`mt-4 max-w-[62ch] text-[13px] leading-relaxed ${
             align === "center" ? "mx-auto" : ""
-          } text-ink-faint`}
+          } ${dark ? "text-on-navy-faint" : "text-ink-faint"}`}
         >
           {note}
         </p>
