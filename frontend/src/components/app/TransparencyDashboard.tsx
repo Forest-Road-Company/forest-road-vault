@@ -419,19 +419,19 @@ export function TransparencyDashboard() {
         <div className="mt-5 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <div>
             <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy-accent">USDfr supply</p>
-            <p className="tnum display mt-1 text-[34px] text-on-navy">{fmt(supply)}</p>
+            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">{fmt(supply)}</p>
             <Reconcile addr={CONTRACTS.USDfr!} fn="totalSupply" />
           </div>
           <div>
             <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-on-navy-accent">Backing value</p>
-            <p className="tnum display mt-1 text-[34px] text-on-navy">${fmt(backing)}</p>
+            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">${fmt(backing)}</p>
             <Reconcile addr={CONTRACTS.ReserveManager!} fn="totalBackingValue" />
           </div>
           <div>
             <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-on-navy-accent">
               Gross collateral &amp; reserves
             </p>
-            <p className="tnum display mt-1 text-[34px] text-on-navy">
+            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">
               {grossCollateralAndReserves !== undefined
                 ? `$${fmt(grossCollateralAndReserves)}`
                 : "—"}
@@ -450,7 +450,7 @@ export function TransparencyDashboard() {
             <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-on-navy-accent">
               Curator first-loss capital
             </p>
-            <p className="tnum display mt-1 text-[34px] text-on-navy">
+            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">
               {curatorCapital !== undefined ? `$${fmt(curatorCapital)}` : "—"}
             </p>
             <p className="mt-1 text-[10.5px] text-on-navy-faint">
@@ -463,7 +463,7 @@ export function TransparencyDashboard() {
             <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy-accent">
               sGROVE total backstop
             </p>
-            <p className="tnum display mt-1 text-[34px] text-on-navy">
+            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">
               {coverageReserve !== undefined ? `$${fmt(coverageReserve)}` : "—"}
             </p>
             <p className="mt-1 text-[10.5px] text-on-navy-faint">
@@ -796,7 +796,7 @@ function Panel({title, addr, children}: {title: string; addr: string; children: 
             {addr.slice(0, 6)}…{addr.slice(-4)}
           </a>
         ) : (
-          <span className="font-mono text-[10px] text-ink-faint">
+          <span className="font-mono text-[11px] text-ink-faint">
             {addr.slice(0, 6)}…{addr.slice(-4)}
           </span>
         )}

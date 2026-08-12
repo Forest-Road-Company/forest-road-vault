@@ -696,14 +696,14 @@ table,
 .doc-prose h3 {
   font-family: var(--font-display), Georgia, serif;
   font-weight: 600;
-  font-size: 17px;
+  font-size: 19px;
   line-height: 1.3;
   color: var(--color-ink);
   margin-top: 1.9rem;
 }
 .doc-prose h4 {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 15.5px;
   color: var(--color-ink);
   margin-top: 1.5rem;
 }
@@ -747,8 +747,8 @@ table,
   border-left: 1px solid var(--color-accent);
   background: var(--color-accent-faint);
   padding: 0.9rem 1.1rem;
-  border-radius: 0 8px 8px 0;
-  font-size: 14.5px;
+  border-radius: 0 10px 10px 0;
+  font-size: 15.5px;
 }
 .doc-prose blockquote p {
   margin: 0;
@@ -761,7 +761,7 @@ table,
 .doc-prose table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13.5px;
+  font-size: 13px;
   display: block;
   overflow-x: auto;
 }
