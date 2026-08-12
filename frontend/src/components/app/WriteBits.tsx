@@ -71,7 +71,7 @@ export function AmountInput({
           type="button"
           onClick={onMax}
           disabled={disabled}
-          className="rounded-pill border border-line-strong px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-muted transition-colors hover:border-accent hover:text-accent active:bg-accent-faint disabled:cursor-not-allowed disabled:border-line disabled:text-ink-faint"
+          className="rounded-pill border border-line-strong px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted transition-colors hover:border-accent hover:text-accent active:bg-accent-faint disabled:cursor-not-allowed disabled:border-line disabled:text-ink-faint"
         >
           max
         </button>

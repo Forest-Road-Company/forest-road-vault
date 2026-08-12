@@ -360,7 +360,7 @@ export function YieldPositionPanel() {
             <div className="mt-3 flex flex-wrap items-end gap-x-4 gap-y-2">
               <p
                 data-figure
-                className="display text-[52px] leading-none text-on-navy sm:text-[64px]"
+                className="display text-[clamp(2rem,4vw,3.375rem)] leading-none text-on-navy"
               >
                 {fmtAmount(metrics.projectedPositionIncome, 18, 4)}
               </p>
@@ -570,7 +570,7 @@ export function YieldPositionPanel() {
 function DarkMetric({label, value, note}: {label: string; value: string; note: string}) {
   return (
     <div>
-      <p className="text-[9.5px] font-semibold uppercase tracking-[0.14em] text-on-navy/40">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-on-navy/40">
         {label}
       </p>
       {/* Carries words ("Immediate") as well as figures, so this is the body face with

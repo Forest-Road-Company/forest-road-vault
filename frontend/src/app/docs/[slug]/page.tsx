@@ -70,7 +70,7 @@ export default async function DocPage({
         </ol>
       </nav>
       <div className="rule-head mt-3" />
-      <h1 className="display mt-10 text-[34px] leading-[1.1] text-ink md:text-[46px]">
+      <h1 className="display mt-10 text-[31px] leading-[1.1] text-ink md:text-[46px]">
         {doc.title}
       </h1>
 

@@ -249,7 +249,7 @@ export function NumberedRows({
     <div className="mt-14 flex flex-col gap-10 lg:flex-row lg:gap-16">
       {heading ? (
         <div className="lg:w-[3.2in] lg:flex-none">
-          <p className="display text-[22px] leading-tight">{heading}</p>
+          <p className="display text-[25px] leading-tight">{heading}</p>
           {aside ? (
             <div
               className={`mt-5 border-t pt-5 text-[13.5px] leading-relaxed ${

@@ -62,10 +62,10 @@ function SourceCard({
           {maturityRangeLabel(multiplierBps)}
         </span>
       </div>
-      <p className="display mt-4 text-[30px] text-ink">
+      <p className="display mt-4 text-[32px] leading-none text-ink">
         {points !== undefined ? fmtAmount(points, 18, 4) : "—"}
       </p>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
         points accrued
       </p>
       <div className="mt-4 border-t border-line pt-3 font-mono text-[10.5px] leading-relaxed text-ink-faint">
@@ -183,7 +183,7 @@ export function PointsDashboard() {
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-faint">
                 Your points
               </p>
-              <p className="display mt-4 break-all text-[44px] leading-none text-ink md:text-[54px]">
+              <p className="display mt-4 break-all text-[clamp(2rem,4vw,3.375rem)] leading-none text-ink">
                 {totalPoints !== undefined ? fmtAmount(totalPoints, 18, 4) : isLoading ? "…" : "—"}
               </p>
               <p className="mt-4 max-w-2xl text-[13px] leading-relaxed text-ink-muted">
@@ -265,7 +265,7 @@ export function PointsDashboard() {
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[680px] text-left">
-                <thead className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
+                <thead className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
                   <tr>
                     <th className="px-6 py-3 font-normal">Class</th>
                     <th className="px-6 py-3 text-right font-normal">Tracked capital</th>

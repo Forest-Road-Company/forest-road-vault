@@ -34,7 +34,7 @@ const DISPOSITION_STYLE: Record<Disposition, string> = {
 };
 
 const PILL =
-  "inline-block rounded-pill border px-2 py-[3px] text-[10px] font-semibold uppercase tracking-[0.12em] whitespace-nowrap";
+  "inline-block rounded-pill border px-2 py-[3px] text-[11px] font-semibold uppercase tracking-[0.12em] whitespace-nowrap";
 
 export function SeverityPill({ severity }: { severity: Severity }) {
   return <span className={`${PILL} ${SEVERITY_STYLE[severity]}`}>{severity}</span>;

@@ -91,7 +91,7 @@ export function HeroLiveStats() {
           <div key={s.label}>
             <dd
               data-figure
-              className="display text-[30px] leading-none text-on-navy md:text-[34px]"
+              className="display text-[32px] leading-none text-on-navy md:text-[38px]"
             >
               {s.value}
             </dd>

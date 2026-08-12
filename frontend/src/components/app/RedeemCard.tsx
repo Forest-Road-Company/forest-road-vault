@@ -401,7 +401,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
           </p>
         ) : null}
         <label className="mt-3 block">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
             Find any request by ID
           </span>
           <input

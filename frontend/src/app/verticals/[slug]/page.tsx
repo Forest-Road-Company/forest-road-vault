@@ -145,7 +145,7 @@ export default async function VerticalPage({
                 i === 0 ? "border-t border-line-strong" : "border-t border-row"
               }`}
             >
-              <span className="display flex-none text-[18px] leading-snug transition-colors group-hover:text-accent sm:w-[3in]">
+              <span className="display flex-none text-[19px] leading-snug transition-colors group-hover:text-accent sm:w-[3in]">
                 {o.name}
               </span>
               <span className="flex-1 text-[15px] leading-relaxed text-ink-muted">

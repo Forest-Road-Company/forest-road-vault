@@ -75,6 +75,18 @@ typography:
     fontWeight: 600
     lineHeight: 1
     fontFeature: "\"tnum\" on"
+  figure-band:
+    fontFamily: "Merriweather, Georgia, serif"
+    fontSize: "32px"
+    fontWeight: 600
+    lineHeight: 1
+    fontFeature: "\"tnum\" on"
+  figure-band-lg:
+    fontFamily: "Merriweather, Georgia, serif"
+    fontSize: "38px"
+    fontWeight: 600
+    lineHeight: 1
+    fontFeature: "\"tnum\" on"
   operate:
     fontFamily: "Inter Tight, system-ui, sans-serif"
     fontSize: "16px"
@@ -91,11 +103,31 @@ typography:
     fontSize: "15.5px"
     fontWeight: 400
     lineHeight: 1.65
+  body-card:
+    fontFamily: "Inter Tight, system-ui, sans-serif"
+    fontSize: "15px"
+    fontWeight: 400
+    lineHeight: 1.6
+  body-dense:
+    fontFamily: "Inter Tight, system-ui, sans-serif"
+    fontSize: "14.5px"
+    fontWeight: 400
+    lineHeight: 1.55
+  body-compact:
+    fontFamily: "Inter Tight, system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.5
   caption:
     fontFamily: "Inter Tight, system-ui, sans-serif"
     fontSize: "13px"
     fontWeight: 400
     lineHeight: 1.625
+  caption-sm:
+    fontFamily: "Inter Tight, system-ui, sans-serif"
+    fontSize: "12px"
+    fontWeight: 400
+    lineHeight: 1.55
   label:
     fontFamily: "Inter Tight, system-ui, sans-serif"
     fontSize: "11px"

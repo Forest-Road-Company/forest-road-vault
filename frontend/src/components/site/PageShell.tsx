@@ -60,7 +60,7 @@ export function PageShell({
               every interior page, and the larger display size made that more
               conspicuous, not less. */}
           <div className="mt-10 grid gap-x-16 gap-y-6 lg:grid-cols-12">
-            <h1 className="display text-[34px] leading-[1.1] md:text-[46px] lg:col-span-7">
+            <h1 className="display text-[31px] leading-[1.1] md:text-[46px] lg:col-span-7">
               {title}
             </h1>
             {lede ? (

@@ -104,7 +104,7 @@ export default function AuditRegisterPage() {
                         {a.eyebrow}
                       </span>
                     </div>
-                    <h2 className="display mt-5 text-[24px] leading-tight transition-colors group-hover:text-accent">
+                    <h2 className="display mt-5 text-[25px] leading-tight transition-colors group-hover:text-accent">
                       {a.title}
                     </h2>
                     <div

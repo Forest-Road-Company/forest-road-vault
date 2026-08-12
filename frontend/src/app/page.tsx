@@ -65,7 +65,7 @@ export default function Landing() {
           <HeroLiveStats />
         </div>
 
-        <p className="absolute bottom-3 right-4 z-10 text-[9.5px] tracking-[0.08em] text-on-navy/30">
+        <p className="absolute bottom-3 right-4 z-10 text-[11px] tracking-[0.08em] text-on-navy/30">
           Forest Road Asset Management brand photography
         </p>
       </section>
@@ -73,7 +73,7 @@ export default function Landing() {
       {/* ── Provenance: who underwrites this, stated once. ─────────────── */}
       <section className="border-b border-line bg-raised">
         <div className="mx-auto flex max-w-6xl flex-col items-baseline justify-between gap-5 px-5 py-14 md:flex-row">
-          <p className="display max-w-[46ch] text-[18px] leading-snug">
+          <p className="display max-w-[46ch] text-[19px] leading-snug">
             Originated, underwritten, and serviced in-house by{" "}
             <span className="text-accent">The Forest Road Company</span>,
             a speciality-finance merchant bank lending against real claims
@@ -105,7 +105,7 @@ export default function Landing() {
               <p className="running-head">The synthetic dollar</p>
             </div>
             <div className="mt-6 h-px w-full bg-line" />
-            <p className="display mt-6 text-[24px] leading-snug">
+            <p className="display mt-6 text-[25px] leading-snug">
               Backed, verifiably, and built to stay boring.
             </p>
             <ul className="mt-6 space-y-3.5 text-[15px] leading-relaxed text-ink-muted">
@@ -143,7 +143,7 @@ export default function Landing() {
               <p className="running-head">The yield-bearing vault</p>
             </div>
             <div className="mt-6 h-px w-full bg-on-navy-line" />
-            <p className="display mt-6 text-[24px] leading-snug">
+            <p className="display mt-6 text-[25px] leading-snug">
               Variable yield, from the book&apos;s actual performance.
             </p>
             <ul className="mt-6 space-y-3.5 text-[14.5px] leading-relaxed text-on-navy-muted">

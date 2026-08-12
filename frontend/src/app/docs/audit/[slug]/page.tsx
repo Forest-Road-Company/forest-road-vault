@@ -71,7 +71,7 @@ export default async function AuditReportPage({
         </ol>
       </nav>
       <div className="rule-head mt-3" />
-      <h1 className="display mt-10 text-[34px] leading-[1.1] text-ink md:text-[46px]">
+      <h1 className="display mt-10 text-[31px] leading-[1.1] text-ink md:text-[46px]">
         {audit.title}
       </h1>
 
@@ -107,7 +107,7 @@ export default async function AuditReportPage({
         {audit.archive ? <Meta term="Internal report" value={audit.archive} mono /> : null}
       </dl>
 
-      <h2 className="display mt-12 border-t border-line pt-6 text-[27px] leading-tight text-ink">
+      <h2 className="display mt-12 border-t border-line pt-6 text-[25px] leading-tight text-ink">
         Findings and remediation history
       </h2>
       <AuditFindingsList findings={audit.findings} />

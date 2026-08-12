@@ -183,7 +183,7 @@ a {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #9aa6ba;
+  background: var(--color-ink-faint);
 }
 
 ::-webkit-scrollbar-corner {
