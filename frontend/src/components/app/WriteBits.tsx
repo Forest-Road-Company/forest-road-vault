@@ -52,6 +52,11 @@ export function AmountInput({
         placeholder="0.00"
         value={value}
         disabled={disabled}
+        /* The symbol sits in a sibling span, which associates with nothing.
+           Without this the field announces as "edit text, blank" on the three
+           flows that move money. The placeholder is not a name and vanishes
+           on first keystroke. */
+        aria-label={`Amount in ${symbol}`}
         aria-invalid={invalid || undefined}
         onChange={(e) => {
           const v = e.target.value;

@@ -45,6 +45,13 @@
   --color-accent-deep: #14213a; /* fills, never text */
   --color-accent-faint: rgba(46, 78, 111, 0.07);
 
+  /* Focus ring and caret. Defaults to the field accent; the navy subtrees
+     re-declare it, because `accent` measures 1.60:1 on navy and a focus
+     indicator that disappears on the footer, the hero and the closing
+     anchor is the one browser surface a keyboard user cannot work without. */
+  --color-focus: var(--color-accent);
+  --color-focus-glow: rgba(46, 78, 111, 0.14);
+
   /* ── navy, as the element colour placed on the white field ── */
   --color-navy: #1c2d48;
   --color-navy-deep: #16233c;
@@ -138,11 +145,13 @@ body {
 }
 
 * {
-  caret-color: var(--color-accent);
+  caret-color: var(--color-focus);
 }
 
+/* Resolved through a variable, not `accent` directly, so the navy subtrees
+   below can lift it the same way they lift the status hues. */
 :focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-focus);
   outline-offset: 3px;
   border-radius: 3px;
 }
@@ -319,8 +328,8 @@ table,
   }
 
   .op-field:focus-within {
-    border-color: var(--color-accent);
-    box-shadow: 0 0 0 3px rgba(46, 78, 111, 0.14);
+    border-color: var(--color-focus);
+    box-shadow: 0 0 0 3px var(--color-focus-glow);
   }
 
   .op-field[data-invalid="true"] {
@@ -392,6 +401,14 @@ table,
      variable is that no status hue is left out of the set. */
   --color-ok: #5cc79a;
   --color-ok-faint: rgba(92, 199, 154, 0.16);
+
+  /* The focus ring lifts with them. `accent` is 1.60:1 on navy and 2.02:1 on
+     navy-deepest — below the 3:1 WCAG 1.4.11 floor for a non-text indicator —
+     while `accent-light` reads 6.32:1 on navy. Every focusable thing on a
+     navy band (footer columns, hero actions, the closing anchor) resolves
+     this, so none of them can lose its ring by sitting on the material. */
+  --color-focus: var(--color-accent-light);
+  --color-focus-glow: rgba(157, 176, 212, 0.24);
 }
 
 @layer components {
@@ -767,6 +784,8 @@ table,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* The authored entrance resolves to its finished state rather than
+     playing. This is the alternative, not an absence. */
   .stage > *,
   .rule-draw,
   .hero-img {
@@ -775,9 +794,29 @@ table,
     transform: none !important;
     filter: none !important;
   }
-  * {
+
+  /* Stop looping and travelling motion everywhere else. */
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  }
+
+  /* Transitions are cut for the properties that actually move a thing —
+     position, scale and blur — and only those. Colour, border and shadow
+     transitions survive, because they are how a control reports hover,
+     focus, disabled and invalid. A blanket `transition-duration: 0.01ms`
+     takes that feedback away from the users who asked for less motion,
+     which is the opposite of what the preference requests: WCAG 2.3.3 is
+     about animation from interactions, not about state legibility. */
+  * {
+    transition-property: color, background-color, border-color, outline-color,
+      box-shadow, fill, stroke, opacity !important;
+    transition-duration: 150ms !important;
+  }
+
+  html {
+    scroll-behavior: auto !important;
   }
 }

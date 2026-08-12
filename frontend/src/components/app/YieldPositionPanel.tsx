@@ -348,9 +348,11 @@ export function YieldPositionPanel() {
     <section className="mt-8 overflow-hidden rounded-card bg-navy-deepest text-on-navy shadow-[0_24px_55px_-28px_rgba(15,26,46,0.7)]">
       <div className="grid gap-px bg-white/10 lg:grid-cols-[1.05fr_1fr]">
         <div className="bg-navy-deepest p-7 sm:p-8">
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.2em] text-on-navy/55">
+          {/* The panel's heading, and the h2 that keeps /app from stepping
+              h1 -> h3 at the first write card. Styling is unchanged. */}
+          <h2 className="text-[10.5px] font-semibold uppercase tracking-[0.2em] text-on-navy/55">
             Projected position income
-          </p>
+          </h2>
           {/* A bare em dash at display scale reads as a redaction bar, not as
               an absent value. When there is no figure yet, the slot says why
               in words instead of standing there as a mark. */}
@@ -427,9 +429,9 @@ export function YieldPositionPanel() {
         </div>
 
         <div className="bg-navy-deep p-7 sm:p-8">
-          <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy/55">
+          <h2 className="text-[11px] font-semibold tracking-[0.04em] text-on-navy/55">
             Your sUSDfr position
-          </p>
+          </h2>
           {address ? (
             <>
               <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-5">

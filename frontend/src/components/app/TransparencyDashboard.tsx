@@ -400,9 +400,12 @@ export function TransparencyDashboard() {
              on navy, not in another white panel among eight. ───────────── */}
       <div className="navy-band rounded-card p-7 md:p-9">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-on-navy-accent">
+          {/* This already was the section's heading; it was only marked up as
+              a paragraph, which left the page stepping h1 -> h3 at the first
+              panel. Styling is unchanged. */}
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-on-navy-accent">
             The backing invariant: supply ≤ backing, enforced in-contract
-          </p>
+          </h2>
           {backingOk === undefined ? null : backingOk ? (
             <span className="rounded-pill border border-on-navy-line bg-white/10 px-3 py-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-on-navy">
               holding
