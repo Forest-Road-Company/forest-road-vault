@@ -131,7 +131,7 @@ It then clears a cured recorded deficit, closes the incident, consumes the arm, 
 future Guardian arms in one transaction. It never briefly releases the interlock between those
 steps.
 
-### 5. Both junior and senior exits share one interlock
+### 5. Curator withdrawals and queue settlement share one interlock
 
 `reserveLossExitsLocked()` is true if any of the following is true:
 
@@ -145,11 +145,41 @@ steps.
 `CuratorModule.withdrawFirstLoss` reads this predicate through a typed call and fails closed.
 `RedemptionQueue.closeEpoch` reads the same predicate before creating new fills. Already-filled
 claims remain claimable; the interlock prevents new senior settlement rather than confiscating an
-existing claim.
+existing claim. Note that `RedemptionQueue.claim` pays USDfr, not USDC.
 
-This shared lock prevents either cohort escaping while the other remains exposed. It is an interim
-measure: any future sub-par senior settlement must price from a post-cascade residual senior rate,
-not charge seniors before curator and sGROVE capital are applied.
+**CORRECTION (2026-08-20, raised by Cantina Managed).** This section previously carried the heading
+"Both junior and senior exits share one interlock" and asserted that the shared lock "prevents
+either cohort escaping while the other remains exposed". Both overstated what is implemented. The
+overstatement is recorded here rather than quietly deleted.
+
+`MintRedeemController._redeem` does **not** consume this predicate. Direct USDfr to USDC redemption
+is a second senior exit, and it stays open while curator withdrawals and queue settlement are shut.
+The mistaken premise is still visible at the consuming line in `RedemptionQueue`, whose comment
+calls the queue "the sole senior exit". It is not.
+
+The exposure is one state, not the general locked case. An escape needs the interlock engaged **and**
+`backing >= supply`, because only then does `_quoteRedeem` pay par. Of the limbs listed above, a
+latched reserve deficit, a positive live shortfall and direct insolvency each imply either sub-par
+ADR-0034 Y-bis pricing or an outright `_requireCustodiedReserve` revert. The par case is a persistent
+arm raised *before* the native-unit shortfall is observable — an anticipatory arm on off-chain
+evidence, which is the ordering §7.8 of the runbook prescribes when it places the arm ahead of
+containment. Once one native unit has actually left custody the direct exit is already closed.
+
+Harm additionally requires a holder of USDfr, sUSDfr or curator capital other than the redeeming
+party, because the redeeming party must be KYC-allowlisted while the bearing party need not be.
+
+**Status: accepted as a known limitation of mainnet v1; not remediated in this release.** A remedy
+cannot simply consume `reserveLossExitsLocked()` in `_redeem`. Measured, that fails 59 tests and
+removes the ADR-0034 Y-bis junior-drawn sub-par exit path entirely, because the predicate is also
+true on `reserveDeficit`, `recognizedSupplyReduction` and plain `supply > backing`. An arm-only
+variant still contradicts the tested property that absorption reopens par exits, because
+`ratifyAndOpen` does not consume the arm. The correct predicate must separate *adjudication pending*
+from *adjudication complete with a deficit latched*, which is a design decision rather than a patch.
+Reproduction: `contracts/test/audit/PoC_CantinaArmedFreezeDirectRedeem.t.sol`.
+
+The interlock remains an interim measure: any future sub-par senior settlement must price from a
+post-cascade residual senior rate, not charge seniors before curator and sGROVE capital are
+applied.
 
 ### 6. Adjudicated losses use the locked waterfall
 

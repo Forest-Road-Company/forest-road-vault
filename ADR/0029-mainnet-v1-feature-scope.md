@@ -53,6 +53,54 @@ a post-launch governance decision requiring a new asset-specific risk review, in
 contract behavior, decimals, upgrade/admin controls, blacklist behavior, liquidity,
 depeg exposure, custody, and operational support.
 
+**USDC risk posture (added 2026-08-20, raised by Cantina Managed).** The review list above is the
+bar for admitting a *further* stablecoin. It is not a record of a review performed on USDC, and
+this section previously implied otherwise. What was and was not assessed is therefore stated here
+rather than left to inference.
+
+Assessed:
+
+- **Identity.** The canonical mainnet address is a compile-time constant,
+  `MainnetConfig.CANONICAL_ETHEREUM_USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48`. The reserve
+  asset is not a deploy-time parameter and cannot be pointed at another token by configuration.
+- **Decimals.** `ValidateMainnet.s.sol` asserts `decimals() == 6` against the live deployment after
+  every deploy.
+- **Transfer-path behaviour.** `MintRedeemController` measures delivery independently on both
+  value-moving legs — `Controller_DepositNotCustodied` on the inflow and
+  `Controller_RedemptionNotSettled` on the outflow. Their threat model is stated in NatSpec as "a
+  botched upgrade, a blocklisting or fee-on-transfer USDC, a skimming implementation", and both
+  fail closed rather than proceeding on the token's own word.
+
+Not assessed, and accepted as residual:
+
+- **Depeg.** USDC is valued at exactly one dollar by construction. `ReserveManager._normalize` is a
+  pure six-to-eighteen decimal shift: no oracle, no price feed, no haircut. Mainnet v1 is
+  single-asset, so the multi-stablecoin approval and disable levers examined in the 2026-07-14
+  round-two audit are not present in this surface. Nothing expresses a USDC depeg in
+  `totalBackingValue`.
+- **Issuer authority.** Circle's ability to pause the token, upgrade its implementation, or
+  blacklist an address — including a Forest Road contract — is not analysed and is not monitored
+  on chain.
+
+**Why nothing further is built.** These are systemic exposures rather than protocol-specific ones,
+and two structural facts bound them.
+
+First, `totalBackingValue` is `idle USDC + (deployed principal − impairment)`. At steady state the
+USDC reserve is a liquidity buffer, not the book: the assets are deployed off-chain into facilities.
+USDC exposure is confined to the buffer rather than to the collateral.
+
+Second, an issuer blacklist of a protocol contract moves neither limb of that sum, so backing
+remains intact and what fails is settlement. That distinction is already load-bearing here —
+`RedemptionQueue` exists because backing is deliberately illiquid, and the separation between
+backing and settleable liquidity is a property of the instrument rather than a defect. Note that
+the ADR-0033 custody predicate cannot detect this state: it compares `idleUSDCUnits` against
+`balanceOf`, and a blacklist reduces neither.
+
+A depeg, a global pause, or an issuer action against a protocol address would require rethinking
+the instrument, not tightening a guard. Forest Road accepts these exposures and records them here
+rather than implying they are controlled. Revisiting this is a governance decision; admitting any
+further stablecoin still requires the full review named above.
+
 ### 4. Reserve-instrument valuation is excluded from mainnet v1
 
 Mainnet v1 does not recognize a facility-zero tokenized-T-bill or other off-chain reserve

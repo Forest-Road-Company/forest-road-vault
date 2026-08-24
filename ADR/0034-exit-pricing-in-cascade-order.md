@@ -94,6 +94,91 @@ R16 turned `redeem` into a variable-price operation while retaining the fixed-pr
 and settlement. `redeem` must take a minimum-out and a deadline. This is required whichever pricing
 basis is chosen and is not contingent on X–Z.
 
+**How W is implemented, and where it deliberately diverges (added 2026-08-20, raised by Cantina
+Managed).** The requirement above is stated flatly. The implementation satisfies it for the
+canonical form and knowingly does not for two legacy ones, so the shape is recorded here rather
+than left for a reader to discover.
+
+`MintRedeemController` exposes three external forms, which are **not** equivalent:
+
+| Form | Minimum-out | Deadline | Status |
+|---|---|---|---|
+| `redeem(uint256)` | par floor, supplied internally | none | safe without one, by arithmetic |
+| `redeem(uint256,uint256)` | caller-named | none | **residual timing exposure** |
+| `redeem(uint256,uint256,uint256)` | caller-named | enforced | **canonical** |
+
+`redeem(uint256)` passes `usdfrAmount / SCALE` as the floor. Since `usdcOut` can never exceed
+`usdfrIn / SCALE`, that floor equals the maximum achievable payout, so the form settles at **exactly
+par or reverts**. It needs no deadline: a transaction held in the mempool sells no option, because
+any downward move in the ratio reverts it rather than settling it worse. This is the same property
+that makes the form safe against silent impairment — a haircut requires the caller to name the price
+they will accept.
+
+`redeem(uint256,uint256,uint256)` enforces the deadline with `Controller_DeadlinePassed`, falsified
+by `test_Y_G08_theDeadlineRefusesAnExpiredRedemption`. It is the form integrators should use.
+
+`redeem(uint256,uint256)` is the genuine divergence from W and is recorded as such. A caller-named
+floor without a deadline bounds price but not time, which is the free option W exists to close: a
+redeemer who sets `minUsdcOut` at a healthy mark and is not included for some time hands a searcher
+the ability to withhold the transaction until the ratio decays to that floor and then include it.
+Every path that moves the ratio down is untimelocked and publicly visible before it lands —
+`recordPrincipalWritedown`, `reconcileIdleUSDC`, and a timelock's own
+`recognizePrincipalImpairment`, whose ready transactions anyone may execute.
+
+**Why the legacy forms were not simply given deadlines.** Attaching a new expiry semantic to an
+unchanged signature is the mistake R16 made and R17 was written to correct: every caller compiled
+against the old signature keeps compiling and begins behaving differently. A silent semantic change
+on a live signature was judged worse than a documented migration path. That reasoning is sound for
+`redeem(uint256)`, where the par floor closes the gap by arithmetic. It is **weaker** for
+`redeem(uint256,uint256)`, where nothing closes it.
+
+**Residual exposure and disposition.** The application uses `redeem(uint256)` exclusively
+(`frontend/src/lib/abi.ts` declares only that signature), so the exposed form is reachable only by a
+direct integrator who names a floor and omits a deadline, and the loss is bounded by the distance
+between the price at broadcast and the floor that integrator chose. Opt-in and self-bounded, but
+real. Removing the two-argument signature is an ABI break and therefore an upgrade decision, not one
+for mainnet v1. Until then the exposure is disclosed here, and integrators are directed to the
+three-argument form.
+
+**What `previewRedeem` publishes, and one pause surface it misses (added 2026-08-24, raised by
+Cantina Managed).** Two properties of the published quote are stated in the source but were not
+visible from this ADR, and an integrator should not have to open the contract to find them.
+
+First, **the quote is a lower bound, not an estimate.** `previewRedeem` passes `drawn = 0` into
+`_quoteRedeem`, so below par it publishes the undrawn price while `redeem` settles at the
+junior-drawn price, which is equal or better and never worse. Passing the published number straight
+back as `minUsdcOut` therefore cannot revert on slippage, and that direction is what makes the gap
+safe. The draw is not simulated because sizing it needs live junior capacity from the five curator
+pools and the shared sGROVE reserve, neither of which is reachable from the controller, and
+publishing it from `DefaultManager` measured 218 bytes in a contract with 183 remaining. Anyone
+tempted to "fix" the undrawn quote should note that moving it in the other direction would make the
+published number unsafe to use as a floor.
+
+Second, **the view consults the controller pause and the USDfr pause but not the `ReserveManager`
+pause**, while `ReserveManager.releaseUSDC` carries `whenNotPaused`. With the reserve paused the
+view publishes a full quote that no redemption can settle. Nothing is at risk: the redemption
+reverts inside `releaseUSDC` before any state is written, so no USDfr is burned, no USDC moves, no
+holder is impaired and nothing is extractable by acting on the stale number. The defect is a
+published figure that will not execute, during a state that is itself an incident response. Until
+the controller is next opened, an integrator should read `ReserveManager.paused()` alongside the
+quote. An earlier internal sweep closed the other two pause surfaces on this view, which is why the
+tests around it are named `test_S3_F3_previewRedeemQuotesAFullPriceWhileRedemptionIsPaused` and
+`test_S3_F3b_previewRedeemQuotesAFullPriceWhileTheTokenPauseClosesTheBurn`; the reserve is the third
+sibling of that family and was missed.
+
+Separately, `_quoteRedeem` computes `usdfrIn + drawn` before any size check, so a max-sized
+`usdfrAmount` on the under-backed branch panics with `Panic(0x11)` instead of returning a controller
+error. No funds are at risk, since no caller can hold or burn such an amount, and the addition does
+not exist on the whole-backed branch because `_exitDrawTarget` returns zero there. The intended
+remedy is a `usdfrIn <= supply` bound rather than a balance read: the controller already holds the
+supply as a local, no holder can exceed total supply, and `drawn` is clamped to the standing deficit,
+so the bound makes the overflow unrepresentable rather than merely unlikely.
+
+All three of these are accepted as known limitations of mainnet v1 and are queued for the next
+controller upgrade alongside the ADR-0033 §5 interlock consumption. Reproductions are committed at
+`contracts/test/audit/PoC_CantinaI3_PreviewVsReservePause.t.sol` and
+`contracts/test/audit/PoC_CantinaI1_OversizedRedeemPanics.t.sol`.
+
 ### Y-bis — the junior draw is ATOMIC with the exit (Forest Road, 2026-08-08)
 
 Y as first written said "price off the post-cascade residual" and treated the atomic reservation of
@@ -133,6 +218,56 @@ pays for an estimate, but requires per-exit residual-claim machinery that does n
 - `withdrawFirstLoss`'s existing locks (`Curator_ClassDefaultFrozen`, and the subordination requirement
   that locks capital protecting live exposure) already prevent junior capital escaping ahead of a
   crystallisation. They are load-bearing for this decision and must not be relaxed.
+
+### Y-ter — X governs REALIZATION order; Y-bis governs EXIT pricing (clarification, 2026-08-19)
+
+Raised in external review (Cantina): X states the cascade applies *"on every path, at all times,
+including the direct redemption path"* and places unstaked USDfr holders **last** — behind senior.
+Y-bis's implementation requirements name only layers 1 and 2, and `drawForSeniorExit` stops at the
+sGROVE backstop. Which is normative on the direct path?
+
+**Y-bis is normative on the direct path.** The two decisions govern different operations, and the
+original wording did not say so:
+
+- **X governs the order in which a realized loss is BORNE.** `DefaultManager.realizeLoss` implements
+  it in full, burning curator first-loss, then the sGROVE backstop, then sUSDfr vault principal, and
+  pairs the burns with the principal write-down. Unstaked USDfr holders sit at the end of that order,
+  exactly as X states.
+- **Y-bis governs the price an exit SETTLES AT, and the draw that funds it.** The draw is a *junior*
+  draw. sUSDfr is not junior capital, so it is not drawn from.
+
+Three reasons this is the right scoping rather than an omission:
+
+1. **Funding an unstaked exit from the vault would invert the tranche economics.** sUSDfr holders
+   take yield-compensated risk and sit ahead of unstaked holders in the loss order. Paying an
+   unstaked exit out of staked principal moves value the wrong way along that ordering.
+2. **Layer-3 absorption carries a write-down that the exit path cannot perform.** `realizeLoss` burns
+   vault principal *and* records the paired principal write-down. A draw has no facility to write
+   down, so drawing from layer 3 would reduce senior principal without recording why.
+3. **Requirement 3 already bounds it.** The draw "brings absorption FORWARD in time, it does not
+   enlarge it." Layer-3 absorption only becomes something to bring forward once a loss is realized —
+   and at that point `realizeLoss` performs it directly.
+
+**What this leaves, stated honestly.** The deficit that makes an exit sub-par comes from
+`recognizePrincipalImpairment` (`DEFAULT_ADMIN_ROLE`, timelock, 2-day delay), which is deliberately
+*reversible*. `realizeLoss` is permanent and separately gated (`SERVICER_ROLE`). Between a
+provisional mark and a realized loss there is a window in which an unstaked holder who exits absorbs
+their share while the vault is untouched. That is a **sequencing property, not an ordering
+inversion** — sUSDfr absorbs on the realization trigger rather than the exit trigger — and during a
+genuinely provisional mark it is the correct outcome: the book is worth less, and "all capital is at
+risk" means the exiting holder bears that.
+
+**Operational consequence (belongs in the runbook, not in code).** When queuing
+`recognizePrincipalImpairment`, state explicitly whether the loss is *provisional* (mark only) or
+*determined* (mark plus `realizeLoss` immediately following execution). The 2-day timelock delay is
+sufficient to stage the Safe batch for the determined case.
+
+**Revisit trigger.** This scoping is recorded as a decision, not a permanent constraint. It should be
+re-examined before KYC mint/redeem is opened to external participants. The change would be contained
+if made: the draw source is resolved dynamically via `ReserveManager.lossAbsorber()` behind an
+authorised-source check, so a three-layer absorber can replace the current one without new storage or
+redeployment. Decision Z's stateful invariant must be extended to cover the new branch in the same
+change — an uncovered path makes the invariant vacuous for it.
 
 ## Alternatives considered
 
