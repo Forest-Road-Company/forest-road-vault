@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Disclosures — Forest Road Vault" }
 export default function LegalPage() {
   return (
     <PageShell
-      eyebrow="Legal"
+      section="Legal"
       title="Disclosures"
       lede="Stated plainly, because getting this wrong helps nobody."
     >
@@ -31,7 +31,7 @@ export default function LegalPage() {
         </p>
         <p>
           <span className="text-ink">Token characterization is a matter for counsel.</span>{" "}
-          The protocol&apos;s instruments — USDfr, sUSDfr, GROVE, and sGROVE — have
+          The protocol&apos;s instruments (USDfr, sUSDfr, GROVE, and sGROVE) have
           the characterization set out in the definitive legal materials; nothing
           on this site independently claims they are or are not securities.{" "}
           {IS_MAINNET
@@ -51,7 +51,7 @@ export default function LegalPage() {
           is global, not personal to a participant&apos;s entry price, and
           crystallized fees are not clawed back after a later loss. No fixed
           return is promised, and depositors bear underlying credit performance,
-          subject to the documented loss cascade — a structural ordering of
+          subject to the documented loss cascade: a structural ordering of
           losses, not a guarantee against them.
         </p>
         <p>

@@ -23,7 +23,7 @@ export const DOCS: DocEntry[] = [
     title: "Protocol Guarantees",
     eyebrow: "Safety spec",
     summary:
-      "The nine system invariants — backing, value conservation, cascade ordering, the mint gate, FIFO redemption — each mapped to the on-chain mechanism that enforces it and the test that proves it.",
+      "The nine system invariants: backing, value conservation, cascade ordering, the mint gate, FIFO redemption. Each is mapped to the on-chain mechanism that enforces it and the test that proves it.",
   },
   {
     slug: "roles-and-governance",
@@ -31,7 +31,7 @@ export const DOCS: DocEntry[] = [
     title: "Roles & Governance",
     eyebrow: "Trust model",
     summary:
-      "Every privileged role, who holds it in production, and the exact functions it gates — including the timelocked governance setters and the never-pausable cascade.",
+      "Every privileged role, who holds it in production, and the exact functions it gates, including the timelocked governance setters and the never-pausable cascade.",
   },
   {
     slug: "recovery",
@@ -65,7 +65,7 @@ export const AUDIT_SECTION = {
   title: "Audit Register",
   eyebrow: "Full findings",
   summary:
-    "Every source-level review run against the protocol, newest first — each round with its own findings and its own remediation history, including the findings that were accepted rather than fixed.",
+    "Every source-level review run against the protocol, newest first. Each round has its own findings and its own remediation history, including the findings that were accepted rather than fixed.",
 } as const;
 
 /**
@@ -79,7 +79,7 @@ export const ADDRESSES_SECTION = {
   title: "Deployed Addresses",
   eyebrow: "On-chain",
   summary:
-    "Every contract this build reads, with its role and a block-explorer link — generated from the same configuration the application uses, so it cannot fall out of step with the live deployment.",
+    "Every contract this build reads, with its role and a block-explorer link. It's generated from the same configuration the application uses, so it cannot fall out of step with the live deployment.",
 } as const;
 
 export function docBySlug(slug: string): DocEntry | undefined {

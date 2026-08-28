@@ -6,7 +6,7 @@
 > representation.
 
 Forest Road Vault custodies capital against real legal claims, so correctness and test
-rigor are treated as the deliverable — not an afterthought. This page summarizes the
+rigor are treated as the deliverable, not an afterthought. This page summarizes the
 posture; the full invariant specification and role model are published alongside it.
 
 ## Testing
@@ -34,7 +34,7 @@ posture; the full invariant specification and role model are published alongside
 ## The safety spec
 
 Nine system invariants are encoded as stateful properties and exercised across fuzzed
-reachable states — the backing invariant (supply never exceeds backing), value
+reachable states: the backing invariant (supply never exceeds backing), value
 conservation in the waterfall, strict loss-cascade ordering, the synchronized mint gate,
 FIFO redemption with no double-claim, concentration limits, exchange-rate monotonicity,
 access control, and reserve reconciliation. See **Protocol guarantees** for the full list
@@ -42,24 +42,24 @@ and how each is enforced on-chain.
 
 ## Review
 
-- A historical internal, multi-round **adversarial audit** was run against its then-current contract set —
-  independent reviewers rotating attack lenses each round (arithmetic, economic/MEV,
+- A historical internal, multi-round **adversarial audit** was run against its then-current contract set.
+  Independent reviewers rotated attack lenses each round (arithmetic, economic/MEV,
   upgrade & storage, external-token integration, access control), plus static analysis
   (Slither). No Critical finding was confirmed. Every High finding and its disposition is
   published: deployment authorization was remediated with regression tests; the remaining
   curator-capital settlement risk is explicitly accepted/deferred rather than described
   as fixed.
 - All contracts use **audited, standard implementations** (OpenZeppelin) for tokens,
-  ERC-4626, ERC-721, access control, proxies, reentrancy guards, and pausing — nothing
+  ERC-4626, ERC-721, access control, proxies, reentrancy guards, and pausing. Nothing
   security-sensitive is hand-rolled. Checks-Effects-Interactions and reentrancy guards are
   used throughout the value-moving paths.
 
 - **Two subsequent five-pass source-level audits** were then run across the production
   contracts and their deployment wiring, surfacing eighteen further findings at module
-  boundaries the earlier tests had treated as trusted — backing/valuation and facility
+  boundaries the earlier tests had treated as trusted: backing/valuation and facility
   lifecycle in Round 1, and compliance, the vault, the redemption queue and the treasury in
   Round 2. We publish all of them, with per-finding remediation status, in the
-  **Audit Register** — where every round keeps its own findings and its own remediation
+  **Audit Register**, where every round keeps its own findings and its own remediation
   history. ADR-0030 subsequently removed the legacy multi-stable, DSRA,
   reserve-instrument, recovery-top-up deployment, and compatibility surfaces. The fresh
   clean-v1 stack formerly deployed at Sepolia block 11340997 is now explicitly archived
@@ -81,8 +81,8 @@ attestation-trust model**.
 
 Current status of those gates:
 
-- **Corrovera independent review — RECEIVED AND OWNER-DISPOSITIONED 4 AUGUST 2026.** Corrovera Security
-  reviewed the whole protocol — all 37 files and 10,502 lines of contract source — at a
+- **Corrovera independent review: RECEIVED AND OWNER-DISPOSITIONED 4 AUGUST 2026.** Corrovera Security
+  reviewed the whole protocol, all 37 files and 10,502 lines of contract source, at a
   commit byte-identical to the current `contracts/src` tree at `b5245398`, with our existing 36-entry findings
   register supplied as an exclusion list so that a rediscovery could not be reported as a
   discovery. It is the first review of this protocol by a party other than Forest Road, and
@@ -91,14 +91,14 @@ Current status of those gates:
   AI-assisted tier; **no finding in it reached `confirmed`**, because fork reproduction was
   not part of the engagement; no property was formally proven; no fuzzing ran beyond our own
   suite; and adjudication was by one engineer rather than a consensus pipeline. The report's
-  own words are that a clean section *"is not evidence of security."* It was not clean — it
+  own words are that a clean section *"is not evidence of security."* It was not clean. It
   produced two new Medium findings outside the register: F-01, a curator being able to
   inflate the price its own queued redemption settles at, and F-02, ordinary forbearance
   suppressing the senior impairment mark with no misconduct required. **Forest Road analysed
   both and accepted them as low practical risk on 4 August 2026. Accepted is not fixed:**
   neither mechanism is refuted, neither is remediated in code, and Corrovera's Medium
   ratings stand as they wrote them. F-01 is near-unreachable only while Forest Road is the
-  sole curator, and goes live at the first approval of a third-party curator — so that
+  sole curator, and goes live at the first approval of a third-party curator, so that
   approval is itself gated on remediating it first. Forest Road confirmed that one external audit
   is the applicable launch requirement, so the received Corrovera engagement satisfies that gate.
   This policy disposition does not change the report's scope, AI-assisted method, Medium ratings or
@@ -117,19 +117,19 @@ Current status of those gates:
   is a throughput-cap bypass. D4-01's anonymous path is a bounded, non-compounding
   one-epoch delay. The round's four Low assurance-chain findings
   (D13-01 through D13-04) were subsequently remediated with tracked regressions, but the
-  open protocol findings remain — so the delta this gate refers to has grown rather than
+  open protocol findings remain, so the delta this gate refers to has grown rather than
   closed. That round
   also corrected four of its own earlier conclusions, including one previously published
   here: the upgrade role is held only by the timelock **in the current configuration**, but
   the default administrator role administers it, so that is a configuration state and not a
   control. It remains an internal review and does not move this gate.
-- **Securities-law opinion — OWNER-REPORTED COMPLETE.** The repository does not
+- **Securities-law opinion: OWNER-REPORTED COMPLETE.** The repository does not
   independently attest the underlying letter. Nothing on this site is a
   securities-law representation.
-- **Executed legal wrapper — OWNER-REPORTED COMPLETE.**
-- **Economic review — OWNER-REPORTED COMPLETE.**
-- **Attestation-trust model acceptance — OWNER-REPORTED COMPLETE.**
-- **Mainnet operator ceremony — BLOCKED.** Tracked default/heavy tests and Solidity formatting
+- **Executed legal wrapper: OWNER-REPORTED COMPLETE.**
+- **Economic review: OWNER-REPORTED COMPLETE.**
+- **Attestation-trust model acceptance: OWNER-REPORTED COMPLETE.**
+- **Mainnet operator ceremony: BLOCKED.** Tracked default/heavy tests and Solidity formatting
   pass, and the pinned-fork recovery rehearsal now exercises the real Treasury Safe proxy. The
   Safe shared-owner common mode is formally accepted as `SAFE-CD-01` and remains disclosed rather
   than described as independent control. The validated KMS deployer is now funded with ETH and
@@ -187,7 +187,7 @@ receipt, say plainly whether we consider it a finding and at what severity, and 
 timing with you.
 
 Findings that survive validation are published on the audit register with their severity and
-disposition — **including the ones accepted rather than fixed**. Reproduction detail is withheld
+disposition, **including the ones accepted rather than fixed**. Reproduction detail is withheld
 while a mechanism is live and unremediated, which is a deliberate exception to publishing in full.
 Reporters are credited unless they ask not to be. There is no bug bounty at this stage.
 

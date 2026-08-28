@@ -10,24 +10,31 @@ import type { AuditFinding, Disposition, Severity } from "@/content/audits";
  * vocabulary consistent across every round.
  */
 
+/**
+ * Severity and disposition are encoded in the navy tint ladder, not in hue.
+ * The house style is monochrome navy on client-facing surfaces, so weight
+ * carries the ranking: solid navy demands attention, tints recede. The label
+ * itself is always present, so the tint is reinforcement and never the only
+ * signal.
+ */
 const SEVERITY_STYLE: Record<Severity, string> = {
-  High: "border-danger/30 bg-danger/10 text-danger",
-  Medium: "border-warn/30 bg-warn/10 text-warn",
-  Low: "border-line-strong bg-surface text-ink-muted",
-  Informational: "border-line-strong bg-surface text-ink-faint",
+  High: "border-navy bg-navy text-on-navy",
+  Medium: "border-accent-strong bg-accent-strong/12 text-accent-strong",
+  Low: "border-line-strong bg-surface text-ink-value",
+  Informational: "border-line bg-surface text-ink-faint",
 };
 
 const DISPOSITION_STYLE: Record<Disposition, string> = {
-  Remediated: "border-moss/30 bg-moss-faint text-moss",
-  Accepted: "border-gold/30 bg-gold-faint text-gold",
-  Deferred: "border-gold/30 bg-gold-faint text-gold",
-  "By design": "border-line-strong bg-surface text-ink-muted",
-  Open: "border-warn/30 bg-warn/10 text-warn",
-  Superseded: "border-line-strong bg-surface text-ink-faint",
+  Remediated: "border-line-strong bg-surface text-ink-faint",
+  Accepted: "border-accent-strong bg-accent-strong/12 text-accent-strong",
+  Deferred: "border-accent-strong bg-accent-strong/12 text-accent-strong",
+  "By design": "border-line-strong bg-surface text-ink-value",
+  Open: "border-navy bg-navy text-on-navy",
+  Superseded: "border-line bg-surface text-ink-faint",
 };
 
 const PILL =
-  "inline-block rounded-pill border px-2 py-[3px] font-mono text-[10px] uppercase tracking-[0.12em] whitespace-nowrap";
+  "inline-block rounded-pill border px-2 py-[3px] text-[11px] font-semibold uppercase tracking-[0.12em] whitespace-nowrap";
 
 export function SeverityPill({ severity }: { severity: Severity }) {
   return <span className={`${PILL} ${SEVERITY_STYLE[severity]}`}>{severity}</span>;
@@ -54,7 +61,7 @@ export function SeverityMix({ findings }: { findings: AuditFinding[] }) {
     <span className="inline-flex flex-wrap items-center gap-1.5">
       {parts.map(({ s, n }) => (
         <span key={s} className="inline-flex items-center gap-1">
-          <span className="font-mono text-[12px] text-ink">{n}</span>
+          <span className="tnum text-[12px] font-semibold text-ink">{n}</span>
           <SeverityPill severity={s} />
         </span>
       ))}
@@ -71,9 +78,7 @@ export function AuditFindingsList({ findings }: { findings: AuditFinding[] }) {
           className="rounded-card border border-line bg-raised/70 p-5"
         >
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-faint">
-              {f.id}
-            </span>
+            <span className="running-head">{f.id}</span>
             <SeverityPill severity={f.severity} />
             <span className="ml-auto">
               <DispositionPill disposition={f.disposition} />

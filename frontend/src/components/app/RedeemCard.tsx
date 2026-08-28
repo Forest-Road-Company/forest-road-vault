@@ -255,7 +255,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   return (
     <div className="panel flex h-full flex-col p-6">
       <div className="flex items-baseline justify-between">
-        <h3 className="font-grotesk text-[16px] font-semibold tracking-tight">Redeem</h3>
+        <h3 className="font-display text-[16px] font-semibold tracking-tight">Redeem</h3>
         <div className="flex gap-1 rounded-pill border border-line bg-surface p-0.5">
           {(["instant", "queue"] as const).map((m) => (
             <button
@@ -271,8 +271,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
                 flow.reset();
                 claimFlow.reset();
               }}
-              className={`rounded-pill px-3 py-1 font-mono text-[10px] uppercase tracking-[0.1em] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                mode === m ? "bg-moss text-raised" : "text-ink-faint hover:text-ink-muted"
+              className={`rounded-pill px-3 py-1 text-[11px] font-semibold tracking-[0.02em] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${ mode === m ?"bg-accent text-raised" : "text-ink-faint hover:text-ink-muted"
               }`}
             >
               {m === "instant" ? "USDfr" : "sUSDfr"}
@@ -283,7 +282,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
 
       <p className="mt-2 text-[13px] leading-relaxed text-ink-muted">
         {mode === "instant"
-          ? `Redeem USDfr for ${STABLE_SYMBOL} 1:1 against idle reserves — instant, floored to a whole ${STABLE_SYMBOL} unit.`
+          ? `Redeem USDfr for ${STABLE_SYMBOL} 1:1 against idle reserves: instant, floored to a whole ${STABLE_SYMBOL} unit.`
           : "Unstake through the non-cancellable redemption queue. A request first completes its minimum hold, then fills FIFO as liquidity allows. Actual settlement can take longer."}
       </p>
 
@@ -305,11 +304,16 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
         </div>
       ) : null}
 
+      {/* Same balance vocabulary as the other two write cards. */}
       <p className="mt-4 font-mono text-[11px] text-ink-faint">
         Balance:{" "}
-        <span className="text-ink-muted">
-          {balanceShown !== undefined ? fmtAmount(balanceShown, decimals) : "—"} {symbol}
-        </span>
+        {balanceShown !== undefined ? (
+          <span className="text-ink-muted">
+            {fmtAmount(balanceShown, decimals)} {symbol}
+          </span>
+        ) : (
+          <span>wallet not connected</span>
+        )}
       </p>
 
       <AmountInput
@@ -331,9 +335,8 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
           (fills at settlement rate)
           {depositPriceAssets !== undefined && depositPriceAssets > previewAssets ? (
             <>
-              {" "}
               <span className="text-ink-muted">
-                — marked down from {fmtAmount(depositPriceAssets, 18, 4)} using the current
+                , marked down from {fmtAmount(depositPriceAssets, 18, 4)} using the current
                 conservative default mark. The mark and settlement price can change before
                 this request fills.
               </span>
@@ -363,7 +366,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
               )
             }
             disabled={!chainOk || flow.busy || redeemCooldown === undefined}
-            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-moss)]"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-accent)]"
           />
           <span>
             I understand this request cannot be cancelled or withdrawn, cannot settle before
@@ -388,7 +391,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
       <StatusLine status={flow.status} />
 
       <div className="mt-auto border-t border-line pt-4">
-        <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-ink-faint">
+        <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
           Your queue positions
         </p>
         {totalRequests !== undefined && totalRequests > REQUEST_SCAN_WINDOW ? (
@@ -398,7 +401,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
           </p>
         ) : null}
         <label className="mt-3 block">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
             Find any request by ID
           </span>
           <input
@@ -407,7 +410,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
             inputMode="numeric"
             pattern="[0-9]*"
             placeholder="e.g. 42"
-            className="mt-1.5 w-full rounded-input border border-line bg-surface px-3 py-2 font-mono text-[12px] text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-moss/60"
+            className="mt-1.5 w-full rounded-input border border-line bg-surface px-3 py-2 font-mono text-[12px] text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent/60"
           />
         </label>
         {lookupIsOutOfRange ? (
@@ -454,7 +457,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
                       </span>
                     ) : null}
                     {r.assetsClaimable > 0n ? (
-                      <span className="ml-1 text-moss">
+                      <span className="ml-1 text-accent">
                         · {fmtAmount(r.assetsClaimable, 18)} USDfr claimable
                       </span>
                     ) : null}
@@ -467,7 +470,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
                         })
                       }
                       disabled={!chainOk || claimFlow.busy}
-                      className="shrink-0 rounded-pill bg-moss px-3.5 py-1 text-[12px] font-medium text-raised transition-transform hover:scale-[1.02] disabled:opacity-50"
+                      className="shrink-0 rounded-pill bg-accent px-3.5 py-1 text-[12px] font-medium text-raised transition-transform hover:scale-[1.02] disabled:opacity-50"
                     >
                       Claim
                     </button>

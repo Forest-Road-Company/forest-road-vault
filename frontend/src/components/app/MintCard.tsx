@@ -24,7 +24,7 @@ export function MintCard({writesEnabled, chainOk}: {writesEnabled: boolean; chai
   const stable = CONTRACTS.USDC!;
   const controller = CONTRACTS.MintRedeemController!;
 
-  const {data: balance} = useReadContract({
+  const {data: balance, isLoading: balanceLoading} = useReadContract({
     address: stable,
     abi: ERC20_ABI,
     functionName: "balanceOf",
@@ -75,8 +75,8 @@ export function MintCard({writesEnabled, chainOk}: {writesEnabled: boolean; chai
   return (
     <div className="panel flex h-full flex-col p-6">
       <div className="flex items-baseline justify-between">
-        <h3 className="font-grotesk text-[16px] font-semibold tracking-tight">Deposit &amp; mint</h3>
-        <p className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-ink-faint">
+        <h3 className="font-display text-[16px] font-semibold tracking-tight">Deposit &amp; mint</h3>
+        <p className="text-[11px] font-semibold tracking-[0.03em] text-ink-faint">
           {STABLE_SYMBOL} → USDfr
         </p>
       </div>
@@ -84,11 +84,22 @@ export function MintCard({writesEnabled, chainOk}: {writesEnabled: boolean; chai
         Deposit {STABLE_SYMBOL}, mint USDfr 1:1. KYC-verified addresses only.
       </p>
 
+      {/* An in-flight read shows the shape of the value it is fetching; a value
+          that needs a wallet says so. The two states are not the same thing and
+          a bare em dash cannot tell them apart. */}
       <p className="mt-4 font-mono text-[11px] text-ink-faint">
         Balance:{" "}
-        <span className="text-ink-muted">
-          {balance !== undefined ? fmtAmount(balance, STABLE_DECIMALS) : "—"} {STABLE_SYMBOL}
-        </span>
+        {balanceLoading ? (
+          <span className="op-skeleton align-middle" aria-hidden>
+            0,000.00 {STABLE_SYMBOL}
+          </span>
+        ) : balance !== undefined ? (
+          <span className="text-ink-muted">
+            {fmtAmount(balance, STABLE_DECIMALS)} {STABLE_SYMBOL}
+          </span>
+        ) : (
+          <span>wallet not connected</span>
+        )}
       </p>
 
       <AmountInput
@@ -130,7 +141,7 @@ export function MintCard({writesEnabled, chainOk}: {writesEnabled: boolean; chai
                 })
               }
               disabled={!chainOk || !address || faucet.busy}
-              className="shrink-0 rounded-pill border border-line-strong px-3.5 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.12em] text-ink-muted transition-colors hover:border-moss/60 hover:text-moss disabled:opacity-50"
+              className="shrink-0 rounded-pill border border-line-strong px-3.5 py-1.5 text-[11px] font-semibold tracking-[0.02em] text-ink-muted transition-colors hover:border-accent/60 hover:text-accent disabled:opacity-50"
             >
               {faucet.busy ? "Minting…" : "Get 10,000 tUSDC"}
             </button>

@@ -184,30 +184,36 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
   return (
     <div className="panel flex h-full flex-col p-6">
       <div className="flex items-baseline justify-between">
-        <h3 className="font-grotesk text-[16px] font-semibold tracking-tight">Stake</h3>
-        <p className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-ink-faint">
+        <h3 className="font-display text-[16px] font-semibold tracking-tight">Stake</h3>
+        <p className="text-[11px] font-semibold tracking-[0.03em] text-ink-faint">
           USDfr → sUSDfr
         </p>
       </div>
       <p className="mt-2 text-[13px] leading-relaxed text-ink-muted">
         Stake into the sUSDfr vault at the current exchange rate. Yield is the book&apos;s
-        actual performance — variable, never fixed. The displayed rate and share quote
+        actual performance. Variable, never fixed. The displayed rate and share quote{" "}
         {SUPPORTS_VAULT_FEE_ACCOUNTING
           ? "simulate all fees due at this block."
           : "reflect this legacy Sepolia deployment, which predates vault-level fees."}
       </p>
 
+      {/* Same balance vocabulary as the other two write cards: an absent wallet
+          says so in words rather than as a dash. */}
       <p className="mt-4 font-mono text-[11px] text-ink-faint">
         Balance:{" "}
-        <span className="text-ink-muted">
-          {balance !== undefined ? fmtAmount(balance, 18) : "—"} USDfr
-        </span>
-        <span className="ml-3">
-          Rate:{" "}
-          <span className="text-ink-muted">
-            {rate !== undefined ? `1 sUSDfr = ${fmtAmount(rate, 18, 4)} USDfr` : "—"}
+        {balance !== undefined ? (
+          <span className="text-ink-muted">{fmtAmount(balance, 18)} USDfr</span>
+        ) : (
+          <span>wallet not connected</span>
+        )}
+        {rate !== undefined ? (
+          <span className="ml-3">
+            Rate:{" "}
+            <span className="text-ink-muted">
+              1 sUSDfr = {fmtAmount(rate, 18, 4)} USDfr
+            </span>
           </span>
-        </span>
+        ) : null}
       </p>
 
       <AmountInput

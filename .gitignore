@@ -77,3 +77,16 @@ contracts/test/audit-tools
 mtm-keeper/dist/
 # Generated: production MTM feed TypeScript build output
 mtm-feed/dist/
+
+# Claude Code local permission allowlist: machine-specific, not shared config.
+# .claude/launch.json IS committed — it is the shared dev-server definition.
+.claude/settings.local.json
+
+# Impeccable design-tool state. design.json is the DESIGN.md sidecar and IS
+# committed; everything below is per-session scratch (live-mode journals,
+# accept receipts, hook caches) and must never enter history.
+.impeccable/live/
+.impeccable/questions/
+.impeccable/hook.cache.json
+.impeccable/hook.pending.json
+.impeccable/config.local.json

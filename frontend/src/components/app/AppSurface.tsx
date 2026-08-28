@@ -94,38 +94,43 @@ export function AppSurface() {
   const writesEnabled = chainOk && kycAllowed === true;
 
   return (
-    <div className="mt-10">
-      {/* ── Connect row ──────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-card border border-line bg-raised/70 px-5 py-4">
+    /* `operate` puts this subtree in product-UI mode: one type family (no serif
+       display in labels, buttons or figures), fixed scale, full control states,
+       and motion that reports state rather than decorating. Declared in
+       globals.css so the rules are not re-argued per component. */
+    <div className="operate mt-10">
+      {/* ── Connect row: the surface's toolbar, on the second neutral layer so
+             chrome reads as chrome against the white content panels. ────── */}
+      <div className="op-toolbar flex flex-wrap items-center justify-between gap-4 px-5 py-4">
         <ConnectControl />
         {isConnected ? (
           rightNetwork && !rpcReady ? (
-            <span className="rounded-pill border border-line-strong px-3.5 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-ink-faint">
+            <span className="rounded-pill border border-line-strong px-3.5 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
               {rpcAlignment.phase === "checking" ? "checking RPC…" : "RPC check required"}
             </span>
           ) : (
           kycLoading ? (
-            <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-faint">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
               checking KYC…
             </span>
           ) : kycAllowed === true ? (
-            <span className="rounded-pill border border-moss/30 bg-moss-faint px-3.5 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-moss">
+            <span className="rounded-pill border border-accent/30 bg-accent-faint px-3.5 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-accent">
               KYC verified
             </span>
           ) : kycAllowed === false ? (
-            <span className="rounded-pill border border-warn/40 bg-warn/10 px-3.5 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-warn">
+            <span className="rounded-pill border border-warn/40 bg-warn/10 px-3.5 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-warn">
               not KYC-verified
             </span>
           ) : kycError ? (
             // A failed read is NOT a verdict — never assert non-verification we
             // haven't determined.
-            <span className="rounded-pill border border-line-strong px-3.5 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-ink-faint">
+            <span className="rounded-pill border border-line-strong px-3.5 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
               KYC check unavailable
             </span>
           ) : null
           )
         ) : (
-          <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-faint">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
             {NETWORK_NAME}
           </span>
         )}
@@ -147,7 +152,7 @@ export function AppSurface() {
           <p className="text-[13.5px] leading-relaxed text-ink">
             <span className="font-medium">This address is not KYC-verified.</span>{" "}
             <span className="text-ink-muted">
-              You can hold, view, transfer, and even stake freely — and existing sUSDfr
+              You can hold, view, transfer, and even stake freely. Existing sUSDfr
               can exit through the redemption queue. Only mint and instant redeem are
               disabled, and the contracts enforce that on-chain, not just here. Contact
               Forest Road to complete the applicable onboarding process for this address.
@@ -156,11 +161,30 @@ export function AppSurface() {
         </div>
       ) : null}
 
+      {/* Empty state that teaches the surface rather than announcing absence:
+          it says what is already usable, what a wallet unlocks, and what the
+          KYC gate does and does not cover — the three things a first-time
+          visitor otherwise has to discover by clicking a disabled button. */}
       {!isConnected ? (
-        <p className="mt-6 text-[13.5px] leading-relaxed text-ink-muted">
-          Connect a wallet on {NETWORK_NAME} to use the write paths. Everything below stays
-          visible without one — reads are public.
-        </p>
+        <div className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
+          <p className="text-[13.5px] font-medium text-ink">
+            No wallet connected. Everything below is still readable.
+          </p>
+          <ul className="mt-3 space-y-1.5 text-[13px] leading-relaxed text-ink-muted">
+            <li>
+              Reads are public: supply, backing, the vault rate, the queue and
+              the book all render without a wallet.
+            </li>
+            <li>
+              Connect on {NETWORK_NAME} to stake, request a redemption, or claim
+              one. None of these requires KYC.
+            </li>
+            <li>
+              Minting and instant redemption are KYC-gated on-chain at the
+              primary market; the contracts enforce that, not this interface.
+            </li>
+          </ul>
+        </div>
       ) : null}
 
       <YieldPositionPanel />

@@ -4,14 +4,14 @@
 as stateful fuzzing (Foundry) with handlers and hold at the configured run counts
 (`heavy` profile: 10k fuzz runs; invariants runs ≥ 512, depth ≥ 256); the backing and
 cascade sections additionally have Halmos transition/arithmetic proofs. This document is
-the protocol's **safety spec** — it maps each property in CLAUDE.md §1.3 to (a) the
+the protocol's **safety spec**. It maps each property in CLAUDE.md §1.3 to (a) the
 mechanism that enforces it on-chain and (b) the named test(s) that prove it.
 
 Run: `FOUNDRY_PROFILE=heavy forge test` (from `contracts/`). The clean mainnet-v1
 candidate is also rehearsed against canonical Ethereum-mainnet USDC on a fork.
 
 > Convention: an invariant is a property that must hold **across all reachable states**.
-> If one cannot be made to hold, that is a genuine-problem STOP — we surface it rather
+> If one cannot be made to hold, that is a genuine-problem STOP. We surface it rather
 > than weaken the assertion (CLAUDE.md §1.3, §4.5).
 
 ---
@@ -40,7 +40,7 @@ differential stateful tests.
 
 ## 2. Value conservation in the waterfall
 
-**Property.** Every distributed repayment is fully and correctly allocated —
+**Property.** Every distributed repayment is fully and correctly allocated:
 `fee + toVault == interest` and the principal leg reduces deployed principal
 exactly; nothing is created or destroyed; senior (`sUSDfr`) is never subordinated to
 junior (curator).
@@ -60,7 +60,7 @@ principal**, in that order, never skipping or inverting a layer.
 
 **Enforcement.** `DefaultManager.realizeLoss` consults the layers in fixed sequence:
 `curator.absorbLoss` (layer 1) → `sGrove.coverShortfall` on the residual (layer 2, with a
-strict `received == covered` equality check — audit R1 fix L) → depositor burn on what
+strict `received == covered` equality check; audit R1 fix L) → depositor burn on what
 remains (layer 3), then the write-down is paired atomically with the burns so the backing
 assertion never observes an intermediate violation. The cascade path is **never pausable**.
 
@@ -92,7 +92,7 @@ holds; no double-claim.
 settlement is bounded by a snapshotted budget (rounding always favors the pool);
 `assetsClaimable` is zeroed before transfer (no double-claim); dust requests that convert
 to 0 assets are rejected (audit R3 N-1); a zero-distribution settlement with requests
-queued reverts rather than consuming the epoch (audit R2 A1 — anti-DoS).
+queued reverts rather than consuming the epoch (audit R2 A1; anti-DoS).
 
 **Tests.** `invariant_queue_fifoHolds`, `invariant_queue_custodyReconciles`,
 `invariant_exchangeRate_neverFallsFromQueueOps`.
@@ -203,11 +203,11 @@ backing and role revocation have all been independently verified.
 |---|---|
 | `invariant_sgrove_groveCustodyExact` | sGROVE holds exactly the active-staked GROVE (unbonding excluded). |
 | `invariant_sgrove_usdfrCustodyExact` | sGROVE USDfr balance == coverage reserve + (rewards notified − claimed); coverage and reward pools never bleed into each other. |
-| `invariant_sgrove_rewardsConserve` | Claimed + streamed-pending rewards never exceed what was notified (holds under the new streaming model — audit R4-EC1/M-1). |
+| `invariant_sgrove_rewardsConserve` | Claimed + streamed-pending rewards never exceed what was notified (holds under the new streaming model; audit R4-EC1/M-1). |
 | `invariant_oracle_ghostParity` | The real EIP-712 oracle's satisfied/consumed state matches an independent ghost model (differential check). |
 | `invariant_tracking_reconcilesToParticipantBalances` | PointsModule tracked totals (shares / USDfr / curator) reconcile to the sum of live per-wallet positions. |
-| `invariant_exemptModulesNeverAccrue` | Protocol-exempt addresses (vault, controller, treasury…) never accrue points — no sink earns. |
-| `invariant_points_monotonicPerWallet` | Points never decrease for a wallet from accrual alone (per-wallet, not identity-keyed — points-v2 anti-Sybil is the maturity-ramp reset). |
+| `invariant_exemptModulesNeverAccrue` | Protocol-exempt addresses (vault, controller, treasury…) never accrue points. No sink earns. |
+| `invariant_points_monotonicPerWallet` | Points never decrease for a wallet from accrual alone (per-wallet, not identity-keyed; points-v2 anti-Sybil is the maturity-ramp reset). |
 | `invariant_noFreePoints_idleWallet` | A same-block track/untrack accrues exactly 0 (no flash-farming). |
 
 ---

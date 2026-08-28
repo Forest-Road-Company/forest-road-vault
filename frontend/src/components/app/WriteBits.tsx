@@ -25,6 +25,7 @@ export function AmountInput({
   symbol,
   maxDecimals,
   disabled,
+  invalid,
   onMax,
 }: {
   value: string;
@@ -34,34 +35,48 @@ export function AmountInput({
    *  token's decimals — capping input here prevents that entirely. */
   maxDecimals: number;
   disabled?: boolean;
+  /** Draws the field's error state. The message itself belongs to the caller,
+   *  next to the field, so the reason is never left implicit in a red border. */
+  invalid?: boolean;
   onMax?: () => void;
 }) {
   return (
-    <div className="mt-4 flex items-center gap-2 rounded-card border border-line bg-surface px-4 py-3 focus-within:border-moss/50">
+    <div
+      className="op-field mt-4 flex items-center gap-2 px-4 py-3"
+      data-invalid={invalid ? "true" : undefined}
+      data-disabled={disabled ? "true" : undefined}
+    >
       <input
         type="text"
         inputMode="decimal"
         placeholder="0.00"
         value={value}
         disabled={disabled}
+        /* The symbol sits in a sibling span, which associates with nothing.
+           Without this the field announces as "edit text, blank" on the three
+           flows that move money. The placeholder is not a name and vanishes
+           on first keystroke. */
+        aria-label={`Amount in ${symbol}`}
+        aria-invalid={invalid || undefined}
         onChange={(e) => {
           const v = e.target.value;
           // digits + one dot, fraction capped at token precision — reject pasted
           // garbage and over-precision early, not at simulate time
           if (new RegExp(`^\\d*\\.?\\d{0,${maxDecimals}}$`).test(v)) onChange(v);
         }}
-        className="w-full bg-transparent font-mono text-[15px] text-ink outline-none placeholder:text-ink-faint disabled:opacity-50"
+        className="w-full bg-transparent font-mono text-[15px] text-ink outline-none placeholder:text-ink-faint disabled:cursor-not-allowed disabled:text-ink-faint"
       />
       {onMax ? (
         <button
+          type="button"
           onClick={onMax}
           disabled={disabled}
-          className="rounded-pill border border-line-strong px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted transition-colors hover:border-moss/60 hover:text-moss disabled:opacity-50"
+          className="rounded-pill border border-line-strong px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted transition-colors hover:border-accent hover:text-accent active:bg-accent-faint disabled:cursor-not-allowed disabled:border-line disabled:text-ink-faint"
         >
           max
         </button>
       ) : null}
-      <span className="font-mono text-[12px] uppercase tracking-[0.1em] text-ink-faint">
+      <span className="text-[12.5px] font-semibold text-ink-faint">
         {symbol}
       </span>
     </div>
@@ -82,12 +97,28 @@ export function ActionButton({
   onClick: () => void;
 }) {
   return (
+    /* One action shape for the whole surface, with hover/active/disabled
+       carried by `.op-action`. The previous version scaled on hover: a
+       transform is decoration on a control whose only job is to report whether
+       it can be pressed and whether it is working. */
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled || busy}
-      className="mt-4 w-full rounded-pill bg-moss px-5 py-2.5 text-[13.5px] font-medium text-raised transition-transform hover:scale-[1.01] hover:bg-moss-bright disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:scale-100 disabled:hover:bg-moss"
+      aria-busy={busy || undefined}
+      className="op-action mt-4 w-full px-5 py-2.5 text-[13.5px]"
     >
-      {busy ? (busyLabel ?? "Working…") : label}
+      {busy ? (
+        <span className="inline-flex items-center gap-2">
+          <span
+            className="h-1.5 w-1.5 animate-pulse rounded-full bg-white/80"
+            aria-hidden
+          />
+          {busyLabel ?? "Working…"}
+        </span>
+      ) : (
+        label
+      )}
     </button>
   );
 }
@@ -104,7 +135,7 @@ export function StatusLine({status}: {status: WriteStatus}) {
         {EXPLORER_TX ? (
           <>
             {" "}
-            <a className="u-link text-moss" href={`${EXPLORER_TX}${status.hash}`} target="_blank" rel="noreferrer">
+            <a className="u-link text-accent" href={`${EXPLORER_TX}${status.hash}`} target="_blank" rel="noreferrer">
               view on Etherscan
             </a>
           </>
@@ -114,7 +145,7 @@ export function StatusLine({status}: {status: WriteStatus}) {
   if (status.phase === "success")
     return (
       <Line tone="ok">
-        Confirmed.
+        <span className="font-medium">Confirmed.</span>
         {EXPLORER_TX ? (
           <>
             {" "}
@@ -135,8 +166,22 @@ export function StatusLine({status}: {status: WriteStatus}) {
   );
 }
 
+/**
+ * Status is announced, not just coloured: the write phases change asynchronously
+ * after a click, so a screen reader has to hear the outcome. Confirmed uses the
+ * Operate surface's success value — navy cannot distinguish "pending" from
+ * "confirmed", and on a transaction surface that distinction is the whole point.
+ */
 function Line({tone, children}: {tone: "muted" | "ok" | "err"; children: React.ReactNode}) {
   const color =
-    tone === "ok" ? "text-moss" : tone === "err" ? "text-danger" : "text-ink-muted";
-  return <p className={`mt-3 text-[12.5px] leading-relaxed ${color}`}>{children}</p>;
+    tone === "ok" ? "text-ok" : tone === "err" ? "text-danger" : "text-ink-muted";
+  return (
+    <p
+      role="status"
+      aria-live="polite"
+      className={`mt-3 text-[12.5px] leading-relaxed ${color}`}
+    >
+      {children}
+    </p>
+  );
 }

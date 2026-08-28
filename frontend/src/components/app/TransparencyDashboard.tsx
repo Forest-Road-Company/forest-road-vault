@@ -395,43 +395,48 @@ export function TransparencyDashboard() {
 
   return (
     <div className="mt-12">
-      {/* ── Backing invariant ─────────────────────────────────────────── */}
-      <div className="panel p-7">
+      {/* ── Backing invariant ──────────────────────────────────────────
+             The house KPI band: the figures a reader should leave with sit
+             on navy, not in another white panel among eight. ───────────── */}
+      <div className="navy-band rounded-card p-7 md:p-9">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink-faint">
-            The backing invariant — supply ≤ backing, enforced in-contract
-          </p>
+          {/* This already was the section's heading; it was only marked up as
+              a paragraph, which left the page stepping h1 -> h3 at the first
+              panel. Styling is unchanged. */}
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-on-navy-accent">
+            The backing invariant: supply ≤ backing, enforced in-contract
+          </h2>
           {backingOk === undefined ? null : backingOk ? (
-            <span className="rounded-pill border border-moss/30 bg-moss-faint px-3 py-1 font-mono text-[10.5px] uppercase tracking-[0.14em] text-moss">
+            <span className="rounded-pill border border-on-navy-line bg-white/10 px-3 py-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-on-navy">
               holding
             </span>
           ) : (
-            <span className="rounded-pill border border-danger/40 bg-danger/10 px-3 py-1 font-mono text-[10.5px] uppercase tracking-[0.14em] text-danger">
-              violated — this should be impossible
+            <span className="rounded-pill border border-danger bg-danger px-3 py-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white">
+              violated: this should be impossible
             </span>
           )}
         </div>
         <div className="mt-5 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <div>
-            <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-ink-faint">USDfr supply</p>
-            <p className="serif-display mt-1 text-[34px] text-ink">{fmt(supply)}</p>
+            <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy-accent">USDfr supply</p>
+            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">{fmt(supply)}</p>
             <Reconcile addr={CONTRACTS.USDfr!} fn="totalSupply" />
           </div>
           <div>
-            <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-ink-faint">Backing value</p>
-            <p className="serif-display mt-1 text-[34px] text-ink">${fmt(backing)}</p>
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-on-navy-accent">Backing value</p>
+            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">${fmt(backing)}</p>
             <Reconcile addr={CONTRACTS.ReserveManager!} fn="totalBackingValue" />
           </div>
           <div>
-            <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-ink-faint">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-on-navy-accent">
               Gross collateral &amp; reserves
             </p>
-            <p className="serif-display mt-1 text-[34px] text-ink">
+            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">
               {grossCollateralAndReserves !== undefined
                 ? `$${fmt(grossCollateralAndReserves)}`
                 : "—"}
             </p>
-            <p className="mt-1 font-mono text-[10px] text-ink-faint">
+            <p className="mt-1 text-[10.5px] text-on-navy-faint">
               {collateralValue && !collateralValue.complete
                 ? "fresh collateral mark unavailable"
                 : grossCollateralAndReservesBps !== null
@@ -442,33 +447,33 @@ export function TransparencyDashboard() {
             </p>
           </div>
           <div>
-            <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-ink-faint">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-on-navy-accent">
               Curator first-loss capital
             </p>
-            <p className="serif-display mt-1 text-[34px] text-ink">
+            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">
               {curatorCapital !== undefined ? `$${fmt(curatorCapital)}` : "—"}
             </p>
-            <p className="mt-1 font-mono text-[10px] text-ink-faint">
+            <p className="mt-1 text-[10.5px] text-on-navy-faint">
               {curatorCapitalBps !== null
                 ? `${formatBps(curatorCapitalBps)} of outstanding loans`
                 : "sum of all five class pools"}
             </p>
           </div>
           <div>
-            <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-ink-faint">
+            <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy-accent">
               sGROVE total backstop
             </p>
-            <p className="serif-display mt-1 text-[34px] text-ink">
+            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">
               {coverageReserve !== undefined ? `$${fmt(coverageReserve)}` : "—"}
             </p>
-            <p className="mt-1 font-mono text-[10px] text-ink-faint">
+            <p className="mt-1 text-[10.5px] text-on-navy-faint">
               {backstopReserveBps !== null
                 ? `${formatBps(backstopReserveBps)} of loans · $${fmt(coverageCapacity)} live callable reserve`
                 : `$${fmt(coverageCapacity)} live callable reserve`}
             </p>
           </div>
         </div>
-        <p className="mt-5 max-w-4xl text-[11.5px] leading-relaxed text-ink-faint">
+        <p className="mt-7 max-w-4xl border-t border-on-navy-line pt-5 text-[11.5px] leading-relaxed text-on-navy-faint">
           Backing is the protocol&apos;s accounting claim: idle reserves plus
           outstanding loan principal. Gross collateral &amp; reserves replaces loan
           principal with the broader collateral reference: receivables scale their
@@ -477,7 +482,7 @@ export function TransparencyDashboard() {
           latest fresh m-of-n attested mark; closed facilities are excluded. Curator
           capital is
           shown separately because it is subordinated USDfr already backed by this
-          same asset pool—not an additional external asset to add a second time.
+          same asset pool, not an additional external asset to add a second time.
           The sGROVE figure is its total funded USDfr coverage reserve. A loss
           can call the smaller of its amount and that live shared reserve; each
           draw depletes the same pool.
@@ -485,7 +490,7 @@ export function TransparencyDashboard() {
       </div>
 
       {/* ── Panels ────────────────────────────────────────────────────── */}
-      <div className="mt-5 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-5 gap-5 [column-fill:balance] md:columns-2 lg:columns-3">
         <Panel title="Reserves" addr={CONTRACTS.ReserveManager!}>
           <Row k="Idle stablecoin reserve" val={`$${fmt(idle)}`} />
           <Row k="Deployed principal" val={`$${fmt(deployed)}`} />
@@ -748,7 +753,7 @@ export function TransparencyDashboard() {
             val={
               epochEndsAt !== undefined && now !== null
                 ? Number(epochEndsAt) <= now
-                  ? "over — awaiting close"
+                  ? "over: awaiting close"
                   : `in ${fmtCountdown(Number(epochEndsAt) - now)}`
                 : "—"
             }
@@ -766,7 +771,7 @@ export function TransparencyDashboard() {
           <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
             Every figure on this page is a direct contract read
             {EXPLORER
-              ? " — click any panel's address to reconcile it on Etherscan. "
+              ? ". Click any panel's address to reconcile it on Etherscan. "
               : ". This local fork has no block explorer. "}
             {IS_TESTNET ? "Test tokens; no real value." : "Live Ethereum mainnet state."}
           </p>
@@ -778,20 +783,20 @@ export function TransparencyDashboard() {
 
 function Panel({title, addr, children}: {title: string; addr: string; children: React.ReactNode}) {
   return (
-    <div className="panel flex h-full flex-col p-6">
+    <div className="panel mb-5 break-inside-avoid p-6">
       <div className="flex items-baseline justify-between gap-3">
-        <h3 className="font-grotesk text-[15px] font-semibold tracking-tight">{title}</h3>
+        <h3 className="font-display text-[15px] font-semibold tracking-tight">{title}</h3>
         {EXPLORER ? (
           <a
             href={`${EXPLORER}${addr}`}
             target="_blank"
             rel="noreferrer"
-            className="u-link font-mono text-[10px] text-ink-faint hover:text-moss"
+            className="u-link inline-flex min-h-[24px] items-center font-mono text-[11px] text-ink-faint hover:text-accent"
           >
             {addr.slice(0, 6)}…{addr.slice(-4)}
           </a>
         ) : (
-          <span className="font-mono text-[10px] text-ink-faint">
+          <span className="font-mono text-[11px] text-ink-faint">
             {addr.slice(0, 6)}…{addr.slice(-4)}
           </span>
         )}
@@ -810,13 +815,15 @@ function Row({k, val}: {k: string; val: string}) {
   );
 }
 
+/** Both call sites sit inside the navy backing-invariant band, so this reads
+ *  on-navy ink rather than page ink. */
 function Reconcile({addr, fn}: {addr: string; fn: string}) {
   return (
     <a
       href={`${EXPLORER}${addr}#readProxyContract`}
       target="_blank"
       rel="noreferrer"
-      className="u-link mt-1 inline-block font-mono text-[10px] text-ink-faint hover:text-moss"
+      className="u-link mt-1 inline-flex min-h-[24px] items-center font-mono text-[11px] text-on-navy-faint hover:text-on-navy"
     >
       {fn}() on Etherscan →
     </a>

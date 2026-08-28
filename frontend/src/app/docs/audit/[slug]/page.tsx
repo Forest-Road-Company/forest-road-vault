@@ -48,21 +48,34 @@ export default async function AuditReportPage({
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-20">
-      <Link
-        href="/docs/audit"
-        className="font-mono text-[11px] uppercase tracking-[0.2em] text-moss transition-colors hover:text-moss-bright"
-      >
-        ← Audit register
-      </Link>
-      <p className="mt-6 font-mono text-[11px] uppercase tracking-[0.22em] text-ink-faint">
-        {audit.eyebrow} · {audit.dateLabel}
-      </p>
-      <h1 className="serif-display mt-2 text-[38px] leading-[1.1] text-ink md:text-[46px]">
+      {/* Round and date do wayfinding work in a dated register, so they live
+          in the trail rather than sitting as a kicker above the heading. */}
+      <nav aria-label="Breadcrumb">
+        <ol className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <li>
+            <Link
+              href="/docs/audit"
+              className="running-head transition-colors hover:text-ink"
+            >
+              Audit register
+            </Link>
+          </li>
+          <li aria-hidden className="running-head">
+            /
+          </li>
+          <li>
+            <span aria-current="page" className="running-head text-accent">
+              {audit.eyebrow} · {audit.dateLabel}
+            </span>
+          </li>
+        </ol>
+      </nav>
+      <div className="rule-head mt-3" />
+      <h1 className="display mt-10 text-[31px] leading-[1.1] text-ink md:text-[46px]">
         {audit.title}
       </h1>
-      <div className="keyline mt-6 w-14" />
 
-      <div className="mt-8 rounded-card border border-line bg-moss-faint/60 p-5">
+      <div className="mt-8 rounded-card border border-line bg-accent-faint/60 p-5">
         <p className="text-[13.5px] leading-relaxed text-ink-muted">
           {audit.external ? (
             <>
@@ -94,7 +107,7 @@ export default async function AuditReportPage({
         {audit.archive ? <Meta term="Internal report" value={audit.archive} mono /> : null}
       </dl>
 
-      <h2 className="serif-display mt-12 border-t border-line pt-6 text-[27px] leading-tight text-ink">
+      <h2 className="display mt-12 border-t border-line pt-6 text-[25px] leading-tight text-ink">
         Findings and remediation history
       </h2>
       <AuditFindingsList findings={audit.findings} />
@@ -108,17 +121,17 @@ export default async function AuditReportPage({
       {older ? (
         <Link
           href={`/docs/audit/${older.slug}`}
-          className="mt-16 flex items-center justify-between rounded-card border border-line bg-raised/70 p-5 transition-colors hover:border-moss/50 hover:bg-raised"
+          className="mt-16 flex items-center justify-between rounded-card border border-line bg-raised/70 p-5 transition-colors hover:border-accent/50 hover:bg-raised"
         >
           <span>
-            <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink-faint">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-faint">
               Earlier round
             </span>
             <span className="mt-1 block text-[15px] font-medium text-ink">
               {older.title}
             </span>
           </span>
-          <span className="text-moss">→</span>
+          <span className="text-accent">→</span>
         </Link>
       ) : null}
     </div>
@@ -136,7 +149,7 @@ function Meta({
 }) {
   return (
     <div>
-      <dt className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink-faint">
+      <dt className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-faint">
         {term}
       </dt>
       <dd

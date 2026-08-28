@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageShell } from "@/components/site/PageShell";
+import { Section, SectionHead } from "@/components/site/Blocks";
 import { ADDRESSES_SECTION, AUDIT_SECTION, DOCS } from "@/content/docs";
 import {IS_TESTNET, NETWORK_NAME} from "@/config/contracts";
 
@@ -10,71 +11,90 @@ export const metadata: Metadata = {
     "Protocol documentation: overview, the safety-spec guarantees, the governance role model, and the security posture.",
 };
 
+const evidence = [AUDIT_SECTION, ADDRESSES_SECTION];
+const EVIDENCE_CTA = ["Browse the rounds", "View the table"];
+
 export default function DocsIndex() {
   return (
     <PageShell
-      eyebrow="Documentation"
+      bleed
+      section="Documentation"
       title="How the protocol is built, guaranteed, and governed."
       lede={`Written for reviewers and integrators. This build reads the ${NETWORK_NAME} deployment.${IS_TESTNET ? " Test tokens have no value." : ""}`}
     >
-      <div className="mt-12 grid gap-4 sm:grid-cols-2">
-        {DOCS.map((d) => (
-          <Link
-            key={d.slug}
-            href={`/docs/${d.slug}`}
-            className="group rounded-card border border-line bg-raised/70 p-6 transition-colors hover:border-moss/50 hover:bg-raised"
-          >
-            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-moss">
-              {d.eyebrow}
-            </p>
-            <h2 className="serif-display mt-2 text-[22px] leading-tight text-ink">
-              {d.title}
-            </h2>
-            <p className="mt-2 text-[13.5px] leading-relaxed text-ink-muted">
-              {d.summary}
-            </p>
-            <span className="mt-4 inline-block text-[12.5px] font-medium text-moss transition-transform group-hover:translate-x-0.5">
-              Read →
-            </span>
-          </Link>
-        ))}
+      {/* ── The written record: a contents register, which is what it is.
+             An odd number of documents never divides into a card grid. ─── */}
+      <Section tone="surface">
+        <SectionHead
+          title={
+            <>
+              Read it in order,{" "}
+              <span className="display-accent">or jump to what you audit.</span>
+            </>
+          }
+          lede="The overview sets the model; the guarantees are the safety spec each invariant is tested against; roles and governance describe who can change what; recovery covers exit pricing in default; security states the assurance posture."
+        />
 
-        <Link
-          href={AUDIT_SECTION.href}
-          className="group rounded-card border border-line bg-raised/70 p-6 transition-colors hover:border-moss/50 hover:bg-raised"
-        >
-          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-moss">
-            {AUDIT_SECTION.eyebrow}
-          </p>
-          <h2 className="serif-display mt-2 text-[22px] leading-tight text-ink">
-            {AUDIT_SECTION.title}
-          </h2>
-          <p className="mt-2 text-[13.5px] leading-relaxed text-ink-muted">
-            {AUDIT_SECTION.summary}
-          </p>
-          <span className="mt-4 inline-block text-[12.5px] font-medium text-moss transition-transform group-hover:translate-x-0.5">
-            Browse the rounds →
-          </span>
-        </Link>
+        <div className="mt-14">
+          {DOCS.map((d, i) => (
+            <Link
+              key={d.slug}
+              href={`/docs/${d.slug}`}
+              className={`group flex flex-col gap-4 py-7 transition-all hover:translate-x-1 hover:border-t-accent lg:flex-row lg:items-baseline lg:gap-12 ${
+                i === 0 ? "border-t border-line-strong" : "border-t border-row"
+              }`}
+            >
+              <span className="flex flex-none items-baseline gap-5 lg:w-[3.2in]">
+                <span className="text-[11px] font-semibold tabular-nums tracking-[0.1em] text-accent">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <span>
+                  <span className="running-head block">{d.eyebrow}</span>
+                  <span className="display mt-2 block text-[19px] leading-tight transition-colors group-hover:text-accent">
+                    {d.title}
+                  </span>
+                </span>
+              </span>
+              <p className="flex-1 text-[14.5px] leading-relaxed text-ink-muted">
+                {d.summary}
+              </p>
+              <span className="flex-none text-[12.5px] font-medium text-accent transition-transform group-hover:translate-x-0.5">
+                Read →
+              </span>
+            </Link>
+          ))}
+        </div>
+      </Section>
 
-        <Link
-          href={ADDRESSES_SECTION.href}
-          className="group rounded-card border border-line bg-raised/70 p-6 transition-colors hover:border-moss/50 hover:bg-raised"
-        >
-          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-moss">
-            {ADDRESSES_SECTION.eyebrow}
-          </p>
-          <h2 className="serif-display mt-2 text-[22px] leading-tight text-ink">
-            {ADDRESSES_SECTION.title}
-          </h2>
-          <p className="mt-2 text-[13.5px] leading-relaxed text-ink-muted">
-            {ADDRESSES_SECTION.summary}
-          </p>
-          <span className="mt-4 inline-block text-[12.5px] font-medium text-moss transition-transform group-hover:translate-x-0.5">
-            View the table →
-          </span>
-        </Link>
-      </div>
+      {/* ── The verifiable record. Two destinations, so a two-up card row
+             lands clean, and navy separates evidence from prose. ───────── */}
+      <Section tone="navy-deep">
+        <SectionHead
+          tone="navy-deep"
+          title="Where the claims can be checked."
+          lede="Documentation states what the protocol intends. These two pages are where that intent can be reconciled against findings and against on-chain state."
+        />
+        <div className="mt-12 grid gap-6 md:grid-cols-2">
+          {evidence.map((e, i) => (
+            <Link
+              key={e.href}
+              href={e.href}
+              className="group flex h-full flex-col rounded-card border border-navy-border bg-navy-deep p-8 transition-colors hover:border-on-navy-accent"
+            >
+              <p className="running-head text-on-navy-accent">{e.eyebrow}</p>
+              <h2 className="display mt-4 text-[25px] leading-tight text-on-navy">
+                {e.title}
+              </h2>
+              <p className="mt-4 text-[14px] leading-relaxed text-on-navy-muted">
+                {e.summary}
+              </p>
+              <span className="mt-auto inline-block pt-7 text-[12.5px] font-medium text-on-navy-accent transition-transform group-hover:translate-x-0.5">
+                {EVIDENCE_CTA[i]} →
+              </span>
+            </Link>
+          ))}
+        </div>
+      </Section>
     </PageShell>
   );
 }

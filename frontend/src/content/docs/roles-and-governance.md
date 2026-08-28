@@ -2,15 +2,15 @@
 
 **Audience:** external auditors. Derived 1:1 from `src/libraries/Roles.sol`,
 `script/Deploy.s.sol` (grants), and `script/Validate.s.sol` (which asserts the live
-topology — positive AND negative holdings — after every deploy). All roles are admin'd by
+topology, positive AND negative holdings, after every deploy). All roles are admin'd by
 `DEFAULT_ADMIN_ROLE`; there is **no `_setRoleAdmin` override anywhere**, so no role can
 grant itself (no escalation loop).
 
 > **Production vs testnet.** In production, `DEFAULT_ADMIN_ROLE` and `UPGRADER_ROLE` are
 > held **only** by the governance timelock (`KEEP_OPS_ADMIN=false`). On the Sepolia
 > QA deployment, the ops EOA additionally retains `DEFAULT_ADMIN_ROLE` for test operations
-> (`KEEP_OPS_ADMIN=true`) — the single largest live privilege, flagged in the manifest and
-> validator. The clean mainnet deployment rejects any retained ops admin.
+> (`KEEP_OPS_ADMIN=true`). This is the single largest live privilege, flagged in the manifest
+> and validator. The clean mainnet deployment rejects any retained ops admin.
 
 ## Roles and holders
 
@@ -18,10 +18,10 @@ grant itself (no escalation loop).
 |---|---|---|
 | `DEFAULT_ADMIN_ROLE` (0x00) | Governance **timelock** | Admin of all roles (grant/revoke); every parameter setter. |
 | `UPGRADER_ROLE` | Governance **timelock** | `_authorizeUpgrade` on the clean deployment's role-gated UUPS modules, including `AssessedImpairmentSource`. `FRGovernor` authorizes upgrades through `onlyGovernance`; `GroveVotesAggregator` remains immutable and role-less. An `SGrove` upgrade can rewrite a vote source, so this authority is security-critical. |
-| `GUARDIAN_ROLE` | Guardian | Pause/unpause **user paths only** — never the cascade. |
+| `GUARDIAN_ROLE` | Guardian | Pause/unpause **user paths only**, never the cascade. |
 | `MINTER_ROLE` | MintRedeemController | Mint USDfr (on `USDfr`). |
 | `CONTROLLER_ROLE` | MintRedeemController | `ReserveManager.releaseUSDC` (redemption custody-out) **only**. |
-| `CREDIT_ROLE` | WaterfallEngine, DefaultManager, ClaimBridge | The **trusted internal-module** role — the only caller of the cross-module value/state primitives (below). Never held by an EOA. |
+| `CREDIT_ROLE` | WaterfallEngine, DefaultManager, ClaimBridge | The **trusted internal-module** role, the only caller of the cross-module value/state primitives (below). Never held by an EOA. |
 | `FEE_ACCOUNTING_ROLE` | CuratorModule, SGrove, DefaultManager | Checkpoints and locks fee accounting across mechanical junior-capacity changes. Never held by an EOA. |
 | `ORIGINATOR_ROLE` | Ops (Forest Road) | `ClaimBridge.originate`. |
 | `SERVICER_ROLE` | Ops (Forest Road) | Facility funding, exact-payment distribution, default/cure/amendment execution, acceleration and exact attested loss realization. |
@@ -31,13 +31,13 @@ grant itself (no escalation loop).
 ## Role × privileged-function matrix
 
 ### Governance-only (`DEFAULT_ADMIN_ROLE` = timelock)
-Every economic / safety parameter. A compromised holder is the top of the threat model —
+Every economic / safety parameter. A compromised holder is the top of the threat model,
 hence the timelock + (prod) no-EOA rule.
 
 | Contract | Functions |
 |---|---|
 | CollateralRegistry | `setClass`, `setBorrowerLimit`, `setBorrowerLimitOverride`, `clearBorrowerLimitOverride`, `setStateLimit`, `setComplianceModule`, `setConcentrationFloor` |
-| ComplianceRegistry | `setProtocolExempt` (transfers are sanctions-only — no per-token transfer allow-list) |
+| ComplianceRegistry | `setProtocolExempt` (transfers are sanctions-only, no per-token transfer allow-list) |
 | ClaimBridge | `setRequiredMintAttestations` |
 | sUSDfr | `setRedemptionQueue`, `setPointsModule`, `setImpairmentSource` (validated normal path), `clearUnreadableImpairmentSource` (recovery-only clear), `clearStaleFeeOperation` (evented trusted-module lock recovery), `setYieldVestingPeriod` (launch zero; optional smoothing), `setPerformanceFee` (0–20%, prospective), `setManagementFee` (0–2% annual, prospective), `setFeeRecipient` |
 | ReserveManager | No asset-list, reserve-instrument or DSRA setter exists; canonical USDC is immutable deployment wiring |
@@ -62,7 +62,7 @@ hence the timelock + (prod) no-EOA rule.
 | `COMPLIANCE_ADMIN_ROLE` | `ComplianceRegistry.{setAllowed, setAllowedBatch, setJurisdictionBlocked}` | Cannot reach `protocolExempt` (that is `DEFAULT_ADMIN_ROLE`). |
 | `ATTESTER_ROLE` | (signer, not a caller) `AttestationOracle.attest` verifies signatures against holders | m-of-n threshold per kind |
 
-### `CREDIT_ROLE` — trusted internal-module primitives (never an EOA)
+### `CREDIT_ROLE`: trusted internal-module primitives (never an EOA)
 These are the cross-module value/state operations. Each is callable **only** by the
 specific sibling module granted the role at deploy, and several are **non-pausable**
 at their own entry point. A guardian pause on `ReserveManager` still blocks the
@@ -82,7 +82,7 @@ dependency is tested and must be part of incident procedure.
 | `ReserveManager.{recordDeployment, recordFeeCapitalization, recordPayment, recordPrincipalWritedown}` | WaterfallEngine, DefaultManager | — |
 | `CollateralRegistry` exposure record/decrease | ClaimBridge, WaterfallEngine, DefaultManager | — |
 
-### `FEE_ACCOUNTING_ROLE` — fee-neutral junior-capacity changes
+### `FEE_ACCOUNTING_ROLE`: fee-neutral junior-capacity changes
 
 CuratorModule brackets first-loss posts/withdrawals, SGrove brackets coverage funding and
 per-event-cap changes, and DefaultManager brackets backstop replacement with
@@ -94,22 +94,22 @@ junior-capital credit at its source, so a capacity write cannot become chargeabl
 The never-pausable `absorbLoss` and `coverShortfall` cascade legs deliberately do not add
 this external-call surface.
 
-### Permissionless — staked-GROVE voting (ADR-0026)
+### Permissionless: staked-GROVE voting (ADR-0026)
 `SGrove.delegate(address)` and `SGrove.delegateBySig(...)` are inherited from OpenZeppelin
 `VotesUpgradeable` and carry no role: a staker re-points their own staked-GROVE voting power.
-They are deliberately **not** guardian-pausable — delegation moves no value, and a pausable
+They are deliberately **not** guardian-pausable. Delegation moves no value, and a pausable
 `delegate` would be a stronger governance-censorship lever than the pause already is.
 `stake`/`requestUnstake` *are* pausable, so a guardian pause freezes the composition of the
 sGROVE electorate; vote **reads** are never pausable, so the Governor itself never stalls.
 
-`GroveVotesAggregator` — the Governor's vote source — is immutable, holds no roles and has no
+`GroveVotesAggregator`, the Governor's vote source, is immutable, holds no roles and has no
 privileged functions. It sums voting power across GROVE and staked GROVE, while sourcing the
 quorum denominator from **GROVE alone** so staking cannot move the quorum bar.
 
 ### Guardian (emergency)
 `GUARDIAN_ROLE` may `pause`/`unpause` the **user-facing** paths of every pausable module
 (mint/redeem, stake/unstake/claims, deposit, the permissionless MTM triggers). It can
-**never** pause `absorbLoss`, `coverShortfall`, `burnLoss`, or `realizeLoss` — the cascade
+**never** pause `absorbLoss`, `coverShortfall`, `burnLoss`, or `realizeLoss`. The cascade
 is always reachable (ADR-0017 §4).
 
 ## Verification
@@ -121,5 +121,5 @@ is always reachable (ADR-0017 §4).
 - **Audit:** the role×function graph was independently re-derived clean in the Round-4
   access-control lens (`docs/security-review.md`).
 
-*Living document — any new role or privileged function must be added here and to
+*Living document. Any new role or privileged function must be added here and to
 `Validate.s.sol` in the same change (CLAUDE.md §3.2).*
