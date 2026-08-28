@@ -4,7 +4,7 @@ import { TransparencyDashboard } from "@/components/app/TransparencyDashboard";
 import {IS_LOCAL_FORK, NETWORK_NAME} from "@/config/contracts";
 
 export const metadata: Metadata = {
-  title: "Transparency — Forest Road Vault",
+  title: "Transparency | Forest Road Vault",
 };
 
 export default function TransparencyPage() {

@@ -6,7 +6,7 @@ import { VERTICALS } from "@/lib/verticals";
 import {NETWORK_NAME} from "@/config/contracts";
 
 export const metadata: Metadata = {
-  title: "Verticals — Forest Road Vault",
+  title: "Verticals | Forest Road Vault",
 };
 
 const receivableCount = VERTICALS.filter(
@@ -15,7 +15,7 @@ const receivableCount = VERTICALS.filter(
 const mtmCount = VERTICALS.length - receivableCount;
 
 /* One authored line-icon per class, drawn to the same stroke and weight
-   rather than pulled from an icon font — each names the mechanism, not a
+   rather than pulled from an icon font: each names the mechanism, not a
    decorative stand-in. currentColor so the tile controls the tint. */
 function VerticalIcon({ slug }: { slug: string }) {
   const common = {
@@ -78,7 +78,7 @@ export default function VerticalsPage() {
       lede={`Each vertical is a governance-parameterized collateral class with its own LTV cap, maturity profile, concentration limits, and default-remedy path. Interest rates are signed per facility, not set by class, and clean v1 has no DSRA reserve sizing. The remaining class parameters are enforced on-chain by the CollateralRegistry, live on ${NETWORK_NAME}.`}
     >
       {/* ── The classes: an icon-led, colour-committed grid rather than a
-             register — accent tint for legal foreclosure, warn tint for
+             register, accent tint for legal foreclosure, warn tint for
              margin and liquidation, so the enforcement model reads before
              the copy does. ─────────────────────────────────────────────── */}
       <Section tone="surface">

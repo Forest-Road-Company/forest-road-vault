@@ -16,7 +16,7 @@ export default function Landing() {
         {/* The LCP element. As a CSS background it shipped one 2400px JPEG to
             every device; through next/image it negotiates AVIF/WebP and a
             width-appropriate variant. The grade, art direction and settle
-            animation are unchanged — they live on .hero-img. */}
+            animation are unchanged, they live on .hero-img. */}
         <Image
           src="/brand/hero-cover.jpg"
           alt=""
@@ -91,7 +91,7 @@ export default function Landing() {
              field they sit on rather than by a coloured edge. ──────────── */}
       <Section id="model" tone="surface">
         {/* The italic is reserved for headings where the emphasis turns the
-            sentence — the cascade and the audit claim. Used in every heading it
+            sentence, the cascade and the audit claim. Used in every heading it
             stops being emphasis and becomes the section's default voice. */}
         <SectionHead
           title="Two tokens, one honest split."
@@ -253,7 +253,7 @@ export default function Landing() {
       </Section>
 
       {/* ── Close. White ground, navy carrying the primary action instead
-             of the field — the page's own material rule applied to its own
+             of the field, the page's own material rule applied to its own
              foot. ────────────────────────────────────────────────────── */}
       <Section tone="light">
         <div className="flex flex-col gap-10 lg:flex-row lg:items-end lg:justify-between lg:gap-20">

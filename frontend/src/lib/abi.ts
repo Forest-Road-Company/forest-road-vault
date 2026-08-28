@@ -1,6 +1,6 @@
 /**
  * Minimal typed ABIs for the write paths (brief §8.5 / CLAUDE.md §3.3). Hand-pruned
- * from the forge artifacts to exactly the functions the app calls — plus EVERY custom
+ * from the forge artifacts to exactly the functions the app calls, plus EVERY custom
  * error the protocol can raise on those paths (merged across modules), so viem can
  * decode any revert into a named error regardless of which module in the call chain
  * raised it. No address lives here; addresses come from config/contracts.ts only.

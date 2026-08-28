@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Transparency dashboard — every number is a direct contract read against the live
+ * Transparency dashboard: every number is a direct contract read against the live
  * configured deployment, and every panel links the contract it reads so any figure can
  * be reconciled on Etherscan (CLAUDE.md §2.2: frontend↔contract reconciliation).
  * No aggregation happens off-chain beyond formatting.
@@ -66,7 +66,7 @@ type CreditPerformanceState =
   | {phase: "error"};
 
 export function TransparencyDashboard() {
-  // A "live" dashboard that freezes at page-load is dishonest — poll once a
+  // A "live" dashboard that freezes at page-load is dishonest, poll once a
   // minute (a single multicall + one blockNumber call).
   const POLL = {refetchInterval: 60_000} as const;
   const {data: blockNumber} = useBlockNumber({query: POLL});
@@ -391,7 +391,7 @@ export function TransparencyDashboard() {
     supply !== undefined && backing !== undefined ? supply <= backing : undefined;
   const now = useNowSeconds();
 
-  const fmt = (x: bigint | undefined, dp = 2) => (x !== undefined ? fmtAmount(x, 18, dp) : "—");
+  const fmt = (x: bigint | undefined, dp = 2) => (x !== undefined ? fmtAmount(x, 18, dp) : ", ");
 
   return (
     <div className="mt-12">
@@ -434,7 +434,7 @@ export function TransparencyDashboard() {
             <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">
               {grossCollateralAndReserves !== undefined
                 ? `$${fmt(grossCollateralAndReserves)}`
-                : "—"}
+                : ", "}
             </p>
             <p className="mt-1 text-[10.5px] text-on-navy-faint">
               {collateralValue && !collateralValue.complete
@@ -451,7 +451,7 @@ export function TransparencyDashboard() {
               Curator first-loss capital
             </p>
             <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">
-              {curatorCapital !== undefined ? `$${fmt(curatorCapital)}` : "—"}
+              {curatorCapital !== undefined ? `$${fmt(curatorCapital)}` : ", "}
             </p>
             <p className="mt-1 text-[10.5px] text-on-navy-faint">
               {curatorCapitalBps !== null
@@ -464,7 +464,7 @@ export function TransparencyDashboard() {
               sGROVE total backstop
             </p>
             <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">
-              {coverageReserve !== undefined ? `$${fmt(coverageReserve)}` : "—"}
+              {coverageReserve !== undefined ? `$${fmt(coverageReserve)}` : ", "}
             </p>
             <p className="mt-1 text-[10.5px] text-on-navy-faint">
               {backstopReserveBps !== null
@@ -498,10 +498,10 @@ export function TransparencyDashboard() {
 
         <Panel title="sUSDfr vault" addr={CONTRACTS.sUSDfr!}>
           <Row k="Staked assets" val={`${fmt(vaultAssets)} USDfr`} />
-          <Row k="Shares outstanding" val={vaultShares !== undefined ? fmtAmount(vaultShares, SHARE_DECIMALS) : "—"} />
+          <Row k="Shares outstanding" val={vaultShares !== undefined ? fmtAmount(vaultShares, SHARE_DECIMALS) : ", "} />
           <Row
             k={SUPPORTS_VAULT_FEE_ACCOUNTING ? "Fee-net exchange rate" : "Legacy exchange rate"}
-            val={rate !== undefined ? `${fmtAmount(rate, 18, 6)} USDfr/share` : "—"}
+            val={rate !== undefined ? `${fmtAmount(rate, 18, 6)} USDfr/share` : ", "}
           />
           <Row
             k="Performance-fee NAV rate"
@@ -509,7 +509,7 @@ export function TransparencyDashboard() {
               feeExchangeRate !== undefined
                 ? `${fmtAmount(feeExchangeRate, 18, 6)} USDfr/share`
                 : SUPPORTS_VAULT_FEE_ACCOUNTING
-                  ? "—"
+                  ? ", "
                   : "Not deployed"
             }
           />
@@ -519,7 +519,7 @@ export function TransparencyDashboard() {
               highWaterMark !== undefined
                 ? `${fmtAmount(highWaterMark, 18, 6)} USDfr/share`
                 : SUPPORTS_VAULT_FEE_ACCOUNTING
-                  ? "—"
+                  ? ", "
                   : "Not deployed"
             }
           />
@@ -529,7 +529,7 @@ export function TransparencyDashboard() {
               lastFeeAccrual !== undefined
                 ? new Date(Number(lastFeeAccrual) * 1_000).toISOString()
                 : SUPPORTS_VAULT_FEE_ACCOUNTING
-                  ? "—"
+                  ? ", "
                   : "Not deployed"
             }
           />
@@ -541,7 +541,7 @@ export function TransparencyDashboard() {
         </Panel>
 
         <Panel title="The book" addr={CONTRACTS.CollateralRegistry!}>
-          <Row k="Facilities originated" val={facilities?.toString() ?? "—"} />
+          <Row k="Facilities originated" val={facilities?.toString() ?? ", "} />
           <Row k="Book exposure" val={`$${fmt(bookExposure)}`} />
           <Row
             k="Performing weighted yield"
@@ -549,7 +549,7 @@ export function TransparencyDashboard() {
               bookYield?.performingWeightedAverageBps !== null &&
               bookYield?.performingWeightedAverageBps !== undefined
                 ? formatBps(bookYield.performingWeightedAverageBps)
-                : "—"
+                : ", "
             }
           />
           <Row
@@ -558,24 +558,24 @@ export function TransparencyDashboard() {
               bookYield?.weightedAverageBps !== null &&
               bookYield?.weightedAverageBps !== undefined
                 ? formatBps(bookYield.weightedAverageBps)
-                : "—"
+                : ", "
             }
           />
           <Row
             k="Performing principal"
-            val={bookYield ? `$${fmt(bookYield.performingPrincipal)}` : "—"}
+            val={bookYield ? `$${fmt(bookYield.performingPrincipal)}` : ", "}
           />
           <Row
             k="Gross performing income run-rate"
             val={
               bookYield
                 ? `${fmt(bookYield.performingGrossAnnualInterest, 2)} USDfr/yr`
-                : "—"
+                : ", "
             }
           />
           <Row
             k="Non-performing principal"
-            val={bookYield ? `$${fmt(bookYield.nonPerformingPrincipal)}` : "—"}
+            val={bookYield ? `$${fmt(bookYield.nonPerformingPrincipal)}` : ", "}
           />
           <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
             Gross contractual tiers, weighted by live outstanding principal. The
@@ -591,7 +591,7 @@ export function TransparencyDashboard() {
               creditPerformance.phase === "ready" &&
               creditPerformance.metrics.rateBps !== null
                 ? formatBps(creditPerformance.metrics.rateBps)
-                : "—"
+                : ", "
             }
           />
           <Row
@@ -599,7 +599,7 @@ export function TransparencyDashboard() {
             val={
               creditPerformance.phase === "ready"
                 ? `$${fmt(creditPerformance.metrics.netLoss)}`
-                : "—"
+                : ", "
             }
           />
           <Row
@@ -607,7 +607,7 @@ export function TransparencyDashboard() {
             val={
               creditPerformance.phase === "ready"
                 ? `$${fmt(creditPerformance.metrics.fundedPrincipal)}`
-                : "—"
+                : ", "
             }
           />
           {VERTICALS.map((vertical, index) => {
@@ -622,7 +622,7 @@ export function TransparencyDashboard() {
                 val={
                   slice?.rateBps !== null && slice?.rateBps !== undefined
                     ? formatBps(slice.rateBps)
-                    : "—"
+                    : ", "
                 }
               />
             );
@@ -647,7 +647,7 @@ export function TransparencyDashboard() {
             val={
               revenue.phase === "ready"
                 ? `${fmt(revenue.originationFees, 4)} USDfr`
-                : "—"
+                : ", "
             }
           />
           <Row
@@ -655,7 +655,7 @@ export function TransparencyDashboard() {
             val={
               revenue.phase === "ready"
                 ? `${fmt(revenue.interestFees, 4)} USDfr`
-                : "—"
+                : ", "
             }
           />
           <Row
@@ -665,7 +665,7 @@ export function TransparencyDashboard() {
                 ? "Not deployed"
                 : revenue.phase === "ready"
                 ? `${fmt(revenue.performanceFees, 4)} USDfr-equiv.`
-                : "—"
+                : ", "
             }
           />
           <Row
@@ -675,12 +675,12 @@ export function TransparencyDashboard() {
                 ? "Not deployed"
                 : revenue.phase === "ready"
                 ? `${fmt(revenue.managementFees, 4)} USDfr-equiv.`
-                : "—"
+                : ", "
             }
           />
           <Row
             k="Current interest fee"
-            val={protocolFeeBps !== undefined ? formatBps(BigInt(protocolFeeBps)) : "—"}
+            val={protocolFeeBps !== undefined ? formatBps(BigInt(protocolFeeBps)) : ", "}
           />
           <Row
             k="Current performance fee"
@@ -690,7 +690,7 @@ export function TransparencyDashboard() {
                     BigInt(maxPerformanceFeeBps),
                   )} cap`
                 : SUPPORTS_VAULT_FEE_ACCOUNTING
-                  ? "—"
+                  ? ", "
                   : "Not deployed"
             }
           />
@@ -704,7 +704,7 @@ export function TransparencyDashboard() {
                       : ""
                   }${formatBps(BigInt(maxManagementFeeBps))} cap`
                 : SUPPORTS_VAULT_FEE_ACCOUNTING
-                  ? "—"
+                  ? ", "
                   : "Not deployed"
             }
           />
@@ -713,12 +713,12 @@ export function TransparencyDashboard() {
             val={
               waterfallFeeRecipient
                 ? shortAddress(waterfallFeeRecipient)
-                : "—"
+                : ", "
             }
           />
           <Row
             k="Vault recipient"
-            val={vaultFeeRecipient ? shortAddress(vaultFeeRecipient) : "—"}
+            val={vaultFeeRecipient ? shortAddress(vaultFeeRecipient) : ", "}
           />
           <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
             {SUPPORTS_VAULT_FEE_ACCOUNTING
@@ -747,7 +747,7 @@ export function TransparencyDashboard() {
         </Panel>
 
         <Panel title="Redemption queue" addr={CONTRACTS.RedemptionQueue!}>
-          <Row k="Current epoch" val={epoch?.toString() ?? "—"} />
+          <Row k="Current epoch" val={epoch?.toString() ?? ", "} />
           <Row
             k="Epoch ends"
             val={
@@ -755,19 +755,19 @@ export function TransparencyDashboard() {
                 ? Number(epochEndsAt) <= now
                   ? "over: awaiting close"
                   : `in ${fmtCountdown(Number(epochEndsAt) - now)}`
-                : "—"
+                : ", "
             }
           />
           <Row
             k="Queued shares"
-            val={queuedShares !== undefined ? `${fmtAmount(queuedShares, SHARE_DECIMALS, 4)} sUSDfr` : "—"}
+            val={queuedShares !== undefined ? `${fmtAmount(queuedShares, SHARE_DECIMALS, 4)} sUSDfr` : ", "}
           />
           <Row k="Settlement liquidity" val={`$${fmt(queueLiquidity)}`} />
         </Panel>
 
         <Panel title="Provenance" addr={CONTRACTS.MintRedeemController!}>
           <Row k="Network" val={NETWORK_NAME} />
-          <Row k="As of block" val={blockNumber?.toString() ?? "—"} />
+          <Row k="As of block" val={blockNumber?.toString() ?? ", "} />
           <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
             Every figure on this page is a direct contract read
             {EXPLORER

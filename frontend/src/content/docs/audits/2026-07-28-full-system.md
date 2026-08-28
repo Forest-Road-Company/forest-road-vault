@@ -1,6 +1,6 @@
 # Full-system multi-pass audit
 
-> **Historical snapshot — superseded.** This narrative predates ADR-0031 and the move to
+> **Historical snapshot, superseded.** This narrative predates ADR-0031 and the move to
 > instant yield recognition. Statements below about receipts vesting smoothly describe the
 > seven-day streaming window in force at the time; Forest Road set the launch window to zero
 > on 30 July 2026, so realized interest now enters NAV as a step. Optional streaming remains
@@ -10,30 +10,29 @@
 
 The five rounds before this one each answered a narrower question: two five-pass source
 reviews, a pre-mainnet campaign, a defensive review of the clean mainnet-v1 tree, and a
-differential review of what the release branch changed. This one re-audited **everything** —
-every production contract and all frontend functionality — after the Round 6 remediations had
+differential review of what the release branch changed. This one re-audited **everything**: every production contract and all frontend functionality, after the Round 6 remediations had
 landed.
 
 The brief asked for findings confirmed by multiple passes. That was implemented as
 **independent double discovery followed by adversarial verification**, not as one pass
 reviewed twice:
 
-1. The system was split into nine surfaces — six across the contracts (token layer, credit
+1. The system was split into nine surfaces, six across the contracts (token layer, credit
    layer, loss cascade, reserve and queue, trust boundary, and governance/upgradeability/
    storage) and three across the frontend (write paths, read and display correctness,
    configuration and security posture).
-2. **Each surface was reviewed twice, by reviewers with different briefs** — one on
-   correctness and value safety, one adversarial and economic — and the second reviewer never
+2. **Each surface was reviewed twice, by reviewers with different briefs**, one on
+   correctness and value safety, one adversarial and economic, and the second reviewer never
    saw the first one's work. Agreement between them is independent corroboration rather than
    confirmation bias.
 3. The 71 raw candidates were merged **by mechanism, not by wording**, into 30. Where two
-   reviewers disagreed on severity, the lower was carried.
+   reviewers disagreed on severity: the lower was carried.
 4. Every one of the 30 then faced **two independent refuters** instructed to refute rather
    than confirm, and to default to rejection where the evidence was not airtight: one testing
    whether the code actually says what the finding claims, at the line claimed, without a
    guard the finder missed; the other testing whether the stated consequence follows, who must
    act to reach it, and whether a validator or an existing test already blocks it.
-5. A completeness critic then challenged the severities and — more usefully — enumerated what
+5. A completeness critic then challenged the severities and, more usefully, enumerated what
    the audit had failed to cover.
 
 **All 30 mechanisms held. 22 of the 30 had their consequence corrected downward**, four filed
@@ -45,16 +44,16 @@ No Critical and no High finding. Nothing found in this round breaks the backing 
 inverts or skips the loss cascade, bypasses the facility mint gate, defeats compliance,
 over-distributes the redemption queue, or reaches an unauthorized mint.
 
-**One contract-level defect is reachable through ordinary operation** — FRV-FS-01. The other
+**One contract-level defect is reachable through ordinary operation**, FRV-FS-01. The other
 Medium is a disclosure defect at the point of an irreversible signature. Four of the top six
 findings are frontend-to-contract reconciliation defects, which is the class the operating
-rules assign to live-system QA — a pass this round could not perform.
+rules assign to live-system QA: a pass this round could not perform.
 
 Six rounds in, that a full re-audit yields one composed state-machine dead end and a cluster
 of display-accuracy defects is itself a result about the contracts. It is not a statement that
 the system is ready to launch.
 
-## Post-audit remediation update — 28 July 2026
+## Post-audit remediation update, 28 July 2026
 
 All two Medium and ten Low findings have since been remediated and verified. The original
 audit narrative below is preserved as the evidence at baseline `33713ec`; these changes do
@@ -114,8 +113,8 @@ external-audit, legal, economic or production-readiness gate.
 This is the most useful thing the round produced, and it is worth stating plainly because it
 bears on how every finding on this site should be read.
 
-The **most corroborated** finding of the round — four separate reviewers across two different
-surfaces, all citing the same six locations, every citation accurate — claimed that the
+The **most corroborated** finding of the round, four separate reviewers across two different
+surfaces, all citing the same six locations, every citation accurate, claimed that the
 protective margin-call and liquidation triggers wrongly require a fresh valuation, contrary to
 the documented rule that protective action must never be blocked by a withheld mark.
 
@@ -123,7 +122,7 @@ All four were wrong, in the same way. None noticed that the ADR they were citing
 **supersession banner**, and that ADR-0030 deliberately reversed the rule: marked-to-market
 calls, cures and liquidations now *do* require a fresh attested mark. The code implements the
 current rule correctly. What is actually wrong is two stale comment blocks left behind by the
-reversal — published here as FRV-FS-20, Informational.
+reversal, published here as FRV-FS-20, Informational.
 
 Both refuters caught it independently, and the finding fell from Medium to Informational.
 
@@ -134,17 +133,16 @@ records what verification *changed* rather than only what it confirmed.
 
 ## The two Mediums
 
-**FRV-FS-01 — a servicing dead end.** The payment waterfall advances a facility's schedule on
+**FRV-FS-01, a servicing dead end.** The payment waterfall advances a facility's schedule on
 every performing receipt that leaves principal outstanding. The credit register accepts only a
-strictly later date, bounded above by maturity. Once those two coincide — which a bullet
-facility can do from the day it is originated — the acceptable range is empty and the whole
+strictly later date, bounded above by maturity. Once those two coincide, which a bullet
+facility can do from the day it is originated: the acceptable range is empty and the whole
 distribution reverts.
 
 Nothing is lost; the revert is atomic and happens before any money moves. What breaks is
 servicing. A final short payment cannot be recorded. An unscheduled interest-only payment
 cannot be recorded. That period's senior yield is never minted. And the facility then drifts
-to its grace deadline, where the permissionless past-due flag can be applied by any address —
-lowering the redemption NAV **while the borrower is in fact paying**. Both ways out are
+to its grace deadline, where the permissionless past-due flag can be applied by any address, lowering the redemption NAV **while the borrower is in fact paying**. Both ways out are
 governance- or attester-grade, and needed per payment.
 
 The reason no test caught it is worth recording: the invariant campaign runs with reverts
@@ -152,16 +150,16 @@ treated as failures, and its handler applies the exact clamp that creates the tr
 run is therefore positive evidence that the fuzzer **never walks a single facility through its
 own amortization schedule**.
 
-**FRV-FS-02 — an undisclosed lock-up.** A queued redemption cannot settle for 21 days, and
+**FRV-FS-02, an undisclosed lock-up.** A queued redemption cannot settle for 21 days, and
 the queue has no cancel or withdraw function of any kind: custody moves permanently when the
-user signs. The redeem card states no exit horizon at all — its only time signal is the
+user signs. The redeem card states no exit horizon at all: its only time signal is the
 sub-24-hour epoch countdown. The cooldown is not in the queue interface the app reads and
 appears nowhere in the frontend; the request's own timestamp is decoded and then never shown.
 
 This is the omission of a hard floor rather than an incorrect number, and it sits immediately
 above an unrecoverable action on the app's broadest write surface. Two strings in the error
 catalogue already promise a per-position countdown; they turn out to be unreachable at
-runtime, which makes them evidence that the interface was believed to have one — not something
+runtime, which makes them evidence that the interface was believed to have one, not something
 a user is ever shown.
 
 Grading it Medium is a boundary call and is stated as one: earlier rounds reserve that grade
@@ -172,13 +170,13 @@ with the former because the user acts irreversibly on the incomplete statement.
 
 Every reviewer was given the register of findings this protocol has already accepted, deferred
 or left open, with the rule that a finding sharing an *impact class* with an accepted item may
-only be raised if the *mechanism* genuinely differs — and must say how.
+only be raised if the *mechanism* genuinely differs, and must say how.
 
 **No candidate had to be dropped as a restatement.** The closest calls were each checked and
 kept:
 
 - FRV-FS-03 against the accepted yield-guard residual. That acceptance concerns how much a
-  depositor can capture once entry *reopens*; this is the opposite side of the same test — the
+  depositor can capture once entry *reopens*; this is the opposite side of the same test, the
   guard *firing* during healthy operation, which undercuts the premise the calibration rests
   on.
 - FRV-FS-13 against the accepted concentration-drift item. That one concerns exposure that
@@ -196,7 +194,7 @@ is published on the Round 1 page with a stated rationale: the class is protected
 margin-call, liquidation and loss-cascade remedy instead of by a continuously-marked backing
 figure.
 
-FRV-FS-20 establishes that ADR-0030 changed the conditions on that remedy — those triggers now
+FRV-FS-20 establishes that ADR-0030 changed the conditions on that remedy, those triggers now
 require a **fresh attested mark**. The code is right and the change was deliberate. But the
 published acceptance rationale predates the reversal and does not disclose that the protection
 it names is now conditional on continuous attester liveness: with a short maximum mark age, a
@@ -225,13 +223,12 @@ surface more; their absence from this page is not evidence they do not exist.
 
 **Formal methods remain one file and one property.** The only symbolic artefact covers the loss
 cascade, and it is a separate re-implementation bound to the contract by differential fuzzing
-rather than the contract itself. The operating rules name two properties for formal treatment —
-**the backing invariant has no symbolic proof at all.** No reviewer noticed this; the critic
+rather than the contract itself. The operating rules name two properties for formal treatment, **the backing invariant has no symbolic proof at all.** No reviewer noticed this; the critic
 did.
 
 **There is no continuous integration.** The rule that a red suite blocks a merge is
-unimplemented, so nothing mechanically prevents any finding — from this round or the five
-before it — from regressing.
+unimplemented, so nothing mechanically prevents any finding, from this round or the five
+before it, from regressing.
 
 **The coverage methodology is self-documented as defective and was not re-measured.** The
 repository's own notes record that the exclusion pattern used for coverage silently omitted one
@@ -248,9 +245,9 @@ The weakness this round revealed in itself is one of shape rather than effort: *
 require a single entity to be walked through many sequential operations across a module
 boundary.**
 
-FRV-FS-01 is exactly that shape, and **seventeen of the eighteen reviewers missed it** — each
+FRV-FS-01 is exactly that shape, and **seventeen of the eighteen reviewers missed it**: each
 of the two functions involved is correct in isolation, and the defect exists only in their
-composition after a facility has amortized. At the audited baseline, the automated suite did
+composition after a facility has amortized. At the audited baseline: the automated suite did
 not reach it; the post-audit remediation adds a deterministic full-schedule regression.
 Meanwhile every reviewer's list of properties they *could not* break is a point-in-time
 property: reentrancy, rounding direction, replay, domain binding, storage layout, chain
@@ -258,7 +255,7 @@ binding, decimals, ordering, double-claim. All valuable; none sequential.
 
 The recommendation carried into the next round is to **review by entity lifetime rather than by
 module**, as executed integration tests rather than as reading: drive one facility and one
-vault position through their full terms — many sequential partial repayments including an
+vault position through their full terms, many sequential partial repayments including an
 interest-only and an unscheduled prepayment, a short final payment, past-due, cure, maturity;
 and stake, accrue across several governance rate epochs, queue, cool down, settle partially
 across epochs, claim. Add the missing symbolic proof of the backing invariant so the
@@ -272,6 +269,6 @@ evidence; the remaining 18 Informational findings retain their original disposit
 
 Separately: several candidates were reduced or set aside precisely because they re-filed a
 defect this protocol has already published under an earlier identifier. **Reducing a duplicate
-filing says nothing about the underlying defect** — those items remain open under their
+filing says nothing about the underlying defect**, those items remain open under their
 original identifiers, and at least one of them, the drift in the published access-control
 matrix, is still present in the source.

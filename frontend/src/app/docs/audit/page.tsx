@@ -6,7 +6,7 @@ import { SeverityMix } from "@/components/site/AuditFindings";
 import { AUDITS, openFindings, totalFindings } from "@/content/audits";
 
 export const metadata: Metadata = {
-  title: "Audit Register — Forest Road Vault",
+  title: "Audit Register | Forest Road Vault",
   description:
     "Every source-level security review run against the protocol, newest first, each with its own findings and remediation history.",
 };
@@ -152,7 +152,7 @@ export default function AuditRegisterPage() {
               <span className="display-accent">newest first.</span>
             </>
           }
-          lede="Internal engineering reviews do not substitute for external audit. They are published on the same terms — every finding, every severity, every disposition."
+          lede="Internal engineering reviews do not substitute for external audit. They are published on the same terms, every finding, every severity, every disposition."
         />
 
         <div className="mt-14">

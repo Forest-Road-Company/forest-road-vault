@@ -3,7 +3,7 @@
 /**
  * Redeem, two honest paths (ADR-0010/0018):
  *  - USDfr → tUSDC: instant, burns against idle reserves via MintRedeemController.redeem
- *    (floors to a whole stable unit — no dust taken).
+ *    (floors to a whole stable unit, no dust taken).
  *  - sUSDfr → queue: epoch FIFO. Requesting locks shares into the queue; fills happen
  *    at epoch settlement within the liquidity budget; claims are anytime after fill.
  *    Never presented as instant.
@@ -63,8 +63,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
     address: vault, abi: ERC20_ABI, functionName: "allowance",
     args: address ? [address, queue] : undefined, query: {enabled: Boolean(address), ...POLL},
   });
-  // Queue state changes without user action (epoch boundary, keeper closes) —
-  // poll it so the countdown and settle badge don't freeze at page-load.
+  // Queue state changes without user action (epoch boundary, keeper closes), // poll it so the countdown and settle badge don't freeze at page-load.
   const QUEUE_POLL = {refetchInterval: 60_000} as const;
   const {data: epochEndsAt, refetch: refetchEpochEndsAt} = useReadContract({
     address: queue, abi: QUEUE_ABI, functionName: "epochEndsAt", query: QUEUE_POLL,
@@ -91,7 +90,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   // ADR-0022 Option Y: a queued exit settles at the CONSERVATIVE redemption NAV
   // (`totalAssets - pendingSeniorImpairment`), not the deposit NAV. Previewing with
   // `convertToAssets` overstated what the user would receive during exactly the window the
-  // conservative mark exists for — a declared-but-unrealized default. `previewRedeem` is the
+  // conservative mark exists for, a declared-but-unrealized default. `previewRedeem` is the
   // number the contract will actually use.
   const {data: previewAssets} = useReadContract({
     address: vault, abi: VAULT_ABI, functionName: "previewRedeem",
@@ -212,7 +211,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   // change to the live cooldown invalidates an earlier acknowledgement.
   const queueAcknowledged =
     redeemCooldown !== undefined && acknowledgedCooldown === redeemCooldown;
-  // Instant redeem is KYC-gated on-chain; the queue paths are not — the UI
+  // Instant redeem is KYC-gated on-chain; the queue paths are not, the UI
   // mirrors the contracts exactly (never stricter, never looser).
   const actionAllowed = mode === "instant" ? writesEnabled : chainOk;
   // Queue mode needs the share allowance LOADED for an honest Approve/Request label.
@@ -261,7 +260,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
             <button
               key={m}
               // AUDIT FIX (RC-05): switching mode resets both flows, so it must be
-              // unavailable while either has a write in flight — otherwise the
+              // unavailable while either has a write in flight, otherwise the
               // in-flight transaction is orphaned and its outcome never surfaces.
               disabled={flow.busy || claimFlow.busy}
               onClick={() => {
@@ -294,7 +293,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
           </p>
           <p>
             Settlement heartbeat ends in{" "}
-            <span className="text-ink-muted">{epochCountdown ?? "—"}</span>
+            <span className="text-ink-muted">{epochCountdown ?? ", "}</span>
             {isSettling ? <span className="ml-2 text-warn">settling now</span> : null}
           </p>
           <p>
@@ -336,7 +335,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
           {depositPriceAssets !== undefined && depositPriceAssets > previewAssets ? (
             <>
               <span className="text-ink-muted">
-                , marked down from {fmtAmount(depositPriceAssets, 18, 4)} using the current
+               , marked down from {fmtAmount(depositPriceAssets, 18, 4)} using the current
                 conservative default mark. The mark and settlement price can change before
                 this request fills.
               </span>

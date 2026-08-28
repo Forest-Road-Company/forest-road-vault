@@ -16,8 +16,7 @@
 
 Three consecutive rounds of this fee work each produced a High finding, and each one had the same
 root cause: a fee hurdle denominated in one asset base, adjusted by a quantity measured in a
-different one. Every remediation closed the specific defect and moved the class somewhere else —
-first out of the high-water-mark ratchet, then out of the junior-capacity bracket, then out of the
+different one. Every remediation closed the specific defect and moved the class somewhere else, first out of the high-water-mark ratchet, then out of the junior-capacity bracket, then out of the
 exit path.
 
 This round is the first that does not continue that sequence. There is no High finding, no
@@ -42,13 +41,13 @@ the maximum is never below the pro-rata term. So the stored per-share high-water
 
 That is a real guarantee, and it is the one the previous three rounds never had. A surviving
 holder can no longer be charged more than a textbook per-share high-water-mark fee. The failure
-direction that produced every earlier High — a hurdle pushed below holders' own cost basis, so a
-fee lands on something that was never profit — is now structurally impossible rather than merely
+direction that produced every earlier High, a hurdle pushed below holders' own cost basis, so a
+fee lands on something that was never profit, is now structurally impossible rather than merely
 absent.
 
 The backstop-rotation fix is also clean. Exactly one checkpoint opens on every path and is always
 followed by the single close, the no-op early exit skips both, and a broken outgoing backstop no
-longer blocks its own replacement — which is what the previous round asked for.
+longer blocks its own replacement, which is what the previous round asked for.
 
 ## Why four rounds were needed
 
@@ -83,8 +82,8 @@ the deferred performance fee the protocol had accrued is destroyed.
 
 It needs no fresh capital, and the damage scales with the fraction round-tripped rather than with
 capital committed: redeeming and re-depositing most of a position destroys most of the deferred
-fee. Chunking the exit across settlements does not reduce it. The only frictions are time — the
-redemption cooldown and the per-epoch liquidity throttle — and there is no minimum holding period
+fee. Chunking the exit across settlements does not reduce it. The only frictions are time, the
+redemption cooldown and the per-epoch liquidity throttle, and there is no minimum holding period
 between deposit and queue admission.
 
 The direction matters for how urgently this needs answering. No holder is over-charged and no
@@ -94,8 +93,8 @@ referred upward rather than patched in place.
 
 A second, smaller base mismatch survives in the upgrade path: seeding a legacy proxy's hurdle
 anchors on the redemption base, which removes the junior-covered portion of the old mismatch but
-leaves the senior-marked portion. The anchor that is neutral in both terminal states — a cure and a
-realized loss — is the realized asset base. It is a one-token change, and both existing regressions
+leaves the senior-marked portion. The anchor that is neutral in both terminal states, a cure and a
+realized loss, is the realized asset base. It is a one-token change, and both existing regressions
 for that branch happen to run with the residual pinned to zero, which is why it was not visible.
 
 ## Assurance
@@ -108,7 +107,7 @@ both are properly closed.
 
 What the assurance tier still cannot do is falsify the flow law itself. The invariant added for it
 re-derives the production expression with the same rounding, and checks one operation at a time
-against state captured immediately before that operation — so a defect that only appears in the
+against state captured immediately before that operation, so a defect that only appears in the
 composition of two operations is invisible to it by construction. That is exactly the defect this
 round found, and no test in the repository composes an entry with an exit of the same shares.
 
@@ -116,7 +115,7 @@ The regression added for the backstop change is vacuous in a more ordinary way: 
 reaches a state in which the outgoing backstop is read at all, so it passes identically against the
 code the fix replaced.
 
-Separately, the whole fork tier — every one of its tests — did not execute in this review
+Separately, the whole fork tier, every one of its tests, did not execute in this review
 environment for want of an archive endpoint, including the suite that was modified by this very
 change. The rest of the suite is deterministic and green across repeated runs.
 
@@ -126,7 +125,7 @@ Two items are not defects but will shape what can be done next.
 
 The vault implementation now sits about 1.5% below the contract size limit. The fee work has
 consumed roughly two thirds of the headroom that existed a few checkpoints ago, and the build
-pipeline has no explicit size gate — the only thing between a routine change and an undeployable
+pipeline has no explicit size gate, the only thing between a routine change and an undeployable
 implementation is a compiler warning being promoted to an error.
 
 And this change introduced a new cross-contract dependency: the vault now calls a second valuation

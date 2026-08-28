@@ -112,7 +112,7 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
   });
   // The GROSS mark (ADR-0031), which sizes the deferred performance fee. Distinct from the
   // netted figure above: junior capital can take the netted mark to zero while the gross
-  // mark — and therefore the deferred fee a new depositor buys into — is still large.
+  // mark, and therefore the deferred fee a new depositor buys into, is still large.
   const {data: performanceFeeImpairment} = useReadContract({
     address: impairmentSource ?? zeroAddress,
     abi: IMPAIRMENT_SOURCE_ABI,
@@ -126,18 +126,17 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
   // AUDIT R14-03. The deferred fee that crystallizes when a mark cures is
   // `performanceFeeBps * max(0, grossMark - feeFreeRunway)`, where the runway is the gap
   // between the hurdle and the performance base. It is LARGEST when that gap is zero and
-  // zero once the gap exceeds the gross mark — so keying the warning on the gap alone was
+  // zero once the gap exceeds the gross mark, so keying the warning on the gap alone was
   // inverse to the exposure it advertises, and silent in exactly the maximal-deferral state
   // that per-repayment crystallization now makes the steady state. Key it on the gross mark
   // instead, which is the quantity actually at stake.
   // AUDIT R15-01. Two terms, not one. The deferred fee that crystallizes on a cure is
   // `performanceFeeBps * min(grossMark, max(0, totalAssets + 1 - hurdleAssets))`, so it is
   // zero both when there is no mark AND when the hurdle still sits above realized assets.
-  // Keying on the gross mark alone fired at full strength at zero exposure — most visibly
+  // Keying on the gross mark alone fired at full strength at zero exposure, most visibly
   // right after `markPastDue`, which checkpoints before recording the mark. The hurdle is
   // asset-denominated: `ceil(highWaterMark * (totalSupply + 1e6) / 10**decimals())`, mirroring
-  // `_highWaterMarkAssets`. `currentExchangeRate() > highWaterMark` is NOT a safe substitute —
-  // it divides by the fee-adjusted supply, so simulated management shares would depress it
+  // `_highWaterMarkAssets`. `currentExchangeRate() > highWaterMark` is NOT a safe substitute, // it divides by the fee-adjusted supply, so simulated management shares would depress it
   // below the hurdle while realized assets are still above it.
   const SHARE_UNIT = 10n ** 24n; // sUSDfr decimals() = 18 underlying + 6 offset
   const hurdleAssets =
@@ -292,7 +291,7 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
             The vault charges{" "}
             {performanceFeeBps !== undefined
               ? formatBps(BigInt(performanceFeeBps))
-              : "—"}{" "}
+              : ", "}{" "}
             on profit above one global high-water mark
             {maxPerformanceFeeBps !== undefined
               ? ` (capped at ${formatBps(BigInt(maxPerformanceFeeBps))})`
@@ -300,7 +299,7 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
             . Management is currently{" "}
             {managementFeeBps !== undefined
               ? formatBps(BigInt(managementFeeBps))
-              : "—"}
+              : ", "}
             {maxManagementFeeBps !== undefined
               ? ` annual (capped at ${formatBps(BigInt(maxManagementFeeBps))})`
               : ""}

@@ -2,8 +2,16 @@ import { IS_TESTNET } from "@/config/contracts";
 
 /**
  * Deployment status, stated before anything else on the page. This is a
- * functional status colour, not decoration — the label carries the meaning
+ * functional status colour, not decoration: the label carries the meaning
  * on its own, so the hue is never the only signal.
+ *
+ * MERGE NOTE (2026-08-28). Structure, tone and contrast come from the FRAM
+ * design system. The testnet COPY does not: the design-system version read
+ * "No mainnet deployment, no real value", which was true when that branch was
+ * cut and has been false since 2026-08-16. Commit 3ff5183 fixed exactly that
+ * claim, and it is preserved here. A testnet build must say the mainnet
+ * deployment exists and point at it, because a visitor on the Sepolia build
+ * otherwise concludes there is no live protocol.
  */
 export function TestnetBanner() {
   return (
@@ -24,7 +32,7 @@ export function TestnetBanner() {
         </span>
         <span className={IS_TESTNET ? "text-ink-muted" : "text-on-navy-muted"}>
           {IS_TESTNET
-            ? "No mainnet deployment, no real value. Nothing here is an offer or a live financial product."
+            ? "This site reads Sepolia. Test assets have no value, and nothing here is an offer or a live financial product. The contracts are separately deployed to Ethereum mainnet; see Docs, Addresses."
             : "Transactions use real assets. Access is KYC-gated; review the legal and risk disclosures before transacting."}
         </span>
       </p>

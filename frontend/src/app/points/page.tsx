@@ -10,7 +10,7 @@ import {
 import { PointsDashboard } from "@/components/app/PointsDashboard";
 
 export const metadata: Metadata = {
-  title: "Points — Forest Road Vault",
+  title: "Points | Forest Road Vault",
 };
 
 /** The three earning positions and their governance-set multiples (points-v2, live on Sepolia). */
@@ -167,7 +167,7 @@ export default function PointsPage() {
               Points are not a token, a security, a yield, or a claim on one.
               Nothing here promises conversion to any asset, and no conversion
               rate, date, or allocation exists. If Forest Road ever proposes a
-              use for points, that decision is discretionary and passes through
+              use for points: that decision is discretionary and passes through
               the same securities-counsel review that gates the rest of the
               protocol before mainnet.{" "}
               <span className="text-on-navy">

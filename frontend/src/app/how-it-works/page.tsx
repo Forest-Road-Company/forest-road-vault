@@ -9,7 +9,7 @@ import {
 } from "@/components/site/Blocks";
 
 export const metadata: Metadata = {
-  title: "How it works — Forest Road Vault",
+  title: "How it works | Forest Road Vault",
 };
 
 const depositorSteps = [
@@ -113,7 +113,7 @@ export default function HowItWorksPage() {
           <div className="flex-1">
               <p className="max-w-[68ch] text-[15.5px] leading-relaxed text-ink-muted">
                 Every facility exists in two synchronized records. Off-chain: an
-                SPV holds the position, the security interest is perfected
+                SPV holds the position: the security interest is perfected
                 (UCC-1 and assignment), cash moves through escrow and controlled
                 accounts. On-chain: the loan NFT is the position of record, the
                 lender register is reconstructable from events, and the payment

@@ -1,7 +1,6 @@
 /**
  * Static vertical descriptions (copy). Live parameters (LTV caps, rate tiers,
- * concentration limits) are read from CollateralRegistry once deployed —
- * never hardcoded here (brief §8.3).
+ * concentration limits) are read from CollateralRegistry once deployed, * never hardcoded here (brief §8.3).
  */
 export type Vertical = {
   slug: string;
@@ -102,7 +101,7 @@ export const VERTICALS: Vertical[] = [
       {
         name: "Related-party exposure",
         detail:
-          "The borrower is Forest Road's own subsidiary. Terms must be arm's-length, the position is capped by concentration limits, and the conflict of interest is disclosed rather than obscured.",
+          "The borrower is Forest Road's own subsidiary. Terms must be arm's-length: the position is capped by concentration limits, and the conflict of interest is disclosed rather than obscured.",
       },
       {
         name: "Valuation freshness",

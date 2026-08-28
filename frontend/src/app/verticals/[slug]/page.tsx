@@ -16,7 +16,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const v = VERTICALS.find((x) => x.slug === slug);
-  return { title: v ? `${v.name} — Forest Road Vault` : "Verticals" };
+  return { title: v ? `${v.name}, Forest Road Vault` : "Verticals" };
 }
 
 export default async function VerticalPage({

@@ -10,7 +10,7 @@ actually deployed against the source. Derive a threat model from the code rather
 documentation. Sweep a mandatory vulnerability-class table where every class owes either a finding
 or a written reason it does not apply. Attack it on two pinned forks. Then report.
 
-Three rules mattered more than the rest. **Source was frozen through discovery** — nothing was
+Three rules mattered more than the rest. **Source was frozen through discovery**: nothing was
 fixed while anything was still being looked at, because repairing as you go contaminates everything
 you look at afterwards and destroys the record of what the code was when the bug was found. **Every
 finding above Informational owes a test that actually runs**, and a finding without one is labelled
@@ -24,7 +24,7 @@ This is the most important result and it is a measured one, not a courtesy.
 
 The three-layer loss cascade was attacked directly and did not break. Ordering, conservation and
 subordination headroom all held across 163,840 stateful calls with independently tracked ghost
-capacities — and, for the first time, with the per-event backstop cap exercised at a value that
+capacities, and, for the first time, with the per-event backstop cap exercised at a value that
 actually **binds**. A previous round had found that this cap had no callers anywhere in the test
 suite, so the layer-2 rule had never been tested at a value where it constrains anything. It has
 now been.
@@ -37,16 +37,16 @@ The attestation layer held under a deliberate assault: zero-address recovery, si
 malleability, compact and legacy signature encodings, bundle-ordering attacks, replay across kinds
 and facilities and payloads and chains, and the valuation anti-rollback watermark. This layer
 matters more here than in most protocols, because the system integrates **no on-chain price oracle
-at all** — there is no AMM, no price feed, no TWAP. The entire price-manipulation family of attacks
+at all**: there is no AMM, no price feed, no TWAP. The entire price-manipulation family of attacks
 has no surface, and the equivalent risk is relocated wholly into attestation.
 
-Reentrancy was closed across all six sub-classes — and closed by building a hostile module and
+Reentrancy was closed across all six sub-classes, and closed by building a hostile module and
 installing it, not by reasoning about the call graph. Every `unchecked` block, every downcast and
 every assembly site was proven safe for all reachable inputs. Rounding direction was enumerated
 across every division in four contracts.
 
 And flash-loan atomicity was tested by **actually borrowing**, at a pinned block, from a real
-lending pool with real depth — never by simulating a balance. Seven of the nine state-dependent
+lending pool with real depth, never by simulating a balance. Seven of the nine state-dependent
 surfaces resisted, including governance voting power and the backing invariant's computed side.
 
 ## Where it broke: two clusters, not a scatter
@@ -58,7 +58,7 @@ severity ranking.
 read from a live balance at the instant settlement opens, and a live balance can be moved inside a
 single transaction with borrowed capital. That budget is the protocol's only throttle on senior
 exits. Separately, the guard protecting the settlement heartbeat is an *absolute constant* rather
-than a proportion of the epoch's actual capacity — so it does not need to be overwhelmed, only
+than a proportion of the epoch's actual capacity, so it does not need to be overwhelmed, only
 stepped over, and stepping over it costs about a dollar. Both of these attack the only exit the
 senior claim has.
 
@@ -76,14 +76,14 @@ this same audit had already published in its earlier phases.
 
 The sharpest: an earlier phase found that a reserve write-down freezes minting and redemption, rated
 it High, and recorded that repayments would gradually heal the shortfall. Working it through on a
-funded facility showed that reasoning is **arithmetically wrong** — the repayment path is exactly
+funded facility showed that reasoning is **arithmetically wrong**: the repayment path is exactly
 neutral on the gap, not narrowing, so while the system is under water the credit book cannot be
 serviced at all. That makes the mechanism worse than reported.
 
 The same work then found the *opposite* error in the same finding. It had claimed no on-chain
 recovery exists short of a contract upgrade. Two governance cures do exist, each demonstrated
 restoring minting, redemption and servicing. The finding came **down** from High to Medium and was
-reframed from an unrecoverable brick to an incident-response gap — a real gap, because the cure
+reframed from an unrecoverable brick to an incident-response gap, a real gap, because the cure
 requires a role grant the deployment script never makes and nobody has rehearsed.
 
 Its recommended fix was also **struck**, because the decision record shows that exact change was
@@ -107,10 +107,10 @@ assertion around it would have noticed if the line were wrong.
 ## A note on what is disclosed here
 
 Every finding is listed with its severity and its disposition, including the ones that remain open.
-For findings that are remediated, accepted, or informational, the mechanism is described in full.
+For findings that are remediated, accepted, or informational: the mechanism is described in full.
 
 For the small number of **open findings that are exploitable against a live deployment**, this page
-states what is wrong, what the impact is, and what the fix is — but not the reproduction recipe.
+states what is wrong, what the impact is, and what the fix is, but not the reproduction recipe.
 The complete mechanical detail, the parameters and the executable proofs are held in the internal
 audit record and are available to reviewers on request. That is ordinary responsible-disclosure
 practice, and it is flagged here rather than done silently, because this register's stated policy is
@@ -132,9 +132,9 @@ not satisfy the independent external-audit gate.
 ## Standing
 
 This was an internal adversarial audit. It is **not** the independent external security audit that
-the production-assurance gates require. That gate remains outstanding, this work does not satisfy
+the production-assurance gates require. That gate remains outstanding: this work does not satisfy
 it, and nothing here authorizes a mainnet promotion.
 
 The deployment it examined is a testnet deployment carrying no third-party capital, with a mock
-stablecoin, retained operator privileges and concentration limits left fully open — so nothing green
+stablecoin, retained operator privileges and concentration limits left fully open, so nothing green
 in this round is evidence about a production configuration either.

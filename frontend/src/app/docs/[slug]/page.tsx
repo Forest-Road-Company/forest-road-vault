@@ -17,8 +17,8 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const doc = docBySlug(slug);
-  if (!doc) return { title: "Docs — Forest Road Vault" };
-  return { title: `${doc.title} — Forest Road Vault`, description: doc.summary };
+  if (!doc) return { title: "Docs | Forest Road Vault" };
+  return { title: `${doc.title}, Forest Road Vault`, description: doc.summary };
 }
 
 function readDoc(file: string): string {

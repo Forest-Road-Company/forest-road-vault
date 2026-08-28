@@ -18,9 +18,9 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const audit = auditBySlug(slug);
-  if (!audit) return { title: "Audit — Forest Road Vault" };
+  if (!audit) return { title: "Audit | Forest Road Vault" };
   return {
-    title: `${audit.title} — Forest Road Vault`,
+    title: `${audit.title}, Forest Road Vault`,
     description: audit.summary,
   };
 }
@@ -81,7 +81,7 @@ export default async function AuditReportPage({
             <>
               <strong className="text-ink">External review.</strong> This review was
               conducted by a party other than Forest Road. What the engagement did and did
-              not cover is set out under Method and in the report itself — the limits of a
+              not cover is set out under Method and in the report itself, the limits of a
               review bear on what its findings are worth, and should be read alongside them.
               It does not by itself authorize a production launch.
             </>

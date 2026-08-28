@@ -36,7 +36,10 @@ condition holds. Escrow cannot release before the NFT exists. This is not a blin
 Credit losses are absorbed in a strict, non-invertible order:
 
 1. **Curator first-loss**: subordinated capital posted per collateral class.
-2. **sGROVE backstop**: a staked-GROVE coverage reserve.
+2. **sGROVE backstop**: a USDfr coverage reserve held by the sGROVE contract and funded
+   through `fundCoverage()`. It is not staked GROVE. Staking moves GROVE and never touches
+   the coverage reserve; the two pools are held apart by the
+   `invariant_sgrove_usdfrCustodyExact` invariant.
 3. **sUSDfr depositor principal**: only after both junior layers are exhausted.
 
 Senior depositors are never subordinated to junior capital, and the cascade can never be
@@ -74,7 +77,7 @@ guaranteed settlement quote. For performance fees, the assessment separately sna
 junior-capital credit standing at publication so a later capacity write cannot be treated as yield.
 
 The professional-assessment wrapper remains in the clean v1 candidate. Unless governance
-publishes a current revision-bound assessment, it returns the zero-recovery result. The
+publishes a current revision-bound assessment: it returns the zero-recovery result. The
 recovery top-up distributor is not deployed or wired in mainnet v1; no top-up or airdrop
 is promised, automatic, or included in the redemption preview.
 

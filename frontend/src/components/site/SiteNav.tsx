@@ -99,7 +99,7 @@ export function SiteNav() {
             aria-expanded={open}
             aria-controls="site-menu"
             aria-label={open ? "Close menu" : "Open menu"}
-            /* The button is the 44px target — the one control a thumb reaches
+            /* The button is the 44px target, the one control a thumb reaches
                for before anything has been read, so it takes the enhanced size
                rather than the 24px minimum. The bordered box inside stays 36px,
                so the nav looks exactly as it did; only the hit area grew. */

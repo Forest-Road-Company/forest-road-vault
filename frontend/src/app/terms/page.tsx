@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { PageShell } from "@/components/site/PageShell";
 import { IS_MAINNET } from "@/config/contracts";
 
-export const metadata: Metadata = { title: "Terms — Forest Road Vault" };
+export const metadata: Metadata = { title: "Terms | Forest Road Vault" };
 
 export default function TermsPage() {
   return (

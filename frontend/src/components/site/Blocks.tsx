@@ -56,7 +56,7 @@ export function Section({
 
 /**
  * Section opening: headline, then supporting copy. `note` carries a source or
- * qualifier where one is owed — this product's figures always name where they
+ * qualifier where one is owed, this product's figures always name where they
  * came from.
  */
 export function SectionHead({
@@ -105,7 +105,7 @@ export function SectionHead({
 }
 
 /**
- * Figure band — hairline-divided cells carrying the numbers a reader should
+ * Figure band, hairline-divided cells carrying the numbers a reader should
  * leave with. Every value is a live read or a published figure; `note` is where
  * each cell says so.
  */
@@ -150,7 +150,7 @@ export function KpiBand({
 
 /**
  * Card deck. `ordered` is opt-in: numbers appear only when the sequence itself
- * is information — a process, a priority, a cascade — never as decoration on an
+ * is information, a process, a priority, a cascade, never as decoration on an
  * unordered set.
  */
 export function CardDeck({
@@ -226,7 +226,7 @@ export function CardDeck({
 }
 
 /**
- * Numbered rows — subhead on the left, hairline-separated rows on the right.
+ * Numbered rows, subhead on the left, hairline-separated rows on the right.
  * The numbers stay here: these rows are always an ordered sequence a reader
  * has to follow in order.
  */
@@ -239,7 +239,7 @@ export function NumberedRows({
   heading?: ReactNode;
   /** Supporting copy under the heading. The left column is tall next to a
    *  five-row list, and empty space there reads as unfinished rather than
-   *  composed — this is where the section's detail belongs. */
+   *  composed: this is where the section's detail belongs. */
   aside?: ReactNode;
   rows: { label: string; body: ReactNode }[];
   tone?: Tone;
@@ -295,7 +295,7 @@ export function NumberedRows({
   );
 }
 
-/** Callout — a tinted panel with a hairline, on either field. */
+/** Callout, a tinted panel with a hairline, on either field. */
 export function HighlightBox({
   title,
   children,

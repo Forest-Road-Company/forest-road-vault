@@ -68,7 +68,7 @@ export function SiteFooter() {
             </div>
             <div className="space-y-0.5">
               <p className="running-head text-on-navy-accent">Community</p>
-              {/* External destinations: plain anchors, not next/link — off-origin URLs are never
+              {/* External destinations: plain anchors, not next/link, off-origin URLs are never
                   client-side navigations, so Link adds nothing and obscures the intent. */}
               <a
                 href="https://discord.gg/3rrEx8bxWr"

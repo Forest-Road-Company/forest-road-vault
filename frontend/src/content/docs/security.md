@@ -82,8 +82,11 @@ attestation-trust model**.
 Current status of those gates:
 
 - **Corrovera independent review: RECEIVED AND OWNER-DISPOSITIONED 4 AUGUST 2026.** Corrovera Security
-  reviewed the whole protocol, all 37 files and 10,502 lines of contract source, at a
-  commit byte-identical to the current `contracts/src` tree at `b5245398`, with our existing 36-entry findings
+  reviewed the whole protocol as it stood on 4 August 2026, all 37 files and 10,502 lines of
+  contract source, at a commit byte-identical to the `contracts/src` tree at `b5245398`
+  **on that date**. The source has since grown to 49 files and has not been re-reviewed by
+  Corrovera, so this review is scoped to the 4 August tree rather than to current source.
+  It was conducted with our existing 36-entry findings
   register supplied as an exclusion list so that a rediscovery could not be reported as a
   discovery. It is the first review of this protocol by a party other than Forest Road, and
   it is published in full on the Audit Register. **Its limits belong with its findings, so
@@ -129,7 +132,9 @@ Current status of those gates:
 - **Executed legal wrapper: OWNER-REPORTED COMPLETE.**
 - **Economic review: OWNER-REPORTED COMPLETE.**
 - **Attestation-trust model acceptance: OWNER-REPORTED COMPLETE.**
-- **Mainnet operator ceremony: BLOCKED.** Tracked default/heavy tests and Solidity formatting
+- **Mainnet operator ceremony: COMPLETE 16 AUGUST 2026**, at block 25,768,251, with bootstrap
+  authority surrendered to the timelock. What follows is the historical record of what was
+  outstanding before it ran: Tracked default/heavy tests and Solidity formatting
   pass, and the pinned-fork recovery rehearsal now exercises the real Treasury Safe proxy. The
   Safe shared-owner common mode is formally accepted as `SAFE-CD-01` and remains disclosed rather
   than described as independent control. The validated KMS deployer is now funded with ETH and

@@ -9,8 +9,7 @@ import { IS_TESTNET } from "@/config/contracts";
 
 /* The parent brand's faces, read off forestroad.com: Merriweather 600/700
    sets every headline there (its italic is the emphasis device), and Inter
-   Tight carries nav and UI. Azeret Mono is reserved for on-chain strings —
-   addresses, hashes, calldata — where mono is a legibility requirement
+   Tight carries nav and UI. Azeret Mono is reserved for on-chain strings, addresses, hashes, calldata, where mono is a legibility requirement
    rather than a stylistic choice. */
 const merriweather = Merriweather({
   variable: "--font-merriweather",
@@ -33,15 +32,15 @@ const azeretMono = Azeret_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Forest Road Vault — speciality-finance credit, on-chain",
+  title: "Forest Road Vault | speciality-finance credit, on-chain",
   description:
-    `On-chain access to Forest Road's diversified speciality-finance credit — film tax credits, renewable energy, life sciences, real estate, and digital assets — as a KYC-gated, yield-bearing synthetic dollar.${IS_TESTNET ? " Testnet build." : ""}`,
+    `On-chain access to Forest Road's diversified speciality-finance credit, film tax credits, renewable energy, life sciences, real estate, and digital assets, as a KYC-gated, yield-bearing synthetic dollar.${IS_TESTNET ? " Testnet build." : ""}`,
 };
 
 /* The direction contract for this build. It ships in the emitted markup so
    the render can be audited against what was committed to. */
 const DIRECTION_CONTRACT = `<!--
-IMPECCABLE DIRECTION CONTRACT — seed f1401973
+IMPECCABLE DIRECTION CONTRACT, seed f1401973
 
 THESIS: The arrangement an allocator already expects from an on-chain credit
 protocol, executed at the craft level of Ethena, Sky, Morpho and Maple. It
@@ -66,7 +65,7 @@ edge against the white field. Headline bottom-anchored at the left, the figure
 strip beneath it on a rule that draws in, Enter App as the primary action
 beside How it works, testnet caveat inline.
 
-FORM: Canon — the standing exit, chosen deliberately over the dealt roll and
+FORM: Canon, the standing exit, chosen deliberately over the dealt roll and
 its three challengers. Seed key f1401973.
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the

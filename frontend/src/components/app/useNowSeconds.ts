@@ -2,7 +2,7 @@
 
 /**
  * Wall-clock seconds as React state: null until mounted (so SSR/hydration render
- * a stable "—"), then ticking on an interval. Exists because calling Date.now()
+ * a stable ", "), then ticking on an interval. Exists because calling Date.now()
  * during render is impure (react-hooks/purity) and can mismatch hydration.
  */
 

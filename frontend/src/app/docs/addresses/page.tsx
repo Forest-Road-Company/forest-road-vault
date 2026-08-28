@@ -12,7 +12,7 @@ import {
 } from "@/config/contracts";
 
 export const metadata: Metadata = {
-  title: "Deployed Addresses — Forest Road Vault",
+  title: "Deployed Addresses | Forest Road Vault",
   description:
     "Every deployed contract address this build reads, with its role and a block-explorer link.",
 };
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 /**
  * What each module does, in a reader's terms.
  *
- * This map is prose only — the addresses themselves come from CONTRACTS, so this page
+ * This map is prose only, the addresses themselves come from CONTRACTS, so this page
  * cannot show a stale address. A module with no entry here still renders, with its role
  * left blank: the table iterates the deployment config, never this map, so adding a
  * contract to the protocol can never silently drop it off this page.
@@ -78,14 +78,17 @@ export default function AddressesPage() {
           {IS_TESTNET ? (
             <>
               <strong className="text-ink">Test deployment.</strong> These are{" "}
-              {NETWORK_NAME} addresses. The tokens have no value, the stablecoin is a test
+              {NETWORK_NAME} addresses. The tokens have no value: the stablecoin is a test
               token, and nothing here is a production deployment. A mainnet build publishes
               its own addresses in this same table.
             </>
           ) : (
             <>
-              <strong className="text-ink">Production deployment.</strong> These are live
-              Ethereum mainnet addresses.
+              <strong className="text-ink">Live Ethereum mainnet addresses.</strong> The
+              contracts are deployed and bootstrap authority has been surrendered to the
+              timelock. The protocol is <strong className="text-ink">not yet accepted for
+              production use</strong>: capped-launch acceptance has not been performed, and
+              the stack holds only a nominal seed. Deployment is not launch.
             </>
           )}{" "}
           Proxy addresses are the permanent entry points; implementations sit behind them
@@ -133,7 +136,7 @@ export default function AddressesPage() {
                   )}
                 </td>
                 <td className="min-w-[22ch] py-4 text-[13px] leading-relaxed text-ink-muted">
-                  {ROLE[name] ?? "—"}
+                  {ROLE[name] ?? ", "}
                 </td>
               </tr>
             ))}

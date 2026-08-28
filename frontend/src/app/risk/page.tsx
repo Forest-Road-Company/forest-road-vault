@@ -9,7 +9,7 @@ import {
 } from "@/components/site/Blocks";
 import {IS_MAINNET, NETWORK_NAME} from "@/config/contracts";
 
-export const metadata: Metadata = { title: "Risk factors — Forest Road Vault" };
+export const metadata: Metadata = { title: "Risk factors | Forest Road Vault" };
 
 /**
  * Risk copy is disclosure material and is reproduced verbatim. The grouping
@@ -64,7 +64,7 @@ const classRisks = [
   },
   {
     title: "Crypto-collateral volatility (digital assets class)",
-    body: "Unlike the receivable classes, the digital-assets class is secured by liquid, price-volatile crypto positions that can gap through margin levels faster than remedies execute. Valuation freshness rules, conservative LTV, and rapid liquidation paths reduce, but do not eliminate, this risk.",
+    body: "Unlike the receivable classes: the digital-assets class is secured by liquid, price-volatile crypto positions that can gap through margin levels faster than remedies execute. Valuation freshness rules, conservative LTV, and rapid liquidation paths reduce, but do not eliminate, this risk.",
   },
 ];
 
@@ -87,7 +87,7 @@ export default function RiskPage() {
             <div className="mt-9">
               <HighlightBox tone="navy">
                 Every other risk on this page sits downstream of this one. If
-                the attested facts are wrong, the on-chain record is wrong, and
+                the attested facts are wrong: the on-chain record is wrong, and
                 the remedies below execute against a position that does not
                 exist as described.
               </HighlightBox>
