@@ -4,7 +4,6 @@ import { Section, SectionHead } from "@/components/site/Blocks";
 import { CascadeDiagram } from "@/components/site/CascadeDiagram";
 import { HeroLiveStats } from "@/components/site/HeroLiveStats";
 import { IS_MAINNET } from "@/config/contracts";
-import { VERTICALS } from "@/lib/verticals";
 
 export default function Landing() {
   return (
@@ -35,11 +34,10 @@ export default function Landing() {
           </h1>
 
           <p className="mt-8 max-w-[54ch] text-[17px] leading-relaxed text-on-navy-muted">
-            Forest Road&apos;s speciality-finance book is on-chain, as a
-            KYC-gated, yield-bearing synthetic dollar. The book spans film tax
-            credits, renewable energy, life sciences, real estate, and digital
-            assets. Yield is variable: the book&apos;s actual performance,
-            nothing more.
+            Forest Road&apos;s specialty finance book is on-chain. Deposit
+            approved stablecoins to mint USDfr, stake it into sUSDfr, and
+            earn what the loan book earns. The book spans media &amp;
+            entertainment, renewable energy, and digital assets.
           </p>
 
           <div className="mt-10 flex flex-wrap items-center gap-x-4 gap-y-3">
@@ -76,13 +74,13 @@ export default function Landing() {
           <p className="display max-w-[46ch] text-[19px] leading-snug">
             Originated, underwritten, and serviced in-house by{" "}
             <span className="text-accent">The Forest Road Company</span>,
-            a speciality-finance merchant bank lending against real claims
-            since 2017.
+            a specialty finance investment firm lending against real claims
+            since 2018.
           </p>
           <div className="flex flex-wrap gap-x-8 gap-y-2">
-            <span className="running-head">Merchant bank</span>
-            <span className="running-head">Five verticals</span>
-            <span className="running-head">Ethereum L1</span>
+            <span className="running-head">Investment firm</span>
+            <span className="running-head">Three sectors</span>
+            <span className="running-head">On-chain loan book</span>
           </div>
         </div>
       </section>
@@ -94,19 +92,19 @@ export default function Landing() {
             sentence — the cascade and the audit claim. Used in every heading it
             stops being emphasis and becomes the section's default voice. */}
         <SectionHead
-          title="Two tokens, one honest split."
-          lede="A stable, composable unit of account. A separate instrument for those who choose to bear credit performance. Nobody earns yield without knowingly holding the risk that generates it."
+          title="One stable dollar. One way to earn."
+          lede="USDfr is the stable dollar. Stake it into sUSDfr and it is put to work in loans Forest Road originates, underwrites and services."
         />
 
         <div className="mt-16 grid gap-6 md:grid-cols-2">
           <div className="flex h-full flex-col rounded-card border border-line bg-raised p-8 md:p-9">
             <div className="flex items-baseline justify-between gap-3">
               <p className="display text-[19px]">USDfr</p>
-              <p className="running-head">The synthetic dollar</p>
+              <p className="running-head">The stablecoin</p>
             </div>
             <div className="mt-6 h-px w-full bg-line" />
             <p className="display mt-6 text-[25px] leading-snug">
-              Backed, verifiably, and built to stay boring.
+              Fully backed, and verifiable on-chain.
             </p>
             <ul className="mt-6 space-y-3.5 text-[15px] leading-relaxed text-ink-muted">
               <li>
@@ -114,10 +112,10 @@ export default function Landing() {
               </li>
               <li>
                 Backing is stablecoin reserves, short-term instruments, and
-                deployed principal at conservative marks. The contracts
-                enforce it as an on-chain invariant, and anyone can check it.
+                deployed loan principal, and can be checked on chain at any
+                time.
               </li>
-              <li>Does not itself yield.</li>
+              <li>It is a dollar claim and earns nothing on its own.</li>
             </ul>
 
             {/* The panel's third beat: the invariant it exists to state, and
@@ -126,13 +124,13 @@ export default function Landing() {
             <div className="mt-auto pt-8">
               <div className="h-px w-full bg-line" />
               <p className="mt-5 text-[15px] leading-relaxed text-ink">
-                supply&nbsp;≤&nbsp;backing, enforced on every mint
+                Never more supply than backing, enforced on every mint.
               </p>
               <Link
                 href="/transparency"
                 className="u-link mt-2 inline-flex min-h-[24px] items-center text-[13px] font-medium text-accent"
               >
-                Reconcile it against live state →
+                Check it live →
               </Link>
             </div>
           </div>
@@ -148,84 +146,26 @@ export default function Landing() {
             </p>
             <ul className="mt-6 space-y-3.5 text-[14.5px] leading-relaxed text-on-navy-muted">
               <li>
-                Stake USDfr into an ERC-4626 vault; value changes through the
-                exchange rate as facilities pay interest, reserves earn, losses
-                are recognized, and protocol fees crystallize.
+                Stake USDfr to get it. It pays what the loan book earns, and
+                its value can fall if loans lose money.
               </li>
               <li>
-                Nobody promises a fixed rate. Depositors hold the performance
-                of real credit.
+                Redemptions are filled first in, first out, in step with the
+                cash the book actually receives.
               </li>
               <li>
-                Exits queue by epoch, FIFO, because the underlying is real
-                amortizing credit. It&apos;s never instant.
-              </li>
-              <li>
-                Launch fees: 10% of gross interest, then 10% of vault profit
-                above one global high-water mark, capped at 20% and variable
-                going forward. Management starts at 0% and caps at 2%
-                annually in v1.
+                Fees come out of realized performance only, at capped,
+                disclosed rates.
               </li>
             </ul>
           </div>
         </div>
       </Section>
 
-      {/* ── The book. Five equal tiles at the site's own measure: the class
-             list is an index, and what each class finances belongs to the page
-             the tile links to rather than to five competing paragraphs. ─── */}
-      <Section id="book" tone="light">
-        {/* Opened as a two-column argument rather than another stacked
-            headline-and-lede: the section vocabulary has to vary or the page
-            reads as one slide repeated. */}
-        <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:gap-20">
-          <h2 className="display max-w-[15ch] flex-none text-[31px] leading-[1.12] md:text-[46px] lg:w-[6in]">
-            Four classes foreclose. One margin-calls.
-          </h2>
-          <p className="max-w-[56ch] flex-1 text-[17px] leading-relaxed text-ink-muted">
-            The receivable-backed verticals enforce through legal foreclosure on
-            an assigned claim. The digital-assets class is marked to market and
-            enforces through margin and liquidation instead. That&apos;s a
-            different mechanism, on a much faster clock, and it&apos;s
-            disclosed as such. Different durations, different risks, with
-            concentration limits enforced on-chain.
-          </p>
-        </div>
-
-        <div className="mt-14 grid gap-4 sm:grid-cols-2 md:grid-cols-5">
-          {VERTICALS.map((v) => (
-            <Link
-              key={v.slug}
-              href={`/verticals/${v.slug}`}
-              className="panel panel-hover group flex h-full flex-col p-5"
-            >
-              <h3 className="display text-[17px] leading-tight transition-colors group-hover:text-accent">
-                {v.name}
-              </h3>
-              {/* The enforcement mechanism is what the headline promises to
-                  distinguish, so it is the one fact the tile carries. */}
-              <p className="running-head mt-4 leading-relaxed">
-                {v.collateralModel === "receivable"
-                  ? "Legal foreclosure"
-                  : "Margin & liquidation"}
-              </p>
-              {/* The related-party facility stays disclosed on the landing
-                  page, not only on the class page. */}
-              {v.tag ? (
-                <p className="running-head mt-1 leading-relaxed text-accent">
-                  Related party
-                </p>
-              ) : null}
-              <p className="running-head mt-auto pt-4 leading-relaxed text-ink-faint">
-                {v.duration}
-              </p>
-            </Link>
-          ))}
-        </div>
-      </Section>
-
       {/* ── Loss absorption, on the deepest field. The one thing a depositor
-             must understand gets the strongest treatment on the page. ──── */}
+             must understand gets the strongest treatment on the page. The
+             sector index lives at /sectors, reachable from the nav — the
+             landing page stays skinny on purpose. ─────────────────────── */}
       <Section id="cascade" tone="navy-deep">
         <div className="grid gap-14 lg:grid-cols-5">
           <div className="lg:col-span-2">
@@ -233,11 +173,14 @@ export default function Landing() {
               tone="navy-deep"
               title={
                 <>
-                  Losses have an order.{" "}
-                  <span className="display-accent">Depositors are last</span>.
+                  Built for alignment.{" "}
+                  <span className="display-accent">
+                    Our capital absorbs losses first
+                  </span>
+                  .
                 </>
               }
-              lede="Every deployed dollar maps to an identified, lien-perfected facility, not a discretionary pool. Every loss flows through a fixed, contract-enforced cascade before it can touch a depositor."
+              lede="Forest Road and its partners post first-loss capital that sits ahead of every depositor. If a loan underperforms, that capital absorbs the loss before depositors are touched. The order is written into the contract."
             />
             <Link
               href="/how-it-works"
@@ -261,12 +204,12 @@ export default function Landing() {
             <h2 className="display max-w-[22ch] text-[31px] leading-[1.12] md:text-[46px]">
               {IS_MAINNET
                 ? "Live on-chain, and still auditable line by line."
-                : "Production waits on gates that are still unchecked."}
+                : "Built, tested, and audited."}
             </h2>
             <p className="mt-6 max-w-[58ch] text-[17px] leading-relaxed text-ink-muted">
               {IS_MAINNET
                 ? "Review the verified contracts, live protocol state, current risks, and production disclosures before interacting."
-                : "Every contract ships with its invariants encoded and fuzzed, and the first external review is published in full. The remaining audit, operational, recovery and legal gates are listed where they can be checked."}
+                : "The protocol is written, tested and independently audited. The remaining launch gates — audit, operational, recovery and legal — are listed where they can be checked."}
             </p>
           </div>
 

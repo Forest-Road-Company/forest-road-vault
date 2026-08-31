@@ -2,22 +2,22 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PageShell } from "@/components/site/PageShell";
 import { Section, SectionHead, KpiBand, HighlightBox } from "@/components/site/Blocks";
-import { VERTICALS } from "@/lib/verticals";
+import { SECTORS } from "@/lib/verticals";
 import {NETWORK_NAME} from "@/config/contracts";
 
 export const metadata: Metadata = {
-  title: "Verticals — Forest Road Vault",
+  title: "Sectors — Forest Road Vault",
 };
 
-const receivableCount = VERTICALS.filter(
+const receivableCount = SECTORS.filter(
   (v) => v.collateralModel === "receivable",
 ).length;
-const mtmCount = VERTICALS.length - receivableCount;
+const mtmCount = SECTORS.length - receivableCount;
 
-/* One authored line-icon per class, drawn to the same stroke and weight
+/* One authored line-icon per sector, drawn to the same stroke and weight
    rather than pulled from an icon font — each names the mechanism, not a
    decorative stand-in. currentColor so the tile controls the tint. */
-function VerticalIcon({ slug }: { slug: string }) {
+function SectorIcon({ slug }: { slug: string }) {
   const common = {
     viewBox: "0 0 20 20",
     fill: "none" as const,
@@ -28,7 +28,7 @@ function VerticalIcon({ slug }: { slug: string }) {
     "aria-hidden": true as const,
   };
   switch (slug) {
-    case "film-tax-credits":
+    case "media":
       return (
         <svg {...common}>
           <rect x="2.5" y="7" width="15" height="10.5" rx="1.2" />
@@ -40,21 +40,6 @@ function VerticalIcon({ slug }: { slug: string }) {
         <svg {...common}>
           <circle cx="10" cy="10" r="3.6" />
           <path d="M10 2.2v2.3M10 15.5v2.3M2.2 10h2.3M15.5 10h2.3M4.8 4.8l1.6 1.6M13.6 13.6l1.6 1.6M4.8 15.2l1.6-1.6M13.6 6.4l1.6-1.6" />
-        </svg>
-      );
-    case "life-sciences":
-      return (
-        <svg {...common}>
-          <path d="M8 2.5h4M8.7 2.5v5.8l-4 8.1a1.9 1.9 0 0 0 1.7 2.7h7.2a1.9 1.9 0 0 0 1.7-2.7l-4-8.1V2.5" />
-          <path d="M6.2 13.5h7.6" />
-        </svg>
-      );
-    case "real-estate":
-      return (
-        <svg {...common}>
-          <rect x="4" y="3.2" width="12" height="14.3" rx="0.8" />
-          <path d="M4 9.6h12M8.3 3.2v14.3" />
-          <rect x="9.9" y="12.4" width="2.6" height="5.1" />
         </svg>
       );
     case "digital-assets":
@@ -69,36 +54,36 @@ function VerticalIcon({ slug }: { slug: string }) {
   }
 }
 
-export default function VerticalsPage() {
+export default function SectorsPage() {
   return (
     <PageShell
       bleed
-      section="Verticals"
-      title="The five collateral classes"
-      lede={`Each vertical is a governance-parameterized collateral class with its own LTV cap, maturity profile, concentration limits, and default-remedy path. Interest rates are signed per facility, not set by class, and clean v1 has no DSRA reserve sizing. The remaining class parameters are enforced on-chain by the CollateralRegistry, live on ${NETWORK_NAME}.`}
+      section="Sectors"
+      title="The three sectors"
+      lede={`Each sector is a governance-parameterized collateral class with its own LTV cap, maturity profile, concentration limits, and default-remedy path. Interest rates are signed per facility, not set by sector. The remaining sector parameters are enforced on-chain by the CollateralRegistry, live on ${NETWORK_NAME}.`}
     >
-      {/* ── The classes: an icon-led, colour-committed grid rather than a
-             register — accent tint for legal foreclosure, warn tint for
-             margin and liquidation, so the enforcement model reads before
-             the copy does. ─────────────────────────────────────────────── */}
+      {/* ── The sectors: an icon-led, colour-committed grid rather than a
+             register — accent tint for receivable-backed lending, warn tint
+             for marked-to-market, so the collateral model reads before the
+             copy does. ─────────────────────────────────────────────────── */}
       <Section tone="surface">
         <SectionHead
           title={
             <>
-              Five classes,{" "}
-              <span className="display-accent">one enforcement model.</span>
+              Three sectors,{" "}
+              <span className="display-accent">one loan book.</span>
             </>
           }
-          lede="Four receivable-backed classes enforce through legal foreclosure on an assigned claim. The digital-assets class is marked to market and enforces through margin and liquidation instead. That's a different mechanism, disclosed as such."
+          lede="The receivable-backed sectors lend against assigned claims: tax credits and contracted receivables. The digital-assets sector is marked to market against liquid collateral. Different profiles, disclosed as such."
         />
 
         <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {VERTICALS.map((v) => {
+          {SECTORS.map((v) => {
             const mtm = v.collateralModel === "marked-to-market";
             return (
               <Link
                 key={v.slug}
-                href={`/verticals/${v.slug}`}
+                href={`/sectors/${v.slug}`}
                 className={`group flex h-full flex-col p-7 transition-opacity hover:opacity-90 ${
                   mtm ? "bg-warn-faint" : "bg-accent-faint"
                 }`}
@@ -109,7 +94,7 @@ export default function VerticalsPage() {
                       mtm ? "bg-warn text-on-navy" : "bg-accent text-on-navy"
                     }`}
                   >
-                    <VerticalIcon slug={v.slug} />
+                    <SectorIcon slug={v.slug} />
                   </div>
                   <h3 className="display text-[19px] leading-tight">
                     {v.name}
@@ -133,7 +118,6 @@ export default function VerticalsPage() {
                     mtm ? "text-warn" : "text-accent"
                   }`}
                 >
-                  {mtm ? "Margin & liquidation: " : "Legal foreclosure: "}
                   {v.duration}
                 </p>
               </Link>
@@ -148,26 +132,26 @@ export default function VerticalsPage() {
       <Section tone="navy-deep">
         <SectionHead
           tone="navy-deep"
-          title="Different assets, different clocks."
-          lede="Duration, remedy path and valuation basis differ by class. Concentration limits are enforced on-chain so no single class can quietly dominate the book."
+          title="Different assets, different profiles."
+          lede="Duration, remedy path and valuation basis differ by sector. Concentration limits are enforced on-chain so no single sector can quietly dominate the book."
         />
         <div className="mt-12">
           <KpiBand
             items={[
               {
-                value: VERTICALS.length,
-                label: "Collateral classes",
+                value: SECTORS.length,
+                label: "Sectors",
                 note: "Each with its own LTV cap and remedy path.",
               },
               {
                 value: receivableCount,
                 label: "Receivable-backed",
-                note: "Enforced by legal foreclosure on an assigned claim.",
+                note: "Lending against assigned claims and contracted receivables.",
               },
               {
                 value: mtmCount,
                 label: "Marked-to-market",
-                note: "Margin and liquidation mechanics, on a faster clock.",
+                note: "Secured by liquid collateral, monitored continuously.",
               },
             ]}
             className="border border-navy-border"
@@ -175,9 +159,9 @@ export default function VerticalsPage() {
         </div>
         <div className="mt-8">
           <HighlightBox tone="navy-deep" title="Concentration is a parameter, not a promise">
-            Class limits live in the CollateralRegistry and are readable
+            Sector limits live in the CollateralRegistry and are readable
             on-chain. The current testnet deployment runs with those limits
-            fully open, so nothing about the present class mix is evidence
+            fully open, so nothing about the present sector mix is evidence
             about a production configuration.
           </HighlightBox>
         </div>

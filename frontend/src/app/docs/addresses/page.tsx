@@ -26,7 +26,7 @@ export const metadata: Metadata = {
  * contract to the protocol can never silently drop it off this page.
  */
 const ROLE: Partial<Record<ContractName, string>> = {
-  USDfr: "The synthetic dollar. Minted 1:1 against approved stablecoins; does not itself yield.",
+  USDfr: "The stablecoin. Minted 1:1 against approved stablecoins; does not itself yield.",
   sUSDfr:
     "The ERC-4626 yield vault. Stake USDfr here; value accrues through the exchange rate as the book performs.",
   ComplianceRegistry:
@@ -41,7 +41,7 @@ const ROLE: Partial<Record<ContractName, string>> = {
   ClaimBridge:
     "Represents each funded facility on-chain and holds its terms, including the payment schedule.",
   CollateralRegistry:
-    "The book: every facility, its vertical, its class, and the concentration limits an origination cannot breach.",
+    "The book: every facility, its sector, and the concentration limits an origination cannot breach.",
   CuratorModule:
     "Holds curator first-loss capital per class, the first layer of the loss cascade.",
   WaterfallEngine:

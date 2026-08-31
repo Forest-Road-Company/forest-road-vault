@@ -56,6 +56,27 @@ export default function createNextConfig(phase: string): NextConfig {
     turbopack: {
       root: process.cwd(),
     },
+    async redirects() {
+      return [
+        // "Verticals" became "sectors" (Aug 2026 content review), and the
+        // film-tax-credits class was folded into the broader media sector.
+        {
+          source: "/verticals/film-tax-credits",
+          destination: "/sectors/media",
+          permanent: true,
+        },
+        {
+          source: "/verticals/:slug",
+          destination: "/sectors/:slug",
+          permanent: true,
+        },
+        {
+          source: "/verticals",
+          destination: "/sectors",
+          permanent: true,
+        },
+      ];
+    },
     async headers() {
       return [
         {

@@ -3,10 +3,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageShell } from "@/components/site/PageShell";
 import { Section } from "@/components/site/Blocks";
-import { VERTICALS } from "@/lib/verticals";
+import { SECTORS } from "@/lib/verticals";
 
 export function generateStaticParams() {
-  return VERTICALS.map((v) => ({ slug: v.slug }));
+  return SECTORS.map((v) => ({ slug: v.slug }));
 }
 
 export async function generateMetadata({
@@ -15,23 +15,23 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const v = VERTICALS.find((x) => x.slug === slug);
-  return { title: v ? `${v.name} — Forest Road Vault` : "Verticals" };
+  const v = SECTORS.find((x) => x.slug === slug);
+  return { title: v ? `${v.name} — Forest Road Vault` : "Sectors" };
 }
 
-export default async function VerticalPage({
+export default async function SectorPage({
   params,
 }: {
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const v = VERTICALS.find((x) => x.slug === slug);
+  const v = SECTORS.find((x) => x.slug === slug);
   if (!v) notFound();
 
   const mtm = v.collateralModel === "marked-to-market";
-  const others = VERTICALS.filter((x) => x.slug !== v.slug);
+  const others = SECTORS.filter((x) => x.slug !== v.slug);
 
-  /* The class's own terms, as a definition list rather than four hand-rolled
+  /* The sector's own terms, as a definition list rather than four hand-rolled
      labels stacked in a panel. */
   const terms = [
     { term: "The claim", detail: v.claimType },
@@ -42,7 +42,7 @@ export default async function VerticalPage({
   return (
     <PageShell
       bleed
-      section="Collateral class"
+      section="Sector"
       title={v.name}
       lede={v.financed}
     >
@@ -55,8 +55,8 @@ export default async function VerticalPage({
           }`}
         >
           {mtm
-            ? "Marked-to-market · related party · margin and liquidation"
-            : "Receivable-backed · enforced by legal foreclosure"}
+            ? "Marked-to-market · related party"
+            : "Receivable-backed · lending against assigned claims"}
         </p>
 
         <div className="mt-12 grid gap-x-20 gap-y-14 lg:grid-cols-2">
@@ -109,11 +109,10 @@ export default async function VerticalPage({
 
         <div className="highlight-box mt-14 px-7 py-6">
           <p className="max-w-[76ch] text-[14px] leading-relaxed text-ink-muted">
-            Live class parameters (LTV cap, maturity and concentration headroom)
+            Live sector parameters (LTV cap, maturity and concentration headroom)
             are enforced on-chain by the CollateralRegistry and are not
             restated here, so this page cannot drift from them. Interest rates
-            and payment terms are signed per facility; clean v1 has no DSRA
-            reserve sizing.{" "}
+            and payment terms are signed per facility.{" "}
             <Link href="/transparency" className="u-link font-medium text-accent">
               Read current state →
             </Link>
@@ -121,18 +120,18 @@ export default async function VerticalPage({
         </div>
       </Section>
 
-      {/* ── Sibling rail. A class page that dead-ends sends the reader back to
+      {/* ── Sibling rail. A sector page that dead-ends sends the reader back to
              the index to reach the next one. ──────────────────────────────── */}
       <Section tone="light">
         <div className="flex flex-wrap items-baseline justify-between gap-4">
           <h2 className="display text-[25px] leading-tight">
-            The other four classes
+            The other sectors
           </h2>
           <Link
-            href="/verticals"
+            href="/sectors"
             className="u-link inline-flex min-h-[24px] items-center text-[13px] font-semibold uppercase tracking-[0.14em] text-accent"
           >
-            All five, compared →
+            All three, compared →
           </Link>
         </div>
 
@@ -140,7 +139,7 @@ export default async function VerticalPage({
           {others.map((o, i) => (
             <Link
               key={o.slug}
-              href={`/verticals/${o.slug}`}
+              href={`/sectors/${o.slug}`}
               className={`group flex flex-col gap-3 py-6 transition-colors hover:bg-surface sm:flex-row sm:items-baseline sm:gap-10 ${
                 i === 0 ? "border-t border-line-strong" : "border-t border-row"
               }`}

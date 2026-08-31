@@ -1,9 +1,11 @@
 # Protocol Overview
 
-Forest Road Vault is an on-chain credit protocol for speciality-finance receivables. It
-brings four verticals of real-world credit on-chain under a single reserve: film & TV tax
-credits, renewable-energy receivables, life-sciences royalties, and commercial real-estate
-bridge loans. A fifth, marked-to-market digital-assets class sits alongside them.
+Forest Road Vault is an on-chain credit protocol for specialty finance receivables. It
+brings three sectors of Forest Road's credit book on-chain under a single reserve:
+media & entertainment (tax credits and contracted receivables), renewable energy, and a
+marked-to-market digital-assets sector. The on-chain CollateralRegistry also carries
+life-sciences and real-estate collateral classes that are not currently marketed as
+sectors.
 
 > The application identifies its active network and deployment receipt. Yield is variable.
 > It is the book's actual performance, nothing more. Token characterization and eligibility

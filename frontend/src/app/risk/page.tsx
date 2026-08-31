@@ -31,7 +31,7 @@ const protocolRisks = [
   },
   {
     label: "Liquidity timing",
-    body: "The underlying is illiquid, amortizing credit. sUSDfr redemptions queue by epoch and may take multiple epochs to fill. Do not stake capital you may need on demand.",
+    body: "The underlying is illiquid, amortizing credit. sUSDfr redemptions queue in fixed redemption windows (epochs) and may take multiple windows to fill. Do not stake capital you may need on demand.",
   },
   {
     label: "Smart-contract risk",
@@ -49,22 +49,22 @@ const protocolRisks = [
   },
   {
     label: "Assessed redemption value",
-    body: `The ${NETWORK_NAME} deployment routes queue pricing through the live assessment wrapper, which falls back to the conservative zero-recovery mark unless governance publishes a current, evidence-backed assessment. Any assessment can change or invalidate before settlement. No recovery top-up distributor is deployed or promised in clean v1; any future top-up would require separate approval and funding.`,
+    body: `The ${NETWORK_NAME} deployment routes queue pricing through the live assessment wrapper, which falls back to the conservative zero-recovery mark unless governance publishes a current, evidence-backed assessment. Any assessment can change or invalidate before settlement. No recovery top-up distributor is deployed or promised in v1; any future top-up would require separate approval and funding.`,
   },
 ];
 
 const classRisks = [
   {
-    title: "Per-vertical asset risk",
-    body: "Film credits carry issuance-timing, audit/clawback, state-counterparty, and secondary-price risk. Renewables carry construction/completion risk. Life sciences carry clinical/milestone risk. Real estate carries valuation and foreclosure-timeline risk.",
+    title: "Per-sector asset risk",
+    body: "Media & entertainment receivables carry payment-timing, audit/clawback, obligor-counterparty, and secondary-price risk. Renewables carry construction/completion risk. Each sector's risks are set out on its own page.",
   },
   {
-    title: "Related-party exposure (digital assets class)",
-    body: `The digital-assets vertical lends to Forest Road's own trading subsidiary. Forest Road is simultaneously originator, servicer, and borrower-affiliate for that class, a structural conflict of interest. It is mitigated by arm's-length terms, on-chain concentration caps, conservative dynamic LTV with margin-call/liquidation mechanics, and plain disclosure. ${IS_MAINNET ? "Its launch approval does not eliminate the conflict; it remains subject to ongoing review." : "It must be expressly considered in the launch economic review."}`,
+    title: "Related-party exposure (digital assets sector)",
+    body: `The digital-assets sector lends to Forest Road's own trading subsidiary. Forest Road is simultaneously originator, servicer, and borrower-affiliate for that sector, a structural conflict of interest. It is mitigated by arm's-length terms, on-chain concentration caps, conservative dynamic LTV with margin-call/liquidation mechanics, and plain disclosure. ${IS_MAINNET ? "Its launch approval does not eliminate the conflict; it remains subject to ongoing review." : "It must be expressly considered in the launch economic review."}`,
   },
   {
-    title: "Crypto-collateral volatility (digital assets class)",
-    body: "Unlike the receivable classes, the digital-assets class is secured by liquid, price-volatile crypto positions that can gap through margin levels faster than remedies execute. Valuation freshness rules, conservative LTV, and rapid liquidation paths reduce, but do not eliminate, this risk.",
+    title: "Crypto-collateral volatility (digital assets sector)",
+    body: "Unlike the receivable-backed sectors, the digital-assets sector is secured by liquid, price-volatile crypto positions that can gap through margin levels faster than remedies execute. Valuation freshness rules, conservative LTV, and rapid liquidation paths reduce, but do not eliminate, this risk.",
   },
 ];
 
@@ -74,7 +74,7 @@ export default function RiskPage() {
       bleed
       section="Risk"
       title="Risk factors"
-      lede="An honest protocol names its risks specifically. These are the material ones; the documentation covers each in depth."
+      lede="These are the material risks. The documentation covers each one in depth."
     >
       {/* ── The primary trust assumption, given its own band. ───────────── */}
       {/* The callout sits under the headline in the left column rather than
@@ -124,7 +124,7 @@ export default function RiskPage() {
       <Section tone="light">
         <SectionHead
           title="Risks that attach to particular collateral."
-          lede="The receivable classes and the marked-to-market class fail in different ways and on different clocks. The related-party exposure is disclosed rather than mitigated away."
+          lede="Each sector carries its own risks, set out in full on its own page. The related-party exposure is disclosed plainly."
         />
         <CardDeck columns={3} items={classRisks} />
       </Section>

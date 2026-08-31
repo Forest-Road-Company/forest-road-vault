@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
    and from the landing page's closing action, both of which point at it. */
 const links = [
   { href: "/how-it-works", label: "How it works" },
-  { href: "/verticals", label: "Verticals" },
+  { href: "/sectors", label: "Sectors" },
   { href: "/transparency", label: "Transparency" },
   { href: "/docs", label: "Docs" },
   { href: "/points", label: "Points" },

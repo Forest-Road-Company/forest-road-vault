@@ -9,19 +9,19 @@
  */
 const layers = [
   {
-    label: "1 · Curator first-loss",
-    sub: "$10M per class, posted by Forest Road",
+    label: "1 · First-loss capital",
+    sub: "posted by Forest Road and partners",
     note: "absorbs first",
   },
   {
-    label: "2 · sGROVE backstop",
-    sub: "staked backstop capital, 21-day unbond",
+    label: "2 · Backstop reserve",
+    sub: "a separately funded reserve behind depositors",
     note: "absorbs second",
   },
   {
     label: "3 · sUSDfr principal",
     sub: "depositors, touched only beyond both layers",
-    note: "last, by construction",
+    note: "last",
   },
 ] as const;
 
@@ -100,10 +100,8 @@ export function CascadeDiagram({ tone = "light" }: { tone?: "light" | "navy" }) 
           dark ? "text-on-navy-faint" : "text-ink-faint"
         }`}
       >
-        The ordering is a contract invariant, fuzz-tested across states: losses
-        can never skip or invert a layer, and the exchange rate can never fall
-        silently. This is structural ordering of losses, not a guarantee
-        against them.
+        The order is written into the contract and tested: a loss cannot skip
+        a layer. This is an ordering of losses, not a guarantee against them.
       </p>
     </figure>
   );

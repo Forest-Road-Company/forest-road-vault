@@ -15,25 +15,30 @@ export type Vertical = {
    *  classes (digital assets) use margin/liquidation mechanics instead. */
   collateralModel: "receivable" | "marked-to-market";
   tag?: string;
+  /** On-chain collateral classes that are not marketed as sectors on the site.
+   *  The class still exists in the deployed CollateralRegistry (class IDs are
+   *  positional in this array), so app surfaces keep reading it; only the
+   *  marketing pages filter it out via SECTORS. */
+  siteHidden?: boolean;
 };
 
 export const VERTICALS: Vertical[] = [
   {
-    slug: "film-tax-credits",
-    name: "Film & TV tax credits",
+    slug: "media",
+    name: "Media & entertainment",
     financed:
-      "Loans against transferable US state film/TV tax credits. A state issues a percentage of qualified production spend back as a credit, and the production borrows against that receivable today.",
+      "Senior secured lending against tax credits and other contracted receivables, financing film and television. A production borrows today against payments it is contractually owed, so repayment does not depend on box-office performance.",
     claimType:
-      "A perfected security interest (UCC-1 and assignment) in the tax-credit receivable and the borrower's right to receive it.",
-    duration: "Short: months to roughly two years, driven by state issuance timing.",
+      "A perfected security interest (UCC-1 and assignment) in the tax credits or contracted receivables and the borrower's right to receive them.",
+    duration: "Short: months to roughly two years, driven by receivable payment timing.",
     risks: [
-      { name: "Issuance timing", detail: "The state controls when the credit is actually issued; delays extend duration." },
-      { name: "Audit / clawback", detail: "The agreed-upon-procedures audit can reduce the credit below the underwritten amount." },
-      { name: "State counterparty", detail: "The obligor is a US state program; program changes are a real, priced risk." },
-      { name: "Secondary price", detail: "Credits from different states trade at different prices; recovery in default depends on that market." },
+      { name: "Payment timing", detail: "The obligor controls when the receivable is actually paid; delays extend duration." },
+      { name: "Audit / clawback", detail: "For tax-credit collateral, the agreed-upon-procedures audit can reduce the credit below the underwritten amount." },
+      { name: "Obligor counterparty", detail: "Obligors range from US state programs to contracted distributors; changes in either are a real, priced risk." },
+      { name: "Secondary price", detail: "Recovery in default can depend on the secondary market for the assigned claim." },
     ],
     remedy:
-      "No physical collateral exists. In default the protocol forecloses on the assigned receivable, steps into the right to the credit, and sells it into the secondary market.",
+      "No physical collateral exists. In default the protocol forecloses on the assigned receivable, steps into the right to payment, and sells it into the secondary market.",
     collateralModel: "receivable",
   },
   {
@@ -69,6 +74,7 @@ export const VERTICALS: Vertical[] = [
     remedy:
       "Standard secured-credit remedies against pledged assets and royalty/milestone rights; workout-driven rather than market-sale-driven.",
     collateralModel: "receivable",
+    siteHidden: true,
   },
   {
     slug: "real-estate",
@@ -84,6 +90,7 @@ export const VERTICALS: Vertical[] = [
     remedy:
       "Classic property foreclosure and sale. It's the one class in the book with a physical-asset remedy path.",
     collateralModel: "receivable",
+    siteHidden: true,
   },
   {
     slug: "digital-assets",
@@ -91,7 +98,7 @@ export const VERTICALS: Vertical[] = [
     financed:
       "Secured lending to Forest Road's digital-assets trading subsidiary, financing the desk's trading book. It's a related-party facility, disclosed as such.",
     claimType:
-      "A pledged, marked-to-market portfolio of liquid crypto assets, not a receivable. The collateral is price-volatile and liquid: the opposite profile of the receivable classes.",
+      "A pledged, marked-to-market portfolio of liquid crypto assets, not a receivable. The collateral is price-volatile and liquid: the opposite profile of the receivable-backed sectors.",
     duration: "Short and revolving, with continuous collateral-health monitoring.",
     risks: [
       {
@@ -102,7 +109,7 @@ export const VERTICALS: Vertical[] = [
       {
         name: "Related-party exposure",
         detail:
-          "The borrower is Forest Road's own subsidiary. Terms must be arm's-length, the position is capped by concentration limits, and the conflict of interest is disclosed rather than obscured.",
+          "The borrower is Forest Road's own subsidiary. Terms must be arm's-length, the position is capped by concentration limits, and the conflict of interest is disclosed plainly.",
       },
       {
         name: "Valuation freshness",
@@ -120,3 +127,10 @@ export const VERTICALS: Vertical[] = [
     tag: "Marked-to-market · related party",
   },
 ];
+
+/**
+ * The sectors the site markets: media & entertainment, renewable energy and
+ * digital assets. App surfaces (transparency, points) keep reading VERTICALS,
+ * whose array order is the on-chain class-ID mapping.
+ */
+export const SECTORS: Vertical[] = VERTICALS.filter((v) => !v.siteHidden);

@@ -23,7 +23,7 @@ const multiples = [
 const mechanics = [
   {
     title: "Time-weighted, not volume-based",
-    body: "Points accrue as balance × time, never per transaction. There is nothing to farm with churn or wash activity. A year of steady holding decisively beats a month of frantic cycling.",
+    body: "Points accrue as balance × time.",
   },
   {
     title: "Per wallet, linear by design",
@@ -58,8 +58,8 @@ export default function PointsPage() {
     <PageShell
       bleed
       section="Points"
-      title="Participation, measured honestly"
-      lede="Points track genuine, sustained participation: USDfr held, sUSDfr staked, and curator first-loss capital, each accruing per unit held over time at its own multiple. They are a measure of contribution. They are not a token, not a promise of one, and not an implied return: any future utility is discretionary and subject to counsel review."
+      title="Participation, measured over time"
+      lede="Points track sustained participation: USDfr held, sUSDfr staked, and curator first-loss capital, each accruing per unit over time at its own multiple. They are not a token, not a promise of one, and not an implied return: any future utility is discretionary and subject to counsel review."
     >
       {/* ── Live wallet position. ───────────────────────────────────────── */}
       <PageBody tone="light">
@@ -79,13 +79,11 @@ export default function PointsPage() {
               }
             />
               <p className="mt-6 max-w-[64ch] text-[14px] leading-relaxed text-ink-muted">
-                Every eligible position&apos;s forward accrual rate ramps linearly
-                over 365 days: sUSDfr currently moves from 1× to 2×, USDfr from
-                3× to 6×, and curator first-loss from 5× to 10×. Adding capital
-                blends the position&apos;s maturity timestamp toward the current
-                time in proportion to the amount added. Withdrawing leaves the
-                remaining balance&apos;s maturity unchanged; transferred or
-                redeposited capital starts or blends at the current time.
+                Each position&apos;s rate ramps up over 365 days: sUSDfr from
+                1× to 2×, USDfr from 3× to 6×, and curator first-loss from
+                5× to 10×. Adding new capital partially restarts the clock,
+                in proportion to the amount added. Withdrawing never resets
+                what remains; capital moved to a new wallet starts fresh.
               </p>
           </div>
           <div className="flex-1">
@@ -99,7 +97,7 @@ export default function PointsPage() {
         <SectionHead
           tone="navy"
           title="Deeper risk earns a higher multiple."
-          lede="All three source multiples are bounded and governance-tunable. Changes apply going forward, never retroactively."
+          lede="A curator is a first-loss investor: capital committed to absorb losses ahead of depositors. All three source multiples are bounded and governance-tunable. Changes apply going forward, never retroactively."
         />
         <div className="mt-12">
           <KpiBand
@@ -117,7 +115,7 @@ export default function PointsPage() {
       {/* ── Mechanics: three cards, three columns. ──────────────────────── */}
       <Section tone="light">
         <SectionHead
-          title="What the design refuses to reward."
+          title="What doesn't earn points."
           lede="The accrual rules are chosen so that churn, wallet-splitting and transaction volume cannot manufacture points."
         />
         <CardDeck columns={3} items={mechanics} />

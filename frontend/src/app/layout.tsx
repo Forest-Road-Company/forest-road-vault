@@ -33,9 +33,9 @@ const azeretMono = Azeret_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Forest Road Vault — speciality-finance credit, on-chain",
+  title: "Forest Road Vault — specialty finance credit, on-chain",
   description:
-    `On-chain access to Forest Road's diversified speciality-finance credit — film tax credits, renewable energy, life sciences, real estate, and digital assets — as a KYC-gated, yield-bearing synthetic dollar.${IS_TESTNET ? " Testnet build." : ""}`,
+    `On-chain access to Forest Road's diversified specialty finance credit — media & entertainment, renewable energy, and digital assets — through USDfr, a fully backed stablecoin, and sUSDfr, its staked yield-bearing position.${IS_TESTNET ? " Testnet build." : ""}`,
 };
 
 /* The direction contract for this build. It ships in the emitted markup so
