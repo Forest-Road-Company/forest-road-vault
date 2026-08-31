@@ -18,8 +18,8 @@ export default function DocsIndex() {
   return (
     <PageShell
       bleed
-      section="Documentation"
-      title="How the protocol is built, guaranteed, and governed."
+      section="Docs"
+      title="Documentation"
       lede={`Written for reviewers and integrators. This build reads the ${NETWORK_NAME} deployment.${IS_TESTNET ? " Test tokens have no value." : ""}`}
     >
       {/* ── The written record: a contents register, which is what it is.
@@ -66,7 +66,7 @@ export default function DocsIndex() {
       <Section tone="navy-deep">
         <SectionHead
           tone="navy-deep"
-          title="Where the claims can be checked."
+          title="Verification"
           lede="Documentation states what the protocol intends. These two pages are where that intent can be reconciled against findings and against on-chain state."
         />
         <div className="mt-12 grid gap-6 md:grid-cols-2">

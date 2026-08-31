@@ -42,13 +42,13 @@ export default function HowItWorksPage() {
     <PageShell
       bleed
       section="How it works"
-      title="Two flows, one synchronized system"
+      title="How the Vault works"
       lede="Depositors provide capital through two tokens. Borrowers are financed against identified collateral. Between them sits a dual record: legally enforceable off-chain, visible on-chain, kept in sync."
     >
       {/* ── Depositor flow: numbered rows on the light field. ───────────── */}
       <Section tone="surface">
         <SectionHead
-          title="Capital in, performance out."
+          title="How depositors earn"
           lede="Two tokens keep the stable dollar separate from the investment. Hold USDfr as a dollar, or stake it into sUSDfr and get invested in the loan book."
         />
         <NumberedRows
@@ -70,7 +70,7 @@ export default function HowItWorksPage() {
       <Section tone="navy">
         <SectionHead
           tone="navy"
-          title="Underwritten in-house, financed on identified collateral."
+          title="How loans are made"
           lede="No blind pool. Every facility is an identified borrower against a perfected claim, with a documented remedy path that executes on default."
         />
         <NumberedRows

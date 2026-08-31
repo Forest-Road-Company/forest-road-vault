@@ -203,7 +203,7 @@ export default function Landing() {
           <div>
             <h2 className="display max-w-[22ch] text-[31px] leading-[1.12] md:text-[46px]">
               {IS_MAINNET
-                ? "Live on-chain, and still auditable line by line."
+                ? "Live on mainnet. Check everything."
                 : "Built, tested, and audited."}
             </h2>
             <p className="mt-6 max-w-[58ch] text-[17px] leading-relaxed text-ink-muted">

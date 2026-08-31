@@ -19,7 +19,7 @@ export const metadata: Metadata = { title: "Risk factors — Forest Road Vault" 
  */
 
 const ATTESTATION = {
-  name: "Attestation trust",
+  name: "The primary trust assumption",
   detail:
     "On-chain state reflects what authorized attesters assert about off-chain legal facts. A false attestation or compromised attester key means the protocol acts on false information. This is the protocol's primary trust assumption.",
 };

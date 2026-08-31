@@ -74,7 +74,7 @@ export default function PointsPage() {
               title={
                 <>
                   Every position{" "}
-                  <span className="display-accent">seasons over a year.</span>
+                  <span className="display-accent">ramps up over a year.</span>
                 </>
               }
             />
