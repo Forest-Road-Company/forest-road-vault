@@ -26,7 +26,7 @@ export default function DocsIndex() {
              An odd number of documents never divides into a card grid. ─── */}
       <Section tone="surface">
         <SectionHead
-          title="Five documents, in reading order."
+          title="The five documents."
           lede="Start with the overview. The other four cover the protocol's guarantees, who can change what, how defaults are priced at exit, and how the system is tested."
         />
 
