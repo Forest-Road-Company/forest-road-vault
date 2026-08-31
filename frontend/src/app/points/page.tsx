@@ -15,8 +15,8 @@ export const metadata: Metadata = {
 
 /** The three earning positions and their governance-set multiples (points-v2, live on Sepolia). */
 const multiples = [
-  { source: "sUSDfr staked", weight: "1× → 2×", note: "the base rate, you already earn yield" },
-  { source: "USDfr held", weight: "3× → 6×", note: "in lieu of yield stakers receive" },
+  { source: "sUSDfr staked", weight: "1× → 2×", note: "the base rate; staking already earns yield" },
+  { source: "USDfr held", weight: "3× → 6×", note: "in lieu of the yield stakers receive" },
   { source: "Curator first-loss", weight: "5× → 10×", note: "the deepest, first-to-absorb risk" },
 ] as const;
 
@@ -27,11 +27,11 @@ const mechanics = [
   },
   {
     title: "Per wallet, linear by design",
-    body: "Accrual is per wallet. No identity binding, no KYC needed to earn. Splitting a balance across addresses cannot increase the flat per-unit rate. Moving seasoned capital to a fresh wallet restarts that position's maturity ramp at 1×, so churn can only reduce its forward accrual.",
+    body: "Accrual is per wallet. Minting requires KYC, but any wallet holding the tokens earns points. No separate registration, no identity binding. Splitting a balance across addresses earns exactly the same points. Moving an existing balance to a fresh wallet restarts its ramp at 1×, so churn can only reduce forward accrual.",
   },
   {
     title: "Flat rate, no size penalty",
-    body: "Every unit earns the same per-unit rate. A large holder is never penalised for size. What sets your rate is the position type and maturity, not the amount.",
+    body: "Every unit earns the same per-unit rate. A large holder is never penalized for size. What sets your rate is the position type and how long it has been held, not the amount.",
   },
 ];
 
@@ -79,9 +79,9 @@ export default function PointsPage() {
               }
             />
               <p className="mt-6 max-w-[64ch] text-[14px] leading-relaxed text-ink-muted">
-                Each position&apos;s rate ramps up over 365 days: sUSDfr from
-                1× to 2×, USDfr from 3× to 6×, and curator first-loss from
-                5× to 10×. Adding new capital partially restarts the clock,
+                sUSDfr climbs from 1× to 2×, USDfr from 3× to 6×, and
+                curator first-loss from 5× to 10×, each over 365 days.
+                Adding new capital partially restarts the clock,
                 in proportion to the amount added. Withdrawing never resets
                 what remains; capital moved to a new wallet starts fresh.
               </p>
@@ -134,10 +134,10 @@ export default function PointsPage() {
                 sUSDfr stakers already receive the protocol&apos;s variable yield, so
                 their points start at the 1× base and mature to 2×. USDfr holders
                 forgo that yield. They hold a plain, transferable dollar, so
-                points compensate at a governance-set source multiple (3×→6× today){" "}
+                points compensate at a governance-set source multiple (3× → 6× today){" "}
                 <span className="text-ink">in lieu of yield</span>. Curator
                 first-loss capital, which absorbs the very first dollar of any
-                loss, earns the most (5×→10× today).
+                loss, earns the most (5× → 10× today).
               </p>
             <div className="mt-8">
               <HighlightBox title="Leaderboard">
@@ -166,8 +166,8 @@ export default function PointsPage() {
               Nothing here promises conversion to any asset, and no conversion
               rate, date, or allocation exists. If Forest Road ever proposes a
               use for points, that decision is discretionary and passes through
-              the same securities-counsel review that gates the rest of the
-              protocol before mainnet.{" "}
+              the same securities-counsel review that governs the rest of the
+              protocol.{" "}
               <span className="text-on-navy">
                 Anyone telling you otherwise is not speaking for the protocol.
               </span>

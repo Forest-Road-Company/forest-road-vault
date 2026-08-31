@@ -34,7 +34,7 @@ export const VERTICALS: Vertical[] = [
     risks: [
       { name: "Payment timing", detail: "The obligor controls when the receivable is actually paid; delays extend duration." },
       { name: "Audit / clawback", detail: "For tax-credit collateral, the agreed-upon-procedures audit can reduce the credit below the underwritten amount." },
-      { name: "Obligor counterparty", detail: "Obligors range from US state programs to contracted distributors; changes in either are a real, priced risk." },
+      { name: "Obligor counterparty", detail: "Obligors range from US state programs to contracted distributors, and obligor credit quality is a real, priced risk." },
       { name: "Secondary price", detail: "Recovery in default can depend on the secondary market for the assigned claim." },
     ],
     remedy:
@@ -55,7 +55,7 @@ export const VERTICALS: Vertical[] = [
       { name: "Offtake & production", detail: "Operating cashflows vary with production and counterparty performance." },
     ],
     remedy:
-      "Foreclose on assigned credits and project security; project-level assets provide an asset-backed remedy path unlike pure receivable classes.",
+      "Foreclose on assigned credits and project security; project-level assets provide an asset-backed remedy path unlike the purely receivable-backed sectors.",
     collateralModel: "receivable",
   },
   {
@@ -96,7 +96,7 @@ export const VERTICALS: Vertical[] = [
     slug: "digital-assets",
     name: "Digital assets",
     financed:
-      "Secured lending to Forest Road's digital-assets trading subsidiary, financing the desk's trading book. It's a related-party facility, disclosed as such.",
+      "Secured lending to Forest Road's digital-assets trading subsidiary, financing the desk's trading book. It is a related-party facility.",
     claimType:
       "A pledged, marked-to-market portfolio of liquid crypto assets, not a receivable. The collateral is price-volatile and liquid: the opposite profile of the receivable-backed sectors.",
     duration: "Short and revolving, with continuous collateral-health monitoring.",
@@ -109,7 +109,7 @@ export const VERTICALS: Vertical[] = [
       {
         name: "Related-party exposure",
         detail:
-          "The borrower is Forest Road's own subsidiary. Terms must be arm's-length, the position is capped by concentration limits, and the conflict of interest is disclosed plainly.",
+          "The borrower is Forest Road's own subsidiary. Terms must be arm's-length, the position is capped by concentration limits, and the conflict of interest is disclosed on the risk and legal pages.",
       },
       {
         name: "Valuation freshness",
@@ -122,7 +122,7 @@ export const VERTICALS: Vertical[] = [
       },
     ],
     remedy:
-      "Margin-call and liquidation mechanics, not legal foreclosure: mark breach → margin call with a short cure window (top-up collateral or pay down) → liquidation of pledged assets. Hours-to-days, closer to DeFi collateral liquidation than UCC enforcement.",
+      "Margin-call and liquidation mechanics, not legal foreclosure. A mark breach triggers a margin call with a short cure window to top up collateral or pay down; if uncured, pledged assets are liquidated. The path runs in hours to days, closer to a DeFi liquidation than to foreclosure on a receivable.",
     collateralModel: "marked-to-market",
     tag: "Marked-to-market · related party",
   },

@@ -3,7 +3,6 @@ import Link from "next/link";
 import { PageShell } from "@/components/site/PageShell";
 import { Section, SectionHead } from "@/components/site/Blocks";
 import { SECTORS } from "@/lib/verticals";
-import {NETWORK_NAME} from "@/config/contracts";
 
 export const metadata: Metadata = {
   title: "Sectors — Forest Road Vault",
@@ -55,7 +54,7 @@ export default function SectorsPage() {
       bleed
       section="Sectors"
       title="The three sectors"
-      lede={`Each sector is a governance-parameterized collateral class with its own LTV cap, maturity profile, concentration limits, and default-remedy path. Interest rates are signed per facility, not set by sector. The remaining sector parameters are enforced on-chain by the CollateralRegistry, live on ${NETWORK_NAME}.`}
+      lede="Each sector sets its own terms: an LTV cap, a maturity profile, concentration limits, and a default-remedy path. Interest rates are signed per facility, not set by sector. Sector parameters are enforced on-chain by the CollateralRegistry."
     >
       {/* ── The sectors: an icon-led, colour-committed grid rather than a
              register — accent tint for receivable-backed lending, warn tint
@@ -65,11 +64,11 @@ export default function SectorsPage() {
         <SectionHead
           title={
             <>
-              Three sectors,{" "}
+              Different collateral,{" "}
               <span className="display-accent">one loan book.</span>
             </>
           }
-          lede="The receivable-backed sectors lend against assigned claims: tax credits and contracted receivables. The digital-assets sector is marked to market against liquid collateral. Different profiles, disclosed as such."
+          lede="The receivable-backed sectors lend against assigned claims: tax credits and contracted receivables. The digital-assets sector is marked to market against liquid collateral. Different profiles, different remedies."
         />
 
         <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">

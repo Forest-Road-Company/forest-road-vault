@@ -36,7 +36,7 @@ export default function LegalPage() {
           on this site independently claims they are or are not securities.{" "}
           {IS_MAINNET
             ? "Production operation remains subject to the applicable legal wrapper, counsel-approved controls, external security review, and approved economic parameters."
-            : "A written securities-counsel opinion is a hard, blocking gate before any mainnet deployment, alongside external smart-contract audits, an executed off-chain legal wrapper, and an economic review of protocol parameters."}
+            : "External smart-contract audits are complete. A written securities-counsel opinion remains a hard, blocking gate before any mainnet deployment, alongside an executed off-chain legal wrapper and an economic review of protocol parameters."}
         </p>
         <p>
           <span className="text-ink">Yield is variable.</span> sUSDfr passes

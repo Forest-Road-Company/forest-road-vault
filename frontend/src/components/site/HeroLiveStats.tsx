@@ -41,7 +41,7 @@ const STRUCTURE = [
   { value: SECTORS.length, label: "Sectors" },
   { value: receivable, label: "Receivable-backed" },
   { value: markedToMarket, label: "Marked-to-market" },
-  { value: CASCADE_LAYERS, label: "Layers of protection" },
+  { value: CASCADE_LAYERS, label: "Layers ahead of depositors" },
 ];
 
 export function HeroLiveStats() {

@@ -23,7 +23,7 @@ const depositorSteps = [
 const borrowerSteps = [
   { label: "Apply & underwrite", body: "Forest Road underwrites each facility in-house. Sectors set LTV, maturity, and concentration limits on-chain; the interest rate and payment terms are signed per facility." },
   { label: "Legal wrapper executes", body: "Off-chain: the receivable is assigned, the UCC-1 lien is filed, escrow is funded. Each fact is recorded on-chain by authorized attesters: named parties who certify off-chain facts to the contracts." },
-  { label: "Synchronized NFT mint", body: "Each loan is recorded on chain as an identified position — the loan NFT. It mints only when every required off-chain attestation and every on-chain condition holds, and escrow cannot release before it exists." },
+  { label: "Synchronized NFT mint", body: "Each loan is recorded on-chain as an identified position — the loan NFT. It mints only when every required off-chain attestation and every on-chain condition holds, and escrow cannot release before it exists." },
   { label: "Funding & servicing", body: "Capital deploys against the identified facility. Repayments route automatically through a fixed order of priority written into the contract." },
   { label: "Repayment or remedy", body: "At maturity the facility repays and closes. In default, the facility freezes and the sector's documented remedy path executes." },
 ];

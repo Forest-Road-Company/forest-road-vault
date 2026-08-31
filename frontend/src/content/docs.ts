@@ -12,7 +12,7 @@ export const DOCS: DocEntry[] = [
   {
     slug: "overview",
     file: "overview.md",
-    title: "Protocol Overview",
+    title: "Protocol overview",
     eyebrow: "Start here",
     summary:
       "What the protocol is: two tokens, identified-per-asset collateral, and the three-layer loss cascade.",
@@ -20,7 +20,7 @@ export const DOCS: DocEntry[] = [
   {
     slug: "guarantees",
     file: "invariants.md",
-    title: "Protocol Guarantees",
+    title: "Protocol guarantees",
     eyebrow: "Safety spec",
     summary:
       "The nine system invariants: backing, value conservation, cascade ordering, the mint gate, FIFO redemption. Each is mapped to the on-chain mechanism that enforces it and the test that proves it.",
@@ -28,7 +28,7 @@ export const DOCS: DocEntry[] = [
   {
     slug: "roles-and-governance",
     file: "roles-and-governance.md",
-    title: "Roles & Governance",
+    title: "Roles & governance",
     eyebrow: "Trust model",
     summary:
       "Every privileged role, who holds it in production, and the exact functions it gates, including the timelocked governance setters and the never-pausable cascade.",
@@ -36,7 +36,7 @@ export const DOCS: DocEntry[] = [
   {
     slug: "recovery",
     file: "recovery.md",
-    title: "Default Recovery & Exit Pricing",
+    title: "Default recovery & exit pricing",
     eyebrow: "Valuation",
     summary:
       "How professional recovery assessments affect the queue, how junior protection is applied, and why any later redeemer top-up is discretionary and separately funded.",
@@ -44,7 +44,7 @@ export const DOCS: DocEntry[] = [
   {
     slug: "security",
     file: "security.md",
-    title: "Security & Testing",
+    title: "Security & testing",
     eyebrow: "Assurance",
     summary:
       "Test rigor, exact current evidence, the multi-round internal audit, and the human-owned production assurance gates.",
@@ -62,7 +62,7 @@ export const DOCS: DocEntry[] = [
  */
 export const AUDIT_SECTION = {
   href: "/docs/audit",
-  title: "Audit Register",
+  title: "Audit register",
   eyebrow: "Full findings",
   summary:
     "Every source-level review run against the protocol, newest first. Each round has its own findings and its own remediation history, including the findings that were accepted rather than fixed.",
@@ -76,10 +76,10 @@ export const AUDIT_SECTION = {
  */
 export const ADDRESSES_SECTION = {
   href: "/docs/addresses",
-  title: "Deployed Addresses",
+  title: "Deployed addresses",
   eyebrow: "On-chain",
   summary:
-    "Every contract this build reads, with its role and a block-explorer link. It's generated from the same configuration the application uses, so it cannot fall out of step with the live deployment.",
+    "Every contract this build reads, with its role and a block-explorer link. It is generated from the same configuration the application uses, so it cannot fall out of step with the live deployment.",
 } as const;
 
 export function docBySlug(slug: string): DocEntry | undefined {

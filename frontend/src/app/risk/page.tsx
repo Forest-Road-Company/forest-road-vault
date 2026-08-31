@@ -7,7 +7,7 @@ import {
   CardDeck,
   HighlightBox,
 } from "@/components/site/Blocks";
-import {IS_MAINNET, NETWORK_NAME} from "@/config/contracts";
+import {IS_MAINNET} from "@/config/contracts";
 
 export const metadata: Metadata = { title: "Risk factors — Forest Road Vault" };
 
@@ -21,7 +21,7 @@ export const metadata: Metadata = { title: "Risk factors — Forest Road Vault" 
 const ATTESTATION = {
   name: "The primary trust assumption",
   detail:
-    "On-chain state reflects what authorized attesters assert about off-chain legal facts. A false attestation or compromised attester key means the protocol acts on false information. This is the protocol's primary trust assumption.",
+    "On-chain state reflects what authorized attesters assert about off-chain legal facts. A false attestation or compromised attester key means the protocol acts on false information.",
 };
 
 const protocolRisks = [
@@ -35,9 +35,7 @@ const protocolRisks = [
   },
   {
     label: "Smart-contract risk",
-    body: IS_MAINNET
-      ? "Contracts can contain defects despite testing, invariant fuzzing, and independent audits. Audits and monitoring reduce, but do not eliminate, this risk."
-      : "Contracts can contain defects despite testing and invariant fuzzing. Mainnet deployment is gated on independent audits, and audits reduce, not eliminate, this risk.",
+    body: "Contracts can contain defects despite testing, invariant fuzzing, and independent audits. Audits and monitoring reduce, but do not eliminate, this risk.",
   },
   {
     label: "Regulatory risk",
@@ -45,18 +43,18 @@ const protocolRisks = [
   },
   {
     label: "Secondary-market risk",
-    body: "Default recovery for credit-backed classes depends on selling assigned receivables into secondary markets whose prices and depth vary.",
+    body: "Default recovery for the receivable-backed sectors depends on selling assigned receivables into secondary markets whose prices and depth vary.",
   },
   {
     label: "Assessed redemption value",
-    body: `The ${NETWORK_NAME} deployment routes queue pricing through the live assessment wrapper, which falls back to the conservative zero-recovery mark unless governance publishes a current, evidence-backed assessment. Any assessment can change or invalidate before settlement. No recovery top-up distributor is deployed or promised in v1; any future top-up would require separate approval and funding.`,
+    body: "When a defaulted loan must be priced for redemptions, the queue uses a published, evidence-backed recovery assessment; without one it assumes zero recovery, the conservative default. Any assessment can change or be withdrawn before settlement. No recovery top-up is deployed or promised in v1; any future top-up would require separate approval and funding.",
   },
 ];
 
 const classRisks = [
   {
     title: "Per-sector asset risk",
-    body: "Media & entertainment receivables carry payment-timing, audit/clawback, obligor-counterparty, and secondary-price risk. Renewables carry construction/completion risk. Each sector's risks are set out on its own page.",
+    body: "Media & entertainment receivables carry payment-timing, audit/clawback, obligor-counterparty, and secondary-price risk. Renewables carry construction/completion risk.",
   },
   {
     title: "Related-party exposure (digital assets sector)",
@@ -111,7 +109,7 @@ export default function RiskPage() {
           aside={
             <>
               These are structural to the design rather than to any one
-              collateral class. None of them is eliminated by the loss
+              sector. None of them is eliminated by the loss
               cascade. The cascade governs the order in which losses land,
               not whether they occur.
             </>
@@ -124,7 +122,7 @@ export default function RiskPage() {
       <Section tone="light">
         <SectionHead
           title="Risks that attach to particular collateral."
-          lede="Each sector carries its own risks, set out in full on its own page. The related-party exposure is disclosed plainly."
+          lede="Each sector carries its own risks, set out in full on its own page. The related-party exposure has its own entry below."
         />
         <CardDeck columns={3} items={classRisks} />
       </Section>

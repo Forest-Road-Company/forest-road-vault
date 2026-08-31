@@ -93,7 +93,7 @@ export default function Landing() {
             stops being emphasis and becomes the section's default voice. */}
         <SectionHead
           title="One stable dollar. One way to earn."
-          lede="USDfr is the stable dollar. Stake it into sUSDfr and it is put to work in loans Forest Road originates, underwrites and services."
+          lede="USDfr is the dollar; sUSDfr puts it to work in loans Forest Road originates, underwrites, and services."
         />
 
         <div className="mt-16 grid gap-6 md:grid-cols-2">
@@ -112,8 +112,7 @@ export default function Landing() {
               </li>
               <li>
                 Backing is stablecoin reserves, short-term instruments, and
-                deployed loan principal, and can be checked on chain at any
-                time.
+                deployed loan principal. Check it on-chain at any time.
               </li>
               <li>It is a dollar claim and earns nothing on its own.</li>
             </ul>
@@ -209,7 +208,7 @@ export default function Landing() {
             <p className="mt-6 max-w-[58ch] text-[17px] leading-relaxed text-ink-muted">
               {IS_MAINNET
                 ? "Review the verified contracts, live protocol state, current risks, and production disclosures before interacting."
-                : "The protocol is written, tested and independently audited. The remaining launch gates — audit, operational, recovery and legal — are listed where they can be checked."}
+                : "The protocol is written, tested and independently audited. The remaining launch gates — operational, recovery and legal — are listed where they can be checked."}
             </p>
           </div>
 
