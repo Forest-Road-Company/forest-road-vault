@@ -136,7 +136,7 @@ export default function AddressesPage() {
                   )}
                 </td>
                 <td className="min-w-[22ch] py-4 text-[13px] leading-relaxed text-ink-muted">
-                  {ROLE[name] ?? ", "}
+                  {ROLE[name] ?? "—"}
                 </td>
               </tr>
             ))}

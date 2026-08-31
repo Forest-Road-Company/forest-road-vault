@@ -395,7 +395,7 @@ export function YieldPositionPanel() {
               value={
                 history.phase === "ready"
                   ? `${fmtAmount(history.value.recordedIncome, 18, 4)} USDfr`
-                  : ", "
+                  : "—"
               }
               note="after interest fee; before vault fees"
             />
@@ -404,7 +404,7 @@ export function YieldPositionPanel() {
               value={
                 observedDays !== null
                   ? `${observedDays < 1 ? "<1" : Math.floor(observedDays)} day${observedDays >= 2 ? "s" : ""}`
-                  : ", "
+                  : "—"
               }
               note="income measurement window"
             />
@@ -420,7 +420,7 @@ export function YieldPositionPanel() {
               <DarkMetric
                 label="Vesting now"
                 value={
-                  unvestedIncome !== undefined ? `${fmtAmount(unvestedIncome, 18, 4)} USDfr` : ", "
+                  unvestedIncome !== undefined ? `${fmtAmount(unvestedIncome, 18, 4)} USDfr` : "—"
                 }
                 note="realized, not yet in NAV"
               />
@@ -440,7 +440,7 @@ export function YieldPositionPanel() {
                   value={
                     positionShares !== undefined
                       ? `${fmtAmount(positionShares, SHARE_DECIMALS, 4)} sUSDfr`
-                      : ", "
+                      : "—"
                   }
                   note={
                     walletExitAssets !== undefined
@@ -453,7 +453,7 @@ export function YieldPositionPanel() {
                   value={
                     metrics.projectedYieldBps !== null
                       ? formatBps(metrics.projectedYieldBps)
-                      : ", "
+                      : "—"
                   }
                   note={
                     SUPPORTS_VAULT_FEE_ACCOUNTING
@@ -466,7 +466,7 @@ export function YieldPositionPanel() {
                   value={
                     metrics.projectedPositionIncome !== null
                       ? `${fmtAmount(metrics.projectedPositionIncome, 18, 4)} USDfr/yr`
-                      : ", "
+                      : "—"
                   }
                   note={
                     protocolFeeBps !== undefined
@@ -508,7 +508,7 @@ export function YieldPositionPanel() {
                       ? "Not deployed"
                       : performanceFeeBps !== undefined
                       ? formatBps(BigInt(performanceFeeBps))
-                      : ", "
+                      : "—"
                   }
                   note={
                     !SUPPORTS_VAULT_FEE_ACCOUNTING
@@ -527,7 +527,7 @@ export function YieldPositionPanel() {
                       ? "Not deployed"
                       : managementFeeBps !== undefined
                       ? formatBps(BigInt(managementFeeBps))
-                      : ", "
+                      : "—"
                   }
                   note={
                     !SUPPORTS_VAULT_FEE_ACCOUNTING

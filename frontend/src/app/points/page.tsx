@@ -10,7 +10,7 @@ import {
 import { PointsDashboard } from "@/components/app/PointsDashboard";
 
 export const metadata: Metadata = {
-  title: "Points — Forest Road Vault",
+  title: "Points | Forest Road Vault",
 };
 
 /** The three earning positions and their governance-set multiples (points-v2, live on Sepolia). */

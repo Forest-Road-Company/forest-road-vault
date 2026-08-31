@@ -16,7 +16,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const v = SECTORS.find((x) => x.slug === slug);
-  return { title: v ? `${v.name} — Forest Road Vault` : "Sectors" };
+  return { title: v ? `${v.name} | Forest Road Vault` : "Sectors" };
 }
 
 export default async function SectorPage({

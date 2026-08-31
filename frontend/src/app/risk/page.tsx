@@ -9,7 +9,7 @@ import {
 } from "@/components/site/Blocks";
 import {IS_MAINNET} from "@/config/contracts";
 
-export const metadata: Metadata = { title: "Risk factors — Forest Road Vault" };
+export const metadata: Metadata = { title: "Risk factors | Forest Road Vault" };
 
 /**
  * Risk copy is disclosure material and is reproduced verbatim. The grouping

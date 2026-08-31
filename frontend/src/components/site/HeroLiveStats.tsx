@@ -70,15 +70,15 @@ export function HeroLiveStats() {
   const live = [
     {
       label: "supply",
-      value: supply !== undefined ? `${fmtAmount(supply, 18, 0)} USDfr` : ", ",
+      value: supply !== undefined ? `${fmtAmount(supply, 18, 0)} USDfr` : "—",
     },
     {
       label: "backing",
-      value: backing !== undefined ? `$${fmtAmount(backing, 18, 0)}` : ", ",
+      value: backing !== undefined ? `$${fmtAmount(backing, 18, 0)}` : "—",
     },
     {
       label: "facilities",
-      value: facilities !== undefined ? facilities.toString() : ", ",
+      value: facilities !== undefined ? facilities.toString() : "—",
     },
   ];
 

@@ -293,7 +293,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
           </p>
           <p>
             Settlement heartbeat ends in{" "}
-            <span className="text-ink-muted">{epochCountdown ?? ", "}</span>
+            <span className="text-ink-muted">{epochCountdown ?? "—"}</span>
             {isSettling ? <span className="ml-2 text-warn">settling now</span> : null}
           </p>
           <p>

@@ -18,13 +18,13 @@ type TrackedBalances = readonly [bigint, bigint];
 type FreezeStatus = readonly [boolean, bigint];
 
 function multipleLabel(bps: number | undefined): string {
-  if (bps === undefined) return ", ";
+  if (bps === undefined) return "—";
   const value = BigInt(bps);
   return `${value / BPS}.${((value % BPS) / 100n).toString().padStart(2, "0")}×`;
 }
 
 function maturityRangeLabel(bps: number | undefined): string {
-  if (bps === undefined) return ", ";
+  if (bps === undefined) return "—";
   return `${multipleLabel(bps)} → ${multipleLabel(bps * 2)}`;
 }
 
@@ -63,7 +63,7 @@ function SourceCard({
         </span>
       </div>
       <p className="display mt-4 text-[32px] leading-none text-ink">
-        {points !== undefined ? fmtAmount(points, 18, 4) : ", "}
+        {points !== undefined ? fmtAmount(points, 18, 4) : "—"}
       </p>
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
         points accrued
@@ -72,13 +72,13 @@ function SourceCard({
         <p>
           Tracked:{" "}
           <span className="text-ink-muted">
-            {balance !== undefined ? fmtAmount(balance, balanceDecimals, 4) : ", "} {balanceSymbol}
+            {balance !== undefined ? fmtAmount(balance, balanceDecimals, 4) : "—"} {balanceSymbol}
           </span>
         </p>
         <p>
           Base rate:{" "}
           <span className="text-ink-muted">
-            {dailyBase !== undefined ? fmtAmount(dailyBase, 18, 4) : ", "} points/unit/day
+            {dailyBase !== undefined ? fmtAmount(dailyBase, 18, 4) : "—"} points/unit/day
           </span>
         </p>
       </div>
@@ -184,7 +184,7 @@ export function PointsDashboard() {
                 Your points
               </p>
               <p className="display mt-4 break-all text-[clamp(2rem,4vw,3.375rem)] leading-none text-ink">
-                {totalPoints !== undefined ? fmtAmount(totalPoints, 18, 4) : isLoading ? "…" : ", "}
+                {totalPoints !== undefined ? fmtAmount(totalPoints, 18, 4) : isLoading ? "…" : "—"}
               </p>
               <p className="mt-4 max-w-2xl text-[13px] leading-relaxed text-ink-muted">
                 Accrued and pending points from this wallet&apos;s complete on-chain position
@@ -200,7 +200,7 @@ export function PointsDashboard() {
                 <div className="flex justify-between gap-4">
                   <dt className="text-ink-faint">Base rate</dt>
                   <dd className="text-ink">
-                    {baseRate !== undefined ? `${fmtAmount(baseRate, 18, 4)}/unit/day` : ", "}
+                    {baseRate !== undefined ? `${fmtAmount(baseRate, 18, 4)}/unit/day` : "—"}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-4">
@@ -213,7 +213,7 @@ export function PointsDashboard() {
                 </div>
                 <div className="flex justify-between gap-4">
                   <dt className="text-ink-faint">Rate epochs</dt>
-                  <dd className="text-ink">{rateEpochCount?.toString() ?? ", "}</dd>
+                  <dd className="text-ink">{rateEpochCount?.toString() ?? "—"}</dd>
                 </div>
               </dl>
               <p className="mt-4 text-[11px] leading-relaxed text-ink-faint">
@@ -278,10 +278,10 @@ export function PointsDashboard() {
                     <tr key={row.classId.toString()} className="border-t border-line">
                       <td className="px-6 py-3.5 text-ink">{row.name}</td>
                       <td className="px-6 py-3.5 text-right">
-                        {row.balance !== undefined ? `${fmtAmount(row.balance, 18, 2)} USDfr` : ", "}
+                        {row.balance !== undefined ? `${fmtAmount(row.balance, 18, 2)} USDfr` : "—"}
                       </td>
                       <td className="px-6 py-3.5 text-right">
-                        {row.points !== undefined ? fmtAmount(row.points, 18, 2) : ", "}
+                        {row.points !== undefined ? fmtAmount(row.points, 18, 2) : "—"}
                       </td>
                       <td className={`px-6 py-3.5 text-right ${row.frozen ? "text-warn" : "text-accent"}`}>
                         {row.frozen

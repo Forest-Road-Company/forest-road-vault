@@ -5,7 +5,7 @@ import { Section, SectionHead } from "@/components/site/Blocks";
 import { SECTORS } from "@/lib/verticals";
 
 export const metadata: Metadata = {
-  title: "Sectors — Forest Road Vault",
+  title: "Sectors | Forest Road Vault",
 };
 
 /* One authored line-icon per sector, drawn to the same stroke and weight
