@@ -112,7 +112,9 @@ export default async function SectorPage({
             Live sector parameters (LTV cap, maturity and concentration headroom)
             are enforced on-chain by the CollateralRegistry and are not
             restated here, so this page cannot drift from them. Interest rates
-            and payment terms are signed per facility.{" "}
+            and payment terms are signed per facility. The current testnet
+            deployment runs its concentration limits fully open, so the present
+            sector mix is not evidence of a production configuration.{" "}
             <Link href="/transparency" className="u-link font-medium text-accent">
               Read current state →
             </Link>

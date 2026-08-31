@@ -1,18 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageShell } from "@/components/site/PageShell";
-import { Section, SectionHead, KpiBand, HighlightBox } from "@/components/site/Blocks";
+import { Section, SectionHead } from "@/components/site/Blocks";
 import { SECTORS } from "@/lib/verticals";
 import {NETWORK_NAME} from "@/config/contracts";
 
 export const metadata: Metadata = {
   title: "Sectors — Forest Road Vault",
 };
-
-const receivableCount = SECTORS.filter(
-  (v) => v.collateralModel === "receivable",
-).length;
-const mtmCount = SECTORS.length - receivableCount;
 
 /* One authored line-icon per sector, drawn to the same stroke and weight
    rather than pulled from an icon font — each names the mechanism, not a
@@ -126,46 +121,6 @@ export default function SectorsPage() {
         </div>
       </Section>
 
-      {/* ── Navy moment: the shape of the book in numbers. Deep navy, so the
-             closing band steps away from the footer rather than merging with
-             it into one dark mass. ──────────────────────────────────────── */}
-      <Section tone="navy-deep">
-        <SectionHead
-          tone="navy-deep"
-          title="Different assets, different profiles."
-          lede="Duration, remedy path and valuation basis differ by sector. Concentration limits are enforced on-chain so no single sector can quietly dominate the book."
-        />
-        <div className="mt-12">
-          <KpiBand
-            items={[
-              {
-                value: SECTORS.length,
-                label: "Sectors",
-                note: "Each with its own LTV cap and remedy path.",
-              },
-              {
-                value: receivableCount,
-                label: "Receivable-backed",
-                note: "Lending against assigned claims and contracted receivables.",
-              },
-              {
-                value: mtmCount,
-                label: "Marked-to-market",
-                note: "Secured by liquid collateral, monitored continuously.",
-              },
-            ]}
-            className="border border-navy-border"
-          />
-        </div>
-        <div className="mt-8">
-          <HighlightBox tone="navy-deep" title="Concentration is a parameter, not a promise">
-            Sector limits live in the CollateralRegistry and are readable
-            on-chain. The current testnet deployment runs with those limits
-            fully open, so nothing about the present sector mix is evidence
-            about a production configuration.
-          </HighlightBox>
-        </div>
-      </Section>
     </PageShell>
   );
 }
