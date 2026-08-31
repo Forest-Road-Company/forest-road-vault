@@ -68,7 +68,7 @@ export default function SectorsPage() {
               <span className="display-accent">one loan book.</span>
             </>
           }
-          lede="The receivable-backed sectors lend against assigned claims: tax credits and contracted receivables. The digital-assets sector is marked to market against liquid collateral. Different profiles, different remedies."
+          lede="The receivable-backed sectors lend against assigned claims: tax credits and contracted receivables. The digital-assets sector is marked to market against liquid collateral."
         />
 
         <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">

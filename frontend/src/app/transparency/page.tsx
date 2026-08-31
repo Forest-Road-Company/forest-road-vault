@@ -12,7 +12,7 @@ export default function TransparencyPage() {
     <PageShell
       section="Transparency"
       title={IS_LOCAL_FORK ? "The forked book, verifiable on-chain" : "The live book, verifiable on-chain"}
-      lede={`Every number below comes from ${NETWORK_NAME} contract state, contract previews, or events.${IS_LOCAL_FORK ? " This is disposable fork state, not live Sepolia." : " No off-chain estimate is substituted."}`}
+      lede={`Every number below comes from ${NETWORK_NAME} contract state, previews, or events.${IS_LOCAL_FORK ? " This is disposable fork state, not live Sepolia." : " No off-chain estimate is substituted."}`}
     >
       <TransparencyDashboard />
     </PageShell>

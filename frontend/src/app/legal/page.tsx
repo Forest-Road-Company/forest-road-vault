@@ -62,7 +62,7 @@ export default function LegalPage() {
         <p>
           <span className="text-ink">One sector is a related-party facility.</span>{" "}
           The digital-assets sector finances Forest Road&apos;s own
-          trading subsidiary. That conflict of interest is disclosed plainly
+          trading subsidiary. That conflict of interest is disclosed
           here and on the risk page, is subject to on-chain concentration
           limits and arm&apos;s-length-terms review, and is an explicit item in
           {IS_MAINNET ? " ongoing economic and governance review." : " the launch economic review."}

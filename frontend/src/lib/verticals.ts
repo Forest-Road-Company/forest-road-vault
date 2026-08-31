@@ -98,7 +98,7 @@ export const VERTICALS: Vertical[] = [
     financed:
       "Secured lending to Forest Road's digital-assets trading subsidiary, financing the desk's trading book. It is a related-party facility.",
     claimType:
-      "A pledged, marked-to-market portfolio of liquid crypto assets, not a receivable. The collateral is price-volatile and liquid: the opposite profile of the receivable-backed sectors.",
+      "A pledged, marked-to-market portfolio of liquid crypto assets, not a receivable. The collateral is price-volatile and liquid, the opposite profile of the receivable-backed sectors.",
     duration: "Short and revolving, with continuous collateral-health monitoring.",
     risks: [
       {

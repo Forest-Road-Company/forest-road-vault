@@ -26,8 +26,8 @@ export default function DocsIndex() {
              An odd number of documents never divides into a card grid. ─── */}
       <Section tone="surface">
         <SectionHead
-          title="The five documents."
-          lede="Start with the overview. The other four cover the protocol's guarantees, who can change what, how defaults are priced at exit, and how the system is tested."
+          title="The documents."
+          lede="Start with the overview. The rest cover the protocol's guarantees, who can change what, how defaults are priced at exit, how the system is tested, and how to integrate."
         />
 
         <div className="mt-14">
@@ -67,7 +67,7 @@ export default function DocsIndex() {
         <SectionHead
           tone="navy-deep"
           title="Verification"
-          lede="Documentation states what the protocol intends. These two pages are where that intent can be reconciled against findings and against on-chain state."
+          lede="Documentation states what the protocol intends. These two pages are where that intent can be reconciled with audit findings and with live on-chain state."
         />
         <div className="mt-12 grid gap-6 md:grid-cols-2">
           {evidence.map((e, i) => (

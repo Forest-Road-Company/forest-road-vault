@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 const multiples = [
   { source: "sUSDfr staked", weight: "1× → 2×", note: "the base rate; staking already earns yield" },
   { source: "USDfr held", weight: "3× → 6×", note: "in lieu of the yield stakers receive" },
-  { source: "Curator first-loss", weight: "5× → 10×", note: "the deepest, first-to-absorb risk" },
+  { source: "Curator first-loss", weight: "5× → 10×", note: "the first capital to absorb a loss" },
 ] as const;
 
 const mechanics = [

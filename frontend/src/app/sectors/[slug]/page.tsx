@@ -113,8 +113,8 @@ export default async function SectorPage({
             are enforced on-chain by the CollateralRegistry and are not
             restated here, so this page cannot drift from them. Interest rates
             and payment terms are signed per facility. The current testnet
-            deployment runs its concentration limits fully open, so the present
-            sector mix is not evidence of a production configuration.{" "}
+            deployment runs its concentration limits fully open, so today&apos;s
+            sector mix says nothing about production settings.{" "}
             <Link href="/transparency" className="u-link font-medium text-accent">
               Read current state →
             </Link>

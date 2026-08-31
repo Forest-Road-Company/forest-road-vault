@@ -145,12 +145,11 @@ export default function Landing() {
             </p>
             <ul className="mt-6 space-y-3.5 text-[14.5px] leading-relaxed text-on-navy-muted">
               <li>
-                Stake USDfr to get it. It pays what the loan book earns, and
-                its value can fall if loans lose money.
+                Stake USDfr to get it; its value can fall if loans lose money.
               </li>
               <li>
-                Redemptions are filled first in, first out, in step with the
-                cash the book actually receives.
+                Redemptions are filled first in, first out, as loan
+                repayments come in.
               </li>
               <li>
                 Fees come out of realized performance only, at capped,
@@ -208,7 +207,7 @@ export default function Landing() {
             <p className="mt-6 max-w-[58ch] text-[17px] leading-relaxed text-ink-muted">
               {IS_MAINNET
                 ? "Review the verified contracts, live protocol state, current risks, and production disclosures before interacting."
-                : "The protocol is written, tested and independently audited. The remaining launch gates — operational, recovery and legal — are listed where they can be checked."}
+                : "The remaining launch gates — operational, recovery and legal — are listed where they can be checked."}
             </p>
           </div>
 

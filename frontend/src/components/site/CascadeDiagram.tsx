@@ -15,7 +15,7 @@ const layers = [
   },
   {
     label: "2 · Backstop reserve",
-    sub: "a separately funded reserve, absorbing ahead of depositors",
+    sub: "a separately funded reserve that absorbs ahead of depositors",
     note: "absorbs second",
   },
   {
