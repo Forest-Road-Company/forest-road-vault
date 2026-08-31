@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
 /* ────────────────────────────────────────────────────────────────────────
-   Forest Road Vault — design tokens
+   Forest Road Vault, design tokens
    Redesign 2026-08-05 (direction seed f1401973, canon executed straight).
 
-   White ground, navy elements — the parent brand's arrangement. The field is
+   White ground, navy elements, the parent brand's arrangement. The field is
    white and near-white; navy is what gets placed ON it: the nav mark, the
    primary action, the figure band, table headers, the hero, the cascade, and
    the closing anchor. Navy is a material here, not a background.
@@ -31,12 +31,12 @@
 
   /* ── ink on the white field ── */
   --color-ink: #14213a; /* headings, values a reader stops on */
-  --color-ink-muted: #33405c; /* body copy — 10:1 on white */
+  --color-ink-muted: #33405c; /* body copy, 10:1 on white */
   --color-ink-value: #46536e; /* table values, secondary body */
-  --color-ink-faint: #5f6b85; /* captions, footnotes — 4.9:1 on white */
+  --color-ink-faint: #5f6b85; /* captions, footnotes, 4.9:1 on white */
 
   /* ── accent: mid navy, the parent brand's own. Their link blue (#1f8aff)
-        is deliberately absent — a bright blue accent is the generic
+        is deliberately absent, a bright blue accent is the generic
         on-chain look. `accent-light` is the on-navy counterpart, used only
         where the ground underneath is navy. ── */
   --color-accent: #2e4e6f;
@@ -67,7 +67,7 @@
   --color-on-navy-accent: #9db0d4;
   --color-on-navy-line: rgba(255, 255, 255, 0.14);
 
-  /* Series ladder for charts and editorial severity — navy tints, never
+  /* Series ladder for charts and editorial severity, navy tints, never
      hue-coded. The house style is monochrome navy: no green, no gold. Use
      for audit severities, allocations, ranked series. */
   --color-series-1: #1c2d48;
@@ -81,7 +81,7 @@
      success value the editorial palette does not carry: a transaction surface
      has to distinguish confirmed from pending, and navy-for-everything cannot.
      These are exempt from the monochrome-navy editorial rule for the same
-     reason warn and danger are — they report state, not taste. */
+     reason warn and danger are, they report state, not taste. */
   --color-app-toolbar: #eef1f6;
   --color-ok: #1c6b4c;
   --color-ok-faint: rgba(28, 107, 76, 0.1);
@@ -91,7 +91,7 @@
      because they are not decoration: they mark a reverted transaction, a
      wrong network, an open finding, or a queue the user must not misread.
      Desaturated to sit with navy on a white ground. The hue is never the
-     only signal — a label always accompanies it. */
+     only signal, a label always accompanies it. */
   --color-warn: #96621a;
   --color-warn-faint: rgba(183, 121, 31, 0.1);
   --color-danger: #a23b3b;
@@ -380,7 +380,7 @@ table,
    The editorial values are tuned for the white ground, where they read at
    4.5:1+; on navy they fall through it (warn hit 3.36:1 on the app's yield
    panel). Re-declaring the variables inside navy subtrees lifts every
-   utility that resolves them — text, border and faint fill alike — so a
+   utility that resolves them, text, border and faint fill alike, so a
    status colour cannot silently fail by being placed on the dark material. */
 .navy-band,
 .navy-band-deep,
@@ -395,7 +395,7 @@ table,
   --color-danger: #f0918b;
   --color-danger-faint: rgba(240, 145, 139, 0.16);
   /* `ok` lifts with the others. Every StatusLine currently renders on a white
-     card, so the editorial value reads there — but a confirmation is exactly
+     card, so the editorial value reads there, but a confirmation is exactly
      the kind of thing that later gets moved onto a navy panel, and #1c6b4c
      measures ~2.7:1 on navy-deepest. The whole point of re-declaring the
      variable is that no status hue is left out of the set. */
@@ -403,8 +403,7 @@ table,
   --color-ok-faint: rgba(92, 199, 154, 0.16);
 
   /* The focus ring lifts with them. `accent` is 1.60:1 on navy and 2.02:1 on
-     navy-deepest — below the 3:1 WCAG 1.4.11 floor for a non-text indicator —
-     while `accent-light` reads 6.32:1 on navy. Every focusable thing on a
+     navy-deepest, below the 3:1 WCAG 1.4.11 floor for a non-text indicator, while `accent-light` reads 6.32:1 on navy. Every focusable thing on a
      navy band (footer columns, hero actions, the closing anchor) resolves
      this, so none of them can lose its ring by sitting on the material. */
   --color-focus: var(--color-accent-light);
@@ -428,10 +427,10 @@ table,
     background: var(--color-line-strong);
   }
 
-  /* Callout — a tinted panel with a hairline, not a thick colored edge.
+  /* Callout, a tinted panel with a hairline, not a thick colored edge.
      The border is a light-field line token: this class is only ever the
      light branch of HighlightBox, and `navy-border` is a white alpha meant
-     for borders sitting on navy, which rendered at 1.02:1 here — the
+     for borders sitting on navy, which rendered at 1.02:1 here, the
      hairline this callout is defined by was not drawing at all. */
   .highlight-box {
     background: var(--color-accent-faint);
@@ -439,7 +438,7 @@ table,
     border-radius: var(--radius-card);
   }
 
-  /* Figure band — hairline-divided cells carrying the numbers a reader
+  /* Figure band, hairline-divided cells carrying the numbers a reader
      should leave with. Every cell names its source. */
   .kpi-band {
     background: var(--color-navy-deepest);
@@ -521,7 +520,7 @@ table,
 
 /* Navy graded into the photography so type sits on solid ground at the left
    and the image survives at the right. The hero ends on a hard edge against
-   the white field below it — a navy block placed on white, not a fade. */
+   the white field below it, a navy block placed on white, not a fade. */
 .hero-grade {
   position: absolute;
   inset: 0;
@@ -552,7 +551,7 @@ table,
    One orchestrated entrance, on the hero only: each line is unmasked from
    below on a shared exponential ease, and the figure strip's rule draws
    across after the last line lands. Nothing else on the site animates on
-   entrance — a page that reveals every section reads as an effect, not as
+   entrance, a page that reveals every section reads as an effect, not as
    a page settling. */
 
 .stage > * {
@@ -607,7 +606,7 @@ table,
   }
 
   /* Emphasis inside a headline. The parent brand loads Merriweather italic
-     600/700 — the italic is the device, not a weight change or a tint
+     600/700, the italic is the device, not a weight change or a tint
      gradient. */
   .display-accent {
     font-style: italic;
@@ -615,7 +614,7 @@ table,
   }
 
   /* Running head / label: Inter Tight, the parent brand's UI face. Used for
-     wayfinding and column labels — never as a kicker above a heading. */
+     wayfinding and column labels, never as a kicker above a heading. */
   .running-head {
     font-family: var(--font-body), system-ui, sans-serif;
     font-size: 11px;
@@ -807,8 +806,7 @@ table,
     animation-iteration-count: 1 !important;
   }
 
-  /* Transitions are cut for the properties that actually move a thing —
-     position, scale and blur — and only those. Colour, border and shadow
+  /* Transitions are cut for the properties that actually move a thing, position, scale and blur, and only those. Colour, border and shadow
      transitions survive, because they are how a control reports hover,
      focus, disabled and invalid. A blanket `transition-duration: 0.01ms`
      takes that feedback away from the users who asked for less motion,

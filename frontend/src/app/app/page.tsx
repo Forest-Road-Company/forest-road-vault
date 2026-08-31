@@ -4,7 +4,7 @@ import { AppSurface } from "@/components/app/AppSurface";
 import {IS_LOCAL_FORK, NETWORK_NAME} from "@/config/contracts";
 
 export const metadata: Metadata = {
-  title: "App — Forest Road Vault",
+  title: "App | Forest Road Vault",
 };
 
 export default function AppPage() {

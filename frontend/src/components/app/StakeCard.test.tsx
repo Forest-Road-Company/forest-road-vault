@@ -62,8 +62,8 @@ function baseReads(overrides: Record<string, unknown> = {}) {
     feeExchangeRate: 8n * 10n ** 17n,
     impairmentSource: "0x4444444444444444444444444444444444444444",
     pendingSeniorImpairment: 0n,
-    // The GROSS mark. Junior capital takes the netted figure above to zero while this — the
-    // quantity that actually sizes the deferred fee — stays large. That divergence is the
+    // The GROSS mark. Junior capital takes the netted figure above to zero while this, the
+    // quantity that actually sizes the deferred fee, stays large. That divergence is the
     // whole point of the disclosure (audit R14-03).
     performanceFeeImpairment: 400_000n * 10n ** 18n,
     // AUDIT R15-01. The hurdle is asset-denominated: ceil(hwm * (totalSupply + 1e6) / 1e24).
@@ -81,7 +81,7 @@ afterEach(() => {
   reads = {};
 });
 
-describe("StakeCard — deferred global performance fee", () => {
+describe("StakeCard, deferred global performance fee", () => {
   it("warns an entrant even when queued-exit impairment is zero", () => {
     reads = baseReads();
     render(<StakeCard writesEnabled />);

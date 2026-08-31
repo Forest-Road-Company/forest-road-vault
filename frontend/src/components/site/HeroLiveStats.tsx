@@ -3,9 +3,8 @@
 /**
  * Hero figure strip.
  *
- * The headline figures are the ones that are structurally true at any scale —
- * how the book is divided and how many layers of capital sit ahead of a
- * depositor — derived from the same data the rest of the site renders, so they
+ * The headline figures are the ones that are structurally true at any scale, * how the book is divided and how many layers of capital sit ahead of a
+ * depositor, derived from the same data the rest of the site renders, so they
  * cannot drift from it.
  *
  * The live Sepolia reads follow as a secondary line rather than leading. They
@@ -14,7 +13,7 @@
  * the protocol's headline claim.
  *
  * Anything not honestly derivable from chain state (e.g. trailing yield, which
- * needs rate history) is not shown. Live values render "—" until the reads
+ * needs rate history) is not shown. Live values render ", " until the reads
  * resolve; nothing is simulated.
  */
 
@@ -71,15 +70,15 @@ export function HeroLiveStats() {
   const live = [
     {
       label: "supply",
-      value: supply !== undefined ? `${fmtAmount(supply, 18, 0)} USDfr` : "—",
+      value: supply !== undefined ? `${fmtAmount(supply, 18, 0)} USDfr` : ", ",
     },
     {
       label: "backing",
-      value: backing !== undefined ? `$${fmtAmount(backing, 18, 0)}` : "—",
+      value: backing !== undefined ? `$${fmtAmount(backing, 18, 0)}` : ", ",
     },
     {
       label: "facilities",
-      value: facilities !== undefined ? facilities.toString() : "—",
+      value: facilities !== undefined ? facilities.toString() : ", ",
     },
   ];
 

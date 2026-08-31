@@ -7,15 +7,15 @@ behaviour: realized senior yield now enters the exchange rate immediately instea
 a window, and the protocol performance fee now crystallizes inside every interest repayment rather
 than lazily at the next checkpoint.
 
-Both are implemented correctly. The audit found no High finding, and — for the first time in this
-sequence — the substantive items are about the governance record rather than the arithmetic.
+Both are implemented correctly. The audit found no High finding, and, for the first time in this
+sequence: the substantive items are about the governance record rather than the arithmetic.
 
 That is a meaningful change of posture, and it is worth being precise about what it does and does
 not mean.
 
 ## The two changes
 
-**Instant recognition.** With the vesting window set to zero, the yield-notification call becomes
+**Instant recognition.** With the vesting window set to zero: the yield-notification call becomes
 a pure lock release: the assets are already in the vault balance from the mint that preceded it,
 the delivery lock still spans the whole window, and no deposit or fee checkpoint can price against
 the transient state in between. This is also a strict improvement on the previous code, which would
@@ -36,7 +36,7 @@ The vesting decision originally rested on two reasons. One of them has been retr
 correctly; the other has been overridden without being answered.
 
 The retracted reason was that a stepwise exchange rate is a prerequisite for the intended
-integration's rate oracle. That claim was overstated — a monotone stepwise rate is consumable — and
+integration's rate oracle. That claim was overstated: a monotone stepwise rate is consumable, and
 the correction is stated plainly in the architecture decision record, the threat model, the launch
 runbook and the public documentation rather than being quietly dropped. Getting a prior
 justification wrong and then saying so in the places a reader will actually look is the right
@@ -44,13 +44,13 @@ behaviour, and it should not be reversed.
 
 The second reason was a red-team finding: whoever holds shares at the instant a payment lands
 captures a full pro-rata slice of it. That finding was deleted rather than dispositioned, and the
-mitigation now relied upon — the redemption cooldown — is the one the same record previously judged
+mitigation now relied upon, the redemption cooldown, is the one the same record previously judged
 insufficient, in terms: it makes the trade unprofitable but does not remove the mechanic. The
 cooldown binds only the direct queue exit. Vault shares are freely transferable with no holding
 period, so the liquid secondary market that the motivating integration creates restores an
 immediate round trip on the captured step.
 
-In fairness, vesting never fully removed that mechanic either — an entrant arriving just after a
+In fairness, vesting never fully removed that mechanic either, an entrant arriving just after a
 payment still received the stream pro rata as it vested. What vesting bought was mandatory time and
 credit exposure. So the honest description is that the protection has been reduced rather than
 removed. That description appears nowhere, and it should.
@@ -79,7 +79,7 @@ that a gate signed against one parameter value is now being carried against a di
 One finding concerns the arithmetic, and it is the only one that could change contract behaviour.
 
 Profit is measured against one valuation base, but the fee shares that settle it are sized against
-a second, higher one — while the shares, once minted, dilute a third. The consequence is that a
+a second, higher one, while the shares, once minted, dilute a third. The consequence is that a
 purely positive repayment can lower the reported exchange rate.
 
 **Corrected after this report was first filed.** A proof of concept was written for exactly this
@@ -114,7 +114,7 @@ Three smaller items, all in the direction of accuracy rather than risk.
 The depositor-facing warning added by the previous round is keyed on the wrong quantity: it fires on
 the remaining fee-free runway, whereas the fee that eventually crystallizes is largest precisely
 when that runway is exhausted. The predicate is therefore inverse to the exposure it advertises,
-and it falls silent at the point of maximum deferral — which per-repayment crystallization now makes
+and it falls silent at the point of maximum deferral, which per-repayment crystallization now makes
 the ordinary steady state. The interface also cannot read the relevant valuation at all; it is
 absent from the published contract surface the front end consumes.
 
@@ -129,7 +129,7 @@ so that branch is no longer tested.
 
 The reported figures were reproduced rather than accepted. The contract suite passes at the stated
 count with no failures, the vault runtime and its remaining size headroom match exactly, and the
-new continuous-integration size gate is real — it enumerates every production implementation and
+new continuous-integration size gate is real, it enumerates every production implementation and
 fails closed. The interface identifier was recomputed independently to confirm that adding the
 inherited support interface did not change its value, since a mismatch there would have silently
 rejected the genuine backstop.
@@ -140,8 +140,8 @@ here.
 
 ## Status
 
-Five findings, none High: two Medium — the fee-share denomination question and the incomplete
-record for instant recognition — and three Low. All are open.
+Five findings, none High: two Medium, the fee-share denomination question and the incomplete
+record for instant recognition, and three Low. All are open.
 
 The two items worth settling before external review are the gate re-confirmation, which is a
 signature rather than an engineering task, and a proof of concept for the accounting finding. The

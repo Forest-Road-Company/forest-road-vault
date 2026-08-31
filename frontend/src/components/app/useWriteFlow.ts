@@ -24,6 +24,34 @@ import {EXPECTED_CHAIN} from "@/lib/wagmi";
 
 const RECEIPT_TIMEOUT_MS = 90_000;
 
+/**
+ * Extra gas added to the estimate on every write.
+ *
+ * WHY THIS IS NOT OPTIONAL. `PointsHookGas` enforces an ABSOLUTE floor: the hook reverts unless
+ * `gasleft()` is at least 500,000 when it is entered, and the hook runs inside every USDfr and
+ * sUSDfr balance change. So a transaction's required gas LIMIT is
+ * `(gas burned before the hook) + 500,000 + (hook cost)`, which is far above what it actually
+ * consumes and, crucially, moves with the state: whether the points slots are cold or warm shifts
+ * the pre-hook term, and the floor turns that shift into a revert rather than a cheaper receipt.
+ *
+ * `simulateContract` returns no `gas`, so without this the wallet estimates at submission time and
+ * the transaction carries a limit that is exact for the state it was measured in and has zero
+ * margin for the state it actually executes in.
+ *
+ * MEASURED, on the pinned fork of the 14 August Sepolia deployment (block 11,489,500), staking
+ * 50 USDfr through this very hook:
+ *   - the wallet sized the transaction at   985,116 gas  -> REVERTED, burning 505,611
+ *   - the true minimum viable limit was   1,021,000 gas  -> succeeded, consuming 607,123
+ * A 3.5% drift between estimate and execution was enough to fail a user's deposit and charge them
+ * for it. Consumption (607k) is 68% below the limit the floor demands (1,021k), so no
+ * consumption-derived estimate is safe on its own.
+ *
+ * 300,000 is ~8x the drift measured above and stays below the 500,000 floor itself, so it cannot
+ * mask a transaction that is genuinely short. Unused gas is refunded; this raises the limit, not
+ * the fee paid.
+ */
+const POINTS_HOOK_GAS_HEADROOM = 300_000n;
+
 export type WriteStatus =
   | {phase: "idle"}
   | {phase: "simulating"}
@@ -42,7 +70,7 @@ export function useWriteFlow() {
   const config = useConfig();
   const flowGeneration = useRef(0);
 
-  // A status belongs to the account that produced it — clear it on switch
+  // A status belongs to the account that produced it, clear it on switch
   // (derived-state reset during render, per React's adjust-state-on-prop-change
   // pattern; an effect would lag one paint and trip set-state-in-effect).
   const [statusOwner, setStatusOwner] = useState(address);
@@ -140,11 +168,26 @@ export function useWriteFlow() {
           throw new Error(`RPC mismatch: ${beforeSubmission.message}`);
         }
         if (!isCurrentFlow()) return;
+        // Size the transaction ourselves rather than letting the wallet estimate with no margin.
+        // See POINTS_HOOK_GAS_HEADROOM: the absolute points-hook floor makes a bare estimate
+        // state-sensitive, and a stale one reverts on-chain after a clean simulation.
+        const estimatedGas = await executionClient.estimateContractGas({
+          account: address,
+          address: params.address,
+          abi: params.abi,
+          functionName: params.functionName,
+          args: params.args as unknown[],
+        });
+        if (!isCurrentFlow()) return;
         setCurrentStatus({phase: "signing"});
         // chainId makes wagmi assert the wallet is on the build-selected chain at submission time
         // (ChainMismatchError instead of a real tx on the wrong chain). Without it,
         // simulation can run against one network while the tx goes to another.
-        const hash = await writeContractAsync({...request, chainId: EXPECTED_CHAIN.id});
+        const hash = await writeContractAsync({
+          ...request,
+          gas: estimatedGas + POINTS_HOOK_GAS_HEADROOM,
+          chainId: EXPECTED_CHAIN.id,
+        });
         setCurrentStatus({phase: "pending", hash});
         const replacement: {reason?: "cancelled" | "replaced" | "repriced"} = {};
         const receipt = await executionClient.waitForTransactionReceipt({
@@ -156,7 +199,7 @@ export function useWriteFlow() {
         });
         const minedHash = receipt.transactionHash;
         if (receipt.status !== "success") {
-          // A tx that simulated fine but reverted on-chain — report it, never mask it.
+          // A tx that simulated fine but reverted on-chain, report it, never mask it.
           setCurrentStatus({
             phase: "error",
             message: "Transaction reverted on-chain.",
@@ -194,7 +237,7 @@ export function useWriteFlow() {
           message: decoded.message,
           errorName: decoded.errorName,
         });
-        // A timed-out wait can still land on-chain later — refresh reads anyway.
+        // A timed-out wait can still land on-chain later, refresh reads anyway.
         void queryClient.invalidateQueries();
       }
     },
@@ -203,7 +246,7 @@ export function useWriteFlow() {
 
   // AUDIT FIX (RC-05): `reset` must never orphan an in-flight write. Bumping the
   // generation while a transaction is simulating, awaiting signature, or already
-  // submitted would leave that transaction unable to report its own outcome — every
+  // submitted would leave that transaction unable to report its own outcome, every
   // continuation is gated on `isCurrentFlow()`, so an on-chain revert would be
   // swallowed and the card would sit at "idle" while the transaction is live.
   // Callers that switch context should also disable their control while `busy`.

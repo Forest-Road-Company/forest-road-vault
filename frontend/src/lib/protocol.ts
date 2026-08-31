@@ -1,6 +1,6 @@
 /**
  * Typed protocol read layer (brief §8.4). Every dashboard number flows through these
- * views, each backed by specific contract reads — nothing on the transparency surface
+ * views, each backed by specific contract reads, nothing on the transparency surface
  * may come from anywhere else. Implementations use viem `readContract`/multicall
  * against the addresses in config/contracts.ts. When a required deployment address is
  * absent, the affected view resolves to `null` and the UI renders an honest unavailable
@@ -11,7 +11,7 @@ import {isProtocolLive, contractAddress} from "@/config/contracts";
 import {publicClient} from "@/lib/client";
 import {POINTS_ABI} from "@/lib/abi";
 
-// Minimal inline ABIs — only the read functions this layer calls (no address is read
+// Minimal inline ABIs, only the read functions this layer calls (no address is read
 // from anywhere but config/contracts.ts).
 const ERC20_SUPPLY_ABI = [
   {type: "function", name: "totalSupply", stateMutability: "view", inputs: [], outputs: [{type: "uint256"}]},
@@ -52,7 +52,7 @@ export type PointsView = {
 };
 
 /** Honest framing contract for every points surface (ADR-0016 / brief Part 0.5):
- *  points are a participation measure — no token promise, no implied profit. */
+ *  points are a participation measure, no token promise, no implied profit. */
 export const POINTS_DISCLAIMER =
   "Points measure participation. They are not a token or a claim on one; any future utility is discretionary and subject to counsel review.";
 
@@ -83,7 +83,7 @@ export async function getProtocolStats(): Promise<ProtocolStats | null> {
     usdfrSupply,
     susdfrSupply,
     exchangeRate,
-    trailingYieldBps: 0, // needs exchange-rate history (indexer) — not yet wired
+    trailingYieldBps: 0, // needs exchange-rate history (indexer), not yet wired
     reserveIdle,
     reserveDeployed,
     asOfBlock: block,

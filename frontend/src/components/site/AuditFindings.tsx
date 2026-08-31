@@ -4,7 +4,7 @@ import type { AuditFinding, Disposition, Severity } from "@/content/audits";
  * Findings are rendered as structured cards rather than a markdown table.
  *
  * The docs pipeline runs `react-markdown` without `remark-gfm`, so pipe tables in
- * markdown are emitted as literal text — the `.doc-prose table` rules in globals.css
+ * markdown are emitted as literal text, the `.doc-prose table` rules in globals.css
  * never match anything. Registers therefore live in typed data (`content/audits.ts`)
  * and render through this component, which also keeps severity and disposition
  * vocabulary consistent across every round.
@@ -38,6 +38,19 @@ const PILL =
 
 export function SeverityPill({ severity }: { severity: Severity }) {
   return <span className={`${PILL} ${SEVERITY_STYLE[severity]}`}>{severity}</span>;
+}
+
+/**
+ * Forest Road's own rating, shown NEXT TO the auditor's rather than replacing it.
+ * The prefix is not decoration: a reader who opens the published report must be able to
+ * see instantly which number came from the auditor and which from us.
+ */
+function AssessedPill({ severity }: { severity: Severity }) {
+  return (
+    <span className={`${PILL} ${SEVERITY_STYLE[severity]}`}>
+      Forest Road: {severity}
+    </span>
+  );
 }
 
 export function DispositionPill({ disposition }: { disposition: Disposition }) {
@@ -80,6 +93,7 @@ export function AuditFindingsList({ findings }: { findings: AuditFinding[] }) {
           <div className="flex flex-wrap items-center gap-2">
             <span className="running-head">{f.id}</span>
             <SeverityPill severity={f.severity} />
+            {f.assessed ? <AssessedPill severity={f.assessed.severity} /> : null}
             <span className="ml-auto">
               <DispositionPill disposition={f.disposition} />
             </span>
@@ -90,6 +104,20 @@ export function AuditFindingsList({ findings }: { findings: AuditFinding[] }) {
           <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-muted">
             {f.note}
           </p>
+          {f.assessed ? (
+            <div className="mt-3 rounded-card border border-line bg-surface/60 p-3.5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
+                Forest Road assessment: {f.assessed.severity}
+              </p>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-ink-muted">
+                {f.assessed.why}
+              </p>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-ink-muted">
+                <span className="text-ink">Restores to {f.severity} when: </span>
+                {f.assessed.until}
+              </p>
+            </div>
+          ) : null}
         </li>
       ))}
     </ul>

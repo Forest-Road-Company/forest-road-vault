@@ -1,5 +1,5 @@
 /** Display formatting for on-chain values. Pure helpers, no rounding tricks that
- *  could overstate a balance — truncation, not rounding up (honesty rule). */
+ *  could overstate a balance, truncation, not rounding up (honesty rule). */
 
 import {formatUnits} from "viem";
 

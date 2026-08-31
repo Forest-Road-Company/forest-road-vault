@@ -48,7 +48,7 @@ export function MintCard({writesEnabled, chainOk}: {writesEnabled: boolean; chai
   const needsApproval =
     parsed !== null && parsed > 0n && allowance !== undefined && allowance < parsed;
   // allowance must have LOADED before we can honestly label the button
-  // "Approve" vs "Mint" — until then the action stays disabled.
+  // "Approve" vs "Mint", until then the action stays disabled.
   const canSubmit =
     writesEnabled && parsed !== null && parsed > 0n && allowance !== undefined && !flow.busy;
 

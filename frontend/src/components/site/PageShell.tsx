@@ -6,7 +6,7 @@ import { NETWORK_NAME } from "@/config/contracts";
  * The content-page opening: a real breadcrumb on a hairline rule, then the
  * title and lede.
  *
- * The previous version set an accent label directly above the h1 — a kicker,
+ * The previous version set an accent label directly above the h1, a kicker,
  * which this design system does not use. The label survives only where it does
  * work the heading cannot: telling the reader where in the site they are, as a
  * navigable trail.
@@ -99,7 +99,7 @@ export function AwaitingContracts({ surface }: { surface: string }) {
         Awaiting {NETWORK_NAME} deployment
       </p>
       <p className="mx-auto mt-4 max-w-[52ch] text-[14.5px] leading-relaxed text-ink-muted">
-        The {surface} reads live on-chain state — and only live on-chain state.
+        The {surface} reads live on-chain state, and only live on-chain state.
         The protocol contracts will appear here once the configured deployment
         is present and verified on {NETWORK_NAME}. Nothing on this site is
         simulated.

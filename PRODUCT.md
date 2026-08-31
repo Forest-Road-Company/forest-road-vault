@@ -10,11 +10,11 @@ web
 
 Two primary audiences, served by one site with different needs:
 
-- **Institutional allocators** — Forest Road-relationship LPs, family offices, and credit funds doing
+- **Institutional allocators**: Forest Road-relationship LPs, family offices, and credit funds doing
   diligence on the speciality-finance book before a KYC-gated allocation. They arrive with credit
   underwriting habits: they want the collateral classes, the lien mechanics, the loss cascade, and the
   failure modes stated plainly. They read the risk and docs pages before they read the app.
-- **Crypto-native yield allocators** — DeFi-fluent depositors evaluating `sUSDfr` against other
+- **Crypto-native yield allocators**: DeFi-fluent depositors evaluating `sUSDfr` against other
   yield-bearing synthetic dollars. They want backing, redemption mechanics, and where yield comes from
   legible fast, and they check the audit register and contract addresses themselves.
 
@@ -29,13 +29,13 @@ lien-perfected off-chain credit facilities, and passes the interest through to a
 ERC-4626 vault (`sUSDfr`), with a three-layer loss cascade underneath.
 
 Success is an allocator who understands exactly what backs the dollar, where the yield originates,
-and what can go wrong — before they deposit. The site exists to make an off-chain credit book
+and what can go wrong, before they deposit. The site exists to make an off-chain credit book
 legible on-chain terms, not to generate excitement.
 
 ## Positioning
 
-Yield is the actual performance of a named, underwritten speciality-finance book — film and TV tax
-credits, renewable energy, life sciences, real estate, digital assets — sourced through Forest Road's
+Yield is the actual performance of a named, underwritten speciality-finance book, film and TV tax
+credits, renewable energy, life sciences, real estate, digital assets, sourced through Forest Road's
 existing origination, with perfected security interests and a stated remedy per collateral class.
 It is not farming, not rehypothecation, not a rate set by governance.
 
@@ -60,13 +60,20 @@ truthfully copy.
 
 ## Capabilities and Constraints
 
-- Deployed on **Ethereum Sepolia only**. Test assets have no value. Mainnet is not deployed and not
-  authorized; production activation is blocked by unchecked launch-runbook gates.
-- The testnet deployment retains bootstrap admin privileges, uses a mock stablecoin, and runs with
-  concentration limits fully open. Nothing healthy on that deployment is evidence about a production
-  configuration.
-- External security audit is satisfied (independent AI-assisted review, owner-dispositioned
-  4 August 2026). Several findings remain open and are published.
+- **Deployed to Ethereum mainnet on 16 August 2026**, at block 25,768,251, from freeze `f1f1f47`.
+  Bootstrap authority has been surrendered: the timelock holds `DEFAULT_ADMIN` and `UPGRADER` on
+  every module and no authority role survives on any deployer EOA. The reserve token is canonical
+  USDC. **Deployment is not launch**: capped-launch acceptance has not been performed, the stack
+  holds only a nominal seed, and the KYC allowlist is closed to third parties.
+- A **Sepolia build also exists** and is what the testnet surfaces read. That deployment retains
+  bootstrap admin privileges, uses a mock stablecoin, and runs with concentration limits fully open.
+  Nothing healthy on it is evidence about the production configuration. Copy that speaks about
+  testnet must be conditional on the build target, never asserted absolutely.
+- **External review has been conducted; do not shorten that to "audited".** Corrovera reviewed the
+  4 August tree (AI-assisted, owner-dispositioned) and again against the live mainnet deployment on
+  16 August; Cantina Managed reviewed the supply gateway, two files, on 27 August. Gates complete
+  and independently audited are different claims, and the Corrovera report does not present itself
+  as an unqualified independent audit. Several findings remain open and are published.
 - Yield is variable and reflects book performance only. No target, projected, or implied APY.
 - Terminology to keep exact: `USDfr` (synthetic dollar), `sUSDfr` (ERC-4626 yield vault), the
   three-layer loss cascade, perfected lien / receivable vs. marked-to-market collateral models,
@@ -83,13 +90,12 @@ truthfully copy.
   **Merriweather** 600–700 (serif, normal tracking, near-1.0 leading at display size) and nav/UI in
   **Inter Tight** 500–600, with body copy in a neutral grotesque. The vault site follows: Merriweather
   for display, Inter Tight for UI and body, and a mono reserved strictly for on-chain strings
-  (addresses, hashes, calldata). The parent's link blue `#1f8aff` is deliberately *not* adopted — a
+  (addresses, hashes, calldata). The parent's link blue `#1f8aff` is deliberately *not* adopted, a
   bright blue accent on navy is the generic on-chain look; `#9db0d4` remains the accent.
 - **Expression is otherwise flexible.** Layout, section concepts, motion, and page structure may be
   redesigned when justified.
 - Voice is institutional and plain: state the mechanism, state the risk, do not sell.
-- **Standing direction preference (chosen 2026-08-05):** the category standard, executed straight —
-  the arrangement an allocator already expects from an on-chain credit protocol, at full craft, with
+- **Standing direction preference (chosen 2026-08-05):** the category standard, executed straight, the arrangement an allocator already expects from an on-chain credit protocol, at full craft, with
   no ironic distance and no smuggled novelty. Craft bar is Ethena / Sky / Spark and
   Morpho / Maple / Centrifuge. Future design rounds inherit this preference unless the user revisits
   it; do not re-open it as a concept exercise.
@@ -103,7 +109,7 @@ truthfully copy.
   remedies in `src/lib/verticals.ts`.
 - Brand assets: FRAM lockups and marks, hero photography (`public/brand/hero-cover.jpg`,
   `public/hero-terrain.jpg`).
-- **Absent — must never be fabricated:** customer or LP testimonials, AUM or track-record figures not
+- **Absent, must never be fabricated:** customer or LP testimonials, AUM or track-record figures not
   already published, third-party partner or integration logos, benchmark comparisons, projected
   yields, mainnet launch dates, licensing or regulatory-approval claims.
 
@@ -118,7 +124,7 @@ truthfully copy.
 4. **Counsel owns legal characterization.** Copy never characterizes the instruments as
    non-securities or implies any legal conclusion about them.
 5. **Two literacies, one truth.** Credit-fund readers and DeFi-native readers get the same facts,
-   sequenced for their entry point — never a different story.
+   sequenced for their entry point, never a different story.
 
 ## Accessibility & Inclusion
 

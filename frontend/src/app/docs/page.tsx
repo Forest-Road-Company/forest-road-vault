@@ -6,7 +6,7 @@ import { ADDRESSES_SECTION, AUDIT_SECTION, DOCS } from "@/content/docs";
 import {IS_TESTNET, NETWORK_NAME} from "@/config/contracts";
 
 export const metadata: Metadata = {
-  title: "Docs — Forest Road Vault",
+  title: "Docs | Forest Road Vault",
   description:
     "Protocol documentation: overview, the safety-spec guarantees, the governance role model, and the security posture.",
 };

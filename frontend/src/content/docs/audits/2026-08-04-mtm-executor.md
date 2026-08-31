@@ -7,7 +7,7 @@ contract had entered the protocol *after* our sixteenth review round and had nev
 any of them.
 
 `MtmAtomicExecutor` is 95 lines. It is deployed in the production path, inherited by the mainnet
-deployment script, and wired to the two most sensitive modules in the system — the attestation oracle
+deployment script, and wired to the two most sensitive modules in the system, the attestation oracle
 and the default manager. It had twelve unit tests and nothing else. No finding, no proof-of-concept,
 no invariant family referenced it.
 
@@ -23,7 +23,7 @@ window: everyone can see the position is about to be liquidated, and the protect
 yet.
 
 The executor closes that window by making both halves one transaction. It takes a threshold-signed
-mark, records it, and applies the strongest action the resulting on-chain state permits — or reverts
+mark, records it, and applies the strongest action the resulting on-chain state permits, or reverts
 both. Crucially, **the caller does not choose the action.** It attempts liquidation first and may
 only fall back to a lesser action when the default manager returns one exact, fully-specified
 "threshold not breached" result. Anything else aborts the whole operation.
@@ -34,7 +34,7 @@ the on-chain rules authorise the action.
 
 ## What we found
 
-Six independent reviewers attacked it from different angles — the revert parser, liveness, protocol
+Six independent reviewers attacked it from different angles, the revert parser, liveness, protocol
 integration, MEV and ordering, deployment, and the off-chain keeper. Between them they raised **44
 candidate findings**. Each of the most severe was then handed to a separate reviewer whose only job
 was to destroy it.
@@ -48,13 +48,13 @@ up when someone attacked it properly.
 ### The parser cannot tell you who is speaking
 
 The contract decides whether to liquidate by inspecting the *shape* of the error the default manager
-returns. Custom errors in Solidity carry no proof of origin — and the liquidation path continues past
+returns. Custom errors in Solidity carry no proof of origin, and the liquidation path continues past
 its own threshold check into four further contracts, whose errors pass straight back through.
 
 A contract on that path can therefore imitate the default manager's own "not breached" verdict, and
 the executor will believe it: a materially breached position is downgraded to a margin call while the
-transaction **reports success**. Our keeper checks the receipt only for internal consistency — the
-action the executor declares must match the event the default manager actually emitted — and a
+transaction **reports success**. Our keeper checks the receipt only for internal consistency, the
+action the executor declares must match the event the default manager actually emitted, and a
 downgraded action satisfies that perfectly well, so it sees green too.
 
 This is exactly the outcome the design was written to make impossible, and the code comments and the
@@ -62,15 +62,15 @@ decision record both claim more than the code delivers. **We are correcting thos
 of whether we change the code**, because a reader who trusts them will trust the wrong thing.
 
 It is Low rather than High because reaching it requires a privileged configuration change that the
-production deployment does not permit — the mainnet script drops the relevant administrative role
-entirely — and because post-deployment validation independently checks the wiring that would enable
+production deployment does not permit, the mainnet script drops the relevant administrative role
+entirely, and because post-deployment validation independently checks the wiring that would enable
 it. Anyone able to set it up could block the liquidation outright anyway, which is strictly more
 power than the downgrade.
 
 ### The keeper shows its hand before it plays
 
 Before submitting, the off-chain keeper simulates the transaction against a read-only node. That
-simulation contains the complete signed bundle — and because recording a mark is permissionless, that
+simulation contains the complete signed bundle, and because recording a mark is permissionless, that
 bundle is effectively a bearer credential. Whoever operates that node can use it, alone, and split
 apart the atomicity the executor exists to provide.
 
@@ -79,7 +79,7 @@ executable calldata before that atomic transaction is included.* Nobody had reco
 simulation step against that sentence, and no trust requirement for that endpoint is written down
 anywhere.
 
-It is Low because the endpoint can be — and should be — one the operator controls, and because the
+It is Low because the endpoint can be, and should be, one the operator controls, and because the
 obvious way to exploit it does not work: exits run through a queue with a three-week cooldown that
 prices at settlement, so there is no way to sprint out ahead of the loss.
 
@@ -89,10 +89,10 @@ Worth reporting, because a clean result on a new contract is a result.
 
 We enumerated **every one of the 172 custom errors** in the production source to look for one that
 could be mistaken for the fallback trigger. Eighteen have exactly the right length. **None collides.**
-The assembly is correct, the length check is strict, and malformed, empty and panic-shaped failures
+The assembly is correct: the length check is strict, and malformed, empty and panic-shaped failures
 all abort rather than downgrade.
 
-The central design claim — that a caller cannot choose a weaker action — **holds**, including against
+The central design claim: that a caller cannot choose a weaker action, **holds**, including against
 the sharpest attack we could think of: submitting a mark early to force a margin call where waiting
 would have forced a liquidation. That does not exist.
 
@@ -102,17 +102,17 @@ fall back to a public one. That was the specific thing we most suspected, and we
 ## What we got wrong ourselves
 
 Two of the three hypotheses we seeded into this audit were refuted by it. We believed valuations fed
-the protocol's solvency calculation — they do not, which removed the impact from several findings we
+the protocol's solvency calculation: they do not, which removed the impact from several findings we
 had been inclined to accept. And our description of a liveness gap during the cure window overstated
 it: marks are taken at most daily, which bounds the exposure to a single missed cycle rather than a
 continuous blind period. That correction came from Forest Road, against our own analysis.
 
 Seeding an auditor's hypotheses into an audit is efficient, and it is also how those hypotheses
 become the audit's conclusions. We mitigated it by instructing every reviewer to refute the seeds as
-readily as confirm them. Six reviewers still converged on the same liveness gap — and every verifier
+readily as confirm them. Six reviewers still converged on the same liveness gap, and every verifier
 still refused to raise it, because its consequence was already published under an earlier finding.
 
-## Risk acceptance — 4 August 2026
+## Risk acceptance, 4 August 2026
 
 Forest Road formally accepted `MTM-01` at **Low / PROVEN**. Accepted is used strictly: the mechanism
 remains live, no code fix exists, and nothing has refuted the reproduction. The decision retains the
@@ -123,7 +123,7 @@ installing the forging module could already block liquidation outright.
 
 The acceptance is conditional. It must be revisited if the mainnet role posture changes, the
 impairment source or its access control/upgradeability changes, another attacker-influenceable
-external call is added after the threshold check, the exact wiring assertion is weakened or fails,
+external call is added after the threshold check: the exact wiring assertion is weakened or fails,
 or new evidence establishes non-governance reachability or materially greater impact. The decision
 record now describes the provenance limit explicitly rather than claiming that shape validation can
 authenticate a deliberate downstream forgery.
@@ -131,7 +131,7 @@ authenticate a deliberate downstream forgery.
 Acceptance removes this Low finding as a release blocker. It does not mark the mechanism fixed and
 does not waive the independent-review, external-audit or production-operations gates.
 
-## Remediation follow-up — 4 August 2026
+## Remediation follow-up, 4 August 2026
 
 `MTM-02` is fixed. The review confirmed that the disclosure was broader than the first report:
 standalone attestation simulation, atomic-executor simulation and gas estimation each carried the
@@ -171,9 +171,8 @@ a provider/operator disposition, not an open code defect or an acceptance of `MT
 
 One thing the fix cost, recorded because the register should show both sides. Removing the pre-flight
 simulation also removed the `expectedAction` cross-check: the keeper used to compare the action in
-the receipt against the action its simulation had predicted. Receipt verification is still thorough —
-the action the executor declares must match the event the default manager actually emitted, and the
-remedy-log count must agree — but it now checks the receipt against itself, and its return value is
+the receipt against the action its simulation had predicted. Receipt verification is still thorough, the action the executor declares must match the event the default manager actually emitted, and the
+remedy-log count must agree, but it now checks the receipt against itself, and its return value is
 discarded at both call sites. The new pre-submission precheck predicts the branch locally, yet that
 prediction is never compared with what executed. This does not weaken `MTM-01` detection, which the
 old check never caught either: under that finding the simulation was downgraded identically, so the
@@ -183,7 +182,7 @@ Comparing the precheck's prediction against the verifier's return value would cl
 A follow-up review of the remediation's own test evidence found the leak detector had no positive
 control: the three nested selector sets are built from hand-written signature strings, so a drift
 from the contract ABI would silently disarm the guard while every assertion still passed. The guard
-is now self-proving — each selector is re-derived by parsing the contract source rather than
+is now self-proving: each selector is re-derived by parsing the contract source rather than
 compared against a second copy of the same hand-written string, and each counter is
 proven capable of firing.
 

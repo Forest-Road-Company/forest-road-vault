@@ -19,7 +19,7 @@ export function eligibleAtSeconds(requestedAt: bigint, redeemCooldown: bigint): 
 
 /**
  * Seconds still to wait before a request is first eligible, floored at zero.
- * `null` when the live cooldown has not loaded — callers must not substitute a default,
+ * `null` when the live cooldown has not loaded, callers must not substitute a default,
  * because understating the hold is the defect FRV-FS-02 was raised for.
  */
 export function secondsUntilEligible(

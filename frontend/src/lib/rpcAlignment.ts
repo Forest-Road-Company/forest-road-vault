@@ -31,11 +31,39 @@ export function isLocalRpcUrl(url: string): boolean {
   return LOCAL_RPC_RE.test(url);
 }
 
+/**
+ * JSON-RPC specifies a 0x-prefixed hex quantity, and a compliant endpoint returns one.
+ * Wallet transports are not uniformly compliant: Fireblocks over WalletConnect, and several
+ * other custody and mobile shims, return `eth_chainId` and `eth_blockNumber` as a JS number
+ * or a bare decimal string. The original strict form rejected those with "RPC returned an
+ * invalid chain ID" while the wallet was in fact on the correct chain, wagmi had already
+ * confirmed the network before this probe ran, so the user was told their RPC was broken
+ * when nothing was.
+ *
+ * WIDENED DELIBERATELY, AND THE DIRECTION IS SAFE. This guard exists to COMPARE two chain
+ * IDs and two block heights, not to police their encoding: `1`, `"1"` and `"0x1"` are the
+ * same claim. Anything that is not an exact non-negative integer is still refused, and a
+ * bare decimal string is genuinely ambiguous with hex (`"11"` is 11 or 17). That ambiguity
+ * is tolerable only because every consumer of this value FAILS CLOSED: a misparse makes the
+ * chain comparison unequal or the block gap large, both of which block writes. It must never
+ * be relaxed into a form that returns a default on unparseable input.
+ */
 function asRpcQuantity(value: unknown, label: string): bigint {
-  if (typeof value !== "string" || !/^0x[0-9a-fA-F]+$/.test(value)) {
-    throw new Error(`RPC returned an invalid ${label}.`);
+  if (typeof value === "bigint") {
+    if (value < 0n) throw new Error(`RPC returned an invalid ${label}.`);
+    return value;
   }
-  return BigInt(value);
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`RPC returned an invalid ${label}.`);
+    }
+    return BigInt(value);
+  }
+  if (typeof value === "string") {
+    if (/^0x[0-9a-fA-F]+$/.test(value)) return BigInt(value);
+    if (/^[0-9]+$/.test(value)) return BigInt(value); // decimal shim
+  }
+  throw new Error(`RPC returned an invalid ${label}.`);
 }
 
 function asBlockHash(value: unknown): `0x${string}` {

@@ -49,10 +49,18 @@ export const DOCS: DocEntry[] = [
     summary:
       "Test rigor, exact current evidence, the multi-round internal audit, and the human-owned production assurance gates.",
   },
+  {
+    slug: "integrating",
+    file: "integrating.md",
+    title: "Integrating",
+    eyebrow: "For builders",
+    summary:
+      "Where our tokens depart from what their interfaces imply: asynchronous redemption through the queue, the absolute gas floor on every balance change, sanctions-screened transfers, and the 24-decimal share. Read before wiring a router, adapter or aggregator.",
+  },
 ];
 
 /**
- * The audit section is not a single markdown page and so is not a DOCS entry — it is a
+ * The audit section is not a single markdown page and so is not a DOCS entry: it is a
  * register of separate review rounds at /docs/audit, each with its own findings and
  * remediation history (see ./audits.ts). It is listed last in the docs reading order and
  * is the "next" target after the final DOCS entry.

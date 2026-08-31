@@ -3,7 +3,7 @@
 /**
  * The app surface: connect state, network guard, KYC gate, and the three write
  * cards. Gate semantics (2026-07-14 compliance re-architecture): a non-KYC address
- * can connect, hold, view, transfer AND stake — only the primary-market mint and
+ * can connect, hold, view, transfer AND stake, only the primary-market mint and
  * instant-redeem writes are KYC-gated. The contracts enforce exactly this on-chain
  * (KYC at mint/redeem; sanctions-only on transfers; permissionless vault deposit);
  * the UI never pretends otherwise.
@@ -86,10 +86,10 @@ export function AppSurface() {
     query: {enabled: Boolean(address) && rightNetwork && rpcReady, ...POLL},
   });
 
-  /** Connected on the configured chain — enough for actions the contracts leave un-gated
+  /** Connected on the configured chain, enough for actions the contracts leave un-gated
    *  (faucet, queue request/claim). */
   const chainOk = isConnected && rightNetwork && rpcReady;
-  /** KYC-gated actions (mint, instant redeem only) — mirrors the on-chain primary gate.
+  /** KYC-gated actions (mint, instant redeem only), mirrors the on-chain primary gate.
    *  Staking (vault deposit) is permissionless on-chain, so it uses chainOk, not this. */
   const writesEnabled = chainOk && kycAllowed === true;
 
@@ -122,7 +122,7 @@ export function AppSurface() {
               not KYC-verified
             </span>
           ) : kycError ? (
-            // A failed read is NOT a verdict — never assert non-verification we
+            // A failed read is NOT a verdict, never assert non-verification we
             // haven't determined.
             <span className="rounded-pill border border-line-strong px-3.5 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
               KYC check unavailable
@@ -163,7 +163,7 @@ export function AppSurface() {
 
       {/* Empty state that teaches the surface rather than announcing absence:
           it says what is already usable, what a wallet unlocks, and what the
-          KYC gate does and does not cover — the three things a first-time
+          KYC gate does and does not cover, the three things a first-time
           visitor otherwise has to discover by clicking a disabled button. */}
       {!isConnected ? (
         <div className="mt-6 rounded-card border border-line bg-surface px-5 py-4">
@@ -192,7 +192,7 @@ export function AppSurface() {
       {/* ── Write cards ──────────────────────────────────────────────── */}
       <div className="mt-8 grid gap-5 lg:grid-cols-3">
         <MintCard writesEnabled={writesEnabled} chainOk={chainOk} />
-        {/* Staking is permissionless on-chain (2026-07-14) — gate on network only, not KYC. */}
+        {/* Staking is permissionless on-chain (2026-07-14), gate on network only, not KYC. */}
         <StakeCard writesEnabled={chainOk} />
         <RedeemCard writesEnabled={writesEnabled} chainOk={chainOk} />
       </div>

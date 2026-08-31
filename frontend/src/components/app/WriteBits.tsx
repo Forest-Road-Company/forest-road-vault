@@ -10,7 +10,7 @@ export const EXPLORER_TX = EXPLORER_BASE_URL
   ? `${EXPLORER_BASE_URL}/tx/`
   : null;
 
-/** Phase-accurate busy label — the button must never say "Confirm in wallet…"
+/** Phase-accurate busy label: the button must never say "Confirm in wallet…"
  *  while the status line says the tx is already pending. */
 export function busyLabelFor(status: WriteStatus): string {
   if (status.phase === "simulating") return "Simulating…";
@@ -32,7 +32,7 @@ export function AmountInput({
   onChange: (v: string) => void;
   symbol: string;
   /** Token precision cap. viem's parseUnits ROUNDS UP fractions beyond the
-   *  token's decimals — capping input here prevents that entirely. */
+   *  token's decimals, capping input here prevents that entirely. */
   maxDecimals: number;
   disabled?: boolean;
   /** Draws the field's error state. The message itself belongs to the caller,
@@ -60,7 +60,7 @@ export function AmountInput({
         aria-invalid={invalid || undefined}
         onChange={(e) => {
           const v = e.target.value;
-          // digits + one dot, fraction capped at token precision — reject pasted
+          // digits + one dot, fraction capped at token precision, reject pasted
           // garbage and over-precision early, not at simulate time
           if (new RegExp(`^\\d*\\.?\\d{0,${maxDecimals}}$`).test(v)) onChange(v);
         }}
@@ -169,7 +169,7 @@ export function StatusLine({status}: {status: WriteStatus}) {
 /**
  * Status is announced, not just coloured: the write phases change asynchronously
  * after a click, so a screen reader has to hear the outcome. Confirmed uses the
- * Operate surface's success value — navy cannot distinguish "pending" from
+ * Operate surface's success value, navy cannot distinguish "pending" from
  * "confirmed", and on a transaction surface that distinction is the whole point.
  */
 function Line({tone, children}: {tone: "muted" | "ok" | "err"; children: React.ReactNode}) {

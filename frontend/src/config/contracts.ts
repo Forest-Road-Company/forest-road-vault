@@ -1,5 +1,5 @@
 /**
- * Typed deployment configuration — the single source of truth for every public
+ * Typed deployment configuration, the single source of truth for every public
  * address, chain identifier, RPC endpoint, network label, and explorer link.
  *
  * Sepolia retains committed defaults for the public test deployment. Ethereum
@@ -69,7 +69,7 @@ const deploymentBlock = process.env.NEXT_PUBLIC_PROTOCOL_DEPLOYMENT_BLOCK;
 if (IS_MAINNET && !deploymentBlock) {
   throw new Error("NEXT_PUBLIC_PROTOCOL_DEPLOYMENT_BLOCK is required for a mainnet build.");
 }
-export const PROTOCOL_DEPLOYMENT_BLOCK = BigInt(deploymentBlock ?? 11_386_371);
+export const PROTOCOL_DEPLOYMENT_BLOCK = BigInt(deploymentBlock ?? 11_489_206);
 if (IS_MAINNET && PROTOCOL_DEPLOYMENT_BLOCK <= 0n) {
   throw new Error("NEXT_PUBLIC_PROTOCOL_DEPLOYMENT_BLOCK must be a positive mainnet block.");
 }
@@ -134,26 +134,26 @@ function optionalAddress(name: string, value: string | undefined): Address | und
 }
 
 const SEPOLIA_CONTRACTS: Record<ContractName, Address> = {
-  USDfr: "0x8485ECb761036e8eCfD9f67706D803028AFc0022",
-  sUSDfr: "0x197bb3701e964bfb367449a6754C845Fc8f7d0F4",
-  ComplianceRegistry: "0x164bB5F4Fc4Da517e9FD75875b71e8ecF33DD5C6",
-  USDC: "0x64F05363e3AB6EE537dDb23Eca0AaF497a5aB681",
-  MintRedeemController: "0x98481a8EE33E3E2F616bFE6123E6A6B514BCb97f",
-  ReserveManager: "0x203c7fb0ed0CF28FeEC3eDa17d7D771E11DE0BAD",
-  RedemptionQueue: "0x0159ec5274462AC77C1fD70f8482011B53b6C269",
-  ClaimBridge: "0x9F4586B163c06696da05d35A79d3C885e2aA0814",
-  CollateralRegistry: "0x70eB239415FB8B068e08E6EBc8b0c54aCE42CF8c",
-  CuratorModule: "0xC23e46508371C95994A32A1F18FEbe34fA0D3b1A",
-  WaterfallEngine: "0x1a208366e67bD3976Bd2D3918C85a11044989115",
-  DefaultManager: "0xCB1429369fb7BF5f57d2C5076deafC00C06C8124",
-  AssessedImpairmentSource: "0x8b45fCDB60EF02022a7560F8A72F16E4620bbaE4",
-  AttestationOracle: "0x6022F732974e637345f7cE2336e13b354aAFEcff",
-  PointsModule: "0x6C5a7A5dE7Beb7f64C664058a736c5f2bcB2Bf83",
-  GROVE: "0x842Ecc2BA49499cc81bC65260A8D4a2246733DAC",
-  sGROVE: "0xD2DF4509daAd87c6ac8B1a5FB7B1495038100EcF",
-  GroveVotesAggregator: "0x14Ff5f360A7E7eC1fF20680C3Db5210100AB8140",
-  Governor: "0x6734bF21eEc6f253920247a010240E0f4319C2B3",
-  Timelock: "0x9B37a0940090d09Feb9B68280E9DAee39637cadF",
+  USDfr: "0xd16224a766153F83F446935026E86d4170c21f76",
+  sUSDfr: "0xdEf257Ee5b822a1eC5c97d130FD8C8212C2BE72d",
+  ComplianceRegistry: "0xd7401aeC10A4f6A19Be27a3eF790F7305348C766",
+  USDC: "0x570a53Bfcf6E5E5A2828a48DAc99D61c11Ca1C8D",
+  MintRedeemController: "0xeEf3487685d0c11546be0c000149C72D4B663291",
+  ReserveManager: "0x707c8017aC743604f2EB946712c4c605ee40fBf8",
+  RedemptionQueue: "0x006B46825300f3eAEA6E6322BDB161617D334654",
+  ClaimBridge: "0x6a090Fe2bC4BA03438BE4d8f06818C07825d99Fc",
+  CollateralRegistry: "0x084E8899B5202d315177161D858c4A196aF954E4",
+  CuratorModule: "0x81c81F0bbbaf6869062662D1347a9C05F52D59f2",
+  WaterfallEngine: "0xF5F71bCeE5BAA75c5E3d457d2B9b9aa69Ce8113A",
+  DefaultManager: "0xa3c983385DA8A3db432E22EA34Ae358A6D28B5e7",
+  AssessedImpairmentSource: "0xE0c04120db843AB8AF49FB8bd8524A73D778fA13",
+  AttestationOracle: "0xcbE2679034a3ae7163Ef3cf8e6A72C8f8588495B",
+  PointsModule: "0x3660Bb79bE24A858905177B90CEE8Ba9A6B2631C",
+  GROVE: "0x3ABfE8Ee839D99BDb4b863702AC264Aa04Cc5C65",
+  sGROVE: "0x7Ee2FF890aC55D34aA27787b5Bd3AC501e30655f",
+  GroveVotesAggregator: "0x76d7d431482cCe2b1720e7F40F06aE82b0917476",
+  Governor: "0xED0c1870Fd0b52b62BDCA09F696b2B74cDe2BA1B",
+  Timelock: "0xeaa4C93f48503E075D70371BCCd2ce1f5efe9e7e",
 };
 
 const ENV_CONTRACTS: Partial<Record<ContractName, Address>> = {

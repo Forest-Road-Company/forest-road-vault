@@ -13,7 +13,7 @@ actually close the finding it claims to, and what did it newly expose?
 
 The answer to the first question is yes for three of the four. The answer to the second is
 that the fourth fix reintroduced the same defect class the round opened with, on a different
-axis — and that the invariant which should have caught it cannot, by construction.
+axis, and that the invariant which should have caught it cannot, by construction.
 
 ## How it was run
 
@@ -42,8 +42,7 @@ is preserved. Both original scenarios were replayed and now charge nothing.
 
 The fee-recipient rotation now writes its new state before crystallizing, so a recipient
 whose mint has been blocked can be rotated away from, and the initializer enforces the
-exemption invariant that was previously only a deployment convention. The accepted residual —
-a fee pending at the moment of rotation mints to the incoming recipient — is deliberate, is
+exemption invariant that was previously only a deployment convention. The accepted residual, a fee pending at the moment of rotation mints to the incoming recipient, is deliberate, is
 what buys un-brickability, and is documented as such.
 
 The yield-delivery window is now closed by a genuine vault-side lock, acquired under the same
@@ -58,7 +57,7 @@ better practice than most of the repository.
 ## Where it went wrong
 
 The junior-capacity fix did not stop at checkpointing. It also re-anchors the asset hurdle by
-the marked-NAV movement it observes across its own window, **in both directions** — and that
+the marked-NAV movement it observes across its own window, **in both directions**: and that
 made the high-water mark, which every other part of the design treats as monotone, something
 that can now fall.
 
@@ -70,15 +69,15 @@ three distinct ways.
 valuation assessment alive folds the curator pool balance for every class. So a bracketed
 capacity write is itself the event that invalidates a live assessment: the window opens with
 the assessment alive and closes with it dead, and the entire assessed discount is written off
-the hurdle. One wei posted to a completely healthy, unrelated class is enough — that path has
+the hurdle. One wei posted to a completely healthy, unrelated class is enough: that path has
 no headroom check, no default freeze and no minimum. When the assessment is republished, as
-it must be within its time-to-live, the gap is booked as profit. On a fifty-million vault
+it must be within its time-to-live: the gap is booked as profit. On a fifty-million vault
 carrying a one-million assessment this charges roughly four hundred thousand units of fee
 against a vault whose realized assets never moved.
 
 **It makes a transient quantity permanent.** Junior capacity only affects the conservative NAV
 while there is declared or past-due exposure to net against. Every path that clears that
-exposure is deliberately unbracketed — it checkpoints first and then releases. So the hurdle
+exposure is deliberately unbracketed, it checkpoints first and then releases. So the hurdle
 is reduced permanently for a mark that later disappears, and nothing restores it. The decisive
 evidence is path dependence: performing the identical economic transition in the opposite
 order leaves the hurdle untouched and charges nothing. Same capital, same end state, different
@@ -92,8 +91,7 @@ protocol rather than holders, which is the safe direction, but it is unbounded a
 accumulates across every workout in the deployment's life.
 
 A fourth, separate finding: the bracket added to the backstop setter causes it to read
-**through the backstop it exists to replace**, and the pre-change body was purely internal —
-so the change removed a one-call self-repair path. The bracket does not validate the incoming
+**through the backstop it exists to replace**, and the pre-change body was purely internal, so the change removed a one-call self-repair path. The bracket does not validate the incoming
 address either, because the netting short-circuits before reaching it in a healthy book, so a
 mistyped address commits silently with a successful event. This is in deliberate contrast to
 the vault's own source setter, which probes.
@@ -104,7 +102,7 @@ This is the part that should shape what happens next.
 
 The one invariant covering fee-net rate integrity is blind twice over.
 
-Its handler re-bases its own floor whenever fee shares were minted — and it does so
+Its handler re-bases its own floor whenever fee shares were minted, and it does so
 immediately after the two bracketed capacity writes these findings abuse. A fee-share mint
 produced by a supposedly fee-*neutral* operation therefore silently resets the floor it would
 otherwise violate.
@@ -144,7 +142,7 @@ bytes. Something will have to come out of that contract first.
 
 ## Suggested direction
 
-The minimal safe change is to make the bracket a one-way ratchet — drop the decrease branch
+The minimal safe change is to make the bracket a one-way ratchet, drop the decrease branch
 entirely. A junior-capacity withdrawal then deepens the fee-free drawdown exactly like any
 other unbracketed movement, which is the conservative answer, and the original finding stays
 closed because the posting leg still cannot be booked as profit.

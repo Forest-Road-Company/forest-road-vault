@@ -1,4 +1,4 @@
-# Access-Control Matrix — Forest Road Vault
+# Access-Control Matrix, Forest Road Vault
 
 **Audience:** external auditors. Derived 1:1 from `src/libraries/Roles.sol`,
 `script/Deploy.s.sol` (grants), and `script/Validate.s.sol` (which asserts the live
@@ -77,10 +77,10 @@ dependency is tested and must be part of incident procedure.
 | `CuratorModule.freezeOnDefault` | DefaultManager | **no** |
 | `SGrove.coverShortfall` | DefaultManager | **no** (cascade) |
 | `sUSDfr.beginYieldNotification` / `notifyYield` | WaterfallEngine | **no**; one vault-side lock spans both interest-leg mints, then Waterfall calls permissionless `accrueFees` |
-| `AttestationOracle.consume` | WaterfallEngine | — |
-| `ClaimBridge.transitionState` | WaterfallEngine, DefaultManager | — |
-| `ReserveManager.{recordDeployment, recordFeeCapitalization, recordPayment, recordPrincipalWritedown}` | WaterfallEngine, DefaultManager | — |
-| `CollateralRegistry` exposure record/decrease | ClaimBridge, WaterfallEngine, DefaultManager | — |
+| `AttestationOracle.consume` | WaterfallEngine |, |
+| `ClaimBridge.transitionState` | WaterfallEngine, DefaultManager |, |
+| `ReserveManager.{recordDeployment, recordFeeCapitalization, recordPayment, recordPrincipalWritedown}` | WaterfallEngine, DefaultManager |, |
+| `CollateralRegistry` exposure record/decrease | ClaimBridge, WaterfallEngine, DefaultManager |, |
 
 ### `FEE_ACCOUNTING_ROLE`: fee-neutral junior-capacity changes
 

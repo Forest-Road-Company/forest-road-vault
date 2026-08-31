@@ -1,4 +1,4 @@
-# Invariant Specification — Forest Road Vault
+# Invariant Specification, Forest Road Vault
 
 **Audience:** external auditors and reviewers. **Status:** the invariants below are encoded
 as stateful fuzzing (Foundry) with handlers and hold at the configured run counts
@@ -11,7 +11,7 @@ Run: `FOUNDRY_PROFILE=heavy forge test` (from `contracts/`). The clean mainnet-v
 candidate is also rehearsed against canonical Ethereum-mainnet USDC on a fork.
 
 > Convention: an invariant is a property that must hold **across all reachable states**.
-> If one cannot be made to hold, that is a genuine-problem STOP. We surface it rather
+> If one cannot be made to hold: that is a genuine-problem STOP. We surface it rather
 > than weaken the assertion (CLAUDE.md §1.3, §4.5).
 
 ---
@@ -119,7 +119,7 @@ contract previews and crystallized through explicit events.
 burn is paired with a recorded loss. ERC-4626 conversions simulate fee shares due now,
 so a pre-transaction quote matches the checkpointed state; the later fee event/mint
 leaves assets unchanged and does not create a second price jump. With management
-enabled, the fee-net view can decline predictably with elapsed time before
+enabled: the fee-net view can decline predictably with elapsed time before
 crystallization. Every queue entry/settlement/exit path checkpoints before pricing.
 
 **Tests.** `invariant_exchangeRate_neverFallsWithoutLossOrFee`,

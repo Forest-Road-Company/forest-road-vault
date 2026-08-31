@@ -40,7 +40,7 @@ export function ConnectControl() {
   const connectors = useConnectors();
   const [chooserOpen, setChooserOpen] = useState(false);
 
-  // useConnect reports failures via mutation state, not a throw — a click that
+  // useConnect reports failures via mutation state, not a throw, a click that
   // silently does nothing (e.g. no wallet installed) would violate fail-loudly.
   const connectError = !isPending && error ? (
     <p className="mt-2 w-full text-[12px] leading-snug text-danger">

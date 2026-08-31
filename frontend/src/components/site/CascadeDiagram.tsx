@@ -3,7 +3,7 @@
  * flows downward and is absorbed layer by layer. Pure SVG + CSS animation
  * (reduced-motion safe via globals.css).
  *
- * This is a figure, so it is marked up as one — the label is its legend, not a
+ * This is a figure, so it is marked up as one: the label is its legend, not a
  * kicker. The 1/2/3 ordinals stay because the ordering IS the information: the
  * whole point of the diagram is which capital absorbs a loss first.
  */

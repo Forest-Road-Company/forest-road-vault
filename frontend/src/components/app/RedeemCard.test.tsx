@@ -5,7 +5,7 @@ import {RedeemCard} from "@/components/app/RedeemCard";
 
 /**
  * AUDIT FIX (round-9 structural item). Every claim about this card's BEHAVIOUR was
- * previously asserted by searching its own source text — "the request button is disabled
+ * previously asserted by searching its own source text, "the request button is disabled
  * until the cooldown loads" was a grep for `disabled={`. Reviewers independently sketched
  * edits that keep those literals while restoring the published defect.
  *
@@ -55,7 +55,7 @@ function baseReads(overrides: Record<string, unknown> = {}) {
   return {
     balanceOf: 1_000n * 10n ** 18n,
     allowance: 0n,
-    epochEndsAt: BigInt(NOW + 3600), // ~1h — the misleadingly short signal
+    epochEndsAt: BigInt(NOW + 3600), // ~1h, the misleadingly short signal
     isSettling: false,
     totalRequests: 0n,
     redeemCooldown: COOLDOWN,
@@ -75,7 +75,7 @@ afterEach(() => {
   busyFlows = false;
 });
 
-describe("RedeemCard — queue disclosure (FRV-FS-02)", () => {
+describe("RedeemCard, queue disclosure (FRV-FS-02)", () => {
   it("discloses the live minimum hold, not just the epoch countdown", async () => {
     reads = baseReads();
     const user = userEvent.setup();
@@ -106,21 +106,21 @@ describe("RedeemCard — queue disclosure (FRV-FS-02)", () => {
     await openQueueMode(user);
 
     // Neither the acknowledgement nor the action may be reachable while the hold is
-    // unknown — signing without the term displayed is the defect.
+    // unknown, signing without the term displayed is the defect.
     expect(screen.getByRole("checkbox")).toBeDisabled();
     expect(screen.getByRole("button", {name: /Request redemption/i})).toBeDisabled();
   });
 
   it("requires the non-cancellable acknowledgement before the request is submittable", async () => {
     // Allowance must already cover the amount, otherwise the primary action is "Approve",
-    // which the acknowledgement deliberately does NOT gate — approving is not the
+    // which the acknowledgement deliberately does NOT gate, approving is not the
     // irrevocable step. The gate applies to the request itself.
     reads = baseReads({allowance: 10n ** 30n});
     const user = userEvent.setup();
     render(<RedeemCard writesEnabled chainOk />);
     await openQueueMode(user);
 
-    // Two text inputs exist (amount, and the request-ID lookup) — target the amount one.
+    // Two text inputs exist (amount, and the request-ID lookup), target the amount one.
     const amount = screen.getByPlaceholderText("0.00");
     await user.type(amount, "100");
 
@@ -143,7 +143,7 @@ describe("RedeemCard — queue disclosure (FRV-FS-02)", () => {
   });
 });
 
-describe("RedeemCard — per-position eligibility (FRV-FS-02)", () => {
+describe("RedeemCard, per-position eligibility (FRV-FS-02)", () => {
   it("renders each position's first eligibility from its own request timestamp", async () => {
     // Requested 20 days ago against a 21-day hold → one day left, per position.
     const requestedAt = BigInt(NOW - 20 * DAY);
@@ -171,7 +171,7 @@ describe("RedeemCard — per-position eligibility (FRV-FS-02)", () => {
   });
 });
 
-describe("RedeemCard — in-flight write protection (RC-05)", () => {
+describe("RedeemCard, in-flight write protection (RC-05)", () => {
   it("disables the mode toggle while a write is in flight", async () => {
     reads = baseReads();
     busyFlows = true;
