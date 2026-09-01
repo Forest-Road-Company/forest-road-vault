@@ -35,7 +35,7 @@ export default function Landing() {
 
           <p className="mt-8 max-w-[54ch] text-[17px] leading-relaxed text-on-navy-muted">
             Forest Road&apos;s specialty finance book is on-chain. Deposit
-            approved stablecoins to mint USDfr, stake it into sUSDfr, and
+            stablecoins to mint USDfr, stake it into sUSDfr, and
             earn what the loan book earns. The book spans media &amp;
             entertainment, renewable energy, and digital assets.
           </p>
@@ -53,19 +53,16 @@ export default function Landing() {
             >
               How it works
             </Link>
-            <p className="text-[12.5px] leading-snug text-on-navy-faint">
-              {IS_MAINNET
-                ? "KYC-gated. Review the risk disclosures first."
-                : "Testnet build: test assets, no real value."}
-            </p>
+            {!IS_MAINNET && (
+              <p className="text-[12.5px] leading-snug text-on-navy-faint">
+                Testnet build: test assets, no real value.
+              </p>
+            )}
           </div>
 
           <HeroLiveStats />
         </div>
 
-        <p className="absolute bottom-3 right-4 z-10 text-[11px] tracking-[0.08em] text-on-navy/30">
-          Forest Road Asset Management brand photography
-        </p>
       </section>
 
       {/* ── Provenance: who underwrites this, stated once. ─────────────── */}

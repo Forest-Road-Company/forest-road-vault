@@ -456,7 +456,7 @@ export function TransparencyDashboard() {
             <p className="mt-1 text-[10.5px] text-on-navy-faint">
               {curatorCapitalBps !== null
                 ? `${formatBps(curatorCapitalBps)} of outstanding loans`
-                : "sum of all five class pools"}
+                : "sum of all sector pools"}
             </p>
           </div>
           <div>
@@ -526,7 +526,9 @@ export function TransparencyDashboard() {
           <Row
             k="Last fee checkpoint"
             val={
-              lastFeeAccrual !== undefined
+              lastFeeAccrual !== undefined &&
+              Number.isFinite(Number(lastFeeAccrual) * 1_000) &&
+              Math.abs(Number(lastFeeAccrual) * 1_000) <= 8.64e15
                 ? new Date(Number(lastFeeAccrual) * 1_000).toISOString()
                 : SUPPORTS_VAULT_FEE_ACCOUNTING
                   ? "—"

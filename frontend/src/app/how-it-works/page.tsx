@@ -5,7 +5,6 @@ import {
   SectionHead,
   NumberedRows,
   FramTable,
-  HighlightBox,
 } from "@/components/site/Blocks";
 
 export const metadata: Metadata = {
@@ -43,7 +42,7 @@ export default function HowItWorksPage() {
       bleed
       section="How it works"
       title="How the Vault works"
-      lede="Depositors provide capital through two tokens. Borrowers are financed against identified collateral. Between them sits a dual record: legally enforceable off-chain, visible on-chain, kept in sync."
+      lede="Depositors provide capital through two tokens. Borrowers are financed against specific, named collateral. Between them sits a dual record: legally enforceable off-chain, visible on-chain, kept in sync."
     >
       {/* ── Depositor flow: numbered rows on the light field. ───────────── */}
       <Section tone="surface">
@@ -122,15 +121,6 @@ export default function HowItWorksPage() {
                 attested, and escrow cannot release until the NFT exists. In
                 default, both act at once.
               </p>
-            <div className="mt-8">
-              <HighlightBox title="What you're trusting">
-                On-chain state reflects what authorized attesters assert about
-                off-chain facts. If an attestation is false or an attester key
-                is compromised, the protocol acts on false information. The
-                attester set, signature scheme, and the roadmap toward reduced
-                trust are documented openly.
-              </HighlightBox>
-            </div>
           </div>
         </div>
       </Section>

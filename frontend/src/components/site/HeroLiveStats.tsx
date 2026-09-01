@@ -28,9 +28,6 @@ import { BRIDGE_ABI, ERC20_ABI, RESERVES_ABI } from "@/lib/abi";
 import { fmtAmount } from "@/lib/format";
 import { SECTORS } from "@/lib/verticals";
 
-/** Layers of capital that absorb a loss before depositor principal. */
-const CASCADE_LAYERS = 2;
-
 const receivable = SECTORS.filter(
   (v) => v.collateralModel === "receivable",
 ).length;
@@ -40,7 +37,6 @@ const STRUCTURE = [
   { value: SECTORS.length, label: "Sectors" },
   { value: receivable, label: "Receivable-backed" },
   { value: markedToMarket, label: "Marked-to-market" },
-  { value: CASCADE_LAYERS, label: "Layers ahead of depositors" },
 ];
 
 export function HeroLiveStats() {
