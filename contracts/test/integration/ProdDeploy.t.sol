@@ -30,7 +30,6 @@ import {Config} from "../../src/libraries/Config.sol";
 ///      testnet deploy relied on via `opsAdmin==deployer`, but here ops is SEPARATE).
 contract ProdDeployTest is Test, Deploy {
     address internal ops = makeAddr("prodOps");
-    address internal proposalGuardian = makeAddr("prodProposalGuardian");
     address internal queueKeeper = makeAddr("prodQueueKeeper");
     address internal treasury = makeAddr("prodTreasury");
     address internal fees = makeAddr("prodFees");
@@ -39,7 +38,6 @@ contract ProdDeployTest is Test, Deploy {
     function _prodCtx() internal view returns (Ctx memory c) {
         c.deployer = address(this); // the caller of the internal steps IS the deployer
         c.opsAdmin = ops;
-        c.proposalGuardian = proposalGuardian;
         c.queueKeeper = queueKeeper;
         c.frTreasury = treasury;
         c.feeRecipient = fees;
@@ -94,6 +92,27 @@ contract ProdDeployTest is Test, Deploy {
         GroveToken(d.grove).delegate(treasury);
         this.exposedHandover(d, c);
         assertFalse(IAccessControl(d.usdfr).hasRole(bytes32(0), address(this)), "handover succeeds once live");
+    }
+
+    /// @notice The Governor's Timelock canceller grant is part of the live governance boundary.
+    ///         Without it governance could schedule but could not cancel a pre-execution
+    ///         operation through the Governor's standard Timelock integration.
+    function test_prodShapedDeploy_refusesHandoverWithoutGovernorCanceller() public {
+        Ctx memory c = _prodCtx();
+        D memory d = _deployAll(c);
+        _wire(d, c);
+        _seed(d, c);
+
+        TimelockControllerUpgradeable tl = TimelockControllerUpgradeable(payable(d.timelock));
+        tl.revokeRole(tl.CANCELLER_ROLE(), d.governor);
+
+        vm.expectRevert(abi.encodeWithSelector(Deploy.DeployTimelockNotLive.selector, d.timelock));
+        this.exposedHandover(d, c);
+        assertTrue(IAccessControl(d.usdfr).hasRole(bytes32(0), address(this)), "failed handover changed authority");
+
+        tl.grantRole(tl.CANCELLER_ROLE(), d.governor);
+        this.exposedHandover(d, c);
+        assertFalse(IAccessControl(d.usdfr).hasRole(bytes32(0), address(this)), "handover did not recover");
     }
 
     function exposedHandover(D memory d, Ctx memory c) external {
@@ -168,6 +187,9 @@ contract ProdDeployTest is Test, Deploy {
         // Timelock wiring: deployer relinquished its bootstrap timelock admin.
         TimelockControllerUpgradeable tl = TimelockControllerUpgradeable(payable(d.timelock));
         assertFalse(tl.hasRole(tl.DEFAULT_ADMIN_ROLE(), address(this)), "deployer NOT timelock admin");
+        assertTrue(tl.hasRole(tl.PROPOSER_ROLE(), d.governor), "governor proposes");
+        assertTrue(tl.hasRole(tl.CANCELLER_ROLE(), d.governor), "governor cancels pre-execution operations");
+        assertTrue(tl.hasRole(tl.EXECUTOR_ROLE(), address(0)), "execution remains open");
     }
 
     /// @notice The TESTNET shape (opsAdmin == deployer, keepOpsAdmin=true) — what actually
@@ -184,7 +206,6 @@ contract ProdDeployTest is Test, Deploy {
         Ctx memory c;
         c.deployer = address(this);
         c.opsAdmin = address(this);
-        c.proposalGuardian = proposalGuardian;
         c.queueKeeper = address(this); // retained testnet holder and ops backstop are the same key
         c.frTreasury = address(this);
         c.feeRecipient = address(this);
@@ -230,7 +251,6 @@ contract ProdDeployTest is Test, Deploy {
         Ctx memory c;
         c.deployer = address(this);
         c.opsAdmin = address(this);
-        c.proposalGuardian = proposalGuardian;
         c.queueKeeper = address(this); // OPS_ADMIN unset: keeper and ops intentionally coincide
         c.frTreasury = address(this);
         c.feeRecipient = address(this);
@@ -259,7 +279,6 @@ contract ProdDeployTest is Test, Deploy {
         Ctx memory c;
         c.deployer = address(this);
         c.opsAdmin = address(this);
-        c.proposalGuardian = proposalGuardian;
         c.queueKeeper = address(this); // testnet: keeper == ops == deployer
         c.frTreasury = address(this);
         c.feeRecipient = address(this);
@@ -282,5 +301,40 @@ contract ProdDeployTest is Test, Deploy {
         // and the value-critical negatives still hold: no EOA mints or credits
         assertFalse(IAccessControl(d.usdfr).hasRole(Roles.MINTER_ROLE, address(this)), "deployer NOT minter");
         assertFalse(IAccessControl(d.reserves).hasRole(Roles.CREDIT_ROLE, address(this)), "deployer NOT credit");
+    }
+
+    /// @notice A retained-ops testnet can use a bootstrap deployer distinct from its ongoing
+    ///         operator. Handover must keep the nominated ops EOA while stripping the deployer's
+    ///         temporary `_wire`/`_seed` grants and bootstrap-only KYC. This is the live SEAM-1
+    ///         shape that same-key testnet fixtures did not exercise.
+    function test_testnetSplitKeyDeploy_stripsBootstrapButKeepsOps() public {
+        Ctx memory c = _prodCtx();
+        c.keepOpsAdmin = true;
+
+        D memory d = _deployAll(c);
+        _wire(d, c);
+        _seed(d, c);
+        _handover(d, c);
+
+        assertTrue(IAccessControl(d.reserves).hasRole(bytes32(0), ops), "ops retains admin");
+        assertFalse(IAccessControl(d.reserves).hasRole(bytes32(0), address(this)), "deployer admin stripped");
+        assertTrue(IAccessControl(d.reserves).hasRole(Roles.RESERVE_ADMIN_ROLE, ops), "ops retains reserve-admin");
+        assertFalse(
+            IAccessControl(d.reserves).hasRole(Roles.RESERVE_ADMIN_ROLE, address(this)),
+            "deployer reserve-admin stripped"
+        );
+
+        assertTrue(
+            IAccessControl(d.compliance).hasRole(Roles.COMPLIANCE_ADMIN_ROLE, ops), "ops retains compliance-admin"
+        );
+        assertFalse(
+            IAccessControl(d.compliance).hasRole(Roles.COMPLIANCE_ADMIN_ROLE, address(this)),
+            "deployer compliance-admin stripped"
+        );
+        assertFalse(ComplianceRegistry(d.compliance).isAllowed(address(this)), "bootstrap KYC stripped");
+
+        TimelockControllerUpgradeable tl = TimelockControllerUpgradeable(payable(d.timelock));
+        assertTrue(tl.hasRole(tl.DEFAULT_ADMIN_ROLE(), d.timelock), "timelock remains admin");
+        assertFalse(tl.hasRole(tl.DEFAULT_ADMIN_ROLE(), address(this)), "bootstrap timelock admin stripped");
     }
 }

@@ -15,23 +15,23 @@ export const metadata: Metadata = {
 
 /** The three earning positions and their governance-set multiples (points-v2, live on Sepolia). */
 const multiples = [
-  { source: "sUSDfr staked", weight: "1× → 2×", note: "the base rate, you already earn yield" },
-  { source: "USDfr held", weight: "3× → 6×", note: "in lieu of yield stakers receive" },
-  { source: "Curator first-loss", weight: "5× → 10×", note: "the deepest, first-to-absorb risk" },
+  { source: "sUSDfr staked", weight: "1× → 2×", note: "the base rate; staking already earns yield" },
+  { source: "USDfr held", weight: "3× → 6×", note: "in lieu of the yield stakers receive" },
+  { source: "Curator first-loss", weight: "5× → 10×", note: "the first capital to absorb a loss" },
 ] as const;
 
 const mechanics = [
   {
     title: "Time-weighted, not volume-based",
-    body: "Points accrue as balance × time, never per transaction. There is nothing to farm with churn or wash activity. A year of steady holding decisively beats a month of frantic cycling.",
+    body: "Points accrue as balance × time.",
   },
   {
     title: "Per wallet, linear by design",
-    body: "Accrual is per wallet. No identity binding, no KYC needed to earn. Splitting a balance across addresses cannot increase the flat per-unit rate. Moving seasoned capital to a fresh wallet restarts that position's maturity ramp at 1×, so churn can only reduce its forward accrual.",
+    body: "Accrual is per wallet. Minting requires KYC, but any wallet holding the tokens earns points. No separate registration, no identity binding. Splitting a balance across addresses earns exactly the same points. Moving an existing balance to a fresh wallet restarts its ramp at 1×, so churn can only reduce forward accrual.",
   },
   {
     title: "Flat rate, no size penalty",
-    body: "Every unit earns the same per-unit rate. A large holder is never penalised for size. What sets your rate is the position type and maturity, not the amount.",
+    body: "Every unit earns the same per-unit rate. A large holder is never penalized for size. What sets your rate is the position type and how long it has been held, not the amount.",
   },
 ];
 
@@ -58,8 +58,8 @@ export default function PointsPage() {
     <PageShell
       bleed
       section="Points"
-      title="Participation, measured honestly"
-      lede="Points track genuine, sustained participation: USDfr held, sUSDfr staked, and curator first-loss capital, each accruing per unit held over time at its own multiple. They are a measure of contribution. They are not a token, not a promise of one, and not an implied return: any future utility is discretionary and subject to counsel review."
+      title="Participation, measured over time"
+      lede="Points track sustained participation: USDfr held, sUSDfr staked, and curator first-loss capital, each accruing per unit over time at its own multiple. They are not a token, not a promise of one, and not an implied return: any future utility is discretionary and subject to counsel review."
     >
       {/* ── Live wallet position. ───────────────────────────────────────── */}
       <PageBody tone="light">
@@ -74,18 +74,16 @@ export default function PointsPage() {
               title={
                 <>
                   Every position{" "}
-                  <span className="display-accent">seasons over a year.</span>
+                  <span className="display-accent">ramps up over a year.</span>
                 </>
               }
             />
               <p className="mt-6 max-w-[64ch] text-[14px] leading-relaxed text-ink-muted">
-                Every eligible position&apos;s forward accrual rate ramps linearly
-                over 365 days: sUSDfr currently moves from 1× to 2×, USDfr from
-                3× to 6×, and curator first-loss from 5× to 10×. Adding capital
-                blends the position&apos;s maturity timestamp toward the current
-                time in proportion to the amount added. Withdrawing leaves the
-                remaining balance&apos;s maturity unchanged; transferred or
-                redeposited capital starts or blends at the current time.
+                sUSDfr climbs from 1× to 2×, USDfr from 3× to 6×, and
+                curator first-loss from 5× to 10×, each over 365 days.
+                Adding new capital partially restarts the clock,
+                in proportion to the amount added. Withdrawing never resets
+                what remains; capital moved to a new wallet starts fresh.
               </p>
           </div>
           <div className="flex-1">
@@ -99,7 +97,7 @@ export default function PointsPage() {
         <SectionHead
           tone="navy"
           title="Deeper risk earns a higher multiple."
-          lede="All three source multiples are bounded and governance-tunable. Changes apply going forward, never retroactively."
+          lede="A curator is a first-loss investor: capital committed to absorb losses ahead of depositors. All three source multiples are bounded and governance-tunable. Changes apply going forward, never retroactively."
         />
         <div className="mt-12">
           <KpiBand
@@ -117,7 +115,7 @@ export default function PointsPage() {
       {/* ── Mechanics: three cards, three columns. ──────────────────────── */}
       <Section tone="light">
         <SectionHead
-          title="What the design refuses to reward."
+          title="What doesn't earn points."
           lede="The accrual rules are chosen so that churn, wallet-splitting and transaction volume cannot manufacture points."
         />
         <CardDeck columns={3} items={mechanics} />
@@ -136,10 +134,10 @@ export default function PointsPage() {
                 sUSDfr stakers already receive the protocol&apos;s variable yield, so
                 their points start at the 1× base and mature to 2×. USDfr holders
                 forgo that yield. They hold a plain, transferable dollar, so
-                points compensate at a governance-set source multiple (3×→6× today){" "}
+                points compensate at a governance-set source multiple (3× → 6× today){" "}
                 <span className="text-ink">in lieu of yield</span>. Curator
                 first-loss capital, which absorbs the very first dollar of any
-                loss, earns the most (5×→10× today).
+                loss, earns the most (5× → 10× today).
               </p>
             <div className="mt-8">
               <HighlightBox title="Leaderboard">
@@ -167,9 +165,9 @@ export default function PointsPage() {
               Points are not a token, a security, a yield, or a claim on one.
               Nothing here promises conversion to any asset, and no conversion
               rate, date, or allocation exists. If Forest Road ever proposes a
-              use for points: that decision is discretionary and passes through
-              the same securities-counsel review that gates the rest of the
-              protocol before mainnet.{" "}
+              use for points, that decision is discretionary and passes through
+              the same securities-counsel review that governs the rest of the
+              protocol.{" "}
               <span className="text-on-navy">
                 Anyone telling you otherwise is not speaking for the protocol.
               </span>

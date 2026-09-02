@@ -1,5 +1,22 @@
 # Access-Control Matrix — Forest Road Vault
 
+> **LIVE MAINNET PRINCIPALS (chain 1, deployed block 25,768,251).** This matrix describes roles
+> abstractly; these are the addresses actually holding them, so a reader can check the matrix
+> against chain state rather than trust it. Manifest: `contracts/deployments/1-production-v1.json`.
+>
+> | Principal | Address | Holds |
+> |---|---|---|
+> | **Timelock** | `0x263289d62352f9326456d1430466337484c806Dc` | `DEFAULT_ADMIN` and `UPGRADER` on **every** module |
+> | **opsAdmin** (Safe) | `0x297e88C997c2e0EDF70A5F817AAdcA2858Aa6c04` | 16 operational roles — `GUARDIAN` on every pausable module, `COMPLIANCE_ADMIN`, `SERVICER`, `ORIGINATOR`, `SETTLEMENT_KEEPER` |
+> | **queueKeeper** (EOA) | `0x1Df7Adb9911e59d78c023B09E68711F97e05f4Cc` | `queue.SETTLEMENT_KEEPER_ROLE` |
+> | **deployer** (EOA) | `0x89575b4FCfe2cf6833e96dE71765c6Ad15eAc11b` | **none** — bootstrap authority surrendered at handover |
+>
+> Verified on-chain by `tools/run-foundry-readonly-mainnet-validation.mjs`: no authority role and no
+> timelock `PROPOSER`/`CANCELLER` survives on any EOA or named genesis principal. The deployer
+> cannot even grant itself admin on the timelock — a real transaction attempting it reverts
+> `AccessControlUnauthorizedAccount`.
+
+
 **Audience:** external auditors. Derived 1:1 from `src/libraries/Roles.sol`,
 `script/Deploy.s.sol` (grants), and `script/Validate.s.sol` (which asserts the live
 topology — positive AND negative holdings — after every deploy). All roles are admin'd by
@@ -249,7 +266,7 @@ function cannot silently reduce the measured surface.
      contracts/src + contracts/script and the compiled artifacts' methodIdentifiers.
      DO NOT EDIT THIS BLOCK BY HAND — run the tool. Prose outside the block is human. -->
 
-_Generated 2026-08-11 from 24 modules_
+_Generated from 24 modules_
 
 ### Declared roles (from `src/libraries/Roles.sol`)
 
@@ -476,9 +493,9 @@ One row per `(module, external function, guard)`. Selector is the compiled selec
 | `WaterfallEngine` | `unpause()` | `0x3f4ba83a` | `GUARDIAN_ROLE` | onlyRole modifier | no |
 | `WaterfallEngine` | `upgradeToAndCall(address,bytes)` | `0x4f1ef286` | `UPGRADER_ROLE` | onlyRole modifier in WaterfallEngine._authorizeUpgrade *(indirect)* | no |
 
-### Privileged but NOT role-gated (inline `msg.sender` / governance checks)
+### Privileged or explicitly disabled, but NOT role-gated (inline caller / governance checks)
 
-These carry real authority and would be invisible to a scan that only looked for `onlyRole`. They are the reason the matrix cannot be built from `Roles.sol` alone.
+These non-role surfaces would be invisible to a scan that only looked for `onlyRole`. Most carry real authority; a row marked terminally disabled has no executable effect in this version. They are the reason the matrix cannot be built from `Roles.sol` alone.
 
 | Module | Function | Selector | Guard | How | Pausable |
 |---|---|---|---|---|---|
@@ -489,14 +506,12 @@ These carry real authority and would be invisible to a scan that only looked for
 | `CuratorModule` | `postFirstLoss(uint256,uint256)` | `0x9be38591` | allowlist-gated | !$.approved[classId][msg.sender] | yes |
 | `DefaultManager` | `absorbReserveLoss(uint256,uint256)` | `0xd1f07b38` | address-gated | msg.sender != address($.reserves) | no |
 | `DefaultManager` | `drawForSeniorExit(uint256)` | `0x9eee3b33` | address-gated | msg.sender != address($.controller) | no |
-| `FRGovernor` | `cancel(address[],uint256[],bytes[],bytes32)` | `0x452115d6` | address-gated | _msgSender() == guardian | no |
 | `FRGovernor` | `relay(address,uint256,bytes)` | `0xc28bc2fa` | governance (`onlyGovernance`) | modifier onlyGovernance | no |
-| `FRGovernor` | `setProposalGuardian(address)` | `0xa660aca5` | governance (`onlyGovernance`) | modifier onlyGovernance | no |
 | `FRGovernor` | `setProposalThreshold(uint256)` | `0xece40cc1` | governance (`onlyGovernance`) | modifier onlyGovernance | no |
 | `FRGovernor` | `setVotingDelay(uint48)` | `0x79051887` | governance (`onlyGovernance`) | modifier onlyGovernance | no |
 | `FRGovernor` | `setVotingPeriod(uint32)` | `0xe540d01d` | governance (`onlyGovernance`) | modifier onlyGovernance | no |
 | `FRGovernor` | `updateQuorumNumerator(uint256)` | `0x06f3f9e6` | governance (`onlyGovernance`) | modifier onlyGovernance | no |
-| `FRGovernor` | `updateTimelock(address)` | `0xa890c910` | governance (`onlyGovernance`) | modifier onlyGovernance | no |
+| `FRGovernor` | `updateTimelock(address)` | `0xa890c910` | governance (`onlyGovernance`) | modifier onlyGovernance; terminally disabled in v1 (body always reverts) | no |
 | `FRGovernor` | `upgradeToAndCall(address,bytes)` | `0x4f1ef286` | governance (`onlyGovernance`) | modifier onlyGovernance in FRGovernor._authorizeUpgrade *(indirect)* | no |
 | `PointsModule` | `onCuratorLoss(uint256,uint256,uint256)` | `0x5b6d8ccc` | address-gated | msg.sender != $.curatorModule | no |
 | `PointsModule` | `onCuratorStakeChange(address,uint256,uint256)` | `0x72191945` | address-gated | msg.sender != $.curatorModule | no |
@@ -507,31 +522,32 @@ These carry real authority and would be invisible to a scan that only looked for
 | `SUSDfr` | `prepareRedemptionPricing(uint256)` | `0xb0845d9f` | address-gated | msg.sender != $.redemptionQueue | no |
 | `TimelockControllerUpgradeable` | `updateDelay(uint256)` | `0x64d62353` | address-gated | sender != address(this) | no |
 
-### Permissionless state-changing entrypoints (no guard of any kind)
+### Permissionless or self-scoped state-changing entrypoints (no privileged guard)
 
-Derived, not asserted: every non-`view`/`pure` external function with no role, governance or `msg.sender` guard anywhere on its reachable path. If something appears here that should not be permissionless, that is a finding, not a documentation defect.
+Derived, not asserted: every non-`view`/`pure` external function with no role, governance or trusted-caller guard anywhere on its reachable path. Caller-owned actions are explicitly marked self-scoped. If another row appears here that should not be permissionless, that is a finding, not a documentation defect.
 
 | Module | Function | Selector | Pausable | Note |
 |---|---|---|---|---|
-| `AssessedImpairmentSource` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `AssessedImpairmentSource` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `AttestationOracle` | `attest((uint256,uint8,bytes32,uint64,uint64,uint256),bytes[])` | `0xa23c287e` | yes |  |
-| `AttestationOracle` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `AttestationOracle` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `ClaimBridge` | `approve(address,uint256)` | `0x095ea7b3` | no |  |
-| `ClaimBridge` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `ClaimBridge` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `ClaimBridge` | `setApprovalForAll(address,bool)` | `0xa22cb465` | no |  |
-| `CollateralRegistry` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `CollateralRegistry` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `CollateralRegistry` | `syncConcentrationBreaches(bytes32[],bytes32[])` | `0x436ee48f` | no |  |
 | `CommitmentLedger` | `coverDelegate(address,address,uint256,uint256)` | `0xc4e35fac` | no |  |
 | `CommitmentLedgerFactory` | `create(address)` | `0x9ed93318` | no |  |
-| `ComplianceRegistry` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `ComplianceRegistry` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `CuratorModule` | `claimClosedRound(uint256,address)` | `0x65e09b4b` | no |  |
-| `CuratorModule` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `CuratorModule` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `CuratorModule` | `withdrawFirstLoss(uint256,uint256)` | `0xef3f3f40` | yes |  |
 | `DefaultManager` | `clearMarginCall(uint256)` | `0x4954fac6` | yes |  |
 | `DefaultManager` | `liquidate(uint256)` | `0x415f1240` | yes |  |
 | `DefaultManager` | `marginCall(uint256)` | `0xdedeaae6` | yes |  |
 | `DefaultManager` | `markPastDue(uint256)` | `0x34615eec` | no |  |
-| `DefaultManager` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `DefaultManager` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
+| `FRGovernor` | `cancel(address[],uint256[],bytes[],bytes32)` | `0x452115d6` | no | self-scoped: proposer-scoped; Pending state only |
 | `FRGovernor` | `castVote(uint256,uint8)` | `0x56781388` | no |  |
 | `FRGovernor` | `castVoteBySig(uint256,uint8,address,bytes)` | `0x8ff262e3` | no |  |
 | `FRGovernor` | `castVoteWithReason(uint256,uint8,string)` | `0x7b3c71d3` | no |  |
@@ -547,33 +563,33 @@ Derived, not asserted: every non-`view`/`pure` external function with no role, g
 | `GroveToken` | `delegate(address)` | `0x5c19a95c` | no |  |
 | `GroveToken` | `delegateBySig(address,uint256,uint256,uint8,bytes32,bytes32)` | `0xc3cda520` | no |  |
 | `GroveToken` | `permit(address,address,uint256,uint256,uint8,bytes32,bytes32)` | `0xd505accf` | no |  |
-| `GroveToken` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `GroveToken` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `GroveToken` | `transfer(address,uint256)` | `0xa9059cbb` | no |  |
 | `GroveToken` | `transferFrom(address,address,uint256)` | `0x23b872dd` | no |  |
 | `MintRedeemController` | `mint(uint256)` | `0xa0712d68` | yes |  |
 | `MintRedeemController` | `redeem(uint256,uint256,uint256)` | `0xb8192205` | yes |  |
 | `MintRedeemController` | `redeem(uint256,uint256)` | `0x7cbc2373` | yes |  |
 | `MintRedeemController` | `redeem(uint256)` | `0xdb006a75` | yes |  |
-| `MintRedeemController` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `MintRedeemController` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `MtmAtomicExecutor` | `execute((uint256,uint8,bytes32,uint64,uint64,uint256),bytes[])` | `0x71860e0e` | no |  |
 | `PointsModule` | `checkpoint(address)` | `0xa972985e` | no |  |
 | `PointsModule` | `reconcile(address)` | `0x09a18635` | no |  |
-| `PointsModule` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `PointsModule` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `RecoveryTopUpDistributor` | `claim(uint256,uint256,uint256,address,uint256,bytes32[])` | `0x0c3a0fff` | yes |  |
-| `RecoveryTopUpDistributor` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
-| `RedemptionQueue` | `claim(uint256)` | `0x379607f5` | no | self-scoped: acts only on the caller's own position |
-| `RedemptionQueue` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `RecoveryTopUpDistributor` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
+| `RedemptionQueue` | `claim(uint256)` | `0x379607f5` | no | self-scoped: r.owner != msg.sender |
+| `RedemptionQueue` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `RedemptionQueue` | `requestRedeem(uint256)` | `0xaa2f892d` | yes |  |
 | `ReserveManager` | `recapitalize(uint256)` | `0x0c47d267` | no |  |
 | `ReserveManager` | `reconcileIdleUSDC()` | `0x87f0f89a` | no |  |
-| `ReserveManager` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `ReserveManager` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `SGrove` | `claimRewards()` | `0x372500ab` | yes |  |
 | `SGrove` | `claimUnstake(uint256)` | `0xc5dd6fee` | yes |  |
 | `SGrove` | `delegate(address)` | `0x5c19a95c` | no |  |
 | `SGrove` | `delegateBySig(address,uint256,uint256,uint8,bytes32,bytes32)` | `0xc3cda520` | no |  |
 | `SGrove` | `fundCoverage(uint256)` | `0x39db75da` | no |  |
 | `SGrove` | `notifyRewards(uint256)` | `0xd3512cef` | no |  |
-| `SGrove` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `SGrove` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `SGrove` | `requestUnstake(uint256)` | `0x23095721` | yes |  |
 | `SGrove` | `stake(uint256)` | `0xa694fc3a` | yes |  |
 | `SUSDfr` | `accrueFees()` | `0x37a4e834` | no |  |
@@ -581,20 +597,20 @@ Derived, not asserted: every non-`view`/`pure` external function with no role, g
 | `SUSDfr` | `deposit(uint256,address)` | `0x6e553f65` | no |  |
 | `SUSDfr` | `mint(uint256,address)` | `0x94bf804d` | no |  |
 | `SUSDfr` | `redeem(uint256,address,address)` | `0xba087652` | no |  |
-| `SUSDfr` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `SUSDfr` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `SUSDfr` | `transfer(address,uint256)` | `0xa9059cbb` | no |  |
 | `SUSDfr` | `transferFrom(address,address,uint256)` | `0x23b872dd` | no |  |
 | `SUSDfr` | `withdraw(uint256,address,address)` | `0xb460af94` | no |  |
 | `TimelockControllerUpgradeable` | `onERC1155BatchReceived(address,address,uint256[],uint256[],bytes)` | `0xbc197c81` | no |  |
 | `TimelockControllerUpgradeable` | `onERC1155Received(address,address,uint256,uint256,bytes)` | `0xf23a6e61` | no |  |
 | `TimelockControllerUpgradeable` | `onERC721Received(address,address,uint256,bytes)` | `0x150b7a02` | no |  |
-| `TimelockControllerUpgradeable` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `TimelockControllerUpgradeable` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `USDfr` | `approve(address,uint256)` | `0x095ea7b3` | no |  |
 | `USDfr` | `permit(address,address,uint256,uint256,uint8,bytes32,bytes32)` | `0xd505accf` | no |  |
-| `USDfr` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `USDfr` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `USDfr` | `transfer(address,uint256)` | `0xa9059cbb` | no |  |
 | `USDfr` | `transferFrom(address,address,uint256)` | `0x23b872dd` | no |  |
-| `WaterfallEngine` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: acts only on the caller's own position |
+| `WaterfallEngine` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 
 ### One-shot initialisers (`initializer` / `reinitializer`, no role)
 
@@ -609,7 +625,7 @@ Permissionless until consumed. Finding A-01 is exactly this surface on an *imple
 | `ComplianceRegistry` | `initialize(address,address,address,address)` | `0xf8c8765e` |
 | `CuratorModule` | `initialize(address,address,address,address,address,address)` | `0xcc2a9a5b` |
 | `DefaultManager` | `initialize(address,address,address,(address,address,address,address,address,address,address,address))` | `0xca62058a` |
-| `FRGovernor` | `initialize(address,address,address)` | `0xc0c53b8b` |
+| `FRGovernor` | `initialize(address,address)` | `0x485cc955` |
 | `GroveToken` | `initialize(address,address,address)` | `0xc0c53b8b` |
 | `MintRedeemController` | `initialize(address,address,address,address,address,address)` | `0xcc2a9a5b` |
 | `PointsModule` | `initialize(address,address,address,address,address)` | `0x1459457a` |
@@ -671,8 +687,8 @@ From the actual `grantRole` / `revokeRole` / `renounceRole` call sites in `scrip
 | `COMPLIANCE_ADMIN_ROLE` | `cr` | `c.deployer` | renounceRole | `Deploy.s.sol:_handover` |
 | `TIMELOCK_DEFAULT_ADMIN_ROLE` | `tl` | `c.deployer` | renounceRole | `Deploy.s.sol:_handover` |
 | `DEFAULT_ADMIN_ROLE` | `m` | `timelock` | grantRole | `Deploy.s.sol:_handoverOne` |
-| `DEFAULT_ADMIN_ROLE` | `m` | `c.deployer` | renounceRole | `Deploy.s.sol:_handoverOne` |
 | `DEFAULT_ADMIN_ROLE` | `m` | `c.opsAdmin` | grantRole | `Deploy.s.sol:_handoverOne` |
+| `DEFAULT_ADMIN_ROLE` | `m` | `c.opsAdmin` | revokeRole | `Deploy.s.sol:_handoverOne` |
 | `DEFAULT_ADMIN_ROLE` | `m` | `c.deployer` | renounceRole | `Deploy.s.sol:_handoverOne` |
 
 #### Handover drop coverage (derived)
@@ -752,6 +768,7 @@ Some of these are deliberate (the ops EOA is *supposed* to keep `SERVICER_ROLE` 
 | `IAccessControl(a.compliance)` | `COMPLIANCE_ADMIN_ROLE` | `a.opsAdmin` | MUST hold | `script/Validate.s.sol` |
 | `IAccessControl(a.compliance)` | `COMPLIANCE_ADMIN_ROLE` | `a.timelock` | MUST hold | `script/Validate.s.sol` |
 | `tl` | `TIMELOCK_PROPOSER_ROLE` | `a.governor` | MUST hold | `script/Validate.s.sol` |
+| `tl` | `TIMELOCK_CANCELLER_ROLE` | `a.governor` | MUST hold | `script/Validate.s.sol` |
 | `tl` | `TIMELOCK_EXECUTOR_ROLE` | `address(0)` | MUST hold | `script/Validate.s.sol` |
 | `tl` | `TIMELOCK_DEFAULT_ADMIN_ROLE` | `a.deployer` | MUST NOT hold | `script/Validate.s.sol` |
 | `IAccessControl(a.queue)` | `SETTLEMENT_KEEPER_ROLE` | `a.queueKeeper` | MUST hold | `script/Validate.s.sol` |
@@ -768,7 +785,7 @@ Some of these are deliberate (the ops EOA is *supposed* to keep `SERVICER_ROLE` 
 | `IAccessControl(a.waterfall)` | `SERVICER_ROLE` | `a.opsAdmin` | MUST hold | `script/ValidateMainnet.s.sol` |
 | `IAccessControl(a.defaultManager)` | `SERVICER_ROLE` | `a.opsAdmin` | MUST hold | `script/ValidateMainnet.s.sol` |
 
-**Positive coverage:** 32 of 35 distinct `(module, role, holder)` grants that survive `Deploy`/`Handover` are re-asserted post-deploy by a literal `hasRole`. **Not asserted: `timelock|TIMELOCK_CANCELLER_ROLE|governor`, `oracle|CREDIT_ROLE|defaultManager`, `oracle|CREDIT_ROLE|bridge`.**
+**Positive coverage:** 33 of 35 distinct `(module, role, holder)` grants that survive `Deploy`/`Handover` are re-asserted post-deploy by a literal `hasRole`. **Not asserted: `oracle|CREDIT_ROLE|defaultManager`, `oracle|CREDIT_ROLE|bridge`.**
 
 **Bootstrap grants** (granted then dropped by the same script): 2. Without a literal negative assertion: `compliance|COMPLIANCE_ADMIN_ROLE|deployer` — see the loop assertions below before calling that a gap.
 
@@ -779,22 +796,18 @@ Some of these are deliberate (the ops EOA is *supposed* to keep `SERVICER_ROLE` 
 | `Validate.s.sol:_reportPrivilegePosture` | `PrivilegeAudit.moduleSet(_topologyTargets(a))` |
 | `Validate.s.sol:_reportPrivilegePosture` | `PrivilegeAudit.scan(targets, names, a.deployer, false)` |
 | `Validate.s.sol:_reportPrivilegePosture` | `PrivilegeAudit.scanTimelock(a.timelock, a.deployer, false)` |
-| `Validate.s.sol:_reportPrivilegePosture` | `PrivilegeAudit.scanGovernor(a.governor, a.deployer)` |
 | `Validate.s.sol:_reportPrivilegePosture` | `PrivilegeAudit.authorityRoleSet()` |
 | `Validate.s.sol:_reportPrivilegePosture` | `PrivilegeAudit.scanRoles(targets, names, authIds, authNames, a.deployer)` |
 | `Validate.s.sol:_reportPrivilegePosture` | `PrivilegeAudit.scanRoles(targets, names, authIds, authNames, a.opsAdmin)` |
 | `Validate.s.sol:_reportPrivilegePosture` | `PrivilegeAudit.scanTimelock(a.timelock, a.deployer, true)` |
 | `Validate.s.sol:_reportPrivilegePosture` | `PrivilegeAudit.scanTimelock(a.timelock, a.opsAdmin, true)` |
-| `Validate.s.sol:_reportPrivilegePosture` | `PrivilegeAudit.scanGovernor(a.governor, a.deployer)` |
-| `Validate.s.sol:_reportPrivilegePosture` | `PrivilegeAudit.scanGovernor(a.governor, a.opsAdmin)` |
 | `Validate.s.sol:_reportPrivilegePosture` | `PrivilegeAudit.scan(targets, names, a.deployer, false)` |
 | `Validate.s.sol:_assertNamedPrincipalsHoldNoAuthority` | `PrivilegeAudit.authorityRoleSet()` |
 | `Validate.s.sol:_assertNamedPrincipalsHoldNoAuthority` | `PrivilegeAudit.scanRoles(targets, names, authIds, authNames, p)` |
 | `Validate.s.sol:_assertNamedPrincipalsHoldNoAuthority` | `PrivilegeAudit.scanTimelock(a.timelock, p, true)` |
-| `Validate.s.sol:_printPosture` | `PrivilegeAudit.scanEverything(targets, names, a.timelock, a.governor, a.deployer)` |
-| `Validate.s.sol:_printPosture` | `PrivilegeAudit.scanEverything(targets, names, a.timelock, a.governor, a.opsAdmin)` |
-| `Validate.s.sol:_printPosture` | `PrivilegeAudit.scanEverything(targets, names, a.timelock, a.governor, a.queueKeeper)` |
-| `Validate.s.sol:_printPosture` | `PrivilegeAudit.scanEverything(targets, names, a.timelock, a.governor, a.proposalGuardian)` |
+| `Validate.s.sol:_printPosture` | `PrivilegeAudit.scanEverything(targets, names, a.timelock, a.deployer)` |
+| `Validate.s.sol:_printPosture` | `PrivilegeAudit.scanEverything(targets, names, a.timelock, a.opsAdmin)` |
+| `Validate.s.sol:_printPosture` | `PrivilegeAudit.scanEverything(targets, names, a.timelock, a.queueKeeper)` |
 
 <!-- END GENERATED ACCESS-CONTROL MATRIX -->
 

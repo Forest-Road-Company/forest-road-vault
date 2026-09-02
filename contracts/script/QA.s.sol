@@ -17,6 +17,7 @@ import {SUSDfr} from "../src/sUSDfr.sol";
 import {USDfr} from "../src/USDfr.sol";
 import {WaterfallEngine} from "../src/WaterfallEngine.sol";
 import {IAttestationOracle} from "../src/interfaces/IAttestationOracle.sol";
+import {IMintRedeemController} from "../src/interfaces/IMintRedeemController.sol";
 import {IWaterfallEngine} from "../src/interfaces/IWaterfallEngine.sol";
 import {Config} from "../src/libraries/Config.sol";
 
@@ -46,7 +47,8 @@ contract QA is Script {
         ITestnetUSDC usdc;
     }
 
-    uint256 private broadcasterKey;
+    uint256 private operationsKey;
+    uint256 private attester1Key;
     uint256 private secondAttesterKey;
     address private actor;
     uint256 private nonce;
@@ -55,14 +57,32 @@ contract QA is Script {
         string memory manifest = _loadBoundManifest();
         Stack memory s = _load(manifest);
 
-        broadcasterKey = vm.envUint("TESTNET_DEPLOYER_PRIVATE_KEY");
-        actor = vm.addr(broadcasterKey);
-        secondAttesterKey =
-            vm.envOr("ATTESTER_2_PRIVATE_KEY", uint256(keccak256(abi.encode(broadcasterKey, "fr-testnet-attester-2"))));
-        require(vm.addr(secondAttesterKey) == vm.parseJsonAddress(manifest, ".attester2"), "ATTESTER_2 key mismatch");
-        require(s.compliance.isAllowed(actor), "QA actor is not KYC-allowed");
+        operationsKey = vm.envUint("TESTNET_OPS_ADMIN_PRIVATE_KEY");
+        actor = vm.addr(operationsKey);
+        require(actor == vm.parseJsonAddress(manifest, ".opsAdmin"), "TESTNET_OPS_ADMIN_PRIVATE_KEY mismatch");
 
-        vm.startBroadcast(broadcasterKey);
+        // The bootstrap deployer is also testnet attester #1, but it is deliberately not the
+        // lifecycle transaction sender on a split-key deployment. All ORIGINATOR_ROLE and
+        // SERVICER_ROLE calls below are broadcast by the manifest ops admin; this key is used
+        // only to produce the first quorum signature.
+        attester1Key = vm.envUint("TESTNET_DEPLOYER_PRIVATE_KEY");
+        require(
+            vm.addr(attester1Key) == vm.parseJsonAddress(manifest, ".attester1"),
+            "TESTNET_DEPLOYER_PRIVATE_KEY is not manifest attester1"
+        );
+        secondAttesterKey =
+            vm.envOr("ATTESTER_2_PRIVATE_KEY", uint256(keccak256(abi.encode(attester1Key, "fr-testnet-attester-2"))));
+        require(vm.addr(secondAttesterKey) == vm.parseJsonAddress(manifest, ".attester2"), "ATTESTER_2 key mismatch");
+        vm.startBroadcast(operationsKey);
+        // A fresh split-key deployment deliberately removes the bootstrap deployer's seed-only
+        // allowlist entry and does not pre-allowlist the ops EOA. Make that operational mutation
+        // explicit at invocation time: a rehearsal may opt in, while an accidental live run
+        // cannot silently expand KYC state merely by possessing the ops key.
+        if (!s.compliance.isAllowed(actor)) {
+            require(vm.envOr("QA_ALLOWLIST_OPS", false), "QA ops is not KYC-allowed; set QA_ALLOWLIST_OPS=true");
+            s.compliance.setAllowed(actor, true);
+        }
+        require(s.compliance.isAllowed(actor), "QA ops KYC setup failed");
         uint256 tokenId = _positiveLifecycle(s);
         vm.stopBroadcast();
 
@@ -217,9 +237,10 @@ contract QA is Script {
             renewalTermsHash: bytes32(0),
             offchainRef: keccak256("QA_CREDIT_FILE")
         });
-        _attest(s.oracle, tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, keccak256("QA_ASSIGNMENT"));
-        _attest(s.oracle, tokenId, IAttestationOracle.AttestationKind.UCCFiled, keccak256("QA_UCC"));
-        _attest(s.oracle, tokenId, IAttestationOracle.AttestationKind.CreditIssued, s.bridge.creditTermsHash(terms));
+        bytes32 termsHash = s.bridge.creditTermsHash(terms);
+        _attest(s.oracle, tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, termsHash);
+        _attest(s.oracle, tokenId, IAttestationOracle.AttestationKind.UCCFiled, termsHash);
+        _attest(s.oracle, tokenId, IAttestationOracle.AttestationKind.CreditIssued, termsHash);
         uint256 originated = s.bridge.originate(actor, terms);
         require(originated == tokenId && s.bridge.ownerOf(tokenId) == actor, "origination");
     }
@@ -235,8 +256,13 @@ contract QA is Script {
         address stranger = address(0xDeaD01);
         require(!s.compliance.isAllowed(stranger), "negative actor unexpectedly KYC");
         vm.prank(stranger);
-        (bool ok,) = address(s.controller).call(abi.encodeCall(MintRedeemController.mint, (1e6)));
+        (bool ok, bytes memory reason) = address(s.controller).call(abi.encodeCall(MintRedeemController.mint, (1e6)));
         require(!ok, "non-KYC mint succeeded");
+        require(
+            keccak256(reason)
+                == keccak256(abi.encodeWithSelector(IMintRedeemController.Controller_NotKYCAllowed.selector, stranger)),
+            "non-KYC mint returned wrong error"
+        );
 
         IWaterfallEngine.Payment memory fake = IWaterfallEngine.Payment({
             tokenId: tokenId,
@@ -247,8 +273,13 @@ contract QA is Script {
             nextPaymentDue: 0
         });
         vm.prank(actor);
-        (ok,) = address(s.waterfall).call(abi.encodeCall(IWaterfallEngine.distribute, (fake)));
+        (ok, reason) = address(s.waterfall).call(abi.encodeCall(IWaterfallEngine.distribute, (fake)));
         require(!ok, "unattested payment succeeded");
+        require(
+            keccak256(reason)
+                == keccak256(abi.encodeWithSelector(IWaterfallEngine.Waterfall_PaymentNotAttested.selector, tokenId)),
+            "unattested payment returned wrong error"
+        );
     }
 
     function _attest(
@@ -266,9 +297,9 @@ contract QA is Script {
             nonce: uint256(keccak256(abi.encode(block.chainid, facilityId, kind, ++nonce, block.number)))
         });
         bytes32 digest = oracle.attestationDigest(a);
-        (uint256 low, uint256 high) = vm.addr(broadcasterKey) < vm.addr(secondAttesterKey)
-            ? (broadcasterKey, secondAttesterKey)
-            : (secondAttesterKey, broadcasterKey);
+        (uint256 low, uint256 high) = vm.addr(attester1Key) < vm.addr(secondAttesterKey)
+            ? (attester1Key, secondAttesterKey)
+            : (secondAttesterKey, attester1Key);
         uint8 threshold = oracle.threshold(kind);
         bytes[] memory signatures = new bytes[](threshold);
         (uint8 v, bytes32 r, bytes32 ss) = vm.sign(low, digest);

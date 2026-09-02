@@ -77,16 +77,13 @@ contracts/test/audit-tools
 mtm-keeper/dist/
 # Generated: production MTM feed TypeScript build output
 mtm-feed/dist/
-
-# Claude Code local permission allowlist: machine-specific, not shared config.
-# .claude/launch.json IS committed — it is the shared dev-server definition.
-.claude/settings.local.json
-
-# Impeccable design-tool state. design.json is the DESIGN.md sidecar and IS
-# committed; everything below is per-session scratch (live-mode journals,
-# accept receipts, hook caches) and must never enter history.
-.impeccable/live/
-.impeccable/questions/
-.impeccable/hook.cache.json
-.impeccable/hook.pending.json
-.impeccable/config.local.json
+keeper-receivers/dist/
+# Added by `vercel link`. Keep .vercel ignored: it holds project ids and the pulled
+# environment, including the deployment's real secrets.
+.vercel
+.env*
+# ...but CLAUDE.md §0.3 REQUIRES the placeholder templates to be committed. They are
+# currently tracked, so `.env*` does not affect them — this negation is what keeps that
+# true if either file is ever deleted and re-added.
+!.env.example
+!frontend/.env.example

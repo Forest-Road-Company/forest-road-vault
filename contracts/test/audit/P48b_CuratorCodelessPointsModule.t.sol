@@ -123,9 +123,7 @@ contract P48bCuratorCodelessPointsModuleTest is CreditLayerFixture {
         (bool ok,) =
             address(curator).call(abi.encodeWithSignature("absorbLoss(uint256,uint256)", FILM, uint256(10_000e18)));
 
-        assertFalse(
-            ok, "MEASURED: a codeless points module blocks the cascade's curator first-loss absorb leg"
-        );
+        assertFalse(ok, "MEASURED: a codeless points module blocks the cascade's curator first-loss absorb leg");
     }
 
     /// @notice CONTROL — a REAL contract module leaves every path above working, so the failures

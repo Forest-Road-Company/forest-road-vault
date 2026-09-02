@@ -61,7 +61,6 @@ contract Validate is Script {
         address votesAggregator; // ADR-0026 (L-02)
         address deployer;
         address opsAdmin;
-        address proposalGuardian;
         address attester1;
         address attester2;
         address frTreasury;
@@ -177,8 +176,6 @@ contract Validate is Script {
         a.votesAggregator = vm.parseJsonAddress(manifest, ".votesAggregator");
         a.deployer = vm.parseJsonAddress(manifest, ".deployer");
         a.opsAdmin = vm.parseJsonAddress(manifest, ".opsAdmin");
-        require(vm.keyExistsJson(manifest, ".proposalGuardian"), "manifest missing proposalGuardian");
-        a.proposalGuardian = vm.parseJsonAddress(manifest, ".proposalGuardian");
         a.attester1 =
             vm.keyExistsJson(manifest, ".attester1") ? vm.parseJsonAddress(manifest, ".attester1") : a.deployer;
         a.attester2 = vm.parseJsonAddress(manifest, ".attester2");
@@ -423,7 +420,6 @@ contract Validate is Script {
         require(CuratorModule(a.curator).pointsModule() == a.points, "curator->a.points");
         require(DefaultManager(a.defaultManager).backstop() == a.sGrove, "defaultManager->backstop");
         require(FRGovernor(payable(a.governor)).timelock() == a.timelock, "governor->a.timelock");
-        require(FRGovernor(payable(a.governor)).proposalGuardian() == a.proposalGuardian, "governor->proposalGuardian");
         // audit R5 M-5: a wrong IVotes token would let an attacker's token drive governance
         // while every other check still passed — assert the governor's vote source. Post
         // ADR-0026 (L-02) that source is the AGGREGATOR, not GROVE directly, so the R5 M-5
@@ -661,6 +657,7 @@ contract Validate is Script {
         {
             TimelockControllerUpgradeable tl = TimelockControllerUpgradeable(payable(a.timelock));
             require(tl.hasRole(tl.PROPOSER_ROLE(), a.governor), "governor proposes");
+            require(tl.hasRole(tl.CANCELLER_ROLE(), a.governor), "governor cancels pre-execution operations");
             require(tl.hasRole(tl.EXECUTOR_ROLE(), address(0)), "open executor");
             require(!tl.hasRole(tl.DEFAULT_ADMIN_ROLE(), a.deployer), "deployer a.timelock admin must be gone");
             // AUDIT FIX (L-04): a zero `minDelay` makes the timelock a pass-through — a
@@ -873,8 +870,7 @@ contract Validate is Script {
         // moved into the artifact layer.
         if (a.hasManifestClaim) {
             bool actuallyClean = PrivilegeAudit.scan(targets, names, a.deployer, false).length == 0
-                && PrivilegeAudit.scanTimelock(a.timelock, a.deployer, false).length == 0
-                && PrivilegeAudit.scanGovernor(a.governor, a.deployer).length == 0;
+                && PrivilegeAudit.scanTimelock(a.timelock, a.deployer, false).length == 0;
             require(
                 actuallyClean == a.manifestClaimsDeployerClean,
                 "manifest deployerCleanExceptAttester contradicts on-chain state"
@@ -909,9 +905,9 @@ contract Validate is Script {
             );
             // AUDIT FIX (SWEEP-2 F1) — THE PRINCIPAL AXIS. DO NOT DELETE.
             //
-            // Everything above scans exactly TWO of the NINE principals this deployment names.
-            // `Deploy`/`DeployMainnet` also name `proposalGuardian`, `queueKeeper`, `frTreasury`,
-            // `feeRecipient`, `anchorCurator`, `attester1` and `attester2`, while
+            // Everything above scans exactly TWO of the EIGHT principals this deployment names.
+            // `Deploy`/`DeployMainnet` also name `queueKeeper`, `frTreasury`, `feeRecipient`,
+            // `anchorCurator`, `attester1` and `attester2`, while
             // `DeployMainnet._validatePrincipals`
             // spends twenty-odd `require`s proving they are DISTINCT from one another — then
             // nothing ever asks what any of them HOLDS. MEASURED on a production-shaped ceremony:
@@ -928,14 +924,6 @@ contract Validate is Script {
             // acts as/on the two EOAs of record), so detection is the whole remedy: a genesis
             // principal carrying protocol authority must fail the production gate loudly.
             _assertNamedPrincipalsHoldNoAuthority(a, targets, names);
-            require(
-                PrivilegeAudit.scanGovernor(a.governor, a.deployer).length == 0,
-                "PRODUCTION SHAPE: deployer is proposal guardian"
-            );
-            require(
-                PrivilegeAudit.scanGovernor(a.governor, a.opsAdmin).length == 0,
-                "PRODUCTION SHAPE: ops is proposal guardian"
-            );
             if (a.opsAdmin != a.deployer) {
                 // A separate deployer key is a pure bootstrap artefact: it must hold nothing
                 // at all beyond the ATTESTER concession.
@@ -979,7 +967,7 @@ contract Validate is Script {
         });
     }
 
-    /// @dev AUDIT FIX (SWEEP-2 F1, P-31). The seven genesis principals other than
+    /// @dev AUDIT FIX (SWEEP-2 F1). The six genesis principals other than
     ///      `deployer`/`opsAdmin`
     ///      must hold NO protocol authority: no module AUTHORITY role
     ///      (`PrivilegeAudit.authorityRoleSet` — admin / upgrader / minter / controller / credit /
@@ -1003,15 +991,8 @@ contract Validate is Script {
         internal
         view
     {
-        address[7] memory principals = [
-            a.proposalGuardian,
-            a.queueKeeper,
-            a.frTreasury,
-            a.feeRecipient,
-            _anchorCurator(a),
-            _attester1(a),
-            a.attester2
-        ];
+        address[6] memory principals =
+            [a.queueKeeper, a.frTreasury, a.feeRecipient, _anchorCurator(a), _attester1(a), a.attester2];
         (bytes32[] memory authIds, string[] memory authNames) = PrivilegeAudit.authorityRoleSet();
         for (uint256 i = 0; i < principals.length; ++i) {
             address p = principals[i];
@@ -1034,7 +1015,7 @@ contract Validate is Script {
     /// @param targets The scanned module addresses.
     /// @param names The scanned module names.
     function _printPosture(M memory a, address[] memory targets, string[] memory names) internal view {
-        string[] memory deployerHeld = PrivilegeAudit.scanEverything(targets, names, a.timelock, a.governor, a.deployer);
+        string[] memory deployerHeld = PrivilegeAudit.scanEverything(targets, names, a.timelock, a.deployer);
         string memory banner = a.keepOpsAdmin
             ? "======================= RETAINED PRIVILEGE ======================="
             : "=============== RESIDUAL PRIVILEGE AFTER HANDOVER ===============";
@@ -1058,7 +1039,7 @@ contract Validate is Script {
             console2.log("  RETAINED PRIVILEGE  deployer  -> compliance.KYC_ALLOWLISTED");
         }
         if (a.opsAdmin != a.deployer) {
-            string[] memory opsHeld = PrivilegeAudit.scanEverything(targets, names, a.timelock, a.governor, a.opsAdmin);
+            string[] memory opsHeld = PrivilegeAudit.scanEverything(targets, names, a.timelock, a.opsAdmin);
             console2.log("opsAdmin principal:", a.opsAdmin);
             for (uint256 i = 0; i < opsHeld.length; ++i) {
                 console2.log("  RETAINED PRIVILEGE  opsAdmin  ->", opsHeld[i]);
@@ -1070,20 +1051,13 @@ contract Validate is Script {
             console2.log("opsAdmin principal == deployer EOA (pairs above cover both).");
         }
         if (a.queueKeeper != a.opsAdmin && a.queueKeeper != a.deployer) {
-            string[] memory keeperHeld =
-                PrivilegeAudit.scanEverything(targets, names, a.timelock, a.governor, a.queueKeeper);
+            string[] memory keeperHeld = PrivilegeAudit.scanEverything(targets, names, a.timelock, a.queueKeeper);
             console2.log("queueKeeper principal:", a.queueKeeper);
             for (uint256 i = 0; i < keeperHeld.length; ++i) {
                 console2.log("  RETAINED PRIVILEGE  queueKeeper  ->", keeperHeld[i]);
             }
         } else {
             console2.log("queueKeeper principal is already enumerated above.");
-        }
-        string[] memory guardianHeld =
-            PrivilegeAudit.scanEverything(targets, names, a.timelock, a.governor, a.proposalGuardian);
-        console2.log("proposalGuardian principal:", a.proposalGuardian);
-        for (uint256 i = 0; i < guardianHeld.length; ++i) {
-            console2.log("  RETAINED PRIVILEGE  proposalGuardian  ->", guardianHeld[i]);
         }
         console2.log("-----------------------------------------------------------------");
         // AUDIT FIX (round 2, reviewer issue A1): the attestation quorum. This is named in

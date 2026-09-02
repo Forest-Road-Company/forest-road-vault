@@ -240,6 +240,13 @@ contract INV_CustodyFreezePredicate is CreditLayerFixture {
         assertEq(handler.ghostNotAtRest(), 0, "F3: a probe started from, or left, a non-resting state");
     }
 
+    /// @notice CSG-N1 — the controller may size an atomic junior exit draw iff the curator's
+    ///         under-backing limb freezes layer-1 withdrawals. The predicates remain independent
+    ///         in production; this invariant is the guard against either one drifting alone.
+    function invariant_CSG_N1_exitDrawAndCuratorUnderBackingPredicatesAgree() public view {
+        assertEq(handler.csgN1Mismatches(), 0, "CSG-N1: exit-draw and curator-freeze predicates diverged");
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     //  ANTI-VACUITY — asserted, and it is the whole point
     // ─────────────────────────────────────────────────────────────────────
@@ -269,6 +276,8 @@ contract INV_CustodyFreezePredicate is CreditLayerFixture {
         console2.log("impairments recognised     ", handler.ghostImpairmentsRecognised());
         console2.log("guardian pre-arms          ", handler.ghostPreArms());
         console2.log("exits completed at rest    ", handler.ghostExitsAtRest());
+        console2.log("CSG-N1 true observations   ", handler.csgN1TrueObservations());
+        console2.log("CSG-N1 false observations  ", handler.csgN1FalseObservations());
 
         assertGt(handler.fuzzEntries(), 0, "NO FUZZ ACTION EXECUTED (targetSelector wiring broken)");
         assertGt(handler.callCount(), 0, "NO HANDLER ACTION COMPLETED");
@@ -293,6 +302,9 @@ contract INV_CustodyFreezePredicate is CreditLayerFixture {
         );
         assertGt(handler.ghostPreArms(), 0, "THE GUARDIAN PRE-ARM WAS NEVER ARMED");
         assertGt(handler.ghostExitsAtRest(), 0, "NO EXIT EVER COMPLETED AT REST (THE POSITIVE CONTROL IS VACUOUS)");
+        assertGt(handler.csgN1TrueObservations(), 0, "CSG-N1 NEVER OBSERVED THE UNDER-BACKED REGION");
+        assertGt(handler.csgN1FalseObservations(), 0, "CSG-N1 NEVER OBSERVED THE SOLVENT REGION");
+        assertEq(handler.csgN1Mismatches(), 0, "CSG-N1 OBSERVED A PREDICATE MISMATCH");
     }
 
     // ─────────────────────────────────────────────────────────────────────

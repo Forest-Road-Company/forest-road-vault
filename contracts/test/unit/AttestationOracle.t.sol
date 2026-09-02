@@ -246,6 +246,23 @@ contract AttestationOracleTest is Test {
         oracle.attest(a, sigsPre1);
     }
 
+    function test_FT_attestAtExactExpiryIsAccepted() public {
+        IAttestationOracle.AttestationInput memory a = _input(
+            IAttestationOracle.AttestationKind.AssignmentExecuted,
+            keccak256("exact-expiry-document"),
+            uint64(block.timestamp),
+            101
+        );
+        a.expiry = uint64(block.timestamp);
+
+        oracle.attest(a, _sigs1(pk1, a));
+
+        assertTrue(
+            oracle.isSatisfied(FACILITY, IAttestationOracle.AttestationKind.AssignmentExecuted),
+            "expiry is inclusive: the exact deadline must remain admissible"
+        );
+    }
+
     function test_attest_badAsOfReverts() public {
         IAttestationOracle.AttestationInput memory a =
             _input(IAttestationOracle.AttestationKind.AssignmentExecuted, keccak256("doc"), 0, 1);

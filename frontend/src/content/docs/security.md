@@ -173,7 +173,7 @@ Current status of those gates:
   `MAX_PENDING_BUNDLES=32` and approved gas variables. Two independently controlled
   hosts, independent-heartbeat evidence and the actual
   human Guardian-Safe drill are absent. The feed test can use synthetic bundles and a disposable
-  fork; the Safe drill requires real owners but may use the tightly capped pre-audit test deployment,
+  fork; the Safe drill requires real owners but may use the tightly capped disposable mainnet test deployment,
   so neither item requires a public production launch. Human
   recovery timing and capital-policy records also remain open. A local test cannot mark those
   controls complete.

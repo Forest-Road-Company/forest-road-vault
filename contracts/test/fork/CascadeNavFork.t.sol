@@ -230,58 +230,60 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         assertEq(curator.poolBalance(RENEWABLE), 0, "RENEWABLE has no first-loss");
 
         // 1. FILM loss inside its curator pool: nothing else moves.
-        Layers memory s1 = _realizeAndVerify(f1, FILM, 100_000e18);
-        assertEq(s1.absorbed, 100_000e18, "s1: FILM curator absorbed");
+        Layers memory s1 = _realizeAndVerify(f1, FILM, 101_000e18);
+        assertEq(s1.absorbed, 101_000e18, "s1: FILM curator absorbed the whole distinct loss");
         assertEq(s1.covered, 0, "s1: backstop untouched");
         assertEq(s1.depositorLoss, 0, "s1: senior untouched");
 
         // 2. RENEWABLE loss with NO first-loss in that class: it must go straight to the backstop
         //    and must NOT reach into FILM's curator pool.
-        Layers memory s2 = _realizeAndVerify(f2, RENEWABLE, 100_000e18);
+        Layers memory s2 = _realizeAndVerify(f2, RENEWABLE, 102_000e18);
         assertEq(s2.absorbed, 0, "s2: RENEWABLE has no curator capital to absorb");
-        assertEq(s2.covered, 100_000e18, "s2: the shared backstop absorbed it");
+        assertEq(s2.covered, 102_000e18, "s2: the shared backstop absorbed the whole distinct loss");
         assertEq(s2.depositorLoss, 0, "s2: senior untouched");
         assertEq(
             curator.poolBalance(FILM),
-            100_000e18,
+            99_000e18,
             "CROSS-CLASS ISOLATION: a FILM curator pool never absorbs a RENEWABLE loss"
         );
 
         // 3. FILM loss that drains layer 1 and spills into layer 2.
-        Layers memory s3 = _realizeAndVerify(f1, FILM, 250_000e18);
-        assertEq(s3.absorbed, 100_000e18, "s3: layer 1 drained to zero FIRST");
-        assertEq(s3.covered, 150_000e18, "s3: only then did layer 2 draw");
+        Layers memory s3 = _realizeAndVerify(f1, FILM, 253_000e18);
+        assertEq(s3.absorbed, 99_000e18, "s3: layer 1 drained to zero FIRST");
+        assertEq(s3.covered, 154_000e18, "s3: only then did layer 2 draw");
         assertEq(s3.depositorLoss, 0, "s3: senior untouched");
         assertEq(curator.poolBalance(FILM), 0, "s3: FILM first-loss fully wiped");
 
         // 4. RENEWABLE consumes from the same live reserve.
-        Layers memory s4 = _realizeAndVerify(f2, RENEWABLE, 300_000e18);
+        Layers memory s4 = _realizeAndVerify(f2, RENEWABLE, 301_000e18);
         assertEq(s4.absorbed, 0, "s4: no curator capital in RENEWABLE");
-        assertEq(s4.covered, 300_000e18, "s4: shared reserve funds the whole loss");
+        assertEq(s4.covered, 301_000e18, "s4: shared reserve funds the whole distinct loss");
         assertEq(s4.depositorLoss, 0, "s4: senior stays untouched while reserve remains");
 
         // 5. FILM consumes the last shared reserve, then senior takes the remainder.
-        Layers memory s5 = _realizeAndVerify(f1, FILM, 200_000e18);
+        Layers memory s5 = _realizeAndVerify(f1, FILM, 199_000e18);
         assertEq(s5.absorbed, 0, "s5: layer 1 is exhausted");
-        assertEq(s5.covered, 50_000e18, "s5: layer 2 contributes its last physical reserve");
-        assertEq(s5.depositorLoss, 150_000e18, "s5: senior took only the unfunded remainder");
+        assertEq(s5.covered, 43_000e18, "s5: layer 2 contributes its last physical reserve");
+        assertEq(s5.depositorLoss, 156_000e18, "s5: senior took only the unfunded remainder");
 
         // 6. RENEWABLE again after the shared reserve is exhausted: senior only.
-        Layers memory s6 = _realizeAndVerify(f2, RENEWABLE, 100_000e18);
+        Layers memory s6 = _realizeAndVerify(f2, RENEWABLE, 103_000e18);
         assertEq(s6.absorbed, 0, "s6: no layer 1");
         assertEq(s6.covered, 0, "s6: layer 2 is fully consumed");
-        assertEq(s6.depositorLoss, 100_000e18, "s6: senior absorbed alone");
+        assertEq(s6.depositorLoss, 103_000e18, "s6: senior absorbed the whole distinct loss alone");
 
         // Aggregate conservation across the whole run.
-        uint256 totalLoss = 100_000e18 + 100_000e18 + 250_000e18 + 300_000e18 + 200_000e18 + 100_000e18;
+        // A2: six pairwise-distinct loss operands keep this a non-degenerate split, rather than
+        // proving only the repeated-value fixture that previously let a broken branch coincide.
+        uint256 totalLoss = 101_000e18 + 102_000e18 + 253_000e18 + 301_000e18 + 199_000e18 + 103_000e18;
         uint256 totalAbsorbed = s1.absorbed + s2.absorbed + s3.absorbed + s4.absorbed + s5.absorbed + s6.absorbed;
         uint256 totalCovered = s1.covered + s2.covered + s3.covered + s4.covered + s5.covered + s6.covered;
         uint256 totalSenior = s1.depositorLoss + s2.depositorLoss + s3.depositorLoss + s4.depositorLoss
             + s5.depositorLoss + s6.depositorLoss;
-        assertEq(totalLoss, 1_050_000e18, "the run realized 1.05M of loss");
+        assertEq(totalLoss, 1_059_000e18, "the run realized 1.059M of pairwise-distinct loss");
         assertEq(totalAbsorbed, 200_000e18, "layer 1 contributed exactly the posted first-loss");
         assertEq(totalCovered, 600_000e18, "layer 2 contributed exactly its funded reserve");
-        assertEq(totalSenior, 250_000e18, "layer 3 contributed only the unfunded residual");
+        assertEq(totalSenior, 259_000e18, "layer 3 contributed only the unfunded residual");
         assertEq(totalAbsorbed + totalCovered + totalSenior, totalLoss, "VALUE CONSERVATION over the whole run");
         assertLe(usdfr.totalSupply(), reserves.totalBackingValue(), "BACKING INVARIANT holds throughout");
         _assertNavOrdering("multi-class cascade");

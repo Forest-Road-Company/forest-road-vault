@@ -127,7 +127,6 @@ abstract contract ForkLifecycleFixture is Test, Deploy {
         Ctx memory c;
         c.deployer = ops;
         c.opsAdmin = ops; // testnet shape: one operator holds the ops roles
-        c.proposalGuardian = makeAddr("forkProposalGuardian");
         c.queueKeeper = ops; // AUDIT FIX (D7-01 round 5): SETTLEMENT_KEEPER_ROLE holder
         c.frTreasury = ops;
         c.feeRecipient = ops;

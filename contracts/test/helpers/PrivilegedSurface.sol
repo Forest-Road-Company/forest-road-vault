@@ -64,6 +64,12 @@ abstract contract PrivilegedSurface is Test {
     ///      REMOVED guard loud — without that pin, deleting a guard would merely remove it from
     ///      the enumeration and every downstream assertion would still pass.
     mapping(string => uint256) internal guardedNameCount;
+    /// @dev Source-derived count of functions protected by an inline caller/address guard,
+    ///      including functions that inherit such a guard from a custom modifier. Kept separate
+    ///      from `guardedNameCount`: these custom-error/trusted-caller gates do not necessarily
+    ///      use OZ's AccessControl error and therefore cannot share the generic role probe.
+    mapping(string => uint256) internal inlineCallerGuardedNameCount;
+    uint256 internal totalInlineCallerGuardedNames;
     string[] internal scannedModules;
 
     // =====================================================================
@@ -115,6 +121,9 @@ abstract contract PrivilegedSurface is Test {
     function _scanModule(string memory path) private {
         string memory module = _contractNameOf(path);
         string memory code = _stripComments(vm.readFile(path));
+        string[] memory inlineCallerGuarded = _inlineCallerGuardedFunctionNames(code);
+        inlineCallerGuardedNameCount[module] = inlineCallerGuarded.length;
+        totalInlineCallerGuardedNames += inlineCallerGuarded.length;
         string[] memory guarded = _guardedFunctionNames(code);
         if (guarded.length == 0) return;
         guardedNameCount[module] = guarded.length;
@@ -235,6 +244,57 @@ abstract contract PrivilegedSurface is Test {
         }
     }
 
+    /// @dev Functions guarded by the repository's inline caller/address-check style. This is a
+    ///      DRIFT census, not a generic calldata probe: trusted-caller gates use module-specific
+    ///      custom errors and valid callers, so treating them as OZ `onlyRole` would be false
+    ///      coverage. It recognizes direct `if (msg.sender/_msgSender() ==/!= x)` bodies and
+    ///      follows any custom modifier containing the same comparison to every function that
+    ///      uses it. That second limb is what brings CommitmentLedger's four `onlyManager`
+    ///      functions into the runtime census rather than counting its modifier definition once.
+    function _inlineCallerGuardedFunctionNames(string memory code) internal pure returns (string[] memory names) {
+        bytes memory b = bytes(code);
+        string[] memory buf = new string[](256);
+        string[] memory modifiers = new string[](64);
+        uint256 n;
+        uint256 modifierCount;
+
+        string[4] memory needles =
+            ["if (msg.sender !=", "if (msg.sender ==", "if (_msgSender() !=", "if (_msgSender() =="];
+        for (uint256 p = 0; p < needles.length; ++p) {
+            bytes memory nd = bytes(needles[p]);
+            uint256 at;
+            while (true) {
+                int256 found = _indexOf(b, nd, at);
+                if (found < 0) break;
+                at = uint256(found) + nd.length;
+
+                string memory functionName = _enclosingFunctionName(b, uint256(found), true);
+                if (bytes(functionName).length != 0 && !_isOneOf2(buf, n, functionName)) {
+                    require(n < buf.length, "PrivilegedSurface: inline-guard buffer overflow");
+                    buf[n++] = functionName;
+                }
+
+                string memory modifierName = _enclosingModifierName(b, uint256(found));
+                if (bytes(modifierName).length != 0 && !_isOneOf2(modifiers, modifierCount, modifierName)) {
+                    require(modifierCount < modifiers.length, "PrivilegedSurface: inline-modifier buffer overflow");
+                    modifiers[modifierCount++] = modifierName;
+                }
+            }
+        }
+
+        // Resolve each guarded modifier to the functions whose headers use it. Occurrences in
+        // the modifier declaration/body cannot be attributed to a function header and are
+        // discarded by `_collectGuarded`.
+        for (uint256 i = 0; i < modifierCount; ++i) {
+            n = _collectGuarded(b, modifiers[i], false, buf, n);
+        }
+
+        names = new string[](n);
+        for (uint256 i = 0; i < n; ++i) {
+            names[i] = buf[i];
+        }
+    }
+
     function _collectGuarded(bytes memory b, string memory needle, bool fromBody, string[] memory buf, uint256 n)
         private
         pure
@@ -293,8 +353,46 @@ abstract contract PrivilegedSurface is Test {
         return _identifierAfterFunctionKeyword(b, fstart);
     }
 
+    /// @dev The custom modifier containing an inline caller comparison, if any.
+    function _enclosingModifierName(bytes memory b, uint256 pos) private pure returns (string memory) {
+        uint256 k = pos;
+        uint256 depth;
+        bool exited;
+        uint256 start;
+        bool matched;
+        while (k > 0) {
+            --k;
+            bytes1 c = b[k];
+            if (!exited) {
+                if (c == 0x7d) {
+                    ++depth;
+                } else if (c == 0x7b) {
+                    if (depth == 0) exited = true;
+                    else --depth;
+                }
+                continue;
+            }
+            if (c == 0x7b || c == 0x7d || c == 0x3b) break;
+            if (c == 0x72 && k >= 7 && _matchAt(b, k - 7, "modifier") && (k == 7 || !_isIdentChar(b[k - 8]))) {
+                start = k - 7;
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) return "";
+        return _identifierAfterKeyword(b, start, 8);
+    }
+
     function _identifierAfterFunctionKeyword(bytes memory b, uint256 fstart) private pure returns (string memory) {
-        uint256 q = fstart + 8;
+        return _identifierAfterKeyword(b, fstart, 8);
+    }
+
+    function _identifierAfterKeyword(bytes memory b, uint256 start, uint256 keywordLength)
+        private
+        pure
+        returns (string memory)
+    {
+        uint256 q = start + keywordLength;
         if (q >= b.length || !_isSpace(b[q])) return "";
         while (q < b.length && _isSpace(b[q])) ++q;
         uint256 s = q;

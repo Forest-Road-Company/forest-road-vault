@@ -24,6 +24,7 @@ import {USDfr} from "../../src/USDfr.sol";
 import {WaterfallEngine} from "../../src/WaterfallEngine.sol";
 import {IAttestationOracle} from "../../src/interfaces/IAttestationOracle.sol";
 import {ICollateralRegistry} from "../../src/interfaces/ICollateralRegistry.sol";
+import {IReserveManager} from "../../src/interfaces/IReserveManager.sol";
 import {IWaterfallEngine} from "../../src/interfaces/IWaterfallEngine.sol";
 import {Config} from "../../src/libraries/Config.sol";
 import {Roles} from "../../src/libraries/Roles.sol";
@@ -47,6 +48,7 @@ contract SepoliaDeployedLifecycleForkTest is Test {
     address internal secondary = makeAddr("sepoliaForkLifecycleSecondary");
     address internal outsider = makeAddr("sepoliaForkLifecycleOutsider");
     address internal ops;
+    address internal queueKeeper;
     address internal treasury;
     address internal timelock;
 
@@ -96,6 +98,7 @@ contract SepoliaDeployedLifecycleForkTest is Test {
         require(keepOpsAdmin, "curated test requires the manifest-declared testnet ops posture");
 
         ops = vm.parseJsonAddress(manifest, ".opsAdmin");
+        queueKeeper = vm.parseJsonAddress(manifest, ".queueKeeper");
         treasury = vm.parseJsonAddress(manifest, ".frTreasury");
         timelock = vm.parseJsonAddress(manifest, ".timelock");
         stable = MockERC20(vm.parseJsonAddress(manifest, ".stable"));
@@ -125,6 +128,7 @@ contract SepoliaDeployedLifecycleForkTest is Test {
         assertTrue(bridge.hasRole(Roles.ORIGINATOR_ROLE, ops));
         assertTrue(waterfall.hasRole(Roles.SERVICER_ROLE, ops));
         assertTrue(defaults.hasRole(Roles.SERVICER_ROLE, ops));
+        assertTrue(queue.hasRole(Roles.SETTLEMENT_KEEPER_ROLE, queueKeeper));
     }
 
     function test_sepoliaDeployedFork_mintVaultQueueSettlementClaimAndAccounting() public onPinnedFork {
@@ -261,7 +265,7 @@ contract SepoliaDeployedLifecycleForkTest is Test {
             vm.warp(settleAt + 1);
 
             vm.recordLogs();
-            vm.prank(outsider);
+            vm.prank(queueKeeper);
             queue.closeEpoch(10);
             Vm.Log[] memory settlementLogs = vm.getRecordedLogs();
             assertTrue(_sawTopic(settlementLogs, keccak256("RequestFilled(uint256,uint256,uint256,uint256)")));
@@ -365,7 +369,10 @@ contract SepoliaDeployedLifecycleForkTest is Test {
         Vm.Log[] memory fundingLogs = vm.getRecordedLogs();
         vm.stopPrank();
         assertEq(sGrove.coverageReserve(), 3_000e18);
-        assertEq(sGrove.coverageCapacity(), 1_500e18);
+        assertEq(sGrove.coverageCapacity(), 3_000e18, "ADR-0035 uncapped reserve");
+        (uint16 proportionalCapBps, uint256 absoluteCap) = sGrove.coverageCapParameters();
+        assertEq(uint256(proportionalCapBps), Config.BPS, "ADR-0035 100% proportional cap");
+        assertEq(absoluteCap, type(uint256).max, "ADR-0035 no absolute cap");
         assertTrue(_sawTopic(fundingLogs, keccak256("CoverageFunded(address,uint256)")));
         assertTrue(_sawTopic(fundingLogs, keccak256("RewardsNotified(address,uint256,uint256,uint64)")));
 
@@ -474,12 +481,14 @@ contract SepoliaDeployedLifecycleForkTest is Test {
 
         assertEq(reserves.deployedTo(tokenId), 1_000e18);
         assertEq(curator.poolBalance(Config.CLASS_FILM_TAX_CREDITS), 0);
-        assertEq(sGrove.coverageReserve(), 1_500e18);
-        assertEq(vaultBeforeLoss - usdfr.balanceOf(address(vault)), 500e18);
+        // ADR-0035: the event may use the whole shared reserve, so the 2,000 remainder after
+        // curator capital is delivered by layer 2 and no senior share is burned.
+        assertEq(sGrove.coverageReserve(), 1_000e18);
+        assertEq(vaultBeforeLoss - usdfr.balanceOf(address(vault)), 0);
         assertEq(defaults.defaultedContribution(tokenId), 1_000e18);
         (uint256 coverageDrawn, uint256 coverageCap) = sGrove.eventCoverage(tokenId);
-        assertEq(coverageDrawn, 1_500e18);
-        assertEq(coverageCap, 1_500e18);
+        assertEq(coverageDrawn, 2_000e18);
+        assertEq(coverageCap, 3_000e18);
         assertEq(points.curatorLossEpochCount(Config.CLASS_FILM_TAX_CREDITS), 1);
         assertEq(points.curatorLossAt(Config.CLASS_FILM_TAX_CREDITS, 0), uint64(block.timestamp));
         assertTrue(_sawTopic(lossLogs, keccak256("LossRealized(uint256,uint256,uint256,uint256,uint256,uint256)")));
@@ -610,30 +619,32 @@ contract SepoliaDeployedLifecycleForkTest is Test {
         assertTrue(_sawTopic(depositLogs, keccak256("USDCDeposited(address,uint256,uint256)")));
 
         uint256 supplyBefore = usdfr.totalSupply();
+        uint256 vaultBalanceBefore = usdfr.balanceOf(address(vault));
         vm.recordLogs();
         vm.prank(address(waterfall));
-        controller.mintYield(actor, 4e18);
+        controller.mintYield(address(vault), 4e18);
         Vm.Log[] memory yieldLogs = vm.getRecordedLogs();
-        assertEq(usdfr.balanceOf(actor), 4e18);
+        assertEq(usdfr.balanceOf(address(vault)) - vaultBalanceBefore, 4e18);
         assertEq(usdfr.totalSupply() - supplyBefore, 4e18);
         assertTrue(_sawTopic(yieldLogs, keccak256("YieldMinted(address,uint256)")));
 
         vm.prank(address(controller));
-        usdfr.burn(actor, 1e18);
-        assertEq(usdfr.balanceOf(actor), 3e18);
+        usdfr.burn(address(vault), 1e18);
+        assertEq(usdfr.balanceOf(address(vault)) - vaultBalanceBefore, 3e18);
 
         vm.recordLogs();
-        vm.prank(address(waterfall));
-        controller.burnLoss(actor, 1e18);
+        vm.prank(address(defaults));
+        controller.burnLoss(address(vault), 1e18);
         Vm.Log[] memory burnLogs = vm.getRecordedLogs();
-        assertEq(usdfr.balanceOf(actor), 2e18);
+        assertEq(usdfr.balanceOf(address(vault)) - vaultBalanceBefore, 2e18);
         assertTrue(_sawTopic(burnLogs, keccak256("LossBurned(address,uint256)")));
 
         assertEq(reserves.denormalizeUSDC(1e18), 1e6);
         uint256 idleBeforeWriteDown = reserves.idleReserve();
+        vm.expectRevert(IReserveManager.ReserveManager_LegacyPathDisabled.selector);
         vm.prank(ops);
         reserves.writeDownIdleUSDC(1e18);
-        assertEq(idleBeforeWriteDown - reserves.idleReserve(), 1e18);
+        assertEq(reserves.idleReserve(), idleBeforeWriteDown, "disabled legacy path moved recorded backing");
 
         _mintUsdfr(actor, 6_000e6);
         vm.prank(ops);
@@ -798,11 +809,11 @@ contract SepoliaDeployedLifecycleForkTest is Test {
     function _originateDigital(uint256 principal, uint256 valuation) internal returns (uint256 tokenId) {
         tokenId = bridge.totalOriginated() + 1;
         ClaimBridge.OriginationTerms memory terms = _digitalTerms(principal);
-        _attest(
-            tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, keccak256("DEPLOYED_FORK_DIGITAL_CUSTODY")
-        );
+        bytes32 termsHash = bridge.creditTermsHash(terms);
+        // P-32: every selected deal-identity fact commits to the exact facility terms.
+        _attest(tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, termsHash);
         _attest(tokenId, IAttestationOracle.AttestationKind.Valuation, bytes32(valuation));
-        _attest(tokenId, IAttestationOracle.AttestationKind.CreditIssued, bridge.creditTermsHash(terms));
+        _attest(tokenId, IAttestationOracle.AttestationKind.CreditIssued, termsHash);
         vm.prank(ops);
         uint256 originated = bridge.originate(actor, terms);
         assertEq(originated, tokenId);
@@ -851,9 +862,11 @@ contract SepoliaDeployedLifecycleForkTest is Test {
             renewalTermsHash: bytes32(0),
             offchainRef: keccak256("DEPLOYED_FORK_CREDIT_FILE")
         });
-        _attest(tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, keccak256("DEPLOYED_FORK_ASSIGNMENT"));
-        _attest(tokenId, IAttestationOracle.AttestationKind.UCCFiled, keccak256("DEPLOYED_FORK_UCC"));
-        _attest(tokenId, IAttestationOracle.AttestationKind.CreditIssued, bridge.creditTermsHash(terms));
+        bytes32 termsHash = bridge.creditTermsHash(terms);
+        // P-32: documentary admission facts are commitments to this deal, not generic paperwork.
+        _attest(tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, termsHash);
+        _attest(tokenId, IAttestationOracle.AttestationKind.UCCFiled, termsHash);
+        _attest(tokenId, IAttestationOracle.AttestationKind.CreditIssued, termsHash);
 
         vm.recordLogs();
         vm.prank(ops);

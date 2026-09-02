@@ -17,18 +17,26 @@ price feed and no external DeFi protocol; USDC is the only external token.
 
 ## Status — read this before anything else
 
-**This protocol is not live on mainnet, and is not authorized to be.**
+**The contracts are deployed to Ethereum mainnet. The protocol is not yet accepted for production
+use, and the public application still points at Sepolia.**
 
 | | |
 |---|---|
-| Deployed | Ethereum **Sepolia** only. Test assets have no value. |
-| Mainnet | **Not deployed.** Production activation remains blocked by the unchecked launch-runbook gates. |
-| External security audit | **SATISFIED.** Corrovera Security's independent AI-assisted review was received and owner-dispositioned on 4 August 2026. |
+| Deployed | Ethereum **mainnet** (chain 1), 16 August 2026, block 25768251, from source commit `f1f1f47`. Also on **Sepolia**, where test assets have no value. |
+| Mainnet addresses | `contracts/deployments/1-production-v1.json` and `docs/deployments/mainnet-v1-2026-08-16-deployment-report.md`. |
+| Bootstrap authority | **Surrendered.** The timelock holds `DEFAULT_ADMIN` and `UPGRADER` on every module; no authority role survives on any deployer EOA. Verified on-chain, not merely scripted. |
+| Remaining before production use | **§8 acceptance against the deployed stack**, and authorizer sign-off on the ceremony declaration. Launch-runbook activation is a separate, human-owned decision. |
+| Public application | Still **Sepolia** — the deployed frontend has not been promoted to a mainnet build. |
+| External security audit | Corrovera Security's AI-assisted review was received and owner-dispositioned on 4 August 2026, closing Part 11 gate 1. **That report does not claim to be an unqualified independent audit** — read the register below rather than the word "audited". |
 | Open findings | Several, published in full — see below. |
 
-The current testnet deployment retains bootstrap admin privileges, uses a mock stablecoin, and runs
-with concentration limits fully open. **Nothing green on that deployment is evidence about a
-production configuration.**
+A mainnet deployment is not a launch. The stack holds a nominal 100 USDC seed, the concentration
+limits are set to their production values, and **nothing has been accepted under §8**. Treat the
+addresses as real and the system as not yet in service.
+
+The Sepolia deployment separately retains bootstrap admin privileges, uses a mock stablecoin, and
+runs with concentration limits fully open. **Nothing green on the testnet deployment is evidence
+about the production configuration.**
 
 Token characterization is a matter for counsel. Nothing in this repository is a securities-law
 representation, and nothing here should be read as representing the instruments as non-securities.
@@ -124,7 +132,7 @@ Permanently withheld, in both stages:
 | Withheld | Why |
 |---|---|
 | The mainnet deployment, validation and handover scripts | `DeployMainnet`, `ValidateMainnet`, `MainnetConfig`, `MainnetConfigReceipt` and `Handover`. They publish the mainnet role topology and the handover sequence. To be revisited after launch. The generic `Deploy`, `Validate`, `QA`, `UpgradeOracle` and `PrivilegeAudit` scripts **are** published — they take every address from configuration, and the test suite does not compile without them. |
-| Four test files that import those scripts | `MainnetDeploymentFork`, `DeployValidateHandoverFork`, `Fix_C01-deploy-tooling` and `DeepSecurityDeploymentAuthorization` — 74 tests. They cannot compile without the withheld scripts, and one unresolved import stops the entire suite compiling, so the choice was these four or all of it. See *Reproduction proofs* for the one register finding this affects. |
+| Four test files that import those scripts | `MainnetDeploymentFork`, `DeployValidateHandoverFork`, `Fix_C01-deploy-tooling` and `DeepSecurityDeploymentAuthorization` — 82 tests. They cannot compile without the withheld scripts, and one unresolved import stops the entire suite compiling, so the choice was these four or all of it. See *Reproduction proofs* for the one register finding this affects. |
 | The mainnet control-Safe fork test | `MainnetControlSafesFork` pins the exact pre-launch control-wallet topology. It is withheld with the operational address records and will be revisited after launch. |
 | The off-chain keeper and private bundle feed | Operational infrastructure carrying private-relay, encrypted-bundle delivery and credential-boundary detail. Not required to review the on-chain protocol. |
 | Deployment manifests and reports | Operational records. Live addresses are published on the project site instead, where they can be reconciled against on-chain state. |

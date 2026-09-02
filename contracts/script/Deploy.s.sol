@@ -41,7 +41,7 @@ import {PrivilegeTopology} from "./generated/PrivilegeTopology.sol";
 ///         reproducible, env-parameterized). Mirrors the tested fixture topology
 ///         (`GovernanceFixture`) exactly: bootstrap with the deployer as temporary
 ///         admin, wire everything, hand DEFAULT_ADMIN to the timelock, then drop the
-///         bootstrap privileges. On a REAL broadcast (`--broadcast`/`--resume`) it writes the
+///         bootstrap privileges. On a fresh REAL broadcast (`--broadcast`) it writes the
 ///         machine-readable manifest to `deployments/<chainid>.json`, including both proxy and
 ///         implementation addresses; a dry run deliberately writes NOTHING, so a simulation can
 ///         never overwrite the record of the live stack. `Validate.s.sol` re-checks the live
@@ -140,9 +140,6 @@ contract Deploy is Script {
     struct Ctx {
         address deployer;
         address opsAdmin;
-        /// @dev H-2/M-6: independent proposal-veto principal. It must never silently default
-        ///      to the deployer or the pause/operations principal.
-        address proposalGuardian;
         /// @dev AUDIT FIX (D7-01): holder of SETTLEMENT_KEEPER_ROLE on the queue — the only
         ///      party that may drive `closeEpoch`. Defaults to `opsAdmin` so local/fork runs
         ///      work unattended; MainnetConfig requires it explicitly and fails closed.
@@ -203,6 +200,15 @@ contract Deploy is Script {
         return vm.isContext(VmSafe.ForgeContext.ScriptBroadcast) || vm.isContext(VmSafe.ForgeContext.ScriptResume);
     }
 
+    /// @notice Whether Forge is replaying a prior script transaction ledger through `--resume`.
+    /// @dev Resume is categorically unsafe for this CREATE-address deployment: its nonce base has
+    ///      already moved, so replay can recompute a parallel address set and write it over the
+    ///      live manifest before Forge reports the nonce mismatch. This seam exists solely so the
+    ///      refusal can be executed under `forge test`, where ScriptResume cannot occur naturally.
+    function _isResuming() internal view virtual returns (bool resuming) {
+        return vm.isContext(VmSafe.ForgeContext.ScriptResume);
+    }
+
     /// @notice The `FORCE_REDEPLOY` opt-in.
     /// @dev A seam, for the same reason as `_isBroadcasting`: `run()`'s guard branches must be
     ///      drivable from `forge test` without a test mutating a PROCESS-GLOBAL env var, which
@@ -239,6 +245,11 @@ contract Deploy is Script {
     function run() external virtual {
         require(block.chainid != 1, "MAINNET FORBIDDEN (CLAUDE.md prime directive 1)");
 
+        // A deployment is one nonce-anchored ceremony. Never replay it. This must remain before
+        // `_manifestPath`, every env read and `vm.startBroadcast`, so a failed resume cannot
+        // repoint the durable manifest to CREATE addresses that were never deployed.
+        if (_isResuming()) revert("Deploy: --resume forbidden; restart from a reviewed fresh deployment plan");
+
         // AUDIT FIX (deploy tooling, item 7b): the DS-7 guard and the manifest write are both
         // scoped to a REAL broadcast. `forge script` without `--broadcast` deploys nothing on
         // chain, so a dry run neither orphans a live stack nor has any address worth recording.
@@ -257,31 +268,7 @@ contract Deploy is Script {
         }
 
         uint256 pk = _deployerKey();
-        Ctx memory c;
-        c.deployer = vm.addr(pk);
-        c.opsAdmin = vm.envAddress("OPS_ADMIN");
-        c.proposalGuardian = vm.envAddress("PROPOSAL_GUARDIAN");
-        require(c.opsAdmin != c.deployer, "Deploy: OPS_ADMIN must not be the deployer");
-        require(c.proposalGuardian != c.deployer, "Deploy: proposal guardian must not be the deployer");
-        require(c.proposalGuardian != c.opsAdmin, "Deploy: proposal guardian must be separate from ops");
-        c.frTreasury = vm.envOr("FR_TREASURY", c.opsAdmin);
-        c.queueKeeper = vm.envOr("QUEUE_KEEPER", c.opsAdmin);
-        c.feeRecipient = vm.envOr("FEE_RECIPIENT", c.frTreasury);
-        c.anchorCurator = c.opsAdmin;
-        c.attester1 = c.deployer;
-        c.keepOpsAdmin = _resolveKeepOpsAdmin();
-        // AUDIT FIX (C-01 round 2, reviewer issue A1). attester2's key was ALWAYS derived
-        // from the deployer's own key, and `_wire` grants ATTESTER_ROLE to both, so one
-        // secret satisfied the entire 2-of-n attestation quorum -- which feeds
-        // `ReserveManager.totalBackingValue()`, the right-hand side of
-        // `MintRedeemController._assertBacking`. The derived key stays the TESTNET default
-        // (unchanged behaviour, per the binding owner decision), but a real independent
-        // attester can now be supplied, and which one was used is RECORDED in the manifest so
-        // production-shape validation can refuse to call a single-key quorum clean.
-        address attester2Env = vm.envOr("ATTESTER_2", address(0));
-        c.attester2Derived = attester2Env == address(0);
-        c.attester2 =
-            c.attester2Derived ? vm.addr(uint256(keccak256(abi.encode(pk, "fr-testnet-attester-2")))) : attester2Env;
+        Ctx memory c = _resolveCtx(pk);
 
         console2.log("deployer/bootstrap:", c.deployer);
         console2.log("opsAdmin:", c.opsAdmin);
@@ -302,6 +289,204 @@ contract Deploy is Script {
             console2.log("The manifest was deliberately NOT written -- simulated addresses are not real.");
             console2.log("Re-run with --broadcast (and FORCE_REDEPLOY=true if a manifest exists) to deploy.");
         }
+    }
+
+    /// @notice Resolves every principal from the environment. Extracted verbatim from `run()` so
+    ///         the phased entrypoints below resolve principals identically, from one site.
+    function _resolveCtx(uint256 pk) internal virtual returns (Ctx memory c) {
+        c.deployer = vm.addr(pk);
+        c.opsAdmin = vm.envAddress("OPS_ADMIN");
+        require(c.opsAdmin != c.deployer, "Deploy: OPS_ADMIN must not be the deployer");
+        c.frTreasury = vm.envOr("FR_TREASURY", c.opsAdmin);
+        c.queueKeeper = vm.envOr("QUEUE_KEEPER", c.opsAdmin);
+        c.feeRecipient = vm.envOr("FEE_RECIPIENT", c.frTreasury);
+        c.anchorCurator = c.opsAdmin;
+        c.attester1 = c.deployer;
+        c.keepOpsAdmin = _resolveKeepOpsAdmin();
+        // AUDIT FIX (C-01 round 2, reviewer issue A1). attester2's key was ALWAYS derived
+        // from the deployer's own key, and `_wire` grants ATTESTER_ROLE to both, so one
+        // secret satisfied the entire 2-of-n attestation quorum -- which feeds
+        // `ReserveManager.totalBackingValue()`, the right-hand side of
+        // `MintRedeemController._assertBacking`. The derived key stays the TESTNET default
+        // (unchanged behaviour, per the binding owner decision), but a real independent
+        // attester can now be supplied, and which one was used is RECORDED in the manifest so
+        // production-shape validation can refuse to call a single-key quorum clean.
+        address attester2Env = vm.envOr("ATTESTER_2", address(0));
+        c.attester2Derived = attester2Env == address(0);
+        c.attester2 =
+            c.attester2Derived ? vm.addr(uint256(keccak256(abi.encode(pk, "fr-testnet-attester-2")))) : attester2Env;
+    }
+
+    // ── phased ceremony (2026-08-14) ─────────────────────────────────────
+    //
+    // WHY THIS EXISTS. `run()` performs deploy -> wire -> seed -> handover inside ONE broadcast,
+    // so every transaction shares one `--gas-estimate-multiplier`. The seed is the only part that
+    // moves tokens, and both of its transactions cross the USDfr/sUSDfr points hook, which
+    // enforces an ABSOLUTE floor of `PointsHookGas.MINIMUM_GAS` (500,000) plus a retained
+    // `POST_HOOK_RESERVE` (100,000). `forge script` sizes each transaction as
+    // (simulated consumption x multiplier), and under simulation `gasleft()` is enormous, so the
+    // floor never binds and the recorded consumption excludes it. The seed therefore needs a
+    // multiplier far above what its own consumption implies, while the largest CREATE at that
+    // multiplier exceeds the provider's per-transaction gas cap (measured on the Sepolia
+    // endpoint: exactly 2**24 = 16,777,216 gas; 16,777,216 accepted, 18,000,000 rejected).
+    //
+    // Those two requirements leave at best a few percentage points of overlap, which is not a
+    // ceremony design. Splitting gives each half its own budget. Phase 1 contains NO points-hook
+    // transaction, so it runs at a low multiplier well clear of the cap; phase 2's largest
+    // transaction is ~387k raw, so a high multiplier there stays an order of magnitude under it.
+    //
+    // Phase selection is deliberately `--sig`, NOT an environment variable. An env var exported
+    // for one half of a copy-paste ceremony survives into the other half; `--sig` cannot be
+    // inherited, and it leaves `run()`'s dispatch untouched so single-shot behaviour is
+    // unchanged as a fact rather than as an argument.
+
+    /// @notice Phase 1: deploy and wire only. Moves no tokens; crosses no points hook.
+    /// @dev Writes the manifest so phase 2 can resolve addresses. The stack is NOT usable until
+    ///      `runSeedAndHandoverPhase()` completes: bootstrap privileges are still held and the
+    ///      vault is unseeded.
+    function runBootstrapPhase() external virtual {
+        require(block.chainid != 1, "MAINNET FORBIDDEN (CLAUDE.md prime directive 1)");
+        if (_isResuming()) revert("Deploy: --resume forbidden; restart from a reviewed fresh deployment plan");
+
+        bool broadcasting = _isBroadcasting();
+        string memory manifestPath = _manifestPath();
+        if (_manifestGuardTrips(broadcasting, vm.exists(manifestPath), _forceRedeploy())) {
+            revert("manifest exists for this chain; set FORCE_REDEPLOY=true to replace (orphans the prior stack)");
+        }
+
+        uint256 pk = _deployerKey();
+        Ctx memory c = _resolveCtx(pk);
+
+        console2.log("PHASE 1 of 2 (bootstrap): deploy + wire. No seed, no handover.");
+        console2.log("deployer/bootstrap:", c.deployer);
+        console2.log("opsAdmin:", c.opsAdmin);
+        console2.log("chainid:", block.chainid);
+
+        vm.startBroadcast(pk);
+        D memory d = _deployAll(c);
+        _wire(d, c);
+        vm.stopBroadcast();
+
+        if (broadcasting) {
+            _writeManifest(d, c);
+            console2.log("PHASE 1 COMPLETE; manifest at deployments/%s.json", vm.toString(block.chainid));
+            console2.log("The stack is NOT usable yet: the vault is unseeded and bootstrap privileges are held.");
+            console2.log(
+                "Run phase 2 next: forge script script/Deploy.s.sol --tc Deploy --sig 'runSeedAndHandoverPhase()'"
+            );
+        } else {
+            console2.log("DRY RUN (no --broadcast): nothing was deployed on chain.");
+        }
+    }
+
+    /// @notice Phase 2: seed the vault, then hand bootstrap authority to the timelock.
+    /// @dev Reads the phase-1 manifest rather than deploying. Deliberately does NOT rewrite the
+    ///      manifest: in a separate process `impls` is empty, and `_writeManifest` ends in a
+    ///      whole-file `vm.writeJson`, so a rewrite would delete every `impl_*` record and
+    ///      overwrite `deployedAtBlock` -- which `tools/reconcile-mainnet-deployment.mjs`
+    ///      requires to equal (first receipt block - 1) from the PHASE 1 broadcast.
+    function runSeedAndHandoverPhase() external virtual {
+        require(block.chainid != 1, "MAINNET FORBIDDEN (CLAUDE.md prime directive 1)");
+        if (_isResuming()) revert("Deploy: --resume forbidden; restart from a reviewed fresh deployment plan");
+
+        string memory manifestPath = _manifestPath();
+        require(vm.exists(manifestPath), "Deploy: no manifest; run runBootstrapPhase() first");
+
+        uint256 pk = _deployerKey();
+        Ctx memory c = _resolveCtx(pk);
+        D memory d = _loadBootstrapped(manifestPath);
+
+        // FAIL CLOSED. Seeding twice would mint a second permanent floor, and handing over twice
+        // is not reachable (the roles are gone), so both are refused explicitly rather than left
+        // to revert somewhere less legible.
+        require(SUSDfr(d.vault).balanceOf(SEED_SINK) == 0, "Deploy: already seeded; phase 2 is not repeatable");
+        require(
+            ComplianceRegistry(d.compliance).hasRole(0x00, c.deployer),
+            "Deploy: bootstrap authority already handed over; phase 2 cannot run"
+        );
+
+        console2.log("PHASE 2 of 2 (seed + handover). Manifest:", manifestPath);
+        console2.log("deployer/bootstrap:", c.deployer);
+        console2.log("chainid:", block.chainid);
+
+        vm.startBroadcast(pk);
+        _seed(d, c);
+        _handover(d, c);
+        vm.stopBroadcast();
+
+        // Only the privilege-receipt fields are refreshed; every impl_* record and
+        // deployedAtBlock from phase 1 survive. See `_refreshPrivilegeReceipt`.
+        _refreshPrivilegeReceipt(d, c, manifestPath);
+        console2.log("PHASE 2 COMPLETE. Seed placed, authority handed over, privilege receipt refreshed.");
+    }
+
+    /// @notice Refreshes ONLY the privilege-receipt fields after a phased handover.
+    /// @dev Phase 1 writes the manifest BEFORE `_handover` runs, so `deployerCleanExceptAttester`
+    ///      and the three `retainedPrivileges_*` enumerations record the PRE-handover posture and
+    ///      then contradict on-chain state. `Validate.s.sol` rejects exactly that contradiction
+    ///      ("manifest deployerCleanExceptAttester contradicts on-chain state"), which is how this
+    ///      was caught. The object is rebuilt SEEDED FROM THE EXISTING FILE -- the pattern
+    ///      `Handover.s.sol` uses -- so every `impl_*` record and `deployedAtBlock` survive
+    ///      untouched; `_writeManifest` cannot be reused here because its `impls` array is empty in
+    ///      a separate process. The write is then verified by re-reading, because a silently
+    ///      dropped key would leave the manifest asserting a posture the chain contradicts.
+    function _refreshPrivilegeReceipt(D memory d, Ctx memory c, string memory path) internal {
+        (address[] memory targets, string[] memory names) = PrivilegeAudit.moduleSet(_auditTargets(d));
+        bool clean = PrivilegeAudit.scan(targets, names, c.deployer, false).length == 0
+            && PrivilegeAudit.scanTimelock(d.timelock, c.deployer, false).length == 0;
+
+        string memory j = "phasedPrivilegeReceipt";
+        vm.serializeJson(j, vm.readFile(path)); // seed with every existing field
+        vm.serializeString(
+            j, "retainedPrivileges_deployer", PrivilegeAudit.scanEverything(targets, names, d.timelock, c.deployer)
+        );
+        vm.serializeString(
+            j, "retainedPrivileges_opsAdmin", PrivilegeAudit.scanEverything(targets, names, d.timelock, c.opsAdmin)
+        );
+        vm.serializeString(
+            j,
+            "retainedPrivileges_queueKeeper",
+            PrivilegeAudit.scanEverything(targets, names, d.timelock, c.queueKeeper)
+        );
+        string memory out = vm.serializeBool(j, "deployerCleanExceptAttester", clean);
+        vm.writeJson(out, path);
+
+        string memory written = vm.readFile(path);
+        require(
+            vm.parseJsonBool(written, ".deployerCleanExceptAttester") == clean,
+            "Deploy: privilege receipt refresh did not persist"
+        );
+        require(
+            vm.parseJsonAddress(written, ".vault") == d.vault,
+            "Deploy: privilege receipt refresh corrupted the manifest"
+        );
+    }
+
+    /// @dev Resolves the phase-1 addresses the seed and handover need. Only the fields those two
+    ///      steps read are loaded; anything absent would fail loudly at `vm.parseJsonAddress`.
+    function _loadBootstrapped(string memory manifestPath) internal view returns (D memory d) {
+        string memory m = vm.readFile(manifestPath);
+        d.compliance = vm.parseJsonAddress(m, ".compliance");
+        d.usdfr = vm.parseJsonAddress(m, ".usdfr");
+        d.reserves = vm.parseJsonAddress(m, ".reserves");
+        d.controller = vm.parseJsonAddress(m, ".controller");
+        d.vault = vm.parseJsonAddress(m, ".vault");
+        d.stable = vm.parseJsonAddress(m, ".stable");
+        d.registry = vm.parseJsonAddress(m, ".registry");
+        d.oracle = vm.parseJsonAddress(m, ".oracle");
+        d.curator = vm.parseJsonAddress(m, ".curator");
+        d.defaultManager = vm.parseJsonAddress(m, ".defaultManager");
+        d.queue = vm.parseJsonAddress(m, ".queue");
+        d.grove = vm.parseJsonAddress(m, ".grove");
+        d.sGrove = vm.parseJsonAddress(m, ".sGrove");
+        d.timelock = vm.parseJsonAddress(m, ".timelock");
+        d.governor = vm.parseJsonAddress(m, ".governor");
+        d.votesAggregator = vm.parseJsonAddress(m, ".votesAggregator");
+        d.points = vm.parseJsonAddress(m, ".points");
+        d.bridge = vm.parseJsonAddress(m, ".bridge");
+        d.waterfall = vm.parseJsonAddress(m, ".waterfall");
+        d.assessedImpairmentSource = vm.parseJsonAddress(m, ".assessedImpairmentSource");
+        d.mtmExecutor = vm.parseJsonAddress(m, ".mtmExecutor");
     }
 
     // ── posture resolution (AUDIT FIX C-01) ──────────────────────────────
@@ -499,8 +684,7 @@ contract Deploy is Script {
             "governor",
             address(new FRGovernor()),
             abi.encodeCall(
-                FRGovernor.initialize,
-                (IVotes(d.votesAggregator), TimelockControllerUpgradeable(payable(d.timelock)), c.proposalGuardian)
+                FRGovernor.initialize, (IVotes(d.votesAggregator), TimelockControllerUpgradeable(payable(d.timelock)))
             )
         );
 
@@ -513,14 +697,6 @@ contract Deploy is Script {
     // ── wiring (mirrors GovernanceFixture; validated post-deploy) ────────
 
     function _wire(D memory d, Ctx memory c) internal {
-        // H-2/M-6: this guard belongs on the shared wiring path, not only in an environment
-        // parser or mainnet wrapper. Every direct fixture, testnet rehearsal and fork deployment
-        // must reject the governance-dead topology where the bootstrap or operational pause key
-        // also owns the proposal veto.
-        require(c.proposalGuardian != address(0), "Deploy: zero proposal guardian");
-        require(c.proposalGuardian != c.deployer, "Deploy: proposal guardian must not be the deployer");
-        require(c.proposalGuardian != c.opsAdmin, "Deploy: proposal guardian must be separate from ops");
-
         // timelock: governor proposes/cancels; execution is open
         TimelockControllerUpgradeable tl = TimelockControllerUpgradeable(payable(d.timelock));
         tl.grantRole(tl.PROPOSER_ROLE(), d.governor);
@@ -733,18 +909,19 @@ contract Deploy is Script {
         // RESERVE_ADMIN can recognize a USDC custody write-down, a governance-level loss
         // decision. Move it to the timelock BEFORE the DEFAULT_ADMIN handover below (this
         // grant needs the deployer's DEFAULT_ADMIN on reserves, which _handoverOne renounces on
-        // the prod shape). On prod, also drop both EOAs (deployer's _wire self-grant and the
-        // ops EOA's init grant) so no EOA can approve a backing stable.
+        // the prod shape). On prod, drop both EOAs (deployer's _wire self-grant and the ops
+        // EOA's init grant) so no EOA can approve a backing stable. On a retained-ops testnet,
+        // retain only the nominated ops EOA: a distinct bootstrap deployer is not an operator
+        // and must not keep `_wire`'s temporary grant.
         {
             ReserveManager rm = ReserveManager(d.reserves);
             rm.grantRole(Roles.RESERVE_ADMIN_ROLE, d.timelock);
-            if (!c.keepOpsAdmin) {
-                if (rm.hasRole(Roles.RESERVE_ADMIN_ROLE, c.deployer)) {
-                    rm.renounceRole(Roles.RESERVE_ADMIN_ROLE, c.deployer);
-                }
-                if (c.opsAdmin != c.deployer && rm.hasRole(Roles.RESERVE_ADMIN_ROLE, c.opsAdmin)) {
-                    rm.revokeRole(Roles.RESERVE_ADMIN_ROLE, c.opsAdmin);
-                }
+            bool deployerIsRetainedOps = c.keepOpsAdmin && c.opsAdmin == c.deployer;
+            if (!deployerIsRetainedOps && rm.hasRole(Roles.RESERVE_ADMIN_ROLE, c.deployer)) {
+                rm.renounceRole(Roles.RESERVE_ADMIN_ROLE, c.deployer);
+            }
+            if (!c.keepOpsAdmin && c.opsAdmin != c.deployer && rm.hasRole(Roles.RESERVE_ADMIN_ROLE, c.opsAdmin)) {
+                rm.revokeRole(Roles.RESERVE_ADMIN_ROLE, c.opsAdmin);
             }
         }
         address[] memory modules_ = PrivilegeTopology.deployHandoverTargets(_auditTargets(d));
@@ -753,11 +930,12 @@ contract Deploy is Script {
         }
         // AUDIT FIX (DS-6 + R5 H-1): on the production-shaped handover, revoke the deployer's
         // bootstrap KYC (only needed to mint the locked seed) and, WHEN THE DEPLOYER IS NOT
-        // ALSO THE OPS ADMIN, renounce the temporary COMPLIANCE_ADMIN role `_seed`
-        // self-granted. The ops admin keeps COMPLIANCE_ADMIN by design (it is the operational
-        // KYC role, granted at `initialize`); see the M-6 note below for why the renounce
-        // cannot be unconditional.
-        if (!c.keepOpsAdmin) {
+        // ALSO THE RETAINED OPS ADMIN, renounce the temporary COMPLIANCE_ADMIN role `_seed`
+        // self-granted. A split-key testnet keeps the nominated ops EOA, not the bootstrap
+        // deployer. The ops admin keeps COMPLIANCE_ADMIN by design (it is the operational KYC
+        // role, granted at `initialize`); see the M-6 note below for why the renounce cannot be
+        // unconditional when both identities are the same address.
+        if (!c.keepOpsAdmin || c.opsAdmin != c.deployer) {
             ComplianceRegistry cr = ComplianceRegistry(d.compliance);
             // DELIBERATE DIVERGENCE from `Handover._executeHandoverAs` (Handover.s.sol), which
             // SKIPS this revoke when `opsAdmin == deployer` because "that address stays an
@@ -793,13 +971,15 @@ contract Deploy is Script {
     }
 
     /// @dev Refuses to make the timelock sole authority unless the Governor can schedule and
-    ///      execute operations and the treasury's active wallet/staked delegation can meet the
-    ///      configured launch quorum. This is intentionally independent of GroveToken's
+    ///      cancel pre-execution operations, execution is live, and the treasury's active
+    ///      wallet/staked delegation can meet the configured launch quorum. This is intentionally
+    ///      independent of GroveToken's
     ///      initializer self-delegation so a later deployment refactor cannot silently restore
     ///      the governance-dead handover.
     function _assertGovernanceLive(D memory d, Ctx memory c) internal view {
         TimelockControllerUpgradeable tl = TimelockControllerUpgradeable(payable(d.timelock));
         if (!tl.hasRole(tl.PROPOSER_ROLE(), d.governor)) revert DeployTimelockNotLive(d.timelock);
+        if (!tl.hasRole(tl.CANCELLER_ROLE(), d.governor)) revert DeployTimelockNotLive(d.timelock);
         if (!tl.hasRole(tl.EXECUTOR_ROLE(), address(0)) && !tl.hasRole(tl.EXECUTOR_ROLE(), d.governor)) {
             revert DeployTimelockNotLive(d.timelock);
         }
@@ -822,13 +1002,36 @@ contract Deploy is Script {
     function _handoverOne(address module_, address timelock, Ctx memory c) internal {
         ComplianceRegistry m = ComplianceRegistry(module_); // any AccessControl works
         m.grantRole(bytes32(0), timelock);
-        if (c.keepOpsAdmin) {
-            if (c.opsAdmin != c.deployer) m.grantRole(bytes32(0), c.opsAdmin);
-            if (c.opsAdmin != c.deployer) m.renounceRole(bytes32(0), c.deployer);
-            // when opsAdmin == deployer, the deployer keeps admin (TESTNET concession,
-            // manifest-flagged) so QA can operate without proposals
-        } else {
+
+        bool separateOps = c.opsAdmin != c.deployer;
+        if (c.keepOpsAdmin && separateOps) m.grantRole(bytes32(0), c.opsAdmin);
+
+        // SEAM-1: enumeration is also the drop policy. Before this, `_handoverOne` moved only
+        // DEFAULT_ADMIN, so an enumerated authority role granted before handover survived even
+        // though the post-deploy audit knew its name. Do not rely on the generated set's order:
+        // non-admin authority is removed first and DEFAULT_ADMIN is handled explicitly below.
+        (bytes32[] memory authority,) = PrivilegeTopology.authorityRoleSet();
+        if (!c.keepOpsAdmin && separateOps) {
+            _dropNonAdminRoles(m, authority, c.opsAdmin, false);
+            if (m.hasRole(bytes32(0), c.opsAdmin)) m.revokeRole(bytes32(0), c.opsAdmin);
+        }
+        if (!c.keepOpsAdmin || separateOps) {
+            _dropNonAdminRoles(m, authority, c.deployer, true);
             m.renounceRole(bytes32(0), c.deployer);
+        }
+        // when opsAdmin == deployer and keepOpsAdmin=true, the deployer keeps admin (TESTNET
+        // concession, manifest-flagged) so QA can operate without proposals.
+    }
+
+    /// @dev Drop every role except DEFAULT_ADMIN, whose ordering is handled explicitly by
+    ///      `_handoverOne`. `authorityRoleSet` is a set, so correctness must not depend on where
+    ///      its admin entry happens to appear.
+    function _dropNonAdminRoles(ComplianceRegistry m, bytes32[] memory roles, address holder, bool renounce) internal {
+        for (uint256 i = 0; i < roles.length; ++i) {
+            bytes32 role = roles[i];
+            if (role == bytes32(0) || !m.hasRole(role, holder)) continue;
+            if (renounce) m.renounceRole(role, holder);
+            else m.revokeRole(role, holder);
         }
     }
 
@@ -840,7 +1043,6 @@ contract Deploy is Script {
         vm.serializeUint(j, "deployedAtBlock", block.number);
         vm.serializeAddress(j, "deployer", c.deployer);
         vm.serializeAddress(j, "opsAdmin", c.opsAdmin);
-        vm.serializeAddress(j, "proposalGuardian", c.proposalGuardian);
         vm.serializeAddress(j, "queueKeeper", c.queueKeeper);
         vm.serializeAddress(j, "frTreasury", c.frTreasury);
         vm.serializeAddress(j, "feeRecipient", c.feeRecipient);
@@ -859,15 +1061,11 @@ contract Deploy is Script {
         // indistinguishable from one produced by a clean handover. Enumerated with the same
         // library `Validate.s.sol` prints, so console and manifest can never disagree.
         (address[] memory targets, string[] memory names) = PrivilegeAudit.moduleSet(_auditTargets(d));
-        string[] memory deployerHeld = PrivilegeAudit.scanEverything(targets, names, d.timelock, d.governor, c.deployer);
-        string[] memory opsHeld = PrivilegeAudit.scanEverything(targets, names, d.timelock, d.governor, c.opsAdmin);
-        string[] memory guardianHeld =
-            PrivilegeAudit.scanEverything(targets, names, d.timelock, d.governor, c.proposalGuardian);
-        string[] memory queueKeeperHeld =
-            PrivilegeAudit.scanEverything(targets, names, d.timelock, d.governor, c.queueKeeper);
+        string[] memory deployerHeld = PrivilegeAudit.scanEverything(targets, names, d.timelock, c.deployer);
+        string[] memory opsHeld = PrivilegeAudit.scanEverything(targets, names, d.timelock, c.opsAdmin);
+        string[] memory queueKeeperHeld = PrivilegeAudit.scanEverything(targets, names, d.timelock, c.queueKeeper);
         vm.serializeString(j, "retainedPrivileges_deployer", deployerHeld);
         vm.serializeString(j, "retainedPrivileges_opsAdmin", opsHeld);
-        vm.serializeString(j, "retainedPrivileges_proposalGuardian", guardianHeld);
         vm.serializeString(j, "retainedPrivileges_queueKeeper", queueKeeperHeld);
         // The attester set is a Part 11 human gate, not something a deploy/handover can
         // rotate, so it is the one documented exception to "deployer holds nothing".
@@ -876,7 +1074,6 @@ contract Deploy is Script {
             "deployerCleanExceptAttester",
             PrivilegeAudit.scan(targets, names, c.deployer, false).length == 0
                 && PrivilegeAudit.scanTimelock(d.timelock, c.deployer, false).length == 0
-                && PrivilegeAudit.scanGovernor(d.governor, c.deployer).length == 0
         );
         vm.serializeAddress(j, "compliance", d.compliance);
         vm.serializeAddress(j, "usdfr", d.usdfr);

@@ -9,7 +9,8 @@ import { IS_TESTNET } from "@/config/contracts";
 
 /* The parent brand's faces, read off forestroad.com: Merriweather 600/700
    sets every headline there (its italic is the emphasis device), and Inter
-   Tight carries nav and UI. Azeret Mono is reserved for on-chain strings, addresses, hashes, calldata, where mono is a legibility requirement
+   Tight carries nav and UI. Azeret Mono is reserved for on-chain strings such as
+   addresses, hashes and calldata, where mono is a legibility requirement
    rather than a stylistic choice. */
 const merriweather = Merriweather({
   variable: "--font-merriweather",
@@ -32,9 +33,9 @@ const azeretMono = Azeret_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Forest Road Vault | speciality-finance credit, on-chain",
+  title: "Forest Road Vault | specialty finance credit, on-chain",
   description:
-    `On-chain access to Forest Road's diversified speciality-finance credit, film tax credits, renewable energy, life sciences, real estate, and digital assets, as a KYC-gated, yield-bearing synthetic dollar.${IS_TESTNET ? " Testnet build." : ""}`,
+    `On-chain access to Forest Road's diversified specialty finance credit across media & entertainment, renewable energy, and digital assets, through USDfr, a fully backed stablecoin, and sUSDfr, its staked yield-bearing position.${IS_TESTNET ? " Testnet build." : ""}`,
 };
 
 /* The direction contract for this build. It ships in the emitted markup so

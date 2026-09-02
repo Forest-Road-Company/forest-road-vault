@@ -141,6 +141,18 @@ contract BorrowerLimitOverrideTest is Test {
         reg.setBorrowerLimitOverride(DA_BORROWER, 2000);
     }
 
+    function test_F4_overrideAcceptsExactBpsAndRejectsOneAbove() public {
+        vm.prank(admin);
+        reg.setBorrowerLimitOverride(DA_BORROWER, uint16(Config.BPS));
+        (uint16 effective, bool overridden) = reg.effectiveBorrowerLimitBps(DA_BORROWER);
+        assertEq(effective, Config.BPS);
+        assertTrue(overridden);
+
+        vm.expectRevert(ICollateralRegistry.Registry_BadParams.selector);
+        vm.prank(admin);
+        reg.setBorrowerLimitOverride(DA_BORROWER, uint16(Config.BPS) + 1);
+    }
+
     /// @notice An override of ZERO is a real setting (admit no new exposure), not "unset".
     /// @dev This is why `overridden` is a separate flag. Two bugs earlier in this same session
     ///      came from overloading 0 as a sentinel; the pattern is deliberately not repeated.

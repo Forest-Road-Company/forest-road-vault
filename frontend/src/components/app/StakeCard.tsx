@@ -291,7 +291,7 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
             The vault charges{" "}
             {performanceFeeBps !== undefined
               ? formatBps(BigInt(performanceFeeBps))
-              : ", "}{" "}
+              : "–"}{" "}
             on profit above one global high-water mark
             {maxPerformanceFeeBps !== undefined
               ? ` (capped at ${formatBps(BigInt(maxPerformanceFeeBps))})`
@@ -299,7 +299,7 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
             . Management is currently{" "}
             {managementFeeBps !== undefined
               ? formatBps(BigInt(managementFeeBps))
-              : ", "}
+              : "–"}
             {maxManagementFeeBps !== undefined
               ? ` annual (capped at ${formatBps(BigInt(maxManagementFeeBps))})`
               : ""}

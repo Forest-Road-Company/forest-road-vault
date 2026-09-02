@@ -242,6 +242,15 @@ contract ClaimBridgeTest is CollateralFixture {
         bridge.originate(custodian, terms);
     }
 
+    function test_FT_originateRejectsNextPaymentDueExactlyNow() public {
+        ClaimBridge.OriginationTerms memory terms = _filmTerms(FILM_RATE_BPS);
+        terms.nextPaymentDue = uint64(block.timestamp);
+
+        vm.expectRevert(ClaimBridge.Bridge_BadFacility.selector);
+        vm.prank(originator);
+        bridge.originate(custodian, terms);
+    }
+
     function test_originate_rejectsZeroHolderAndLtvBounds() public {
         ClaimBridge.OriginationTerms memory terms = _filmTerms(FILM_RATE_BPS);
         vm.prank(originator);
@@ -359,6 +368,68 @@ contract ClaimBridgeTest is CollateralFixture {
         vm.warp(nextPaymentDue);
         vm.expectRevert(ClaimBridge.Bridge_BadFacility.selector);
         bridge.checkFundable(id);
+    }
+
+    function test_FT_checkFundableRejectsMaturityExactlyNowWithSpecificError() public {
+        uint256 id = _originateFilm(BORROWER_1, STATE_GA, 500_000e18);
+        uint64 maturity = bridge.facility(id).maturity;
+
+        vm.warp(maturity);
+        vm.expectRevert(abi.encodeWithSelector(ClaimBridge.Bridge_FacilityMatured.selector, id));
+        bridge.checkFundable(id);
+    }
+
+    function test_FT_mtmOriginationAcceptsMarkAtExactMaxAge() public {
+        uint256 nextId = bridge.totalOriginated() + 1;
+        uint64 nowTs = uint64(block.timestamp);
+        uint64 maturity = nowTs + 180 days;
+        ClaimBridge.OriginationTerms memory terms = _terms(
+            Config.CLASS_DIGITAL_ASSETS,
+            BORROWER_1,
+            bytes32(0),
+            500_000e18,
+            5000,
+            DIGITAL_RATE_BPS,
+            maturity,
+            keccak256("digital-custody-control")
+        );
+        bytes32 termsHash = bridge.creditTermsHash(terms);
+        oracle.setPayload(nextId, IAttestationOracle.AttestationKind.AssignmentExecuted, termsHash, nowTs, true);
+        oracle.setPayload(nextId, IAttestationOracle.AttestationKind.CreditIssued, termsHash, nowTs, true);
+        oracle.setSatisfied(nextId, IAttestationOracle.AttestationKind.Valuation, true);
+        oracle.setValuation(nextId, 1_000_000e18, nowTs - 1 days);
+
+        vm.prank(originator);
+        uint256 id = bridge.originate(custodian, terms);
+
+        assertEq(id, nextId, "a mark exactly maxMarkAge old is fresh for origination");
+    }
+
+    function test_FT_checkFundableAcceptsMarkAtExactMaxAge() public {
+        uint256 nextId = bridge.totalOriginated() + 1;
+        uint64 originatedAt = uint64(block.timestamp);
+        uint64 maturity = originatedAt + 180 days;
+        ClaimBridge.OriginationTerms memory terms = _terms(
+            Config.CLASS_DIGITAL_ASSETS,
+            BORROWER_1,
+            bytes32(0),
+            500_000e18,
+            5000,
+            DIGITAL_RATE_BPS,
+            maturity,
+            keccak256("digital-custody-control-funding")
+        );
+        bytes32 termsHash = bridge.creditTermsHash(terms);
+        oracle.setPayload(nextId, IAttestationOracle.AttestationKind.AssignmentExecuted, termsHash, originatedAt, true);
+        oracle.setPayload(nextId, IAttestationOracle.AttestationKind.CreditIssued, termsHash, originatedAt, true);
+        oracle.setSatisfied(nextId, IAttestationOracle.AttestationKind.Valuation, true);
+        oracle.setValuation(nextId, 1_000_000e18, originatedAt);
+        vm.prank(originator);
+        uint256 id = bridge.originate(custodian, terms);
+
+        vm.warp(uint256(originatedAt) + 1 days);
+        bridge.checkFundable(id);
+        assertEq(uint8(bridge.facility(id).state), uint8(ClaimBridge.LoanState.Pending));
     }
 
     function test_transitionAndDueDate_rejectInvalidLifecycleChanges() public {

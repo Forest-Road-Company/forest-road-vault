@@ -20,6 +20,12 @@ contract SepoliaForkPreMainnetAuditTest is Test {
     MintRedeemController internal controller;
     address internal stable;
     address internal deployer;
+    /// @dev POST-HANDOVER SHAPE. `_handover` drops the deployer to `oracle.ATTESTER_ROLE` alone;
+    ///      `oracle.DEFAULT_ADMIN_ROLE` moves to the ops admin, and only DEFAULT_ADMIN may
+    ///      `grantRole`. Pranking the deployer for a grant therefore reverts
+    ///      `AccessControlUnauthorizedAccount(deployer, 0x00)` — which is the handover working, not
+    ///      a defect. Resolve the admin from the manifest rather than assuming it is the deployer.
+    address internal oracleAdmin;
     address internal attacker = makeAddr("attacker");
     bool internal forkReady;
 
@@ -35,6 +41,7 @@ contract SepoliaForkPreMainnetAuditTest is Test {
         controller = MintRedeemController(vm.parseJsonAddress(manifest, ".controller"));
         stable = vm.parseJsonAddress(manifest, ".stable_TESTNET_MOCK");
         deployer = vm.parseJsonAddress(manifest, ".deployer");
+        oracleAdmin = vm.parseJsonAddress(manifest, ".opsAdmin");
     }
 
     /// @dev AUDIT FIX (2026-07-21). This was `if (!forkReady) return;` — a SILENT SKIP. Without
@@ -73,7 +80,7 @@ contract SepoliaForkPreMainnetAuditTest is Test {
     ///      `resetValuationWatermark` lever removal — it never referenced that lever; the watermark
     ///      protection is unchanged and is what this now pins on the deployed stack.
     function test_sepoliaFork_deployedOracleRefusesOlderValuationAfterRevoke() public forkOnly {
-        vm.startPrank(deployer);
+        vm.startPrank(oracleAdmin);
         oracle.grantRole(Roles.ATTESTER_ROLE, vm.addr(PK1));
         oracle.grantRole(Roles.ATTESTER_ROLE, vm.addr(PK2));
         vm.stopPrank();
@@ -97,7 +104,9 @@ contract SepoliaForkPreMainnetAuditTest is Test {
         assertEq(asOfBefore, newerMark.asOf);
         assertEq(oracle.valuationWatermark(FACILITY), newerMark.asOf, "watermark tracks the accepted mark");
 
-        vm.prank(deployer);
+        // `revoke` is DEFAULT_ADMIN-gated too: holding ATTESTER_ROLE does not let the
+        // deployer withdraw a fact it signed.
+        vm.prank(oracleAdmin);
         oracle.revoke(FACILITY, IAttestationOracle.AttestationKind.Valuation);
 
         // The emergency stop worked (the live mark is gone) but the clock did NOT rewind.

@@ -5,10 +5,6 @@ import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol"
 
 import {PrivilegeTopology} from "./generated/PrivilegeTopology.sol";
 
-interface IProposalGuardianView {
-    function proposalGuardian() external view returns (address);
-}
-
 /// @title PrivilegeAudit
 /// @notice Enumerates which privileged (module, role) pairs a given EOA still holds across
 ///         the deployed stack.
@@ -125,14 +121,6 @@ library PrivilegeAudit {
         return scanRoles(targets, targetNames, ids, names, subject);
     }
 
-    /// @notice Enumerates the Governor's proposal-guardian veto, which is not an AccessControl
-    ///         role but can cancel a proposal at every lifecycle stage.
-    function scanGovernor(address governor, address subject) internal view returns (string[] memory entries) {
-        bool held = IProposalGuardianView(governor).proposalGuardian() == subject;
-        entries = new string[](held ? 1 : 0);
-        if (held) entries[0] = "governor.PROPOSAL_GUARDIAN";
-    }
-
     /// @notice Scan every (module, role) pair and return the ones `subject` holds.
     /// @dev Two passes (count, then fill) so the returned array is exactly sized and can be
     ///      serialized straight into the manifest JSON. Every target MUST implement
@@ -189,8 +177,7 @@ library PrivilegeAudit {
     }
 
     /// @notice The COMPLETE privilege receipt for `subject`: every module role (attester
-    ///         included), the timelock's own PROPOSER/CANCELLER/EXECUTOR roles, AND the
-    ///         Governor's non-AccessControl proposal-guardian veto.
+    ///         included) and the timelock's own PROPOSER/CANCELLER/EXECUTOR roles.
     /// @dev AUDIT FIX (C-01 round 2). This is what an operator-facing receipt must print. A
     ///      receipt that omits a role class is the C-01 failure mode (green, detail-free
     ///      output over a dangerous posture) reproduced one layer up.
@@ -212,28 +199,6 @@ library PrivilegeAudit {
         }
         for (uint256 i = 0; i < timelockPairs.length; ++i) {
             entries[modulePairs.length + i] = timelockPairs[i];
-        }
-    }
-
-    function scanEverything(
-        address[] memory targets,
-        string[] memory targetNames,
-        address timelock,
-        address governor,
-        address subject
-    ) internal view returns (string[] memory entries) {
-        string[] memory modulePairs = scan(targets, targetNames, subject, true);
-        string[] memory timelockPairs = scanTimelock(timelock, subject, false);
-        string[] memory governorPairs = scanGovernor(governor, subject);
-        entries = new string[](modulePairs.length + timelockPairs.length + governorPairs.length);
-        for (uint256 i = 0; i < modulePairs.length; ++i) {
-            entries[i] = modulePairs[i];
-        }
-        for (uint256 i = 0; i < timelockPairs.length; ++i) {
-            entries[modulePairs.length + i] = timelockPairs[i];
-        }
-        for (uint256 i = 0; i < governorPairs.length; ++i) {
-            entries[modulePairs.length + timelockPairs.length + i] = governorPairs[i];
         }
     }
 

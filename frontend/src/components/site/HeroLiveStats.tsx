@@ -26,21 +26,17 @@ import {
 } from "@/config/contracts";
 import { BRIDGE_ABI, ERC20_ABI, RESERVES_ABI } from "@/lib/abi";
 import { fmtAmount } from "@/lib/format";
-import { VERTICALS } from "@/lib/verticals";
+import { SECTORS } from "@/lib/verticals";
 
-/** Layers of capital that absorb a loss before depositor principal. */
-const CASCADE_LAYERS = 2;
-
-const receivable = VERTICALS.filter(
+const receivable = SECTORS.filter(
   (v) => v.collateralModel === "receivable",
 ).length;
-const markedToMarket = VERTICALS.length - receivable;
+const markedToMarket = SECTORS.length - receivable;
 
 const STRUCTURE = [
-  { value: VERTICALS.length, label: "Collateral classes" },
+  { value: SECTORS.length, label: "Sectors" },
   { value: receivable, label: "Receivable-backed" },
   { value: markedToMarket, label: "Marked-to-market" },
-  { value: CASCADE_LAYERS, label: "Layers ahead of depositors" },
 ];
 
 export function HeroLiveStats() {
@@ -70,15 +66,15 @@ export function HeroLiveStats() {
   const live = [
     {
       label: "supply",
-      value: supply !== undefined ? `${fmtAmount(supply, 18, 0)} USDfr` : ", ",
+      value: supply !== undefined ? `${fmtAmount(supply, 18, 0)} USDfr` : "–",
     },
     {
       label: "backing",
-      value: backing !== undefined ? `$${fmtAmount(backing, 18, 0)}` : ", ",
+      value: backing !== undefined ? `$${fmtAmount(backing, 18, 0)}` : "–",
     },
     {
       label: "facilities",
-      value: facilities !== undefined ? facilities.toString() : ", ",
+      value: facilities !== undefined ? facilities.toString() : "–",
     },
   ];
 

@@ -26,7 +26,7 @@ export const metadata: Metadata = {
  * contract to the protocol can never silently drop it off this page.
  */
 const ROLE: Partial<Record<ContractName, string>> = {
-  USDfr: "The synthetic dollar. Minted 1:1 against approved stablecoins; does not itself yield.",
+  USDfr: "The stablecoin. Minted 1:1 against approved stablecoins; does not itself yield.",
   sUSDfr:
     "The ERC-4626 yield vault. Stake USDfr here; value accrues through the exchange rate as the book performs.",
   ComplianceRegistry:
@@ -41,7 +41,7 @@ const ROLE: Partial<Record<ContractName, string>> = {
   ClaimBridge:
     "Represents each funded facility on-chain and holds its terms, including the payment schedule.",
   CollateralRegistry:
-    "The book: every facility, its vertical, its class, and the concentration limits an origination cannot breach.",
+    "The book: every facility, its sector, and the concentration limits an origination cannot breach.",
   CuratorModule:
     "Holds curator first-loss capital per class, the first layer of the loss cascade.",
   WaterfallEngine:
@@ -85,10 +85,11 @@ export default function AddressesPage() {
           ) : (
             <>
               <strong className="text-ink">Live Ethereum mainnet addresses.</strong> The
-              contracts are deployed and bootstrap authority has been surrendered to the
-              timelock. The protocol is <strong className="text-ink">not yet accepted for
-              production use</strong>: capped-launch acceptance has not been performed, and
-              the stack holds only a nominal seed. Deployment is not launch.
+              contracts are deployed, bootstrap authority has been surrendered to the
+              timelock, and the protocol is{" "}
+              <strong className="text-ink">live on Ethereum mainnet</strong>. Access is
+              KYC-gated; review the legal and risk disclosures before transacting, and read
+              the audit register for findings that remain open against the live protocol.
             </>
           )}{" "}
           Proxy addresses are the permanent entry points; implementations sit behind them
@@ -136,7 +137,7 @@ export default function AddressesPage() {
                   )}
                 </td>
                 <td className="min-w-[22ch] py-4 text-[13px] leading-relaxed text-ink-muted">
-                  {ROLE[name] ?? ", "}
+                  {ROLE[name] ?? "–"}
                 </td>
               </tr>
             ))}

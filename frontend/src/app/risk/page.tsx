@@ -7,7 +7,7 @@ import {
   CardDeck,
   HighlightBox,
 } from "@/components/site/Blocks";
-import {IS_MAINNET, NETWORK_NAME} from "@/config/contracts";
+import {IS_MAINNET} from "@/config/contracts";
 
 export const metadata: Metadata = { title: "Risk factors | Forest Road Vault" };
 
@@ -19,9 +19,9 @@ export const metadata: Metadata = { title: "Risk factors | Forest Road Vault" };
  */
 
 const ATTESTATION = {
-  name: "Attestation trust",
+  name: "The primary trust assumption",
   detail:
-    "On-chain state reflects what authorized attesters assert about off-chain legal facts. A false attestation or compromised attester key means the protocol acts on false information. This is the protocol's primary trust assumption.",
+    "On-chain state reflects what authorized attesters assert about off-chain legal facts. A false attestation or compromised attester key means the protocol acts on false information.",
 };
 
 const protocolRisks = [
@@ -31,13 +31,11 @@ const protocolRisks = [
   },
   {
     label: "Liquidity timing",
-    body: "The underlying is illiquid, amortizing credit. sUSDfr redemptions queue by epoch and may take multiple epochs to fill. Do not stake capital you may need on demand.",
+    body: "The underlying is illiquid, amortizing credit. sUSDfr redemptions queue in fixed redemption windows (epochs) and may take multiple windows to fill. Do not stake capital you may need on demand.",
   },
   {
     label: "Smart-contract risk",
-    body: IS_MAINNET
-      ? "Contracts can contain defects despite testing, invariant fuzzing, and independent audits. Audits and monitoring reduce, but do not eliminate, this risk."
-      : "Contracts can contain defects despite testing and invariant fuzzing. Mainnet deployment is gated on independent audits, and audits reduce, not eliminate, this risk.",
+    body: "Contracts can contain defects despite testing, invariant fuzzing, and independent audits. Audits and monitoring reduce, but do not eliminate, this risk.",
   },
   {
     label: "Regulatory risk",
@@ -45,26 +43,26 @@ const protocolRisks = [
   },
   {
     label: "Secondary-market risk",
-    body: "Default recovery for credit-backed classes depends on selling assigned receivables into secondary markets whose prices and depth vary.",
+    body: "Default recovery for the receivable-backed sectors depends on selling assigned receivables into secondary markets whose prices and depth vary.",
   },
   {
     label: "Assessed redemption value",
-    body: `The ${NETWORK_NAME} deployment routes queue pricing through the live assessment wrapper, which falls back to the conservative zero-recovery mark unless governance publishes a current, evidence-backed assessment. Any assessment can change or invalidate before settlement. No recovery top-up distributor is deployed or promised in clean v1; any future top-up would require separate approval and funding.`,
+    body: "When a defaulted loan must be priced for redemptions, the queue uses a published, evidence-backed recovery assessment; without one it assumes zero recovery, the conservative default. Any assessment can change or be withdrawn before settlement. No recovery top-up is deployed or promised in v1; any future top-up would require separate approval and funding.",
   },
 ];
 
 const classRisks = [
   {
-    title: "Per-vertical asset risk",
-    body: "Film credits carry issuance-timing, audit/clawback, state-counterparty, and secondary-price risk. Renewables carry construction/completion risk. Life sciences carry clinical/milestone risk. Real estate carries valuation and foreclosure-timeline risk.",
+    title: "Per-sector asset risk",
+    body: "Media & entertainment receivables carry payment-timing, audit/clawback, obligor-counterparty, and secondary-price risk. Renewables carry construction/completion risk.",
   },
   {
-    title: "Related-party exposure (digital assets class)",
-    body: `The digital-assets vertical lends to Forest Road's own trading subsidiary. Forest Road is simultaneously originator, servicer, and borrower-affiliate for that class, a structural conflict of interest. It is mitigated by arm's-length terms, on-chain concentration caps, conservative dynamic LTV with margin-call/liquidation mechanics, and plain disclosure. ${IS_MAINNET ? "Its launch approval does not eliminate the conflict; it remains subject to ongoing review." : "It must be expressly considered in the launch economic review."}`,
+    title: "Related-party exposure (digital assets sector)",
+    body: `The digital-assets sector lends to Forest Road's own trading subsidiary. Forest Road is simultaneously originator, servicer, and borrower-affiliate for that sector, a structural conflict of interest. It is mitigated by arm's-length terms, on-chain concentration caps, conservative dynamic LTV with margin-call/liquidation mechanics, and plain disclosure. ${IS_MAINNET ? "Its launch approval does not eliminate the conflict; it remains subject to ongoing review." : "It must be expressly considered in the launch economic review."}`,
   },
   {
-    title: "Crypto-collateral volatility (digital assets class)",
-    body: "Unlike the receivable classes: the digital-assets class is secured by liquid, price-volatile crypto positions that can gap through margin levels faster than remedies execute. Valuation freshness rules, conservative LTV, and rapid liquidation paths reduce, but do not eliminate, this risk.",
+    title: "Crypto-collateral volatility (digital assets sector)",
+    body: "Unlike the receivable-backed sectors, the digital-assets sector is secured by liquid, price-volatile crypto positions that can gap through margin levels faster than remedies execute. Valuation freshness rules, conservative LTV, and rapid liquidation paths reduce, but do not eliminate, this risk.",
   },
 ];
 
@@ -74,7 +72,7 @@ export default function RiskPage() {
       bleed
       section="Risk"
       title="Risk factors"
-      lede="An honest protocol names its risks specifically. These are the material ones; the documentation covers each in depth."
+      lede="These are the material risks. The documentation covers each one in depth."
     >
       {/* ── The primary trust assumption, given its own band. ───────────── */}
       {/* The callout sits under the headline in the left column rather than
@@ -87,7 +85,7 @@ export default function RiskPage() {
             <div className="mt-9">
               <HighlightBox tone="navy">
                 Every other risk on this page sits downstream of this one. If
-                the attested facts are wrong: the on-chain record is wrong, and
+                the attested facts are wrong, the on-chain record is wrong, and
                 the remedies below execute against a position that does not
                 exist as described.
               </HighlightBox>
@@ -111,7 +109,7 @@ export default function RiskPage() {
           aside={
             <>
               These are structural to the design rather than to any one
-              collateral class. None of them is eliminated by the loss
+              sector. None of them is eliminated by the loss
               cascade. The cascade governs the order in which losses land,
               not whether they occur.
             </>
@@ -124,7 +122,7 @@ export default function RiskPage() {
       <Section tone="light">
         <SectionHead
           title="Risks that attach to particular collateral."
-          lede="The receivable classes and the marked-to-market class fail in different ways and on different clocks. The related-party exposure is disclosed rather than mitigated away."
+          lede="Each sector carries its own risks, set out in full on its own page. The related-party exposure has its own entry below."
         />
         <CardDeck columns={3} items={classRisks} />
       </Section>

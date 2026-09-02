@@ -163,6 +163,12 @@ contract CustodyFreezePredicateHandler is GuardProbe {
     uint256 public ghostImpairmentsRecognised;
     uint256 public ghostPreArms;
     uint256 public ghostExitsAtRest;
+    /// @notice CSG-N1 samples the controller's exit-draw predicate and the curator's
+    ///         under-backing freeze predicate independently at every transient state this
+    ///         campaign reaches. A mismatch is a future layer-1 escape signal.
+    uint256 public csgN1Mismatches;
+    uint256 public csgN1TrueObservations;
+    uint256 public csgN1FalseObservations;
 
     constructor(Wiring memory w) {
         usdc = MockERC20(w.usdc);
@@ -308,6 +314,7 @@ contract CustodyFreezePredicateHandler is GuardProbe {
         uint256 amount = _align(bound(amountSeed, UNIT, 50_000e18));
         if (amount == 0) return;
         _post(classId, amount);
+        _observeCsgN1();
         callCount++;
     }
 
@@ -318,6 +325,7 @@ contract CustodyFreezePredicateHandler is GuardProbe {
         uint256 amount = _align(bound(amountSeed, UNIT, 250_000e18));
         if (amount == 0) return;
         _mint(minter, amount);
+        _observeCsgN1();
         callCount++;
     }
 
@@ -325,6 +333,7 @@ contract CustodyFreezePredicateHandler is GuardProbe {
     function warp(uint256 dtSeed) external {
         fuzzEntries++;
         vm.warp(block.timestamp + bound(dtSeed, 1 hours, 7 days));
+        _observeCsgN1();
         callCount++;
     }
 
@@ -424,6 +433,7 @@ contract CustodyFreezePredicateHandler is GuardProbe {
         vm.prank(admin);
         (uint256 incidentId, uint256 actualLoss) = reserves.ratifyAndOpen(armId, evidenceHash, loss);
         assertEq(actualLoss, loss, "F3: ratification did not rederive the physical loss");
+        _observeCsgN1();
         uint256 deficit = reserves.reserveDeficit();
         if (deficit == 0) {
             // Unreachable by construction (loss > slack + capacity), but a silent no-op here would
@@ -439,6 +449,7 @@ contract CustodyFreezePredicateHandler is GuardProbe {
         // THE RECAPITALISATION: cash in with NO matching mint, so backing rises to meet supply and
         // the observable under-backing limb goes quiet while the genuine residual stays recorded.
         _recapitalise();
+        _observeCsgN1();
         // Fresh layer-1 capital, because the write-down consumed the pool and the exit probe must
         // be refused by the FREEZE rather than by an empty stake.
         _ensureStake();
@@ -472,6 +483,7 @@ contract CustodyFreezePredicateHandler is GuardProbe {
         vm.prank(address(reserves));
         usdc.transfer(custodySink, move);
         ghostShortfallsInduced++;
+        _observeCsgN1();
 
         _assertOnlyLimb(3);
         _recordFrozen(G_L3_VIEW, G_L3_EXIT);
@@ -498,6 +510,7 @@ contract CustodyFreezePredicateHandler is GuardProbe {
         vm.prank(admin);
         reserves.recognizePrincipalImpairment(impairFacilityId, mark, evidence);
         ghostImpairmentsRecognised++;
+        _observeCsgN1();
 
         _assertOnlyLimb(4);
         _recordFrozen(G_L4_VIEW, G_L4_EXIT);
@@ -584,6 +597,7 @@ contract CustodyFreezePredicateHandler is GuardProbe {
             return false;
         }
         _ensureStake();
+        _observeCsgN1();
         return true;
     }
 
@@ -653,6 +667,7 @@ contract CustodyFreezePredicateHandler is GuardProbe {
     }
 
     function _assertRest() private {
+        _observeCsgN1();
         if (_atRest()) return;
         ghostNotAtRest++;
         assertTrue(false, "F3: a probe failed to restore the resting state");
@@ -756,6 +771,18 @@ contract CustodyFreezePredicateHandler is GuardProbe {
         }
         capacity += usdfr.balanceOf(backstop);
         capacity += vault.totalAssets();
+    }
+
+    /// @dev The two sides deliberately use their own published dependency chains rather than a
+    ///      shared helper: the controller side reads the USDfr token and ReserveManager directly;
+    ///      the curator side reads through the controller's production views. Keeping those reads
+    ///      independent is the point of CSG-N1.
+    function _observeCsgN1() private {
+        bool exitDrawPredicate = usdfr.totalSupply() > reserves.totalBackingValue();
+        bool curatorUnderBackingPredicate = controller.totalUSDfr() > controller.backingValue();
+        if (exitDrawPredicate != curatorUnderBackingPredicate) csgN1Mismatches++;
+        if (exitDrawPredicate) csgN1TrueObservations++;
+        else csgN1FalseObservations++;
     }
 
     function _align(uint256 amount) private pure returns (uint256) {

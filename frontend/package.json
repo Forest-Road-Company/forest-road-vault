@@ -13,7 +13,7 @@
     "test:sync": "node contract-ui-sync-test.mts",
     "test": "npm run test:logic && npm run test:sync && npm run test:render",
     "test:render": "vitest run",
-    "build:e2e:fork": "NEXT_PUBLIC_CHAIN_ID=31337 NEXT_PUBLIC_RPC_URL=http://127.0.0.1:8548 NEXT_PUBLIC_PROTOCOL_DEPLOYMENT_BLOCK=11386371 NEXT_PUBLIC_SUSDFR_FEE_ABI_VERSION=1 npm run build",
+    "build:e2e:fork": "NEXT_PUBLIC_CHAIN_ID=31337 NEXT_PUBLIC_RPC_URL=${SEPOLIA_FORK_RPC_URL:-http://127.0.0.1:8547} NEXT_PUBLIC_PROTOCOL_DEPLOYMENT_BLOCK=${E2E_DEPLOYMENT_BLOCK:-11489206} NEXT_PUBLIC_SUSDFR_FEE_ABI_VERSION=1 npm run build",
     "test:e2e:fork": "playwright test --config playwright.config.ts"
   },
   "dependencies": {

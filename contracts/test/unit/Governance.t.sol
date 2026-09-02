@@ -4,7 +4,8 @@ pragma solidity 0.8.30;
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IGovernor} from "@openzeppelin/contracts/governance/IGovernor.sol";
-import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import {TimelockControllerUpgradeable} from
+    "@openzeppelin/contracts-upgradeable/governance/TimelockControllerUpgradeable.sol";
 
 import {FRGovernor} from "../../src/FRGovernor.sol";
 import {GroveToken} from "../../src/GroveToken.sol";
@@ -147,16 +148,16 @@ contract GovernanceTest is GovernanceFixture {
         assertEq(uint8(governor.state(proposalId)), uint8(IGovernor.ProposalState.Canceled));
     }
 
-    /// @dev G1c regression: this test replaces the former premise that a queued operation was
-    ///      deliberately unstoppable. The approved proposal guardian reaches the Governor's
-    ///      Timelock cancellation role without receiving that role directly.
-    function test_governance_proposalGuardianCanCancelQueued() public {
+    /// @notice G1c: queueing is the final governance decision. The two-day delay is a public
+    ///         warning period, not a veto period: no proposer, protocol guardian, or operator can
+    ///         cancel after queueing, and execution remains permissionless once the delay elapses.
+    function test_governance_queuedProposalHasNoCancellationPath() public {
         address[] memory targets = new address[](1);
         targets[0] = address(waterfall);
         uint256[] memory values = new uint256[](1);
         bytes[] memory calldatas = new bytes[](1);
         calldatas[0] = abi.encodeCall(waterfall.setProtocolFee, (1_500));
-        string memory description = "guardian veto regression";
+        string memory description = "queued governance finality";
         bytes32 descriptionHash = keccak256(bytes(description));
 
         vm.prank(frTreasury);
@@ -168,82 +169,34 @@ contract GovernanceTest is GovernanceFixture {
         governor.queue(targets, values, calldatas, descriptionHash);
         assertEq(uint8(governor.state(proposalId)), uint8(IGovernor.ProposalState.Queued));
 
-        assertEq(governor.proposalGuardian(), guardian, "approved veto principal");
-        assertFalse(
-            timelock.hasRole(timelock.CANCELLER_ROLE(), guardian), "guardian must route cancellation through Governor"
-        );
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IGovernor.GovernorUnableToCancel.selector, proposalId, alice));
-        governor.cancel(targets, values, calldatas, descriptionHash);
+        bytes32 cancellerRole = timelock.CANCELLER_ROLE();
+        assertTrue(timelock.hasRole(cancellerRole, address(governor)), "only Governor holds the cancellation role");
+        assertFalse(timelock.hasRole(cancellerRole, frTreasury), "proposer cannot cancel at Timelock level");
+        assertFalse(timelock.hasRole(cancellerRole, guardian), "protocol guardian has no governance veto");
 
-        vm.prank(guardian);
-        governor.cancel(targets, values, calldatas, descriptionHash);
-        assertEq(uint8(governor.state(proposalId)), uint8(IGovernor.ProposalState.Canceled));
-
-        vm.warp(block.timestamp + Config.TIMELOCK_MIN_DELAY + 1);
-        vm.expectRevert();
-        governor.execute(targets, values, calldatas, descriptionHash);
-        assertEq(waterfall.protocolFeeBps(), 1_000, "vetoed action must never land");
-    }
-
-    /// @notice H-2: the veto principal cannot entrench itself by cancelling the one standalone
-    ///         proposal whose only effect is to rotate that principal.
-    function test_governance_guardianCannotVetoItsOwnStandaloneRotation() public {
-        address replacement = makeAddr("replacementProposalGuardian");
-        address[] memory targets = new address[](1);
-        targets[0] = address(governor);
-        uint256[] memory values = new uint256[](1);
-        bytes[] memory calldatas = new bytes[](1);
-        calldatas[0] = abi.encodeCall(governor.setProposalGuardian, (replacement));
-        string memory description = "rotate compromised proposal guardian";
-        bytes32 descriptionHash = keccak256(bytes(description));
-
-        vm.prank(frTreasury);
-        uint256 proposalId = governor.propose(targets, values, calldatas, description);
-        vm.warp(block.timestamp + Config.GOV_VOTING_DELAY + 1);
-        vm.prank(frTreasury);
-        governor.castVote(proposalId, 1);
-        vm.warp(block.timestamp + Config.GOV_VOTING_PERIOD + 1);
-        governor.queue(targets, values, calldatas, descriptionHash);
+        bytes32 salt = bytes20(address(governor)) ^ descriptionHash;
+        bytes32 operationId = timelock.hashOperationBatch(targets, values, calldatas, bytes32(0), salt);
+        assertTrue(timelock.isOperationPending(operationId), "the queued Timelock operation exists");
 
         vm.prank(guardian);
         vm.expectRevert(
-            abi.encodeWithSelector(FRGovernor.Governor_GuardianCannotCancelOwnRotation.selector, proposalId, guardian)
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, guardian, cancellerRole)
         );
+        timelock.cancel(operationId);
+
+        vm.prank(frTreasury);
+        vm.expectRevert(abi.encodeWithSelector(IGovernor.GovernorUnableToCancel.selector, proposalId, frTreasury));
+        governor.cancel(targets, values, calldatas, descriptionHash);
+        vm.prank(guardian);
+        vm.expectRevert(abi.encodeWithSelector(IGovernor.GovernorUnableToCancel.selector, proposalId, guardian));
         governor.cancel(targets, values, calldatas, descriptionHash);
 
         vm.warp(block.timestamp + Config.TIMELOCK_MIN_DELAY + 1);
+        vm.prank(alice);
         governor.execute(targets, values, calldatas, descriptionHash);
-        assertEq(governor.proposalGuardian(), replacement, "governance could not remove the veto principal");
-    }
-
-    /// @notice P-41: non-canonical ABI padding must not disguise an unexecutable call as the
-    ///         standalone guardian rotation that is exempt from the guardian's veto.
-    function test_governance_guardianCanVetoDirtyPaddedPseudoRotation() public {
-        address replacement = makeAddr("dirtyPaddedReplacementGuardian");
-        address[] memory targets = new address[](1);
-        targets[0] = address(governor);
-        uint256[] memory values = new uint256[](1);
-        bytes[] memory calldatas = new bytes[](1);
-        uint256 dirtyAddressWord = (uint256(1) << 160) | uint256(uint160(replacement));
-        calldatas[0] = abi.encodePacked(governor.setProposalGuardian.selector, bytes32(dirtyAddressWord));
-        assertEq(calldatas[0].length, 36, "the malformed call retains the rotation-shaped length");
-
-        string memory description = "dirty-padded pseudo-rotation";
-        bytes32 descriptionHash = keccak256(bytes(description));
-        vm.prank(frTreasury);
-        uint256 proposalId = governor.propose(targets, values, calldatas, description);
-
-        vm.prank(guardian);
-        governor.cancel(targets, values, calldatas, descriptionHash);
-        assertEq(uint8(governor.state(proposalId)), uint8(IGovernor.ProposalState.Canceled));
-    }
-
-    function test_governance_zeroProposalGuardianRevertsAtGenesis() public {
-        address implementation = address(new FRGovernor());
-        IVotes votesSource = governor.token();
-        vm.expectRevert(FRGovernor.Governor_ZeroProposalGuardian.selector);
-        new ERC1967Proxy(implementation, abi.encodeCall(FRGovernor.initialize, (votesSource, timelock, address(0))));
+        assertEq(uint8(governor.state(proposalId)), uint8(IGovernor.ProposalState.Executed));
+        assertTrue(timelock.isOperationDone(operationId));
+        assertEq(waterfall.protocolFeeBps(), 1_500, "the final queued action lands through an open executor");
     }
 
     function test_governance_governorUpgradesOnlyThroughGovernance() public {
@@ -273,14 +226,52 @@ contract GovernanceTest is GovernanceFixture {
         assertEq(uint8(governor.state(proposalId)), uint8(IGovernor.ProposalState.Executed));
     }
 
+    function test_governance_timelockPointerMigrationIsDisabledInV1() public {
+        TimelockControllerUpgradeable replacement = TimelockControllerUpgradeable(payable(makeAddr("replacement")));
+
+        vm.expectRevert(abi.encodeWithSelector(IGovernor.GovernorOnlyExecutor.selector, alice));
+        vm.prank(alice);
+        governor.updateTimelock(replacement);
+
+        address[] memory targets = new address[](1);
+        targets[0] = address(governor);
+        uint256[] memory values = new uint256[](1);
+        bytes[] memory calldatas = new bytes[](1);
+        calldatas[0] = abi.encodeCall(governor.updateTimelock, (replacement));
+        string memory description = "attempt pointer-only timelock migration";
+        bytes32 descriptionHash = keccak256(bytes(description));
+
+        vm.prank(frTreasury);
+        uint256 proposalId = governor.propose(targets, values, calldatas, description);
+        vm.warp(block.timestamp + Config.GOV_VOTING_DELAY + 1);
+        vm.prank(frTreasury);
+        governor.castVote(proposalId, 1);
+        vm.warp(block.timestamp + Config.GOV_VOTING_PERIOD + 1);
+        governor.queue(targets, values, calldatas, descriptionHash);
+        vm.warp(block.timestamp + Config.TIMELOCK_MIN_DELAY + 1);
+
+        vm.expectRevert(FRGovernor.Governor_TimelockMigrationDisabled.selector);
+        governor.execute(targets, values, calldatas, descriptionHash);
+
+        assertEq(governor.timelock(), address(timelock), "the original executor pointer remains bound");
+        assertEq(uint8(governor.state(proposalId)), uint8(IGovernor.ProposalState.Queued));
+        bytes32 salt = bytes20(address(governor)) ^ descriptionHash;
+        bytes32 operationId = timelock.hashOperationBatch(targets, values, calldatas, bytes32(0), salt);
+        assertTrue(timelock.isOperationReady(operationId), "the reverted operation remains queued");
+        assertTrue(timelock.hasRole(timelock.PROPOSER_ROLE(), address(governor)));
+        assertTrue(timelock.hasRole(timelock.CANCELLER_ROLE(), address(governor)));
+        assertTrue(timelock.hasRole(timelock.EXECUTOR_ROLE(), address(0)));
+    }
+
     function test_governance_timelockIsTheExecutorAndModuleAdmin() public view {
         assertEq(governor.timelock(), address(timelock));
+        assertEq(address(governor.token()), address(votesAggregator), "Governor retains the votes aggregator");
         assertTrue(waterfall.hasRole(bytes32(0), address(timelock)), "timelock is module admin");
         assertTrue(timelock.hasRole(timelock.PROPOSER_ROLE(), address(governor)));
+        assertTrue(timelock.hasRole(timelock.EXECUTOR_ROLE(), address(0)), "Timelock execution remains open");
         assertFalse(timelock.hasRole(timelock.DEFAULT_ADMIN_ROLE(), address(this)), "no leftover fixture privileges");
         assertEq(governor.votingDelay(), Config.GOV_VOTING_DELAY);
         assertEq(governor.votingPeriod(), Config.GOV_VOTING_PERIOD);
         assertEq(governor.proposalThreshold(), Config.GOV_PROPOSAL_THRESHOLD);
-        assertEq(governor.proposalGuardian(), guardian);
     }
 }

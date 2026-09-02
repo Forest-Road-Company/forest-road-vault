@@ -23,8 +23,8 @@ export function SiteFooter() {
               className="h-12 w-auto"
             />
             <p className="text-[13px] leading-relaxed text-on-navy-faint">
-              A KYC-gated, legally-wrapped RWA credit protocol bringing Forest
-              Road&apos;s speciality-finance book on-chain. Yield is variable and
+              A KYC-gated credit protocol bringing Forest
+              Road&apos;s specialty finance book on-chain. Yield is variable and
               reflects the actual performance of the loan book and reserves.
               Nothing here promises a fixed return. Token characterization is a
               matter for counsel; nothing on this site is legal, tax, or
@@ -38,8 +38,8 @@ export function SiteFooter() {
               <Link href="/how-it-works" className="block py-1 text-on-navy-muted hover:text-on-navy">
                 How it works
               </Link>
-              <Link href="/verticals" className="block py-1 text-on-navy-muted hover:text-on-navy">
-                Verticals
+              <Link href="/sectors" className="block py-1 text-on-navy-muted hover:text-on-navy">
+                Sectors
               </Link>
               <Link href="/transparency" className="block py-1 text-on-navy-muted hover:text-on-navy">
                 Transparency
@@ -96,7 +96,7 @@ export function SiteFooter() {
           </p>
           <p className="max-w-3xl text-[11px] leading-relaxed text-on-navy-faint md:text-right">
             {IS_TESTNET
-              ? "TESTNET ONLY: this build never touches mainnet or real value. Mainnet remains gated on the published launch checklist."
+              ? "TESTNET ONLY: this build reads Sepolia and its test assets have no value. The protocol is live on Ethereum mainnet; see Docs, Addresses."
               : "ETHEREUM MAINNET: smart-contract, liquidity, credit, legal, oracle, governance, and operational risks remain. Review all disclosures; nothing here is legal, tax, or investment advice."}
           </p>
         </div>

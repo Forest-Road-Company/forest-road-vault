@@ -551,64 +551,37 @@ contract QueueDeepForkTest is ForkLifecycleFixture {
     // 8. MID-SETTLEMENT JOIN (documented behaviour, only reachable at cooldown 0)
     // ─────────────────────────────────────────────────────────────────────
 
-    /// @notice The contract header states: "Requests joining mid-settlement queue behind the
-    ///         current tail and are eligible within the same settlement if budget remains
-    ///         (still strictly FIFO)." Under the SHIPPED 21-day cooldown that is unreachable
-    ///         — a brand-new request is always inside its hold — so this pins the claim in
-    ///         the only state where it can hold: cooldown disabled by governance (a
-    ///         deliberate, evented act per ADR-0022).
-    function test_fork_queue_midSettlementJoinServedInSameSettlementWhenCooldownDisabled() public onFork {
-        _mintFromUSDC(alice, 2_000_000e6);
-        _mintFromUSDC(bob, 2_000_000e6);
-        _mintFromUSDC(dave, 2_000_000e6);
-        uint256 shA = _stake(alice, 100_000e18);
-        uint256 shD = _stake(dave, 70_000e18);
-        uint256 shB = _stake(bob, 80_000e18);
+    // REMOVED 2026-08-15 — test_fork_queue_midSettlementJoinServedInSameSettlementWhenCooldownDisabled.
+    //
+    // It reached the contract header's same-settlement-joiner claim by calling
+    // `setRedeemCooldown(0)`. Production now REFUSES that: RedemptionQueue.sol:470-473 rejects any
+    // value below `Config.DEFAULT_REDEEM_COOLDOWN`, because "disabling the hold would let a queued
+    // exit settle before the past-due mark fully ramps". The test therefore asserted a governance
+    // action the protocol forbids and failed closed in CI.
+    //
+    // It is REMOVED rather than weakened or skipped because (a) its premise is unreachable in every
+    // configuration, so there is no state in which it could pass, (b) the property it was hardened
+    // into — that the floor cannot be disabled — is already pinned by the test immediately below,
+    // which exists for exactly that purpose, and (c) the fork job asserts `--expected-skipped 0`,
+    // so `vm.skip` would fail the population gate.
+    //
+    // FINDING for the remediation round: the `RedemptionQueue` contract header still advertises
+    // that a mid-settlement joiner "is eligible within the same settlement if budget remains".
+    // With the hold un-disableable, a brand-new request is ALWAYS inside its cooldown, so that
+    // claim is now unreachable prose describing dead behaviour — the D12-02 class. Correct the
+    // header when `src` is next touched.
 
-        queue.setEpochLiquidityBps(10_000);
+    /// @notice ADR-0022 deliberately made the cooldown-zero premise above unreachable. Keep the
+    ///         historical scenario visible, and independently pin the deployed hardening that now
+    ///         refuses the governance action before any queue state can change.
+    function test_fork_queue_forcedCooldownFloorCannotBeDisabled() public onFork {
+        uint64 cooldownBefore = queue.redeemCooldown();
+        assertGe(cooldownBefore, Config.DEFAULT_REDEEM_COOLDOWN, "deployed hold is below the ADR-0022 floor");
+
+        vm.expectRevert(IRedemptionQueue.Queue_BadParams.selector);
         queue.setRedeemCooldown(0);
-        assertEq(queue.redeemCooldown(), 0, "hold disabled for this scenario");
 
-        // TWO requests up front: a settlement only LATCHES open when it stops at
-        // `maxRequests` with the queue not yet drained. (With a single request,
-        // `closeEpoch(1)` drains the queue and closes the epoch in the same call.)
-        _requestFrom(alice, shA);
-        _requestFrom(dave, shD);
-        _warpToSettleable();
-
-        queue.closeEpoch(1);
-        assertTrue(queue.isSettling(), "settlement latched open at maxRequests");
-        assertEq(queue.currentEpoch(), 1, "epoch not yet advanced");
-        assertEq(queue.head(), 1, "r0 filled, r1 still queued");
-        assertGt(queue.settlementBudgetRemaining(), 0, "budget remains for a joiner");
-
-        // bob joins DURING the open settlement: behind the tail, stamped with epoch 1
-        uint256 idJoin = _requestFrom(bob, shB);
-        assertEq(idJoin, 2, "the joiner takes the tail slot: it never jumps the queue");
-        (,,, uint256 epochRequested,) = queue.request(idJoin);
-        assertEq(epochRequested, 1, "the joiner is stamped with the still-open epoch");
-        assertEq(queue.totalQueuedShares(), shD + shB, "both pending positions in custody");
-
-        // next chunk serves the PRE-EXISTING r1 (FIFO), and the settlement stays latched
-        queue.closeEpoch(1);
-        assertTrue(queue.isSettling(), "still the same settlement");
-        assertEq(queue.currentEpoch(), 1, "still epoch 1");
-        assertEq(queue.head(), 2, "r1 filled before the joiner: strict FIFO");
-        assertEq(_rem(idJoin), shB, "the joiner is still untouched at this point");
-
-        // and now the joiner itself, inside the SAME settlement
-        uint256 budgetLeft = queue.settlementBudgetRemaining();
-        uint256 expAssets = vault.previewRedeem(shB);
-        vm.expectEmit(true, false, false, true, address(queue));
-        emit IRedemptionQueue.RequestFilled(idJoin, shB, expAssets, 1);
-        queue.closeEpoch(1);
-
-        assertEq(_rem(idJoin), 0, "the mid-settlement joiner was served in the SAME settlement");
-        assertEq(_claimable(idJoin), expAssets, "at exactly the previewed conservative redemption value");
-        assertEq(queue.currentEpoch(), 2, "settlement completed once the queue drained");
-        assertFalse(queue.isSettling(), "and unlatched");
-        assertLe(expAssets, budgetLeft, "still bounded by the remaining snapshot budget");
-        _assertCustody("after the mid-settlement join");
+        assertEq(queue.redeemCooldown(), cooldownBefore, "refused zero cooldown changed live configuration");
     }
 
     // ─────────────────────────────────────────────────────────────────────

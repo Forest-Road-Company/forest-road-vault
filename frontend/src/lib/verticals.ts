@@ -1,6 +1,7 @@
 /**
  * Static vertical descriptions (copy). Live parameters (LTV caps, rate tiers,
- * concentration limits) are read from CollateralRegistry once deployed, * never hardcoded here (brief §8.3).
+ * concentration limits) are read from CollateralRegistry once deployed,
+ * never hardcoded here (brief §8.3).
  */
 export type Vertical = {
   slug: string;
@@ -14,25 +15,30 @@ export type Vertical = {
    *  classes (digital assets) use margin/liquidation mechanics instead. */
   collateralModel: "receivable" | "marked-to-market";
   tag?: string;
+  /** On-chain collateral classes that are not marketed as sectors on the site.
+   *  The class still exists in the deployed CollateralRegistry (class IDs are
+   *  positional in this array), so app surfaces keep reading it; only the
+   *  marketing pages filter it out via SECTORS. */
+  siteHidden?: boolean;
 };
 
 export const VERTICALS: Vertical[] = [
   {
-    slug: "film-tax-credits",
-    name: "Film & TV tax credits",
+    slug: "media",
+    name: "Media & entertainment",
     financed:
-      "Loans against transferable US state film/TV tax credits. A state issues a percentage of qualified production spend back as a credit, and the production borrows against that receivable today.",
+      "Senior secured lending against tax credits and other contracted receivables, financing film and television. A production borrows today against payments it is contractually owed, so repayment does not depend on box-office performance.",
     claimType:
-      "A perfected security interest (UCC-1 and assignment) in the tax-credit receivable and the borrower's right to receive it.",
-    duration: "Short: months to roughly two years, driven by state issuance timing.",
+      "A perfected security interest (UCC-1 and assignment) in the tax credits or contracted receivables and the borrower's right to receive them.",
+    duration: "Short: months to roughly two years, driven by receivable payment timing.",
     risks: [
-      { name: "Issuance timing", detail: "The state controls when the credit is actually issued; delays extend duration." },
-      { name: "Audit / clawback", detail: "The agreed-upon-procedures audit can reduce the credit below the underwritten amount." },
-      { name: "State counterparty", detail: "The obligor is a US state program; program changes are a real, priced risk." },
-      { name: "Secondary price", detail: "Credits from different states trade at different prices; recovery in default depends on that market." },
+      { name: "Payment timing", detail: "The obligor controls when the receivable is actually paid; delays extend duration." },
+      { name: "Audit / clawback", detail: "For tax-credit collateral, the agreed-upon-procedures audit can reduce the credit below the underwritten amount." },
+      { name: "Obligor counterparty", detail: "Obligors range from US state programs to contracted distributors, and obligor credit quality is a real, priced risk." },
+      { name: "Secondary price", detail: "Recovery in default can depend on the secondary market for the assigned claim." },
     ],
     remedy:
-      "No physical collateral exists. In default the protocol forecloses on the assigned receivable, steps into the right to the credit, and sells it into the secondary market.",
+      "No physical collateral exists. In default the protocol forecloses on the assigned receivable, steps into the right to payment, and sells it into the secondary market.",
     collateralModel: "receivable",
   },
   {
@@ -49,7 +55,7 @@ export const VERTICALS: Vertical[] = [
       { name: "Offtake & production", detail: "Operating cashflows vary with production and counterparty performance." },
     ],
     remedy:
-      "Foreclose on assigned credits and project security; project-level assets provide an asset-backed remedy path unlike pure receivable classes.",
+      "Foreclose on assigned credits and project security; project-level assets provide an asset-backed remedy path unlike the purely receivable-backed sectors.",
     collateralModel: "receivable",
   },
   {
@@ -68,6 +74,7 @@ export const VERTICALS: Vertical[] = [
     remedy:
       "Standard secured-credit remedies against pledged assets and royalty/milestone rights; workout-driven rather than market-sale-driven.",
     collateralModel: "receivable",
+    siteHidden: true,
   },
   {
     slug: "real-estate",
@@ -83,14 +90,15 @@ export const VERTICALS: Vertical[] = [
     remedy:
       "Classic property foreclosure and sale. It's the one class in the book with a physical-asset remedy path.",
     collateralModel: "receivable",
+    siteHidden: true,
   },
   {
     slug: "digital-assets",
     name: "Digital assets",
     financed:
-      "Secured lending to Forest Road's digital-assets trading subsidiary, financing the desk's trading book. It's a related-party facility, disclosed as such.",
+      "Secured lending to Forest Road's digital-assets trading subsidiary, financing the desk's trading book. It is a related-party facility.",
     claimType:
-      "A pledged, marked-to-market portfolio of liquid crypto assets, not a receivable. The collateral is price-volatile and liquid: the opposite profile of the receivable classes.",
+      "A pledged, marked-to-market portfolio of liquid crypto assets, not a receivable. The collateral is price-volatile and liquid, the opposite profile of the receivable-backed sectors.",
     duration: "Short and revolving, with continuous collateral-health monitoring.",
     risks: [
       {
@@ -101,7 +109,7 @@ export const VERTICALS: Vertical[] = [
       {
         name: "Related-party exposure",
         detail:
-          "The borrower is Forest Road's own subsidiary. Terms must be arm's-length: the position is capped by concentration limits, and the conflict of interest is disclosed rather than obscured.",
+          "The borrower is Forest Road's own subsidiary. Terms must be arm's-length, the position is capped by concentration limits, and the conflict of interest is disclosed on the risk and legal pages.",
       },
       {
         name: "Valuation freshness",
@@ -114,8 +122,15 @@ export const VERTICALS: Vertical[] = [
       },
     ],
     remedy:
-      "Margin-call and liquidation mechanics, not legal foreclosure: mark breach → margin call with a short cure window (top-up collateral or pay down) → liquidation of pledged assets. Hours-to-days, closer to DeFi collateral liquidation than UCC enforcement.",
+      "Margin-call and liquidation mechanics, not legal foreclosure. A mark breach triggers a margin call with a short cure window to top up collateral or pay down; if uncured, pledged assets are liquidated. The path runs in hours to days, closer to a DeFi liquidation than to foreclosure on a receivable.",
     collateralModel: "marked-to-market",
     tag: "Marked-to-market · related party",
   },
 ];
+
+/**
+ * The sectors the site markets: media & entertainment, renewable energy and
+ * digital assets. App surfaces (transparency, points) keep reading VERTICALS,
+ * whose array order is the on-chain class-ID mapping.
+ */
+export const SECTORS: Vertical[] = VERTICALS.filter((v) => !v.siteHidden);

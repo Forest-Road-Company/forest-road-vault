@@ -133,6 +133,20 @@ attestation-trust acceptance (Part 11) exist to manage.
 - *Curator front-runs a loss* → `withdrawFirstLoss` frozen once a facility in the class
   defaults, until governance lifts it (audit R4-EC2). The guaranteed `target` floor is
   locked regardless.
+- *Near-total curator-pool wipe makes repost arithmetic unrepresentable (S3-F1)* → fixed in the
+  GitHub-equivalent baseline by advancing economically wiped rounds and lazily normalizing the
+  share ratio before a new post while preserving residual ownership. The 2026-08-07 two-failure
+  heavy receipt and subsequent owner acceptance describe the superseded implementation only; there
+  is no active production exception. The pre-import/harness 2026-08-14 configured-heavy candidate
+  completed 1,919/0/326 without the panic. The repaired current tree now conclusively passes
+  1,921/0/326 at 10,000 fuzz runs and 512 x 256 invariant calls; Oracle is 5/0 with zero reverts and
+  captured `PIPE_STATUS=0 0`. Any later source change must preserve a zero-failure result.
+- *Facility loss exceeds automated cascade capacity (G3)* → `realizeLoss` intentionally reverts
+  atomically before the principal write-down. This moves no funds but leaves face-value accounting
+  stale, so every affected value path must remain frozen while governance recapitalizes authorized
+  absorbing layers or approves an independently reviewed accounting change, then records the whole
+  loss. The manual procedure and rehearsal are mandatory; this accepted recovery policy is not a
+  claim that the loss was recorded.
 - *sGROVE exit timing* → 21-day unbonding delays exit. NOTE (audit L-6, corrected 2026-07-22):
   staked GROVE principal is **never slashed** — the backstop absorbs losses from its funded
   coverage reserve, not by slashing stakers — so the unbond is an exit/voting/obligation delay,
@@ -150,17 +164,53 @@ attestation-trust acceptance (Part 11) exist to manage.
 - *Over-distribution / double-claim* → budget-bounded FIFO; `assetsClaimable` zeroed
   before transfer; settled assets remain claimable during a guardian pause; dust rejected.
 - *Permissionless DoS on the exit* → a zero-distribution settlement with requests queued
-  reverts rather than consuming the epoch (R2 A1). (Residual: budget-snapshot timing
-  griefing, R4-EC3, documented.)
+  reverts rather than consuming the epoch (R2 A1), and D7 authenticates `closeEpoch` to the
+  dedicated settlement keeper. The old permissionless budget-snapshot grief described by R4-EC3
+  is therefore remediated; keeper liveness and Safe fallback are the operational residuals.
+- *Global mark can halt the queue (G2)* → intentional: global senior impairment is applied to
+  the sUSDfr staked base. A sufficiently large book-wide mark can make the head unredeemable. The
+  accepted design retains the `d04e652` payment-episode protections: monotonic due high-water mark,
+  no same-due relief restart, conservative unset-anchor behavior, and a ramp to full weight over
+  one redemption cooldown. Monitoring and disclosure remain required.
+- *Price changes while a long epoch is being processed (G4)* → intentional between external
+  `closeEpoch` calls. A mark revision between chunks changes the later call's live conservative
+  price while FIFO order remains intact. This disposition does not assert per-request repricing
+  inside one call; monitoring records the transaction/revision boundary and user disclosures avoid
+  promising one fixed epoch-wide price.
 
 **Governance / upgrades**
 - *Privilege escalation* → flat role-admin graph (no self-grant); `_authorizeUpgrade`
   timelock-gated on all 17 role-based modules, with `FRGovernor` separately gated by
   `onlyGovernance`; impls disable initializers (no uninitialized-impl
-  takeover); ERC-7201 namespaced storage with all 14 slots re-derived unique; array-element
+  takeover); ERC-7201 namespaced storage with all 17 namespaces re-derived unique; array-element
   structs LAYOUT-FROZEN.
 - *Compliance bricks the cascade* → protocol-owned modules are `protocolExempt` so a
   COMPLIANCE_ADMIN block can never freeze settlement/cascade/rewards (audit R3 F1/F2).
+- *Queued operation cannot be vetoed after a successful vote (G1c)* → intentional finality.
+  Mainnet v1 has no proposal guardian or separate post-queue cancellation principal. The ordinary
+  operational Guardian can pause selected user paths but cannot cancel governance. The two-day
+  Timelock is not represented as notice that the 21-day exit can outrun; monitoring, disclosure and
+  participation before queueing are the controls.
+- *Pointer-only Timelock replacement orphans governance/module authority* → closed for v1:
+  `FRGovernor.updateTimelock` retains `onlyGovernance` and always reverts with
+  `Governor_TimelockMigrationDisabled`. Operators must not schedule the disabled selector. Any
+  future migration requires a separately reviewed Governor upgrade and an atomic role-transfer/
+  validation ceremony through the current Timelock; the inherited pointer-only path is not treated
+  as a migration mechanism.
+- *A fresh production deployment overwrites or is confused with the disposable-v4 receipt* → the
+  production path is namespaced as `DeployMainnetProduction`, `ValidateMainnetProduction` and
+  `MainnetProductionConfigReceipt`, and it exclusively uses
+  `contracts/deployments/1-production-v1.json`. Completed-v4 runtime/broadcast/authorization and
+  `deployments/1.json` records are immutable and never accepted by the production validator; the
+  shared base script source remains part of the current delta. The frontend principal-set
+  reconstruction includes the distinct nonzero `queueKeeper`; any zero/substituted keeper or stale
+  static authorization fails closed. Current default, focused and forced cold receipt/validator
+  compilation pass; the configured-heavy explicit-exit receipt and clean local source freeze also
+  pass. The frozen identities are `contracts/src` tree
+  `9714bd1dc5b8b2175576d88ba907f21453e65b6a` and `contracts/script` tree
+  `92669e22b5d4f6200b90905b8a78af240153311d`. No production tag or production-v1 manifest exists;
+  pinned CI/format/Slither, mandatory RPC-backed tests, formal independent external delta review and fresh
+  authorization remain gates.
 - *Guardian freezes the electorate* (**NEW, ADR-0026/L-02**) → `SGrove.stake` and
   `requestUnstake` are `whenNotPaused`, so post-L-02 a guardian pause no longer merely freezes
   staking: it freezes the **composition of the sGROVE electorate**. Nobody can stake in to gain
@@ -187,19 +237,27 @@ attestation-trust acceptance (Part 11) exist to manage.
 
 ## 5. Residual risks & accepted items
 
-Flagged in the audit campaign; each is a governance / counsel / policy decision, not a
-code defect. Full remediations in `security-review.md`.
+Flagged in the audit campaign. This table mixes accepted policy/counsel risks with historically
+remediated code defects such as S3-F1 and D7; each row's disposition controls. Full remediation
+detail is in `security-review.md`.
 
 | Ref | Sev | Risk | Disposition |
 |---|---|---|---|
 | F3 | Med (counsel) | `sUSDfr` transfers bypass compliance — a sanctioned wallet can hold the staked instrument. | **Intentional** (Forest Road: "no transfer gating in DeFi"). The `protocolExempt` plumbing is in place if counsel later requires gating. |
 | F4 | Low | Value stranded by a post-fill jurisdiction block has no governed recovery path. | Accepted (may be intended for sanctions). |
-| R4-EC3 | Low | Redemption-queue budget-snapshot timing griefing (no extraction). | Not fixed; a keeper-gated close would remove it. |
+| R4-EC3 | Historical Low | Redemption-queue budget-snapshot timing griefing (no extraction). | **Fixed by D7:** `closeEpoch` is keeper-authenticated. Production still requires keeper activation, health and Safe-fallback rehearsal. |
 | Deploy | Info | Testnet `KEEP_OPS_ADMIN=true` leaves the ops EOA as `DEFAULT_ADMIN`; testnet attester keys derive from one secret. | **Production MUST** run `KEEP_OPS_ADMIN=false` with genuinely-separated attester signers. |
 | R5-EC1 | Low | An sGROVE reward slice streamed while `totalStaked == 0` is stranded with no governance sweep; a dominant staker can weaponize it to burn a funder's routed rewards (no attacker profit; custody invariant intact). | **Recommended:** a governance `sweepStrandedRewards()` (ADR-0021 economic decision → Forest Road). |
 | R5-OR1 | Info | (a) `PaymentReceived` is one record slot per facility — a second attested payment overwrites the first before distribution (liveness). (b) Oracle `pause()` blocks only new submissions; the guardian must ALSO pause `DefaultManager`/`ClaimBridge` to freeze the margin/mint path (two-switch coordination). | Ops notes; no code change. |
 | R5-I1 | Info | `liftDefaultFreeze` is per-class, not tokenId-bound — a governance double-lift could reopen the R4-EC2 window (inside the trusted-timelock boundary). | Governance-ops discipline; consider tokenId-binding lifts. |
 | R5-TEST | Med (rigor) | Historical test-strength gap: the stateful cascade invariant used an uncapped mock while the audit-era production backstop was capped; the backing invariant was self-referential with no config-transition fuzz. | R6 fixed the backing half. ADR-0035 later made the production reserve intentionally uncapped per event; current production-backed cascade suites still bind the live shared-reserve behavior. |
+| S3-F1 | Historical Medium liveness | Near-total curator-pool residuals made later repost share arithmetic overflow. | **Fixed; current exact-heavy green.** Repaired tree passes 1,921/0/326 at 512 x 256 with captured Forge exit and no recurrence. Earlier acceptance is history only; reopen on any panic. |
+| G1c | Governance policy | No post-queue veto and the 21-day holder exit cannot outrun the two-day Timelock. | **Intentional.** No proposal guardian; disclose queued finality and monitor proposal lifecycle. |
+| G2 | Economic/liveness policy | Global senior impairment can make the sUSDfr queue head unredeemable. | **Intentional with `d04e652` safeguards retained.** Reopen if the payment-episode high-watermark/ramp/fail-safe rules change. |
+| G3 | Incident liveness/accounting | An over-capacity `realizeLoss` reverts, leaving face-value accounting until remediation. | **Accepted manual frozen-protocol remedy.** Mandatory rehearsal; no value path reopens until recapitalization/upgrade and successful on-chain recognition. |
+| G4 | Queue pricing policy | A mark revision between settlement calls can make later chunks use a different price. | **Intentional live inter-call pricing.** Preserve FIFO and transaction/revision monitoring; no claim of intra-call repricing. |
+| PROD-V1-FLOW | Deployment identity / operator integrity | A replacement could overwrite the v4 receipt, validate the wrong manifest, or omit `queueKeeper` from frontend receipt reconstruction. | **Implemented; current default/heavy/focused/cold-build and clean local source-freeze evidence green.** Dedicated production script/validator/receipt names and `1-production-v1.json`; completed-v4 records/manifest immutable while shared base source remains in scope; zero/substituted keeper rejected. No production tag/manifest exists; pinned CI/RPC/Slither, formal review and regenerated authorization remain open. |
+| GOV-TL-V1 | Governance liveness / authority integrity | Inherited `updateTimelock` changes only the Governor pointer and could orphan roles on the old Timelock. | **Fixed for v1; focused/current default/heavy evidence green.** Endpoint is governance-only and terminally reverts; future migration requires an independently reviewed Governor upgrade plus atomic role transfer. |
 | **R7-SM1** | Low | A facility `originate`d then never funded sits in `Pending` forever (only exit is `Pending→Active` via `fund`); its class/borrower/state concentration exposure is stranded, keeping `CuratorModule._requiredFirstLoss` inflated and curator first-loss headroom locked. **Conservative direction** — only shrinks future capacity, never permits over-concentration; value conservation intact. | **Governance-recoverable WITHOUT an upgrade** (timelock `grantRole(CREDIT_ROLE)` → `recordExposureDecrease`). Proper fix: a future governed `cancel/expire` transition out of `Pending`. Not a redeploy blocker. |
 | ADR27-VAL1 | High (governance trust) | A malicious or unsupported `AssessedImpairmentSource.setAssessment` can reduce the queue haircut to zero while a real senior loss remains likely, allowing early redeemers to shift that loss to stayers. | Timelock-only; amount can never exceed the zero-recovery base, expires after at most 30 days, commits to a published evidence hash, and automatically fails back to zero recovery. It is also bound to `DefaultManager`'s monotonic revision and to the live **risk-state** hash, so every new default/past-due/recovery/realization or curator first-loss change invalidates it immediately. **sGROVE backstop capacity is deliberately excluded from that hash and compared directionally instead (RC-01 era fix for FRV-FS-04): a capacity DECREASE invalidates, a capacity INCREASE does not.** An increase can only make a published assessment more conservative, whereas an exact-match rule let anyone void a depositor-favourable assessment with a dust `fundCoverage` donation, since that entry point is permissionless. Independent valuation-policy and monitoring sign-off remain mainnet gates. |
 | ADR31-EQ1 | Medium (economic) | A single global HWM is not a depositor tax lot: someone entering during a drawdown shares fee-free recovery to the old protocol peak and may share a later fee on pre-entry gains deferred by performance impairment, even while junior support makes queued-exit impairment zero. There is no clawback of crystallized fees after a later loss. | Deliberate scalable design; the Stake surface independently warns whenever `feeExchangeRate() < highWaterMark()`, monitor both values, and obtain economic/legal acceptance. Per-investor lots/share classes are a future redesign, not a parameter change. |
@@ -219,28 +277,38 @@ code defect. Full remediations in `security-review.md`.
   management-fee retention. Its approximate `powWad` makes fee accrual materially
   checkpoint-frequency neutral on an unchanged NAV; approximation/rounding and long-time
   bounds are explicit external-audit scope.
-- **Canonical Ethereum USDC** — the only launch reserve token. The clean candidate is
-  fork-tested against its real six-decimal proxy at a pinned mainnet block, including
-  mint/redeem, funding, repayment, queue settlement, and custody accounting.
+- **Canonical Ethereum USDC** — the only launch reserve token. Earlier frozen/baseline candidates
+  have pinned-mainnet evidence against the real six-decimal proxy, including mint/redeem, funding,
+  repayment, queue settlement and custody accounting. The current owner-aligned candidate's 326
+  expected offline-RPC skips do not carry that evidence forward; its mandatory RPC-backed fork and
+  attack matrix remains an open release gate.
 - **The attester infrastructure** — off-chain; the trust root (see §2).
 
 ## 7. Production assurance gates (Part 11 — human-owned)
 
 External security audit · securities-law opinion · executed legal wrapper · economic
-review · attestation-trust acceptance. The internal campaign includes pinned canonical-USDC
-fork tests and a Halmos proof of the modeled cascade conservation/ordering arithmetic.
-Those results support but do not replace the independent reviews, controlled deployment
-ceremony, monitoring, incident response, and ongoing governance obligations.
+review · attestation-trust acceptance. The internal campaign includes historical/baseline pinned
+canonical-USDC fork tests and a Halmos proof of the modeled cascade conservation/ordering
+arithmetic. The owner-aligned source still requires its mandatory RPC-backed matrix. Existing
+results support but do not replace that rerun, independent reviews, controlled deployment ceremony,
+monitoring, incident response, and ongoing governance obligations.
 
-Forest Road's 2026-07-29 owner decision permits a disposable pre-audit mainnet deployment
-for controlled testing only. It is closed to third-party capital and real legal claims,
-uses only controlled test wallets and an approved test budget, and is not a production
-release. External audit remediation is expected; production requires a fresh deployment
-and every gate above.
+The instrumented coverage receipt is 1,912 pass / exactly one known gas-sensitive FS2 red / three
+skip, with the hard source-function verifier at 682/682. `--allow-failure` is only an LCOV-emission
+mechanism; ordinary default/heavy profiles own correctness and any additional coverage-only failure
+must be reviewed explicitly.
+
+Forest Road's 2026-07-29 owner decision permits a disposable mainnet deployment for controlled
+testing only. Corrovera now satisfies Forest Road's one-external-audit requirement, but the address
+set remains closed to third-party capital and real legal claims, uses only controlled test wallets
+and an approved test budget, and is not a production release. It exists to perform live-address
+operational qualification; production still requires a fresh deployment and every gate above.
 
 The round-4 ADR-0031 review found no High issue and confirmed the holder-harming exit
 defect closed. Forest Road accepted the remaining protocol-under-collection tradeoff.
-The follow-up working tree seeds legacy zero-HWM upgrades from `totalAssets()`, enforces
+The locally frozen owner-aligned candidate (`contracts/src`
+`9714bd1dc5b8b2175576d88ba907f21453e65b6a`; `contracts/script`
+`92669e22b5d4f6200b90905b8a78af240153311d`) seeds legacy zero-HWM upgrades from `totalAssets()`, enforces
 dual-NAV upgrade order, validates the complete backstop interface, fixes the UI dust
 trigger, gates EIP-170 size in CI, and launches with zero yield vesting plus an atomic
 post-interest checkpoint. Exact-source independent review and fresh receipts remain

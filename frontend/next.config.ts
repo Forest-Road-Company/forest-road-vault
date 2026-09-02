@@ -56,6 +56,41 @@ export default function createNextConfig(phase: string): NextConfig {
     turbopack: {
       root: process.cwd(),
     },
+    async redirects() {
+      return [
+        // "Verticals" became "sectors" (Aug 2026 content review), and the
+        // film-tax-credits class was folded into the broader media sector.
+        {
+          source: "/verticals/film-tax-credits",
+          destination: "/sectors/media",
+          permanent: true,
+        },
+        // Life sciences and real estate remain on-chain classes but are no longer
+        // marketed as sectors, so /sectors/<slug> would 404. Both URLs are live today,
+        // and a permanent redirect into a 404 is cached by the browser forever. Send
+        // them to the sector index instead. MUST precede the generic rule below.
+        {
+          source: "/verticals/life-sciences",
+          destination: "/sectors",
+          permanent: true,
+        },
+        {
+          source: "/verticals/real-estate",
+          destination: "/sectors",
+          permanent: true,
+        },
+        {
+          source: "/verticals/:slug",
+          destination: "/sectors/:slug",
+          permanent: true,
+        },
+        {
+          source: "/verticals",
+          destination: "/sectors",
+          permanent: true,
+        },
+      ];
+    },
     async headers() {
       return [
         {

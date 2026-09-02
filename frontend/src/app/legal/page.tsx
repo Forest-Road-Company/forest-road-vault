@@ -9,7 +9,7 @@ export default function LegalPage() {
     <PageShell
       section="Legal"
       title="Disclosures"
-      lede="Stated plainly, because getting this wrong helps nobody."
+      lede="The disclosures, stated plainly."
     >
       <div className="mt-10 max-w-3xl space-y-6 text-[14.5px] leading-relaxed text-ink-muted">
         <p>
@@ -36,17 +36,16 @@ export default function LegalPage() {
           on this site independently claims they are or are not securities.{" "}
           {IS_MAINNET
             ? "Production operation remains subject to the applicable legal wrapper, counsel-approved controls, external security review, and approved economic parameters."
-            : "A written securities-counsel opinion is a hard, blocking gate before any mainnet deployment, alongside external smart-contract audits, an executed off-chain legal wrapper, and an economic review of protocol parameters."}
+            : "External smart-contract audits are complete. A written securities-counsel opinion remains a hard, blocking gate before any mainnet deployment, alongside an executed off-chain legal wrapper and an economic review of protocol parameters."}
         </p>
         <p>
           <span className="text-ink">Yield is variable.</span> sUSDfr passes
           through the net performance of the loan book and reserves via its
-          exchange rate. At launch, 10% of realized gross interest goes to the
-          protocol; sUSDfr then charges 10% of conservative protocol-wide
-          high-water-mark profit. Timelocked governance may vary performance
-          prospectively up to 20%. Management starts at 0% and may vary
-          prospectively up to 2% annually in v1. Each change crystallizes the
-          old rate first.
+          exchange rate. A proposed share of gross interest (up to 10%) goes
+          to the protocol; sUSDfr then charges a performance fee of up to 20%
+          of protocol-wide high-water-mark profit and a management fee of up
+          to 2% annually, both prospective and timelocked. Final fees are set
+          in definitive documents and may vary by sector and facility.
           Vault-level fees are paid through share dilution. The high-water mark
           is global, not personal to a participant&apos;s entry price, and
           crystallized fees are not clawed back after a later loss. No fixed
@@ -61,9 +60,9 @@ export default function LegalPage() {
           decentralization is a roadmap item, not a present fact.
         </p>
         <p>
-          <span className="text-ink">One vertical is a related-party facility.</span>{" "}
-          The digital-assets collateral class finances Forest Road&apos;s own
-          trading subsidiary. That conflict of interest is disclosed plainly
+          <span className="text-ink">One sector is a related-party facility.</span>{" "}
+          The digital-assets sector finances Forest Road&apos;s own
+          trading subsidiary. That conflict of interest is disclosed
           here and on the risk page, is subject to on-chain concentration
           limits and arm&apos;s-length-terms review, and is an explicit item in
           {IS_MAINNET ? " ongoing economic and governance review." : " the launch economic review."}

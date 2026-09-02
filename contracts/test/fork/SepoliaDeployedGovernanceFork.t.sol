@@ -87,23 +87,29 @@ contract SepoliaDeployedGovernanceForkTest is Test {
         timelock.updateDelay(Config.TIMELOCK_MIN_DELAY);
 
         uint256 stableBefore = stable.balanceOf(beneficiary);
-        address[] memory targets = new address[](8);
-        uint256[] memory values = new uint256[](8);
-        bytes[] memory calldatas = new bytes[](8);
-        for (uint256 i = 0; i < 6; ++i) {
+        // `updateTimelock` is DELIBERATELY ABSENT from this batch. Mainnet-v1 disables OZ's
+        // pointer-only timelock replacement with a terminal revert (`FRGovernor.sol:80`), and its
+        // own NatSpec warns "Do not schedule this selector: a valid proposal will remain queued
+        // because execution rolls back atomically". Including it here did exactly that — one
+        // deliberately-disabled action reverted all eight, so the suite read as a governance
+        // regression when it was the design working. The disable is proved on its own below,
+        // through the real governance path, which is stronger than asserting it as a setter.
+        address[] memory targets = new address[](7);
+        uint256[] memory values = new uint256[](7);
+        bytes[] memory calldatas = new bytes[](7);
+        for (uint256 i = 0; i < 5; ++i) {
             targets[i] = address(governor);
         }
-        targets[6] = address(timelock);
-        targets[7] = address(governor);
+        targets[5] = address(timelock);
+        targets[6] = address(governor);
         calldatas[0] =
             abi.encodeCall(governor.relay, (address(stable), 0, abi.encodeCall(stable.mint, (beneficiary, 1))));
         calldatas[1] = abi.encodeCall(governor.setProposalThreshold, (governor.proposalThreshold()));
         calldatas[2] = abi.encodeCall(governor.setVotingDelay, (uint48(governor.votingDelay())));
         calldatas[3] = abi.encodeCall(governor.setVotingPeriod, (uint32(governor.votingPeriod())));
         calldatas[4] = abi.encodeCall(governor.updateQuorumNumerator, (governor.quorumNumerator()));
-        calldatas[5] = abi.encodeCall(governor.updateTimelock, (timelock));
-        calldatas[6] = abi.encodeCall(timelock.updateDelay, (timelock.getMinDelay()));
-        calldatas[7] = abi.encodeCall(governor.upgradeToAndCall, (newImplementation, bytes("")));
+        calldatas[5] = abi.encodeCall(timelock.updateDelay, (timelock.getMinDelay()));
+        calldatas[6] = abi.encodeCall(governor.upgradeToAndCall, (newImplementation, bytes("")));
 
         string memory description = "Sepolia fork: exercise all governance-only entry points";
         bytes32 descriptionHash = keccak256(bytes(description));
@@ -144,6 +150,38 @@ contract SepoliaDeployedGovernanceForkTest is Test {
         assertEq(timelock.getMinDelay(), Config.TIMELOCK_MIN_DELAY);
         assertTrue(_sawTopic(logs, keccak256("Upgraded(address)")), "upgrade event absent");
         assertTrue(_sawTopic(logs, keccak256("ProposalExecuted(uint256)")), "execution event absent");
+
+        // The disabled timelock migration, proved on the DEPLOYED governor through the only path
+        // that can reach it: a fully authorized governance proposal. `onlyGovernance` is retained
+        // ahead of the terminal revert, so this cannot be shown by a direct prank — the executor
+        // deque check would reject first, which is a different failure and would prove nothing.
+        address[] memory migrateTargets = new address[](1);
+        uint256[] memory migrateValues = new uint256[](1);
+        bytes[] memory migrateCalldatas = new bytes[](1);
+        migrateTargets[0] = address(governor);
+        migrateCalldatas[0] = abi.encodeCall(governor.updateTimelock, (timelock));
+        string memory migrateDescription = "Sepolia fork: timelock migration must remain disabled";
+        bytes32 migrateHash = keccak256(bytes(migrateDescription));
+
+        vm.prank(ops);
+        uint256 migrateId = governor.propose(migrateTargets, migrateValues, migrateCalldatas, migrateDescription);
+        vm.warp(block.timestamp + governor.votingDelay() + 1);
+        vm.prank(ops);
+        governor.castVote(migrateId, 1);
+        vm.warp(block.timestamp + governor.votingPeriod() + 1);
+        governor.queue(migrateTargets, migrateValues, migrateCalldatas, migrateHash);
+        vm.warp(block.timestamp + timelock.getMinDelay());
+
+        vm.expectRevert(FRGovernor.Governor_TimelockMigrationDisabled.selector);
+        governor.execute(migrateTargets, migrateValues, migrateCalldatas, migrateHash);
+
+        // And the documented consequence: the proposal is not consumed, it stays Queued forever.
+        assertEq(
+            uint8(governor.state(migrateId)),
+            uint8(IGovernor.ProposalState.Queued),
+            "a scheduled timelock migration must remain queued, never executed"
+        );
+        assertEq(governor.timelock(), address(timelock), "timelock pointer must be unmoved");
     }
 
     function test_sepoliaDeployedFork_allVoteEntryPointsSignaturesAndCancellation() public onPinnedFork {
