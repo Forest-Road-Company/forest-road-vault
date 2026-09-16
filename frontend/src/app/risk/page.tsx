@@ -31,7 +31,7 @@ const protocolRisks = [
   },
   {
     label: "Liquidity timing",
-    body: "The underlying is illiquid, amortizing credit. sUSDfr redemptions queue in fixed redemption windows (epochs) and may take multiple windows to fill. Do not stake capital you may need on demand.",
+    body: "The underlying is illiquid, amortizing credit. sUSDfr redemptions queue in fixed redemption windows (epochs) and may take multiple windows to fill. The Vault is not a daily fund; do not stake capital you may need on demand.",
   },
   {
     label: "Smart-contract risk",

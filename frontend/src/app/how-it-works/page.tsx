@@ -15,7 +15,7 @@ const depositorSteps = [
   { label: "Connect & verify", body: "Connect a wallet. Minting and redeeming are KYC-gated; holding and viewing are open." },
   { label: "Mint USDfr", body: "Deposit an approved stablecoin, receive USDfr 1:1. Idle reserves sit in short-term instruments." },
   { label: "Stake to sUSDfr", body: "Deposit USDfr into the ERC-4626 vault and receive sUSDfr shares at the current exchange rate." },
-  { label: "Net performance accrues", body: "Realized facility and reserve income enters the exchange rate, net of protocol fees. Credit losses can lower the per-share rate. Yield is variable." },
+  { label: "Net performance accrues", body: "Interest accrued and received raises the exchange rate, net of protocol fees. Credit losses can lower the per-share rate. Yield is variable." },
   { label: "Redeem via the queue", body: "Request redemption. Requests join the redemption queue, which settles in fixed windows (epochs), first in, first out, as loan repayments come in. Then redeem USDfr back to stablecoin." },
 ];
 
@@ -28,10 +28,11 @@ const borrowerSteps = [
 ];
 
 const feeRows = [
-  { label: "Origination fee", value: "Proposed: up to 2% of funded principal, charged once when a facility is funded." },
-  { label: "Share of interest", value: "Proposed: up to 10% of gross interest received. The balance goes to sUSDfr stakers." },
+  { label: "Origination fee", value: "0.50% of funded principal, charged once when a facility is funded." },
+  { label: "Share of interest", value: "10% of realized gross facility interest. The balance goes to sUSDfr stakers." },
   { label: "Performance fee", value: "10% of vault profit above one protocol-wide high-water mark. Timelocked governance may change this prospectively, up to a 20% cap." },
-  { label: "Management fee", value: "Starts at 0%. May change prospectively up to 2% per 365-day year. Each change locks in fees owed at the old rate first." },
+  { label: "Management fee", value: "0% at launch; 0.50% under the adviser agreement. Changes are prospective, capped at 2% per 365-day year, and lock in fees owed at the old rate first." },
+  { label: "Curator capital", value: "Fixed 12.5% a year on committed capital, paid from facility interest ahead of senior holders." },
   { label: "How fees are paid", value: "Vault fees mint shares to the protocol rather than remove backing assets." },
   { label: "High-water mark", value: "Global, not personal to your entry price. Enter during a drawdown and you share fee-free recovery to the old peak. Crystallized fees are not clawed back after a later loss." },
 ];
@@ -91,7 +92,7 @@ export default function HowItWorksPage() {
       <Section tone="light">
         <SectionHead
           title="What the protocol takes, and when."
-          lede="Fees are charged on realized performance, not on projections. Every rate below is prospective and capped. Final fees are set in definitive documents and may vary by sector and facility."
+          lede="Fees are charged on realized performance, not on projections. Every rate below is coded in the contracts and capped; changes are prospective and timelocked."
         />
         <FramTable caption="Fee stack: sUSDfr" rows={feeRows} />
       </Section>

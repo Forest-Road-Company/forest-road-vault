@@ -9,8 +9,8 @@
  */
 const layers = [
   {
-    label: "1 · First-loss capital",
-    sub: "posted by Forest Road and partners",
+    label: "1 · Curator capital",
+    sub: "first-loss USDfr posted by Forest Road and partners",
     note: "absorbs first",
   },
   {
@@ -102,6 +102,8 @@ export function CascadeDiagram({ tone = "light" }: { tone?: "light" | "navy" }) 
       >
         The order is written into the contract and tested: a loss cannot skip
         a layer. This is an ordering of losses, not a guarantee against them.
+        Protection is limited to amounts actually funded, which are visible
+        on-chain.
       </p>
     </figure>
   );

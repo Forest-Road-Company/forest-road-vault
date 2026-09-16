@@ -74,11 +74,9 @@ export default function Landing() {
             a specialty finance investment firm lending against real claims
             since 2018.
           </p>
-          <div className="flex flex-wrap gap-x-8 gap-y-2">
-            <span className="running-head">Investment firm</span>
-            <span className="running-head">Three sectors</span>
-            <span className="running-head">On-chain loan book</span>
-          </div>
+          <p className="display flex-none text-[19px] leading-snug text-accent">
+            Same book. Same underwriters. On chain.
+          </p>
         </div>
       </section>
 

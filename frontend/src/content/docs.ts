@@ -73,7 +73,7 @@ export const AUDIT_SECTION = {
   title: "Audit register",
   eyebrow: "Full findings",
   summary:
-    "Every source-level review run against the protocol, newest first. Each round has its own findings and its own remediation history, including the findings that were accepted rather than fixed.",
+    "Every source-level review run against the protocol, newest first: the Corrovera full audit, the Cantina managed review, and the internal rounds. Each round has its own findings and its own remediation history.",
 } as const;
 
 /**

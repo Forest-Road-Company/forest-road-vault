@@ -41,17 +41,21 @@ export default function LegalPage() {
         <p>
           <span className="text-ink">Yield is variable.</span> sUSDfr passes
           through the net performance of the loan book and reserves via its
-          exchange rate. A proposed share of gross interest (up to 10%) goes
-          to the protocol; sUSDfr then charges a performance fee of up to 20%
-          of protocol-wide high-water-mark profit and a management fee of up
-          to 2% annually, both prospective and timelocked. Final fees are set
-          in definitive documents and may vary by sector and facility.
+          exchange rate. 10% of realized gross facility interest goes to the
+          protocol; sUSDfr then charges a performance fee of 10% of
+          protocol-wide high-water-mark profit (capped at 20%) and a
+          management fee of 0% at launch, 0.50% under the adviser agreement
+          (capped at 2% annually), all prospective and timelocked.
           Vault-level fees are paid through share dilution. The high-water mark
           is global, not personal to a participant&apos;s entry price, and
           crystallized fees are not clawed back after a later loss. No fixed
           return is promised, and depositors bear underlying credit performance,
           subject to the documented loss cascade: a structural ordering of
           losses, not a guarantee against them.
+        </p>
+        <p>
+          <span className="text-ink">The Vault is advised by Sylva Advisors LLC,</span>{" "}
+          a Forest Road affiliate.
         </p>
         <p>
           <span className="text-ink">Governance is Forest-Road-controlled at launch.</span>{" "}

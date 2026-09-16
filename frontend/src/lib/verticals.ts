@@ -27,7 +27,7 @@ export const VERTICALS: Vertical[] = [
     slug: "media",
     name: "Media & entertainment",
     financed:
-      "Senior secured lending against tax credits and other contracted receivables, financing film and television. A production borrows today against payments it is contractually owed, so repayment does not depend on box-office performance.",
+      "Senior secured lending against tax credits and other contracted receivables, financing film and television. A production borrows today against payments it is contractually owed, so repayment does not depend on box-office performance. The affiliate behind it has originated and serviced media loans for over a decade.",
     claimType:
       "A perfected security interest (UCC-1 and assignment) in the tax credits or contracted receivables and the borrower's right to receive them.",
     duration: "Short: months to roughly two years, driven by receivable payment timing.",
@@ -45,9 +45,9 @@ export const VERTICALS: Vertical[] = [
     slug: "renewable-energy",
     name: "Renewable energy",
     financed:
-      "Loans to small and mid-market renewable projects, against transferable ITC/PTC tax credits and project cashflows, for borrowers underserved by community banks and capital markets.",
+      "First-lien loans to small solar and battery developers, against transferable tax credits and project cashflows, for borrowers underserved by community banks and capital markets.",
     claimType:
-      "Security interests in transferable federal tax credits and/or project assets and their cashflows.",
+      "First-lien security interests in unencumbered developer assets: transferable tax credits, power purchase agreements, and operating assets.",
     duration: "Medium to long, spanning construction and operation.",
     risks: [
       { name: "Construction & completion", detail: "Credits and cashflows depend on the project reaching completion and qualification." },
@@ -96,7 +96,7 @@ export const VERTICALS: Vertical[] = [
     slug: "digital-assets",
     name: "Digital assets",
     financed:
-      "Secured lending to Forest Road's digital-assets trading subsidiary, financing the desk's trading book. It is a related-party facility.",
+      "Secured lending to Forest Road's digital-assets trading subsidiary, which runs market-neutral yield strategies in stablecoin and DeFi markets. It is a related-party facility.",
     claimType:
       "A pledged, marked-to-market portfolio of liquid crypto assets, not a receivable. The collateral is price-volatile and liquid, the opposite profile of the receivable-backed sectors.",
     duration: "Short and revolving, with continuous collateral-health monitoring.",

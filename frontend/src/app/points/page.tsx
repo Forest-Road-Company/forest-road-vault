@@ -97,7 +97,7 @@ export default function PointsPage() {
         <SectionHead
           tone="navy"
           title="Deeper risk earns a higher multiple."
-          lede="A curator is a first-loss investor: capital committed to absorb losses ahead of depositors. All three source multiples are bounded and governance-tunable. Changes apply going forward, never retroactively."
+          lede="A curator is a first-loss investor: capital committed to absorb losses ahead of depositors, paid a fixed 12.5% a year on committed capital. All three source multiples are bounded and governance-tunable. Changes apply going forward, never retroactively."
         />
         <div className="mt-12">
           <KpiBand
