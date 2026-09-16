@@ -677,6 +677,39 @@ contract M02ConcentrationDriftTest is CollateralFixture {
         );
     }
 
+    /// @dev F-C: exercise the full-BPS limb with a non-empty book on both sides of the
+    ///      bootstrap floor. At 100% a dimension cannot bind, so its independent reference is
+    ///      solely the registry's overflow-safe book clamp.
+    function test_FC_fullBpsHeadroomOnNonZeroBookMatchesReferenceInBothRegimes() public {
+        ICollateralRegistry.ClassParams memory p = registry.classParams(FILM);
+        p.concentrationLimitBps = uint16(Config.BPS);
+        vm.startPrank(admin);
+        registry.setClass(FILM, p);
+        registry.setBorrowerLimit(uint16(Config.BPS));
+        registry.setConcentrationFloor(10_000e18);
+        vm.stopPrank();
+
+        _seed(FILM, BORROWER_1, 1_000e18);
+        uint256 total = registry.totalBookExposure();
+        assertGt(total, 0, "setup: total exposure must be non-zero");
+        assertLe(total, 10_000e18, "setup: regime A");
+        uint256 expectedRoom = MAX_SAFE_EXPOSURE - total;
+        assertEq(
+            registry.concentrationHeadroom(FILM, BORROWER_1, bytes32(0)),
+            expectedRoom,
+            "full-BPS headroom below the floor"
+        );
+
+        vm.prank(admin);
+        registry.setConcentrationFloor(500e18);
+        assertGt(total, 500e18, "setup: regime B");
+        assertEq(
+            registry.concentrationHeadroom(FILM, BORROWER_1, bytes32(0)),
+            expectedRoom,
+            "full-BPS headroom above the floor"
+        );
+    }
+
     /// @dev ROUND-2 REGRESSION, reviewer issue "the unbounded-dimension sentinel panics when
     ///      fed back". Round 1 returned `type(uint256).max - cur`, and feeding that into
     ///      `checkConcentration` aborted with an arithmetic panic (Panic 0x11) rather than a

@@ -162,6 +162,15 @@ contract INV_AccessControlSurface is RealOracleFixture, PrivilegedSurface {
     // AUDIT NOTE (ADR-0035): -1 for the retired `SGrove.setPerEventCap`, matching the selector
     // accounting above.
     uint256 internal constant EXPECTED_GUARDED_NAMES = 149;
+    /// @dev AST-confirmed `src/` functions guarded by an inline caller/address comparison.
+    ///      This is deliberately a second runtime pin rather than folding custom-error trusted
+    ///      callers into the OZ-onlyRole probe. It includes all four CommitmentLedger functions
+    ///      protected by `onlyManager`. Add/remove an inline guard and this test must red before a
+    ///      reviewed re-baseline; A4 demonstrated that the old onlyRole-only count stayed green.
+    // OWNER DECISION (G1c, 2026-08-14): removing the proposal-guardian veto deletes the
+    // bespoke `_msgSender() == proposalGuardian` cancellation branch. The remaining thirteen
+    // inline caller guards are unchanged and continue to be enumerated at runtime.
+    uint256 internal constant EXPECTED_INLINE_CALLER_GUARDED_NAMES = 13;
 
     function setUp() public override {
         super.setUp();
@@ -369,6 +378,11 @@ contract INV_AccessControlSurface is RealOracleFixture, PrivilegedSurface {
         }
         assertEq(scannedModules.length, 17, "A MODULE GAINED OR LOST ITS ENTIRE PRIVILEGED SURFACE");
         assertEq(totalGuardedNames, EXPECTED_GUARDED_NAMES, "AN onlyRole GUARD WAS ADDED OR REMOVED IN src/");
+        assertEq(
+            totalInlineCallerGuardedNames,
+            EXPECTED_INLINE_CALLER_GUARDED_NAMES,
+            "AN INLINE CALLER GUARD WAS ADDED OR REMOVED IN src/"
+        );
     }
 
     /// @notice POSITIVE CONTROL. Refusal only proves something if the same call SUCCEEDS for the

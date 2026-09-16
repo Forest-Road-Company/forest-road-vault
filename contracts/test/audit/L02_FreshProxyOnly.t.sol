@@ -603,7 +603,6 @@ contract L02FreshProxyOnlyTest is Test, Deploy {
     function _l02Ctx() internal view returns (Ctx memory c) {
         c.deployer = address(this);
         c.opsAdmin = address(this);
-        c.proposalGuardian = attester2Addr;
         c.queueKeeper = address(this); // AUDIT FIX (D7-01 round 5): SETTLEMENT_KEEPER_ROLE holder; Deploy._wire fails closed on zero
         c.frTreasury = address(this);
         c.feeRecipient = address(this);
@@ -642,7 +641,6 @@ contract L02FreshProxyOnlyTest is Test, Deploy {
         a.votesAggregator = d.votesAggregator;
         a.deployer = c.deployer;
         a.opsAdmin = c.opsAdmin;
-        a.proposalGuardian = c.proposalGuardian;
         a.queueKeeper = c.opsAdmin; // AUDIT FIX (D7-01 round 5): SETTLEMENT_KEEPER_ROLE holder; Deploy._wire fails closed on zero
         a.attester2 = c.attester2;
         a.frTreasury = c.frTreasury;
@@ -721,7 +719,6 @@ contract L02FreshProxyOnlyTest is Test, Deploy {
         vm.serializeAddress(objectKey, "sGrove", placeholder);
         vm.serializeAddress(objectKey, "timelock", placeholder);
         vm.serializeAddress(objectKey, "governor", placeholder);
-        vm.serializeAddress(objectKey, "proposalGuardian", placeholder);
         if (aggregator != address(0)) vm.serializeAddress(objectKey, "votesAggregator", aggregator);
         vm.serializeAddress(objectKey, "deployer", placeholder);
         vm.serializeAddress(objectKey, "opsAdmin", placeholder);

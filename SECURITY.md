@@ -1,5 +1,14 @@
 # Security Policy
 
+> **The contracts are deployed to Ethereum mainnet** (chain 1, block 25,768,251, 16 August 2026)
+> and hold real value. Treat anything affecting them as live. The protocol is not yet accepted for
+> production use and access is KYC-gated, but the code is on chain and upgradeable only through a
+> timelock — assume a finding is exploitable until shown otherwise.
+>
+> Known open findings, including three Mediums against the live deployment, are published in the
+> register and in `audit-reports/`. A report that rediscovers one of those is still welcome, but
+> check there first.
+
 ## Reporting a vulnerability
 
 Email **jevans@forestroad.com**. Please do not open a public issue for anything that affects the
@@ -15,7 +24,7 @@ We will acknowledge receipt, tell you plainly whether we consider it a finding a
 and agree disclosure timing with you.
 
 Findings that survive validation are published on the
-[audit register](https://github.com/londonjevans/ForestRoadVault) with their severity and
+[audit register](https://forestroadvault.com/docs/audit) with their severity and
 disposition — **including the ones we accept rather than fix**. Reproduction detail is withheld
 while a mechanism is live and unremediated, which is a deliberate exception to publishing in full.
 Reporters are credited unless they ask not to be.

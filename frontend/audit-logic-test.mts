@@ -1,8 +1,8 @@
 /**
- * Pure-logic test harness (run: npm run test:logic — Node 24 type-stripping).
+ * Pure-logic test harness (run: npm run test:logic, Node 24 type-stripping).
  * Exercises fmtAmount/fmtCountdown roundtrips and documents viem parseUnits
  * edge behavior the write cards depend on (notably: parseUnits ROUNDS excess
- * fraction digits — which is why AmountInput caps input at token precision).
+ * fraction digits, which is why AmountInput caps input at token precision).
  * Excluded from the app's tsconfig; not shipped.
  */
 import {existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync} from "node:fs";
@@ -49,7 +49,7 @@ let failures = 0;
 function check(name: string, cond: boolean, detail?: string) {
   if (!cond) {
     failures++;
-    console.log(`FAIL ${name}${detail ? " — " + detail : ""}`);
+    console.log(`FAIL ${name}${detail ? ": " + detail : ""}`);
   } else {
     console.log(`ok   ${name}`);
   }
@@ -57,14 +57,14 @@ function check(name: string, cond: boolean, detail?: string) {
 
 /**
  * Record an assertion that could not run because the file it inspects is not part of this
- * checkout — the curated public repository ships frontend/ without the CI workflow or the
+ * checkout: the curated public repository ships frontend/ without the CI workflow or the
  * operational tooling. Reported distinctly from `ok` and counted, so a run that skipped
  * assertions can never be read as one that passed them.
  */
 let skipped = 0;
 function skip(name: string) {
   skipped++;
-  console.log(`SKIP ${name} — not present in this checkout`);
+  console.log(`SKIP ${name}: not present in this checkout`);
 }
 
 // ── fmtAmount basics ─────────────────────────────────────────────────
@@ -104,7 +104,7 @@ for (const bad of ["", "."]) {
 }
 // trailing dot
 console.log(`info parseUnits("1.", 6) = ${(() => { try { return parseUnits("1.", 6).toString(); } catch { return "throws"; } })()}`);
-// too many decimals — does viem round UP? (matters for max-button + typed input)
+// too many decimals: does viem round UP? (matters for max-button + typed input)
 console.log(`info parseUnits("1.1234567", 6) = ${(() => { try { return parseUnits("1.1234567", 6).toString(); } catch { return "throws"; } })()}`);
 console.log(`info parseUnits("0.9999999", 6) = ${(() => { try { return parseUnits("0.9999999", 6).toString(); } catch { return "throws"; } })()}`);
 
@@ -144,7 +144,7 @@ check(
   "eligibility: never reports a negative wait once past",
   secondsUntilEligible(1_000n, COOLDOWN, 1_000 + 99 * DAY) === 0,
 );
-// The cooldown must never be defaulted while it is still loading — understating the
+// The cooldown must never be defaulted while it is still loading, understating the
 // hold is exactly the defect FRV-FS-02 was raised for.
 check(
   "eligibility: unloaded cooldown yields null, never zero",
@@ -532,7 +532,7 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
    *
    * The curated public repository ships frontend/ without the CI workflow or the
    * operational tooling, so these files are legitimately absent there. Read them
-   * defensively and SKIP rather than pass when missing — the same discipline the fork
+   * defensively and SKIP rather than pass when missing, the same discipline the fork
    * suites use for an absent RPC endpoint, so an incomplete run can never be mistaken for
    * a complete one. In the private repository all three are present and every assertion
    * below runs exactly as before.
@@ -752,6 +752,7 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
     "anchorCurator",
     "attester1",
     "attester2",
+    "queueKeeper",
     "canonicalUSDC",
   ] as const;
   const manifest: Record<string, unknown> = {
@@ -769,6 +770,7 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
     anchorCurator: addr(105),
     attester1: addr(106),
     attester2: addr(107),
+    queueKeeper: addr(108),
     mainnetConfigHash: bytes32("1"),
     mainnetDeploymentScriptRuntimeHash: bytes32("2"),
     mainnetArtifactSetHash: bytes32("3"),
@@ -1096,13 +1098,31 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
       rejectedExecutor.stderr,
     );
 
-    const substitutedPrincipal = {...manifest, opsAdmin: addr(108)};
+    const substitutedPrincipal = {...manifest, opsAdmin: addr(109)};
     const rejectedPrincipal = runExporter(substitutedPrincipal);
     check(
       "manifest export: a substituted principal is rejected",
       rejectedPrincipal.status !== 0 &&
         rejectedPrincipal.stderr.includes("principal-set receipt does not match"),
       rejectedPrincipal.stderr,
+    );
+
+    const substitutedQueueKeeper = {...manifest, queueKeeper: addr(110)};
+    const rejectedQueueKeeper = runExporter(substitutedQueueKeeper);
+    check(
+      "manifest export: a substituted queue keeper is rejected",
+      rejectedQueueKeeper.status !== 0 &&
+        rejectedQueueKeeper.stderr.includes("principal-set receipt does not match"),
+      rejectedQueueKeeper.stderr,
+    );
+
+    const zeroQueueKeeper = {...manifest, queueKeeper: addr(0)};
+    const rejectedZeroQueueKeeper = runExporter(zeroQueueKeeper);
+    check(
+      "manifest export: a zero queue keeper is rejected",
+      rejectedZeroQueueKeeper.status !== 0 &&
+        rejectedZeroQueueKeeper.stderr.includes("missing a non-zero .queueKeeper principal"),
+      rejectedZeroQueueKeeper.stderr,
     );
 
     const substitutedGasPolicy = {...manifest, mainnetMaxFeePerGasWei: "9000000000"};
@@ -1122,7 +1142,7 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
 // ── function-SHAPE drift guard (added 2026-07-21) ────────────────────
 // The error guard above only ever compared error NAMES, so it could not see a function
 // whose RETURN SHAPE had changed. `RedemptionQueue.request()` gained a fifth field
-// (`requestedAt`, the ADR-0022 cooldown anchor) and the frontend ABI kept declaring four —
+// (`requestedAt`, the ADR-0022 cooldown anchor) and the frontend ABI kept declaring four,
 // viem decodes positionally, so this does not throw, it silently drops the field and the
 // UI cannot show a cooldown countdown. Same failure class as the error drift: a hand-kept
 // ABI diverging from source with nothing comparing them. This compares the declared output
@@ -1291,7 +1311,7 @@ if (!existsSync(new URL("../contracts/src/interfaces/", import.meta.url))) {
       redeemCard.includes("settlement may be later"),
   );
   // RC-05: switching redeem mode resets both flows, so it must be unavailable while a
-  // write is in flight — otherwise the in-flight transaction is orphaned.
+  // write is in flight, otherwise the in-flight transaction is orphaned.
   check(
     "redeem: the mode toggle is disabled while either write flow is busy",
     redeemCard.includes("disabled={flow.busy || claimFlow.busy}"),
@@ -1477,5 +1497,5 @@ if (!existsSync(new URL("../contracts/src/", import.meta.url))) {
 // repo-wide assurance assertions would be exactly the kind of green this suite exists
 // to prevent.
 const verdict = failures === 0 ? "ALL PASS" : `${failures} FAILURES`;
-console.log(skipped === 0 ? `\n${verdict}` : `\n${verdict} (${skipped} skipped — partial checkout)`);
+console.log(skipped === 0 ? `\n${verdict}` : `\n${verdict} (${skipped} skipped, partial checkout)`);
 process.exit(failures === 0 ? 0 : 1);

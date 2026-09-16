@@ -107,6 +107,19 @@ contract CollateralRegistryTest is CollateralFixture {
         assertEq(registry.classParams(1).maxLtvBps, updated.maxLtvBps);
     }
 
+    function test_F4_setClassAcceptsExactMaxLtvAndRejectsOneAbove() public {
+        ICollateralRegistry.ClassParams memory p = registry.classParams(1);
+        p.maxLtvBps = uint16(Config.BPS);
+        vm.prank(admin);
+        registry.setClass(1, p);
+        assertEq(registry.classParams(1).maxLtvBps, Config.BPS);
+
+        p.maxLtvBps = uint16(Config.BPS) + 1;
+        vm.expectRevert(ICollateralRegistry.Registry_BadParams.selector);
+        vm.prank(admin);
+        registry.setClass(1, p);
+    }
+
     // ── exposure + concentration ─────────────────────────────────────────
 
     function test_recordExposure_tracksAllDimensions() public {

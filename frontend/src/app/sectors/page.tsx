@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 /* One authored line-icon per sector, drawn to the same stroke and weight
-   rather than pulled from an icon font — each names the mechanism, not a
+   rather than pulled from an icon font. Each names the mechanism, not a
    decorative stand-in. currentColor so the tile controls the tint. */
 function SectorIcon({ slug }: { slug: string }) {
   const common = {
@@ -57,7 +57,7 @@ export default function SectorsPage() {
       lede="Each sector sets its own terms: an LTV cap, a maturity profile, concentration limits, and a default-remedy path. Interest rates are signed per facility, not set by sector. Sector parameters are enforced on-chain by the CollateralRegistry."
     >
       {/* ── The sectors: an icon-led, colour-committed grid rather than a
-             register — accent tint for receivable-backed lending, warn tint
+             register: accent tint for receivable-backed lending, warn tint
              for marked-to-market, so the collateral model reads before the
              copy does. ─────────────────────────────────────────────────── */}
       <Section tone="surface">

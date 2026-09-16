@@ -6,7 +6,7 @@ import {defineConfig} from "vitest/config";
  * Component render harness.
  *
  * AUDIT FIX (round-9 structural item). Before this, every statement about component
- * BEHAVIOUR was asserted by searching the component's own source text — e.g. "the redeem
+ * BEHAVIOUR was asserted by searching the component's own source text, e.g. "the redeem
  * button is disabled until the cooldown loads" was verified by grepping for `disabled={`.
  * Three reviewers independently sketched edits that keep those string literals while
  * restoring the published defect, which a grep cannot distinguish from a real fix.

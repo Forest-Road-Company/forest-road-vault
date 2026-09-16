@@ -138,3 +138,38 @@ detects a dead instance and both-keeper failure.
   executor audit, two independently funded live instances, private-relay and heartbeat evidence,
   failover/reorg/leak/low-gas drills, guardian pause and continued-claim rehearsal, and archived
   approval.
+
+---
+
+## Implementation note — 2026-08-28: the guardian and heartbeat receivers now exist
+
+This ADR specifies "a separately controlled guardian workflow" and an "independent heartbeat
+receiver". Both are now implemented, and the worker enforces their presence: it refuses to boot
+without `ALERT_WEBHOOK_URL`, `HEARTBEAT_WEBHOOK_URL` and `PAUSE_REQUEST_WEBHOOK_URL`, so a keeper
+cannot run with its escalation path unconfigured.
+
+`keeper-receivers/` implements all three. It **holds no key**, as this ADR requires: the pause
+endpoint records the request durably, pages, and holds it open until a human acknowledges, and the
+Ops Safe executes the actual `pause()`. It independently re-checks the two things the keeper cannot
+check for itself, refusing any request whose queue is not the configured one or whose calldata is
+not exactly `pause()` (`0x8456cb59`).
+
+Two points bearing directly on the decision recorded above.
+
+**The heartbeat receiver cannot be the only detector, and this ADR's wording slightly understates
+why.** "The independent heartbeat receiver, not the keeper itself, detects a dead instance" is
+right, but the receiver cannot detect *its own* death, and when it dies the keeper's entire
+escalation path dies with it: `#heartbeatTick` notices within 60s, sets `pauseRequired`, then
+attempts a critical alert and a pause request that both go to the dead receiver. The implementation
+therefore adds an **external dead-man's-switch**, withheld whenever a keeper is stale/unseen/
+unhealthy or a pause request is open and unacknowledged. That external monitor, not this repository,
+is what covers a total platform outage.
+
+**"A queue-pause webhook is a request, not proof of an on-chain pause" is now enforced in code.**
+An open request stays open until explicitly acknowledged through the ops endpoint, and while it is
+open the dead-man ping is withheld. The bullet under Consequences stands unchanged: production
+evidence must still show the Safe path executed the pause before the safety boundary.
+
+Task D remains open. Two funded live instances now exist and heartbeat evidence is being produced,
+but external executor audit, the drills, guardian pause rehearsal and archived approval are not
+closed by this work.

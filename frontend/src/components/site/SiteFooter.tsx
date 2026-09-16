@@ -96,7 +96,7 @@ export function SiteFooter() {
           </p>
           <p className="max-w-3xl text-[11px] leading-relaxed text-on-navy-faint md:text-right">
             {IS_TESTNET
-              ? "TESTNET ONLY: this build never touches mainnet or real value. Mainnet remains gated on the published launch checklist."
+              ? "TESTNET ONLY: this build reads Sepolia and its test assets have no value. The protocol is live on Ethereum mainnet; see Docs, Addresses."
               : "ETHEREUM MAINNET: smart-contract, liquidity, credit, legal, oracle, governance, and operational risks remain. Review all disclosures; nothing here is legal, tax, or investment advice."}
           </p>
         </div>

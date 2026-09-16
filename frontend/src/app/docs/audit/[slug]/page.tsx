@@ -93,9 +93,9 @@ export default async function AuditReportPage({
             </>
           )}{" "}
           It reviews the source at the baseline below, which is not necessarily identical to
-          the code deployed on any network. A tightly restricted disposable mainnet test is
-          authorized under the runbook, but no mainnet broadcast has been attempted and no
-          public production launch is authorized. Nothing here is a securities-law
+          the code deployed on any network. Forest Road Vault is live on Ethereum mainnet.
+          Findings recorded here as open are open against the live protocol, and each review&apos;s
+          scope bounds what its clean result is worth. Nothing here is a securities-law
           representation; token characterization is a matter for counsel.
         </p>
       </div>

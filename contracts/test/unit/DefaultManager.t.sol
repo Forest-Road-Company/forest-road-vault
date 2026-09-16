@@ -857,6 +857,17 @@ contract DefaultManagerTest is CreditLayerFixture {
         defaultManager.marginCall(id);
     }
 
+    function test_FT_marginCallAcceptsMarkAtExactMaxAge() public {
+        uint256 id = _liveDigitalFacility();
+        uint64 asOf = uint64(block.timestamp);
+        _setValuation(id, 750_000e18, asOf);
+
+        vm.warp(uint256(asOf) + 1 days);
+        defaultManager.marginCall(id);
+
+        assertEq(defaultManager.cureDeadline(id), uint64(block.timestamp + 1 days));
+    }
+
     function test_marginCall_doubleCallReverts() public {
         uint256 id = _liveDigitalFacility();
         _setValuation(id, 750_000e18, uint64(block.timestamp));
@@ -924,6 +935,19 @@ contract DefaultManagerTest is CreditLayerFixture {
             abi.encodeWithSelector(IDefaultManager.DefaultManager_ValuationStale.selector, id, markTime, 1 days)
         );
         defaultManager.clearMarginCall(id);
+    }
+
+    function test_FT_clearMarginCallAcceptsMarkAtExactMaxAge() public {
+        uint256 id = _liveDigitalFacility();
+        uint64 asOf = uint64(block.timestamp);
+        _setValuation(id, 750_000e18, asOf);
+        defaultManager.marginCall(id);
+        _setValuation(id, 1_000_000e18, asOf);
+
+        vm.warp(uint256(asOf) + 1 days);
+        defaultManager.clearMarginCall(id);
+
+        assertEq(defaultManager.cureDeadline(id), 0, "the exact maxMarkAge second remains fresh");
     }
 
     function test_clearMarginCall_stillBreachedReverts() public {
@@ -1012,6 +1036,17 @@ contract DefaultManagerTest is CreditLayerFixture {
             abi.encodeWithSelector(IDefaultManager.DefaultManager_ValuationStale.selector, id, asOf, 1 days)
         );
         defaultManager.liquidate(id);
+    }
+
+    function test_FT_liquidateAcceptsMarkAtExactMaxAge() public {
+        uint256 id = _liveDigitalFacility();
+        uint64 asOf = uint64(block.timestamp);
+        _setValuation(id, 600_000e18, asOf);
+
+        vm.warp(uint256(asOf) + 1 days);
+        defaultManager.liquidate(id);
+
+        assertEq(uint8(bridge.facility(id).state), uint8(ClaimBridge.LoanState.Defaulted));
     }
 
     function test_liquidate_receivableClassReverts() public {

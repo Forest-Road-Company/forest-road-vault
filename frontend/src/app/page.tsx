@@ -159,7 +159,7 @@ export default function Landing() {
 
       {/* ── Loss absorption, on the deepest field. The one thing a depositor
              must understand gets the strongest treatment on the page. The
-             sector index lives at /sectors, reachable from the nav — the
+             sector index lives at /sectors, reachable from the nav. The
              landing page stays skinny on purpose. ─────────────────────── */}
       <Section id="cascade" tone="navy-deep">
         <div className="grid gap-14 lg:grid-cols-5">
@@ -204,7 +204,7 @@ export default function Landing() {
             <p className="mt-6 max-w-[58ch] text-[17px] leading-relaxed text-ink-muted">
               {IS_MAINNET
                 ? "Review the verified contracts, live protocol state, current risks, and production disclosures before interacting."
-                : "The remaining launch gates — operational, recovery and legal — are listed where they can be checked."}
+                : "The remaining operational, recovery and legal launch gates are listed where they can be checked."}
             </p>
           </div>
 

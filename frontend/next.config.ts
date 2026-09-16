@@ -65,6 +65,20 @@ export default function createNextConfig(phase: string): NextConfig {
           destination: "/sectors/media",
           permanent: true,
         },
+        // Life sciences and real estate remain on-chain classes but are no longer
+        // marketed as sectors, so /sectors/<slug> would 404. Both URLs are live today,
+        // and a permanent redirect into a 404 is cached by the browser forever. Send
+        // them to the sector index instead. MUST precede the generic rule below.
+        {
+          source: "/verticals/life-sciences",
+          destination: "/sectors",
+          permanent: true,
+        },
+        {
+          source: "/verticals/real-estate",
+          destination: "/sectors",
+          permanent: true,
+        },
         {
           source: "/verticals/:slug",
           destination: "/sectors/:slug",

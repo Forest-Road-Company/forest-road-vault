@@ -368,6 +368,19 @@ contract PointsModuleTest is TokenLayerFixture {
         assertEq(points.ratePerUnitDay(), 2e18);
     }
 
+    function test_F10_rateEpochAppendedPinsIndexAndAllData() public {
+        uint256 nextIndex = points.rateEpochCount();
+        uint32 usdfrMultiplier = points.usdfrMultiplierBps();
+        uint32 curatorMultiplier = points.curatorMultiplierBps();
+
+        vm.expectEmit(true, false, false, true);
+        emit PointsModule.RateEpochAppended(nextIndex, 2e18, usdfrMultiplier, curatorMultiplier);
+        vm.prank(admin);
+        points.setRate(2e18);
+
+        assertEq(points.rateEpochCount(), nextIndex + 1, "rate setter appends exactly one epoch");
+    }
+
     function test_setUSDfrMultiplier_onlyAdminAndBounded() public {
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, bytes32(0))
@@ -400,6 +413,20 @@ contract PointsModuleTest is TokenLayerFixture {
         points.setCuratorMultiplier(70_000);
         vm.stopPrank();
         assertEq(uint256(points.curatorMultiplierBps()), 70_000);
+    }
+
+    function test_F4_multiplierSettersAcceptExactMaxAndRejectOneAbove() public {
+        vm.startPrank(admin);
+        points.setUSDfrMultiplier(200_000);
+        points.setCuratorMultiplier(200_000);
+        assertEq(uint256(points.usdfrMultiplierBps()), 200_000);
+        assertEq(uint256(points.curatorMultiplierBps()), 200_000);
+
+        vm.expectRevert(abi.encodeWithSelector(PointsModule.Points_BadMultiplier.selector, uint32(200_001)));
+        points.setUSDfrMultiplier(200_001);
+        vm.expectRevert(abi.encodeWithSelector(PointsModule.Points_BadMultiplier.selector, uint32(200_001)));
+        points.setCuratorMultiplier(200_001);
+        vm.stopPrank();
     }
 
     function test_upgrade_onlyUpgraderRole() public {

@@ -134,7 +134,6 @@ contract OperationalRunbookRehearsalForkTest is ForkLifecycleFixture {
         Ctx memory c;
         c.deployer = ops;
         c.opsAdmin = ops;
-        c.proposalGuardian = makeAddr("runbookProposalGuardian");
         c.queueKeeper = ops; // AUDIT FIX (D7-01 round 5): SETTLEMENT_KEEPER_ROLE holder; Deploy._wire fails closed on zero
         c.frTreasury = ops;
         c.feeRecipient = ops;

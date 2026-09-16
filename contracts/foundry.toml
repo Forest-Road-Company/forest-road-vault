@@ -29,6 +29,15 @@ optimizer_runs = 100
 # Fail fast and loud.
 deny_warnings = true
 
+# The repository's test and deployment-script corpus contains intentionally oversized harness
+# contracts. Solc emits 5574 (EIP-170 runtime size) and 3860 (init-code size) for oversized
+# test/script harnesses, then 4591 after the diagnostic count reaches 256. Foundry applies this
+# filter after solc emits 4591, so omitting that meta-notice still makes a cold clone fail before
+# test discovery. `tools/check-solc-warning-census.mjs` independently fails on every warning code
+# outside 5574/3860, preventing 4591 from masking a new warning family. The production size gate
+# remains the separate, exact EIP-170 check over deployed contracts.
+ignored_error_codes = [5574, 3860, 4591]
+
 # Deploy scripts write the machine-readable deployment manifest here (CLAUDE.md §2.1).
 #
 # AUDIT G11/G12 — READ-ONLY access to `./src` and `./out` is what makes the CLAUDE.md §1.3
@@ -60,7 +69,6 @@ call_override = false
 # ── Heavy profile: critical value/accounting suites (CLAUDE.md §1.4: >= 10k) ──
 # Run with FOUNDRY_PROFILE=heavy — used in CI and before every checkpoint.
 [profile.heavy]
-inherits = "default"
 
 [profile.heavy.fuzz]
 runs = 10000
@@ -73,7 +81,6 @@ fail_on_revert = true
 
 # ── Lite profile: quick iteration only; never the basis for a status claim ──
 [profile.lite]
-inherits = "default"
 
 [profile.lite.fuzz]
 runs = 64
@@ -82,14 +89,36 @@ runs = 64
 runs = 16
 depth = 32
 
-# ── Coverage profile: instrumented, fast, and warning-tolerant ─────────
+# ── Coverage profile: instrumented, bounded, and warning-tolerant ─────
 # Run with:
 #   FOUNDRY_PROFILE=coverage forge coverage --offline --report summary
 # The test-only seeders are deliberately kept compilable without `--ir-minimum`;
 # that workaround perturbs timestamp/gas-sensitive tests and can produce false reds.
+# Foundry overlays every named profile on `default`; `inherits` is not a supported key in either
+# the repository-pinned 1.3.2 toolchain or newer Forge. Keep the coverage campaign explicit so a
+# parser warning cannot silently restore the default 1,024 fuzz / 256 x 128 invariant workload.
 [profile.coverage]
-inherits = "lite"
 deny_warnings = false
+# Instrumentation substantially increases constructor/setup gas for the exhaustive access-control
+# and deployment-authorization harnesses. This is only the local test transaction ceiling; it does
+# not relax the production runtime-size check or any default/heavy profile limit.
+gas_limit = 4_000_000_000
+
+[profile.coverage.fuzz]
+runs = 64
+max_test_rejects = 131072
+# P-30's independently reproduced seed reaches all nine Oracle handler selectors. Coverage is a
+# deterministic execution census; the default/heavy tiers retain the broader security campaigns.
+seed = "0x0000000000000000000000000000000000000000000000000000000000000001"
+
+[profile.coverage.invariant]
+runs = 16
+# A depth of 32 can end a run before OracleHandler.replaySupersededFact is selected, correctly
+# tripping the anti-vacuity assertion. At 128, the focused instrumented campaign passes with all
+# nine selectors reached in every independently executed invariant campaign.
+depth = 128
+fail_on_revert = true
+call_override = false
 
 [fmt]
 line_length = 120

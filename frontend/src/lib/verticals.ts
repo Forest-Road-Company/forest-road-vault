@@ -1,6 +1,6 @@
 /**
  * Static vertical descriptions (copy). Live parameters (LTV caps, rate tiers,
- * concentration limits) are read from CollateralRegistry once deployed —
+ * concentration limits) are read from CollateralRegistry once deployed,
  * never hardcoded here (brief §8.3).
  */
 export type Vertical = {

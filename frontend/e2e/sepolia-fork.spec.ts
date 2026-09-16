@@ -1,3 +1,4 @@
+import {execFileSync} from "node:child_process";
 import {readFileSync} from "node:fs";
 import {mkdir, writeFile} from "node:fs/promises";
 import path from "node:path";
@@ -7,7 +8,9 @@ import {
   encodeFunctionData,
   formatUnits,
   http,
+  keccak256,
   parseUnits,
+  stringToHex,
   type Address,
   type Hash,
 } from "viem";
@@ -27,13 +30,32 @@ const manifest = JSON.parse(
   readFileSync(path.join(root, "contracts/deployments/11155111.json"), "utf8"),
 ) as Record<string, unknown>;
 
-const RPC_URL = process.env.SEPOLIA_FORK_RPC_URL ?? "http://127.0.0.1:8548";
-const PINNED_BLOCK = 11_386_576n;
-const PINNED_BLOCK_HASH =
-  "0x02a1a7a0d42f3f289c3ff2936accb98c49b0caddbf1ce357092298828f65905c";
-const SOURCE_COMMIT = "7eef49b61514414aab634408d32f6d354263a192";
+// PINNING, WITHOUT THE ROT. These were three hardcoded literals describing the 31 July
+// deployment, while `manifest` above already resolved to whatever deployment is current, so the
+// fixture silently mixed today's addresses with a fork head from two deployments ago and could
+// not run at all against the 14 August stack. Determinism still requires an exact pinned head
+// (CLAUDE.md §1.4), so the values stay asserted; they are simply supplied by the environment that
+// started the fork, with the current deployment as the default. Override all three together.
+const RPC_URL = process.env.SEPOLIA_FORK_RPC_URL ?? "http://127.0.0.1:8547";
+const PINNED_BLOCK = BigInt(process.env.SEPOLIA_FORK_BLOCK ?? "11489500");
+const PINNED_BLOCK_HASH = (
+  process.env.SEPOLIA_FORK_BLOCK_HASH ??
+  "0x19d0800bda9946bd1758ecd5487ad406b0211947135387ec2bd2b8d7e8ce8ce7"
+).toLowerCase();
+// The commit under test, not a literal that describes some earlier one.
+const SOURCE_COMMIT =
+  process.env.E2E_SOURCE_COMMIT ??
+  execFileSync("git", ["rev-parse", "HEAD"], {cwd: root, encoding: "utf8"}).trim();
 const LOCAL_CHAIN_ID = 31_337;
 const DEPLOYER = manifest.deployer as Address;
+// POST-HANDOVER SHAPE. This fixture was written against a deployment whose deployer still held
+// every role. It does not any more: `_handover` drops the deployer to `oracle.ATTESTER_ROLE`
+// alone, and `compliance.COMPLIANCE_ADMIN_ROLE` moves to the ops admin. Verified on the pinned
+// fork of the 14 August stack: `isAllowed(deployer)` is false and `hasRole(COMPLIANCE_ADMIN,
+// deployer)` is false, while the ops admin holds it. Resolve the admin from the manifest instead
+// of assuming it is the deployer; the fallback keeps the historical pre-handover fork runnable.
+const COMPLIANCE_ADMIN = (manifest.opsAdmin ?? manifest.deployer) as Address;
+const FEE_RECIPIENT = (manifest.feeRecipient ?? manifest.deployer) as Address;
 // New manifests record the dedicated holder. The fallback keeps this historical pinned-fork
 // fixture runnable against the pre-D7 Sepolia deployment without mislabelling current behavior.
 const QUEUE_KEEPER = (manifest.queueKeeper ?? manifest.opsAdmin ?? manifest.deployer) as Address;
@@ -49,9 +71,11 @@ const CONTRACTS = {
   queue: manifest.queue as Address,
   points: manifest.points as Address,
 };
+// Derived from the pinned block so a run against a new deployment records NEW evidence instead
+// of overwriting the receipt of an older one.
 const evidencePath = path.join(
   root,
-  "docs/deployments/sepolia-frontend-browser-e2e-block-11386576.json",
+  `docs/deployments/sepolia-frontend-browser-e2e-block-${PINNED_BLOCK}.json`,
 );
 
 const erc20Abi = [
@@ -86,7 +110,17 @@ const complianceAbi = [
     inputs: [{name: "account", type: "address"}, {name: "allowed", type: "bool"}],
     outputs: [],
   },
+  {
+    type: "function",
+    name: "hasRole",
+    stateMutability: "view",
+    inputs: [{name: "role", type: "bytes32"}, {name: "account", type: "address"}],
+    outputs: [{type: "bool"}],
+  },
 ] as const;
+
+// Derived, not a pasted literal, so it cannot drift from `Roles.COMPLIANCE_ADMIN_ROLE`.
+const COMPLIANCE_ADMIN_ROLE = keccak256(stringToHex("COMPLIANCE_ADMIN_ROLE"));
 
 const queueAbi = [
   {
@@ -485,27 +519,57 @@ test("pinned Sepolia fork: injected-wallet browser lifecycle and read reconcilia
     expect(code, `deployed bytecode at ${address}`).not.toMatch(/^0x0*$/i);
   }
   await setUpImpersonatedAccount(DEPLOYER);
+  await setUpImpersonatedAccount(COMPLIANCE_ADMIN);
+  // The queue keeper is its own address on deployments that record one. It used to fall back to
+  // the deployer, which was already impersonated, so the missing impersonation only surfaced
+  // once `queueKeeper` became a distinct principal, as "No Signer available", 300 lines later.
+  await setUpImpersonatedAccount(QUEUE_KEEPER);
   await setUpImpersonatedAccount(KYC_ACCOUNT);
   await setUpImpersonatedAccount(NON_KYC_ACCOUNT);
 
-  const deployerAllowed = await publicClient.readContract({
-    address: CONTRACTS.compliance,
-    abi: complianceAbi,
-    functionName: "isAllowed",
-    args: [DEPLOYER],
-  });
   const nonKycAllowed = await publicClient.readContract({
     address: CONTRACTS.compliance,
     abi: complianceAbi,
     functionName: "isAllowed",
     args: [NON_KYC_ACCOUNT],
   });
-  expect(deployerAllowed).toBe(true);
   expect(nonKycAllowed).toBe(false);
 
-  // The deployer is the configured fee recipient and therefore protocol-exempt from points.
+  // NEGATIVE QA (CLAUDE.md §2.2): a privileged function called by the wrong role must revert.
+  // This replaces an assertion that the DEPLOYER is allowlisted, true only before handover, and
+  // an assumption rather than a property. The post-handover fact is stronger and is what actually
+  // needs proving on a live deployment: the deployer's authority is GONE. Asserted against the
+  // real deployed registry, not a unit fixture.
+  const deployerHoldsComplianceAdmin = await publicClient.readContract({
+    address: CONTRACTS.compliance,
+    abi: complianceAbi,
+    functionName: "hasRole",
+    args: [COMPLIANCE_ADMIN_ROLE, DEPLOYER],
+  });
+  expect(deployerHoldsComplianceAdmin, "deployer must not retain compliance admin").toBe(false);
+  await expect(
+    publicClient.call({
+      account: DEPLOYER,
+      to: CONTRACTS.compliance,
+      data: encodeFunctionData({
+        abi: complianceAbi,
+        functionName: "setAllowed",
+        args: [KYC_ACCOUNT, true],
+      }),
+    }),
+    "the handed-over deployer must not be able to allowlist",
+  ).rejects.toThrow(/AccessControlUnauthorizedAccount|revert/i);
+
+  const adminHoldsComplianceAdmin = await publicClient.readContract({
+    address: CONTRACTS.compliance,
+    abi: complianceAbi,
+    functionName: "hasRole",
+    args: [COMPLIANCE_ADMIN_ROLE, COMPLIANCE_ADMIN],
+  });
+  expect(adminHoldsComplianceAdmin, "compliance admin must hold the role it is used for").toBe(true);
+
   // Use a separate, normal test user for the positive points journey, allowlisted through the
-  // real testnet compliance-admin path on this disposable fork.
+  // real compliance-admin path on this disposable fork.
   const kycUserInitiallyAllowed = await publicClient.readContract({
     address: CONTRACTS.compliance,
     abi: complianceAbi,
@@ -519,7 +583,7 @@ test("pinned Sepolia fork: injected-wallet browser lifecycle and read reconcilia
     args: [KYC_ACCOUNT, true],
   });
   const allowlistHash = await rpc<Hash>("eth_sendTransaction", [
-    {from: DEPLOYER, to: CONTRACTS.compliance, data: allowlistData},
+    {from: COMPLIANCE_ADMIN, to: CONTRACTS.compliance, data: allowlistData},
   ]);
   const allowlistReceipt = await publicClient.waitForTransactionReceipt({hash: allowlistHash});
   expect(allowlistReceipt.status).toBe("success");
@@ -761,44 +825,74 @@ test("pinned Sepolia fork: injected-wallet browser lifecycle and read reconcilia
     abi: queueAbi,
     functionName: "redeemCooldown",
   });
-  const epochEndsAt = await publicClient.readContract({
-    address: CONTRACTS.queue,
-    abi: queueAbi,
-    functionName: "epochEndsAt",
-  });
+  // FIFO ON A DEPLOYMENT THAT IS NOT EMPTY (§1.3 redemption-queue invariant, exercised live).
+  //
+  // This closed exactly ONE epoch and assumed the test's own request settled in it, true only
+  // against a freshly deployed, empty queue. The 14 August stack already carried an outstanding
+  // operator request from its QA lifecycle at queue id 0, so under ADR-0018 FIFO the first epoch
+  // drains that one and this request settles in the next. Measured on the pinned fork: after one
+  // epoch id 0 still had shares outstanding and this request was untouched; after the second both
+  // were clear.
+  //
+  // So close epochs until THIS request is filled, bounded, and assert the ordering that made it
+  // wait: every earlier request must be fully drained before this one completes. Failing to fill
+  // within the bound is a real finding and must fail rather than be waited out.
+  const MAX_SETTLEMENT_EPOCHS = 8;
   const eligibleAt = requestAfterSubmission[4] + cooldown;
-  const settlementTimestamp = (eligibleAt > epochEndsAt ? eligibleAt : epochEndsAt) + 1n;
-  await rpc("evm_setNextBlockTimestamp", [Number(settlementTimestamp)]);
-  await rpc("evm_mine");
+  const readRequest = (id: bigint) =>
+    publicClient.readContract({
+      address: CONTRACTS.queue,
+      abi: queueAbi,
+      functionName: "request",
+      args: [id],
+    });
 
-  const closeData = encodeFunctionData({
-    abi: queueAbi,
-    functionName: "closeEpoch",
-    args: [100n],
-  });
-  const closeHash = await rpc<Hash>("eth_sendTransaction", [
-    {from: QUEUE_KEEPER, to: CONTRACTS.queue, data: closeData},
-  ]);
-  const closeReceipt = await publicClient.waitForTransactionReceipt({hash: closeHash});
-  expect(closeReceipt.status).toBe("success");
-  transactionEvidence.push({
-    step: "role-gated keeper closeEpoch(100)",
-    origin: "configured external local-fork keeper, not the browser UI",
-    hash: closeHash,
-    blockNumber: closeReceipt.blockNumber.toString(),
-    gasUsed: closeReceipt.gasUsed.toString(),
-    to: closeReceipt.to,
-    status: closeReceipt.status,
-  });
+  let requestAfterSettlement = await readRequest(requestId);
+  let settlementEpochs = 0;
+  while (requestAfterSettlement[1] > 0n && settlementEpochs < MAX_SETTLEMENT_EPOCHS) {
+    const epochEndsAt = await publicClient.readContract({
+      address: CONTRACTS.queue,
+      abi: queueAbi,
+      functionName: "epochEndsAt",
+    });
+    const settlementTimestamp = (eligibleAt > epochEndsAt ? eligibleAt : epochEndsAt) + 1n;
+    await rpc("evm_setNextBlockTimestamp", [Number(settlementTimestamp)]);
+    await rpc("evm_mine");
 
-  const requestAfterSettlement = await publicClient.readContract({
-    address: CONTRACTS.queue,
-    abi: queueAbi,
-    functionName: "request",
-    args: [requestId],
-  });
-  expect(requestAfterSettlement[1]).toBe(0n);
+    const closeData = encodeFunctionData({
+      abi: queueAbi,
+      functionName: "closeEpoch",
+      args: [100n],
+    });
+    const closeHash = await rpc<Hash>("eth_sendTransaction", [
+      {from: QUEUE_KEEPER, to: CONTRACTS.queue, data: closeData},
+    ]);
+    const closeReceipt = await publicClient.waitForTransactionReceipt({hash: closeHash});
+    expect(closeReceipt.status).toBe("success");
+    settlementEpochs += 1;
+    transactionEvidence.push({
+      step: `role-gated keeper closeEpoch(100) [epoch ${settlementEpochs}]`,
+      origin: "configured external local-fork keeper, not the browser UI",
+      hash: closeHash,
+      blockNumber: closeReceipt.blockNumber.toString(),
+      gasUsed: closeReceipt.gasUsed.toString(),
+      to: closeReceipt.to,
+      status: closeReceipt.status,
+    });
+    requestAfterSettlement = await readRequest(requestId);
+  }
+
+  expect(
+    requestAfterSettlement[1],
+    `request ${requestId} still unfilled after ${settlementEpochs} epoch(s)`,
+  ).toBe(0n);
   expect(requestAfterSettlement[2]).toBeGreaterThan(0n);
+
+  // FIFO: nothing queued ahead of this request may still be outstanding once it has settled.
+  for (let earlier = 0n; earlier < requestId; earlier += 1n) {
+    const ahead = await readRequest(earlier);
+    expect(ahead[1], `request ${earlier} settled after ${requestId}, breaking FIFO`).toBe(0n);
+  }
 
   // Do not reload: the Claim button must appear because the UI observed the external queue event.
   const claim = redeemPanel.getByRole("button", {name: "Claim", exact: true});
@@ -954,7 +1048,9 @@ test("pinned Sepolia fork: injected-wallet browser lifecycle and read reconcilia
       transport: "injected EIP-1193 + EIP-6963 provider",
       signing: "Anvil impersonation on chain 31337; no private key loaded into the browser",
       appAndWalletRpc: RPC_URL,
-      deploymentOperatorAndProtocolExemptFeeRecipient: DEPLOYER,
+      deploymentOperator: DEPLOYER,
+      complianceAdmin: COMPLIANCE_ADMIN,
+      protocolExemptFeeRecipient: FEE_RECIPIENT,
       kycAccount: KYC_ACCOUNT,
       nonKycAccount: NON_KYC_ACCOUNT,
     },
@@ -962,7 +1058,8 @@ test("pinned Sepolia fork: injected-wallet browser lifecycle and read reconcilia
     transactions: transactionEvidence,
     reconciliations: {
       kyc: {
-        deployer: deployerAllowed,
+        deployerRetainsComplianceAdmin: deployerHoldsComplianceAdmin,
+        complianceAdminHoldsRole: adminHoldsComplianceAdmin,
         normalUserBeforeForkSetup: kycUserInitiallyAllowed,
         normalUserAfterForkSetup: kycUserAllowed,
         nonKycAccount: nonKycAllowed,

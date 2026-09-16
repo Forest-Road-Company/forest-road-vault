@@ -73,7 +73,7 @@ abstract contract GovernanceFixture is CreditLayerFixture {
                 address(
                     new ERC1967Proxy(
                         address(new FRGovernor()),
-                        abi.encodeCall(FRGovernor.initialize, (IVotes(address(votesAggregator)), timelock, guardian))
+                        abi.encodeCall(FRGovernor.initialize, (IVotes(address(votesAggregator)), timelock))
                     )
                 )
             )

@@ -44,7 +44,7 @@ if (verifyBuildEnv && buildChainId !== 1) {
 const manifestPath = path.resolve(
   manifestArgument ??
     process.env.MAINNET_FRONTEND_MANIFEST ??
-    path.join(here, "..", "contracts", "deployments", "1.json"),
+    path.join(here, "..", "contracts", "deployments", "1-production-v1.json"),
 );
 if (!fs.existsSync(manifestPath)) {
   throw new Error(`Deployment manifest not found: ${manifestPath}`);
@@ -274,6 +274,7 @@ if (mainnet) {
     "anchorCurator",
     "attester1",
     "attester2",
+    "queueKeeper",
     "canonicalUSDC",
   ];
   for (const key of principalKeys) {

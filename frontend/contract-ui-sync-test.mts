@@ -54,11 +54,11 @@ type AbiItem = {
  * against and the gate is not applicable rather than failing.
  *
  * Exit cleanly and say so plainly. Reporting this as a pass would assert a comparison that
- * never happened — the precise failure this gate exists to prevent.
+ * never happened, the precise failure this gate exists to prevent.
  */
 if (!existsSync(new URL("../contracts/out/", import.meta.url))) {
   console.log(
-    "SKIP contract↔frontend synchronization — ../contracts/out is not present in this\n" +
+    "SKIP contract↔frontend synchronization: ../contracts/out is not present in this\n" +
       "     checkout. In a full checkout run `cd contracts && forge build` first; this gate\n" +
       "     is inapplicable to the frontend-only public repository.",
   );
@@ -75,7 +75,7 @@ function check(name: string, condition: boolean, detail?: string) {
     return;
   }
   failures++;
-  console.log(`FAIL ${name}${detail ? ` — ${detail}` : ""}`);
+  console.log(`FAIL ${name}${detail ? `: ${detail}` : ""}`);
 }
 
 function source(path: string): string {
