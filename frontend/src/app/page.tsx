@@ -170,7 +170,7 @@ export default function Landing() {
                 <>
                   Built for alignment.{" "}
                   <span className="display-accent">
-                    Our capital absorbs losses first
+                    Your capital absorbs losses last
                   </span>
                   .
                 </>
