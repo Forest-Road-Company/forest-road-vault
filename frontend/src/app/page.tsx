@@ -173,7 +173,7 @@ export default function Landing() {
                   .
                 </>
               }
-              lede="Forest Road and its partners post first-loss capital that sits ahead of every depositor. If a loan underperforms, that capital absorbs the loss before depositors are touched. The order is written into the contract."
+              lede="Forest Road and its partners post curator capital, a first-loss layer that sits ahead of every depositor. If a loan underperforms, that capital absorbs the loss before depositors are touched. The order is written into the contract."
             />
             <Link
               href="/how-it-works"

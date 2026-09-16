@@ -43,7 +43,7 @@ export function SiteNav() {
           className="flex flex-none items-center gap-2.5"
         >
           <Image
-            src="/brand/fram-mark-navy.png"
+            src="/brand/vault-mark-navy.png"
             alt=""
             width={220}
             height={187}

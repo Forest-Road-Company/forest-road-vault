@@ -39,14 +39,18 @@ export default function LegalPage() {
             : "External smart-contract audits are complete. A written securities-counsel opinion remains a hard, blocking gate before any mainnet deployment, alongside an executed off-chain legal wrapper and an economic review of protocol parameters."}
         </p>
         <p>
-          <span className="text-ink">Yield is variable.</span> sUSDfr passes
+          <span className="text-ink">Yield is variable.</span>{" "}
+          sUSDfr passes
           through the net performance of the loan book and reserves via its
           exchange rate. 10% of realized gross facility interest goes to the
-          protocol; sUSDfr then charges a performance fee of 10% of
+          protocol; the adviser then charges a performance fee of 10% of
           protocol-wide high-water-mark profit (capped at 20%) and a
-          management fee of 0% at launch, 0.50% under the adviser agreement
-          (capped at 2% annually), all prospective and timelocked.
-          Vault-level fees are paid through share dilution. The high-water mark
+          management fee of 0% at launch, rising to 0.50% under the adviser
+          agreement (capped at 2% annually), all prospective and timelocked.
+          Vault-level fees are paid through share dilution. Fees charged
+          within each segregated portfolio are borne by the loan assets, sit
+          outside the protocol fee stack, and are disclosed separately. The
+          high-water mark
           is global, not personal to a participant&apos;s entry price, and
           crystallized fees are not clawed back after a later loss. No fixed
           return is promised, and depositors bear underlying credit performance,
@@ -55,10 +59,7 @@ export default function LegalPage() {
         </p>
         <p>
           <span className="text-ink">The Vault is advised by Sylva Advisors LLC,</span>{" "}
-          a Forest Road affiliate.
-        </p>
-        <p>
-          <span className="text-ink">Governance is Forest-Road-controlled at launch.</span>{" "}
+          a Forest Road affiliate. Governance is Forest-Road-controlled at launch.{" "}
           The full governance machinery exists on-chain, but Forest Road holds
           effective control of parameters and upgrades initially. Progressive
           decentralization is a roadmap item, not a present fact.

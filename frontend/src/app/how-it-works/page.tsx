@@ -31,9 +31,7 @@ const feeRows = [
   { label: "Origination fee", value: "0.50% of funded principal, charged once when a facility is funded." },
   { label: "Share of interest", value: "10% of realized gross facility interest. The balance goes to sUSDfr stakers." },
   { label: "Performance fee", value: "10% of vault profit above one protocol-wide high-water mark. Timelocked governance may change this prospectively, up to a 20% cap." },
-  { label: "Management fee", value: "0% at launch; 0.50% under the adviser agreement. Changes are prospective, capped at 2% per 365-day year, and lock in fees owed at the old rate first." },
-  { label: "Curator capital", value: "Fixed 12.5% a year on committed capital, paid from facility interest ahead of senior holders." },
-  { label: "How fees are paid", value: "Vault fees mint shares to the protocol rather than remove backing assets." },
+  { label: "Management fee", value: "0% at launch, rising to 0.50% under the adviser agreement. Changes are prospective, capped at 2% per 365-day year, and lock in fees owed at the old rate first." },  { label: "How fees are paid", value: "Vault fees mint shares to the protocol rather than remove backing assets." },
   { label: "High-water mark", value: "Global, not personal to your entry price. Enter during a drawdown and you share fee-free recovery to the old peak. Crystallized fees are not clawed back after a later loss." },
 ];
 
@@ -92,7 +90,7 @@ export default function HowItWorksPage() {
       <Section tone="light">
         <SectionHead
           title="What the protocol takes, and when."
-          lede="Fees are charged on realized performance, not on projections. Every rate below is coded in the contracts and capped; changes are prospective and timelocked."
+          lede="Fees are charged on realized performance, not on projections. Every rate below is coded in the contracts and capped; changes are prospective and timelocked. Fees charged within each segregated portfolio are borne by the loan assets, sit outside this stack, and are disclosed separately."
         />
         <FramTable caption="Fee stack: sUSDfr" rows={feeRows} />
       </Section>
