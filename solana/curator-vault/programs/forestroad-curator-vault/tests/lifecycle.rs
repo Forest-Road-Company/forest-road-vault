@@ -1415,7 +1415,6 @@ fn admin_surface_is_admin_only_and_bounded() {
         }),
         "RateEpochsFull",
     );
-    let _ = w.stranger_ata; // the stranger's token account exists and is never credited
 }
 
 #[test]
@@ -1661,6 +1660,12 @@ fn unused_coupon_funding_is_withdrawable_only_after_every_position_closes() {
     );
     w.send(&[close], &[&curator]).unwrap();
     assert_eq!(w.config().positions, 0);
+    w.admin_only(ix::SetPaused { paused: true }).unwrap();
+    expect_error(
+        w.withdraw_unused_coupon_funding(&treasurer, USDC),
+        "Paused",
+    );
+    w.admin_only(ix::SetPaused { paused: false }).unwrap();
     expect_error(
         w.withdraw_unused_coupon_funding(&treasurer, 10_000 * USDC + 1),
         "CouponLiabilityReserved",
@@ -1685,7 +1690,7 @@ fn unused_coupon_funding_is_withdrawable_only_after_every_position_closes() {
 }
 
 #[test]
-fn treasury_cannot_create_a_new_draw_after_withdrawal_notice() {
+fn treasury_draws_continue_during_lock_and_stop_at_the_exit_window() {
     let mut w = setup(true);
     let curator = w.curator.insecure_clone();
     let curator_pk = pk(curator.pubkey());
@@ -1695,6 +1700,14 @@ fn treasury_cannot_create_a_new_draw_after_withdrawal_notice() {
     w.deposit(&curator, w.curator_ata, 100_000 * USDC).unwrap();
     w.request_withdrawal(&curator).unwrap();
 
+    // Notice and lock may overlap. Capital remains usable while the contractual lock is live.
+    w.draw(&treasurer, USDC).unwrap();
+    assert_eq!(w.config().drawn, USDC);
+    assert_eq!(w.position(curator_pk).drawn, USDC);
+    w.return_principal(curator_pk, USDC).unwrap();
+
+    // At the lock deadline, the pending notice enters the exit window and new exposure stops.
+    w.warp(w.position(curator_pk).lock_end);
     let vault_before = w.balance(addr(w.vault_ata));
     let treasury_before = w.balance(w.treasury_ata);
     expect_error(w.draw(&treasurer, USDC), "NoticePending");
@@ -1707,7 +1720,7 @@ fn treasury_cannot_create_a_new_draw_after_withdrawal_notice() {
     w.draw(&treasurer, USDC).unwrap();
     assert_eq!(w.config().drawn, USDC);
     assert_eq!(w.position(curator_pk).drawn, USDC);
-    w.assert_invariants("after notice cancellation and draw");
+    w.assert_invariants("after exit-window notice cancellation and draw");
 }
 
 #[test]
@@ -2519,12 +2532,191 @@ fn campaign_next(state: &mut u64) -> u64 {
     *state
 }
 
+/// Exercises the guards represented by the committed program mutations from inside the stateful
+/// campaign. Each case has a deterministic expected outcome, so a defective build cannot retain
+/// the same campaign statistics merely because random generation avoided its changed branch.
+fn assert_campaign_guard_oracles() -> usize {
+    let mut checked_outcomes = 0usize;
+
+    // Completed-month accounting must leave the current partial month owed but not payable.
+    {
+        let mut w = setup(true);
+        let curator = w.curator.insecure_clone();
+        let owner = pk(curator.pubkey());
+        let allowlister = w.allowlist_authority.insecure_clone();
+        w.allowlist(&allowlister, owner, [40u8; 32]).unwrap();
+        w.deposit(&curator, w.curator_ata, 100_000 * USDC).unwrap();
+        w.warp(math::days_from_civil(2026, 10, 15) * DAY);
+        w.deposit(&curator, w.curator_ata, USDC).unwrap();
+        let position = w.position(owner);
+        assert!(
+            position.coupon_owed > position.coupon_payable,
+            "campaign oracle: partial-month coupon became payable early"
+        );
+        checked_outcomes += 1;
+    }
+
+    // A draw attributed to one position cannot support a loss against another position.
+    {
+        let mut w = setup(true);
+        let first = w.curator.insecure_clone();
+        let second = w.stranger.insecure_clone();
+        let first_pk = pk(first.pubkey());
+        let second_pk = pk(second.pubkey());
+        let allowlister = w.allowlist_authority.insecure_clone();
+        let treasurer = w.treasury_authority.insecure_clone();
+        w.allowlist(&allowlister, first_pk, [41u8; 32]).unwrap();
+        w.allowlist(&allowlister, second_pk, [42u8; 32]).unwrap();
+        w.deposit(&first, w.curator_ata, 100_000 * USDC).unwrap();
+        w.deposit(&second, w.stranger_ata, 100_000 * USDC).unwrap();
+        w.draw_for(&treasurer, first_pk, USDC).unwrap();
+        expect_error(w.record_loss(second_pk, 1, [43u8; 32]), "LossExceedsDrawn");
+        checked_outcomes += 1;
+    }
+
+    // Accounted coupon funding is never donation surplus.
+    {
+        let mut w = setup(true);
+        let treasurer = w.treasury_authority.insecure_clone();
+        w.treasury_pay(
+            w.coupon_ata,
+            ix::FundCoupons {
+                amount: 10_000 * USDC,
+            },
+        )
+        .unwrap();
+        expect_error(w.sweep_coupons(&treasurer, 1), "CouponLiabilityReserved");
+        checked_outcomes += 1;
+    }
+
+    // The emergency path accepts only the configured one-way authority.
+    {
+        let mut w = setup(true);
+        let stranger = w.stranger.insecure_clone();
+        let bad_pause = ixn(
+            acc::EmergencyOnly {
+                emergency_authority: pk(stranger.pubkey()),
+                config: w.config,
+            },
+            ix::EmergencyPause {},
+        );
+        expect_error(w.send(&[bad_pause], &[&stranger]), "ConstraintHasOne");
+        checked_outcomes += 1;
+    }
+
+    // Existing principal keeps its snapshotted notice term after global terms change.
+    {
+        let mut w = setup(true);
+        let curator = w.curator.insecure_clone();
+        let owner = pk(curator.pubkey());
+        let allowlister = w.allowlist_authority.insecure_clone();
+        let requested_at = w.now();
+        w.allowlist(&allowlister, owner, [44u8; 32]).unwrap();
+        w.deposit(&curator, w.curator_ata, 100_000 * USDC).unwrap();
+        w.admin_only(ix::SetTerms {
+            lock_seconds: 730 * DAY as u64,
+            notice_seconds: 730 * DAY as u64,
+        })
+        .unwrap();
+        w.request_withdrawal(&curator).unwrap();
+        assert_eq!(
+            w.position(owner).withdrawal_eligible_at,
+            requested_at + NOTICE as i64,
+            "campaign oracle: mutable global notice changed an existing position"
+        );
+        checked_outcomes += 1;
+    }
+
+    // Both sweep paths re-check the live owner of the pinned treasury token account.
+    {
+        let mut w = setup(true);
+        let admin = w.admin.insecure_clone();
+        let treasurer = w.treasury_authority.insecure_clone();
+        let stranger = w.stranger.insecure_clone();
+        MintTo::new(&mut w.svm, &admin, &w.mint, &addr(w.coupon_ata), USDC)
+            .send()
+            .unwrap();
+        SetAuthority::new(
+            &mut w.svm,
+            &treasurer,
+            &w.treasury_ata,
+            AuthorityType::AccountOwner,
+        )
+        .new_authority(&stranger.pubkey())
+        .send()
+        .unwrap();
+        expect_error(w.sweep_coupons(&treasurer, USDC), "WrongTokenAccount");
+        checked_outcomes += 1;
+    }
+
+    // Accounted coupon funding cannot leave while any position account remains.
+    {
+        let mut w = setup(true);
+        let curator = w.curator.insecure_clone();
+        let owner = pk(curator.pubkey());
+        let allowlister = w.allowlist_authority.insecure_clone();
+        let treasurer = w.treasury_authority.insecure_clone();
+        w.allowlist(&allowlister, owner, [45u8; 32]).unwrap();
+        w.treasury_pay(
+            w.coupon_ata,
+            ix::FundCoupons {
+                amount: 10_000 * USDC,
+            },
+        )
+        .unwrap();
+        expect_error(
+            w.withdraw_unused_coupon_funding(&treasurer, USDC),
+            "VaultNotEmpty",
+        );
+        checked_outcomes += 1;
+    }
+
+    // Notice does not idle capital during the lock, then blocks new exposure at the lock deadline.
+    {
+        let mut w = setup(true);
+        let curator = w.curator.insecure_clone();
+        let owner = pk(curator.pubkey());
+        let allowlister = w.allowlist_authority.insecure_clone();
+        let treasurer = w.treasury_authority.insecure_clone();
+        w.allowlist(&allowlister, owner, [46u8; 32]).unwrap();
+        w.deposit(&curator, w.curator_ata, 100_000 * USDC).unwrap();
+        w.request_withdrawal(&curator).unwrap();
+        w.draw(&treasurer, USDC).unwrap();
+        w.return_principal(owner, USDC).unwrap();
+        w.warp(w.position(owner).lock_end);
+        expect_error(w.draw(&treasurer, USDC), "NoticePending");
+        checked_outcomes += 1;
+    }
+
+    // The global pause also covers the terminal treasury outflow of unused coupon funding.
+    {
+        let mut w = setup(true);
+        let treasurer = w.treasury_authority.insecure_clone();
+        w.treasury_pay(
+            w.coupon_ata,
+            ix::FundCoupons {
+                amount: 10_000 * USDC,
+            },
+        )
+        .unwrap();
+        w.admin_only(ix::SetPaused { paused: true }).unwrap();
+        expect_error(
+            w.withdraw_unused_coupon_funding(&treasurer, USDC),
+            "Paused",
+        );
+        checked_outcomes += 1;
+    }
+
+    checked_outcomes
+}
+
 #[test]
 fn stateful_instruction_sequences_preserve_the_program_invariants() {
     // Thirty-two independent books, 96 randomized steps each. Every transaction outcome is
     // asserted: admissible actions must succeed and deliberately invalid actions must return the
     // named error. Each book also completes a real post-lock withdrawal before randomization, so
     // the campaign cannot silently spend all of its time in the Locked branch.
+    let guard_oracle_checks = assert_campaign_guard_oracles();
     let mut state_checks = 0usize;
     let mut successful_transactions = 0usize;
     let mut rejected_transactions = 0usize;
@@ -2909,6 +3101,7 @@ fn stateful_instruction_sequences_preserve_the_program_invariants() {
          {eligible_states_observed} eligible states"
     );
     assert_eq!(state_checks, 32 * 96);
+    assert_eq!(guard_oracle_checks, 9);
     assert!(successful_transactions > 3_000);
     assert!(rejected_transactions > 100);
     assert!(successful_withdrawals >= 32);

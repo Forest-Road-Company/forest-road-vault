@@ -2,8 +2,8 @@
 
 import {createHash} from "node:crypto";
 import {spawnSync} from "node:child_process";
-import {existsSync, readFileSync, writeFileSync} from "node:fs";
-import {homedir} from "node:os";
+import {existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
+import {userInfo} from "node:os";
 import {dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -17,13 +17,43 @@ const files = {
   treasury: source("instructions/treasury.rs"),
 };
 const originals = new Map(Object.values(files).map((path) => [path, readFileSync(path, "utf8")]));
+const toolHome = userInfo().homedir;
+const harnessHome = process.env.HOME ?? toolHome;
+const createdToolLinks = [];
+
+// Keep the caller's isolated HOME while making only the pinned build-tool installations visible.
+// No Solana wallet/config directory is linked into the harness.
+if (harnessHome !== toolHome) {
+  for (const relative of [
+    ".avm/bin",
+    ".avm/.version",
+    ".cargo",
+    ".rustup",
+    ".cache/solana/v1.57",
+    ".local/share/solana",
+  ]) {
+    const target = join(toolHome, relative);
+    const link = join(harnessHome, relative);
+    if (!existsSync(target) || existsSync(link)) continue;
+    mkdirSync(dirname(link), {recursive: true});
+    symlinkSync(target, link);
+    createdToolLinks.push(link);
+  }
+}
+
+function removeToolLinks() {
+  for (const link of createdToolLinks.reverse()) rmSync(link, {force: true});
+}
+process.once("exit", removeToolLinks);
 const env = {
   ...process.env,
+  CARGO_HOME: process.env.CARGO_HOME ?? join(toolHome, ".cargo"),
+  RUSTUP_HOME: process.env.RUSTUP_HOME ?? join(toolHome, ".rustup"),
   PATH: [
     process.env.PATH,
-    join(homedir(), ".cargo/bin"),
-    join(homedir(), ".avm/bin"),
-    join(homedir(), ".local/share/solana/install/active_release/bin"),
+    join(toolHome, ".cargo/bin"),
+    join(toolHome, ".avm/bin"),
+    join(toolHome, ".local/share/solana/install/active_release/bin"),
   ].filter(Boolean).join(":"),
 };
 
@@ -65,6 +95,23 @@ function replaceWithinStruct(text, structName, needle, replacement = "") {
 function restoreSources() {
   for (const [path, contents] of originals) writeFileSync(path, contents);
 }
+
+let restoringAfterSignal = false;
+function restoreAfterSignal(signal) {
+  if (restoringAfterSignal) return;
+  restoringAfterSignal = true;
+  try {
+    restoreSources();
+    requireSuccess(run("npm", ["run", "build:program"]), `restore after ${signal}`);
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
+  } finally {
+    removeToolLinks();
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  }
+}
+process.once("SIGINT", () => restoreAfterSignal("SIGINT"));
+process.once("SIGTERM", () => restoreAfterSignal("SIGTERM"));
 
 const ownerConstraint =
   "        constraint = treasury_ata.owner == config.treasury_authority @ VaultError::WrongTokenAccount\n";
@@ -166,13 +213,36 @@ const mutations = [
     },
   },
   {
-    name: "a pending withdrawal notice blocks new treasury draws",
-    test: "treasury_cannot_create_a_new_draw_after_withdrawal_notice",
+    name: "a pending notice blocks new draws once the exit window opens",
+    test: "treasury_draws_continue_during_lock_and_stop_at_the_exit_window",
     apply() {
       const before = originals.get(files.treasury);
       const guard =
-        "    require!(position.notice_requested_at == 0, VaultError::NoticePending);\n";
+        "    require!(\n" +
+        "        position.notice_requested_at == 0 || now < position.lock_end,\n" +
+        "        VaultError::NoticePending\n" +
+        "    );\n";
       writeFileSync(files.treasury, replaceExactly(before, guard, ""));
+    },
+  },
+  {
+    name: "terminal coupon-funding withdrawal respects the global pause",
+    test: "unused_coupon_funding_is_withdrawable_only_after_every_position_closes",
+    apply() {
+      const before = originals.get(files.treasury);
+      const anchor =
+        "pub fn handle_withdraw_unused_coupon_funding(\n" +
+        "    ctx: Context<SweepCoupons>,\n" +
+        "    amount: u64,\n" +
+        ") -> Result<()> {";
+      const start = before.indexOf(anchor);
+      if (start === -1) throw new Error("terminal withdrawal handler was not found");
+      const end = before.indexOf("\n}\n", start);
+      if (end === -1) throw new Error("terminal withdrawal handler has no closing brace");
+      const block = before.slice(start, end);
+      const guard = "    require!(!config.paused, VaultError::Paused);\n";
+      const changed = replaceExactly(block, guard, "");
+      writeFileSync(files.treasury, before.slice(0, start) + changed + before.slice(end));
     },
   },
 ];
@@ -215,10 +285,29 @@ try {
       process.stderr.write(output);
       throw new Error(`${mutation.name}: regression failed for an unrelated reason`);
     }
+    const campaignName = "stateful_instruction_sequences_preserve_the_program_invariants";
+    const campaign = run("cargo", [
+      "test",
+      "-p", "forestroad-curator-vault",
+      "--locked",
+      "--test", "lifecycle",
+      campaignName,
+      "--", "--exact", "--nocapture",
+    ]);
+    const campaignOutput = `${campaign.stdout ?? ""}\n${campaign.stderr ?? ""}`;
+    if (campaign.status === 0) {
+      throw new Error(`${mutation.name}: mutation survived the stateful campaign`);
+    }
+    if (!campaignOutput.includes(`test ${campaignName} ... FAILED`)) {
+      process.stderr.write(campaignOutput);
+      throw new Error(`${mutation.name}: campaign failed for an unrelated reason`);
+    }
     process.stdout.write(`Mutation killed: ${mutation.name} (${mutatedHash}).\n`);
   }
   completed = true;
 } finally {
+  process.removeAllListeners("SIGINT");
+  process.removeAllListeners("SIGTERM");
   restoreSources();
   const restoredBuild = run("npm", ["run", "build:program"]);
   requireSuccess(restoredBuild, "restored program build");
@@ -236,4 +325,5 @@ try {
 }
 
 if (!completed) throw new Error("mutation controls did not complete");
+removeToolLinks();
 process.stdout.write(`All ${mutations.length} mutation controls passed; pristine ${pristineHash}.\n`);

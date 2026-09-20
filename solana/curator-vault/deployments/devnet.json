@@ -5,11 +5,11 @@
   "deployer": "B2QUcpgwM4VLPomh7FeBmxUDXL5SQjA8yvWrAEe7cT82",
   "build": {
     "schemaVersion": 2,
-    "gitCommit": "7c4b9589f80fcaf88a9a0393ecc096dfe1f46bd8",
+    "gitCommit": "b7164af412db94fff05f0d4983f3f41959c7d063",
     "dirty": false,
     "programId": "3ZPRvNDUDRZuZ8Hug873JtSDJueA8D7PEVE21uLLAvwh",
-    "elfSha256": "4cf28ebf3b911a59d7807a852fb81a03fe6680af5ddc94bad74a981efdf3a605",
-    "elfBytes": 475640,
+    "elfSha256": "c3f365f888cda2daf06bbf8339c7e8ea89cd090b2dac030367f346e78f3b450e",
+    "elfBytes": 475824,
     "idlSha256": "0f3c9bab4669da0f45a804bf97419c7957c836b9d384fe585a4ad0d61b9661e5",
     "idlBytes": 67114,
     "hostToolchain": {
@@ -60,7 +60,7 @@
     "fundCoupons": "5GZHe3zZdWEMtXvw1L7523y7E8j9qzcd3hZzWagKavf3gDA3sYPnmzoC4D7CsmwMQG2zjjf8Miw4TS1oXXYduDzu",
     "recordLoss": "dCuixRDyBFeALWAEAyKGL6RhoDGbBG62G5niQUSiFdFp3uoqBPSKRNWp8qc5FB9QQFDELiEgUf8fpiyboKujLSY",
     "returnPrincipal": "5JV3iTQWvh4PKk5u6TG9gZKPUhBNHYsD5Cvm8mGjqstwr95TqmyrXk9c349kabGD65SRRMaYzWWmFLt9f8UcCeUq",
-    "canonicalBuildActivation": "5mhRFiBZHPpP5dyRUTzLRkMD4DM4DrW7ZE7PTd1qrSXn9NomLEZwa2q42VYJ5c9DUpFbt4EuJ7jYB5GrxKJxed1a"
+    "canonicalBuildActivation": "3VyNWcYnqF54XC7vkzSzWA6P6egzEFusWpV2j2ozkQDG8P6ZUJ2KB1fUK3gqkZeTQqq6MkKAvvkU2AHFCBgoP2UW"
   },
   "config": "DHSrDZwwFeWKqHvKvvcoe9KUxJ8djdfkb4SqpPPFu35s",
   "vaultAta": "4XYLj6XSjrrqF2wuZGrBsnKzgcUY5thPZBmaTfrKqhkM",
@@ -94,8 +94,8 @@
       "4e2EABqwUK4m7fq9JAkNBDu6ATC4Mc6MgStFoJss48QF5DjBfAm89RRoaXpPWcimir4b29eqnzdxeKcFfh3jDLjW"
     ]
   },
-  "canonicalBuildActivatedAt": "2026-09-20T17:25:59.000Z",
-  "canonicalBuildActivatedAtSlot": 501488463,
+  "canonicalBuildActivatedAt": "2026-09-20T22:32:12.000Z",
+  "canonicalBuildActivatedAtSlot": 501599406,
   "buildActivations": [
     {
       "build": {
@@ -154,6 +154,35 @@
       "activatedAt": "2026-09-20T17:25:59.000Z",
       "activatedAtSlot": 501488463,
       "signature": "5mhRFiBZHPpP5dyRUTzLRkMD4DM4DrW7ZE7PTd1qrSXn9NomLEZwa2q42VYJ5c9DUpFbt4EuJ7jYB5GrxKJxed1a"
+    },
+    {
+      "build": {
+        "schemaVersion": 2,
+        "gitCommit": "b7164af412db94fff05f0d4983f3f41959c7d063",
+        "dirty": false,
+        "programId": "3ZPRvNDUDRZuZ8Hug873JtSDJueA8D7PEVE21uLLAvwh",
+        "elfSha256": "c3f365f888cda2daf06bbf8339c7e8ea89cd090b2dac030367f346e78f3b450e",
+        "elfBytes": 475824,
+        "idlSha256": "0f3c9bab4669da0f45a804bf97419c7957c836b9d384fe585a4ad0d61b9661e5",
+        "idlBytes": 67114,
+        "hostToolchain": {
+          "anchor": "anchor-cli 1.2.0",
+          "solana": "solana-cli 4.1.2 (src:182084b8; feat:c763ae0a, client:Agave)",
+          "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+          "sbfArch": "v3",
+          "platformTools": "v1.57"
+        },
+        "releaseBuilder": {
+          "solanaVerify": "0.5.0",
+          "solanaCli": "4.0.3",
+          "sbfArch": "v3",
+          "platformTools": "v1.57",
+          "baseImage": "solanafoundation/solana-verifiable-build@sha256:588d0c6f45c2faa4456c7b8279897d8af8c6cd17e9613bb8ddf622a820039eb2"
+        }
+      },
+      "activatedAt": "2026-09-20T22:32:12.000Z",
+      "activatedAtSlot": 501599406,
+      "signature": "3VyNWcYnqF54XC7vkzSzWA6P6egzEFusWpV2j2ozkQDG8P6ZUJ2KB1fUK3gqkZeTQqq6MkKAvvkU2AHFCBgoP2UW"
     }
   ]
 }

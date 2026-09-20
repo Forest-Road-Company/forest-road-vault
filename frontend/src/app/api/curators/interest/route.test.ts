@@ -1,11 +1,10 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
-const blob = vi.hoisted(() => ({del: vi.fn(), list: vi.fn(), put: vi.fn()}));
+const blob = vi.hoisted(() => ({del: vi.fn(), put: vi.fn()}));
 
 vi.mock("@vercel/blob", () => ({
   put: blob.put,
   del: blob.del,
-  list: blob.list,
   BlobPreconditionFailedError: class BlobPreconditionFailedError extends Error {},
 }));
 
@@ -29,10 +28,10 @@ beforeEach(() => {
   process.env.CURATOR_INTEREST_KEY_SECRET = "test-secret-with-enough-entropy";
   blob.put.mockReset().mockResolvedValue({url: "https://blob.invalid/test"});
   blob.del.mockReset().mockResolvedValue(undefined);
-  blob.list.mockReset().mockResolvedValue({blobs: [], cursor: undefined, hasMore: false});
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   delete process.env.BLOB_READ_WRITE_TOKEN;
   delete process.env.CURATOR_INTEREST_KEY_SECRET;
 });
@@ -50,14 +49,13 @@ describe("curator interest admission", () => {
     expect(blob.put).not.toHaveBeenCalled();
   });
 
-  it("claims a source slot and email gate before storing a valid registration", async () => {
+  it("claims one source sub-window before storing a valid registration", async () => {
     const response = await POST(request({email: "curator@example.com", chain: "solana"}));
     expect(response.status).toBe(200);
-    expect(blob.put).toHaveBeenCalledTimes(3);
+    expect(blob.put).toHaveBeenCalledTimes(2);
     const paths = blob.put.mock.calls.map(([pathname]) => String(pathname));
-    expect(paths[0]).toMatch(/^curators-rate\/source\/[0-9a-f]{64}\/.+\/0\.json$/);
-    expect(paths[1]).toMatch(/^curators-rate\/email\/[0-9a-f]{64}\//);
-    expect(paths[2]).toMatch(/^curators\/[0-9a-f]{64}\//);
+    expect(paths[0]).toMatch(/^curators-rate\/source\/[0-9a-f]{64}\/\d+\.json$/);
+    expect(paths[1]).toMatch(/^curators\/[0-9a-f]{64}\//);
     expect(paths.join("\n")).not.toContain("curator@example.com");
     expect(blob.put.mock.calls[0][2]).toEqual(expect.objectContaining({
       addRandomSuffix: false,
@@ -65,73 +63,68 @@ describe("curator interest admission", () => {
     }));
   });
 
-  it("uses the next free source slot instead of rejecting a first-time colleague", async () => {
-    blob.put.mockRejectedValueOnce(Object.assign(new Error("already exists"), {
-      name: "BlobPreconditionFailedError",
-    }));
-    const response = await POST(request({email: "curator@example.com"}));
-    expect(response.status).toBe(200);
-    expect(String(blob.put.mock.calls[1][0])).toMatch(/\/1\.json$/);
-  });
-
-  it("returns 429 only after all sixteen application source slots are occupied", async () => {
+  it("returns 429 after one constant-cost write when the current source sub-window is occupied", async () => {
     blob.put.mockRejectedValue(Object.assign(new Error("already exists"), {
       name: "BlobPreconditionFailedError",
     }));
     const response = await POST(request({email: "curator@example.com"}));
     expect(response.status).toBe(429);
-    expect(response.headers.get("retry-after")).toBe("600");
-    expect(blob.put).toHaveBeenCalledTimes(16);
+    expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(Number(response.headers.get("retry-after"))).toBeLessThanOrEqual(38);
+    expect(blob.put).toHaveBeenCalledTimes(1);
   });
 
-  it("returns the same success for a durable duplicate without revealing recency", async () => {
-    blob.put
-      .mockResolvedValueOnce({url: "https://blob.invalid/source"})
-      .mockRejectedValueOnce(Object.assign(new Error("already exists"), {
-        name: "BlobPreconditionFailedError",
-      }));
-    blob.list.mockResolvedValueOnce({
-      blobs: [{url: "https://blob.invalid/record"}],
-      cursor: undefined,
-      hasMore: false,
+  it("stores a corrected resubmission in a later sub-window instead of treating the email as a duplicate", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-20T12:00:00.000Z"));
+    const claimedGates = new Set<string>();
+    blob.put.mockImplementation(async (pathname: string) => {
+      if (pathname.startsWith("curators-rate/")) {
+        if (claimedGates.has(pathname)) {
+          throw Object.assign(new Error("already exists"), {name: "BlobPreconditionFailedError"});
+        }
+        claimedGates.add(pathname);
+      }
+      return {url: "https://blob.invalid/test"};
     });
-    const response = await POST(request({email: "curator@example.com"}));
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ok: true});
-    expect(blob.put).toHaveBeenCalledTimes(2);
-    expect(blob.del).toHaveBeenCalledWith([String(blob.put.mock.calls[0][0])]);
+    const first = await POST(request({email: "curator@example.com", note: "old"}));
+    expect(first.status).toBe(200);
+    vi.advanceTimersByTime(38_000);
+    const corrected = await POST(request({email: "curator@example.com", note: "corrected"}));
+    expect(corrected.status).toBe(200);
+    const records = blob.put.mock.calls.filter(([pathname]) => String(pathname).startsWith("curators/"));
+    expect(records).toHaveLength(2);
+    expect(String(records[1][1])).toContain('"note":"corrected"');
   });
 
-  it("never reports success for an orphaned email gate", async () => {
-    blob.put
-      .mockResolvedValueOnce({url: "https://blob.invalid/source"})
-      .mockRejectedValueOnce(Object.assign(new Error("already exists"), {
-        name: "BlobPreconditionFailedError",
-      }));
-    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const response = await POST(request({email: "curator@example.com"}));
-    expect(response.status).toBe(502);
-    expect(blob.list).toHaveBeenCalledWith(expect.objectContaining({
-      prefix: expect.stringMatching(/^curators\/[0-9a-f]{64}\/$/),
-    }));
-    expect(blob.del).toHaveBeenCalledTimes(2);
-    log.mockRestore();
+  it("has no shared email gate that can delete a concurrent request's admission", async () => {
+    const claimedGates = new Set<string>();
+    blob.put.mockImplementation(async (pathname: string) => {
+      if (pathname.startsWith("curators-rate/")) {
+        if (claimedGates.has(pathname)) {
+          throw Object.assign(new Error("already exists"), {name: "BlobPreconditionFailedError"});
+        }
+        claimedGates.add(pathname);
+      }
+      return {url: "https://blob.invalid/test"};
+    });
+    const first = await POST(request({email: "curator@example.com"}, {"x-vercel-forwarded-for": "192.0.2.10"}));
+    const second = await POST(request({email: "curator@example.com"}, {"x-vercel-forwarded-for": "192.0.2.11"}));
+    expect([first.status, second.status]).toEqual([200, 200]);
+    expect(blob.put.mock.calls.filter(([pathname]) => String(pathname).startsWith("curators/"))).toHaveLength(2);
+    expect(blob.del).not.toHaveBeenCalled();
   });
 
-  it("releases both gates when the durable record write fails", async () => {
+  it("releases only its own source gate when the durable record write fails", async () => {
     blob.put
       .mockResolvedValueOnce({url: "https://blob.invalid/source"})
-      .mockResolvedValueOnce({url: "https://blob.invalid/email"})
       .mockRejectedValueOnce(Object.assign(new Error("socket failed"), {
         name: "BlobUnknownError",
       }));
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const response = await POST(request({email: "curator@example.com"}));
     expect(response.status).toBe(502);
-    expect(blob.del).toHaveBeenCalledWith([
-      String(blob.put.mock.calls[0][0]),
-      String(blob.put.mock.calls[1][0]),
-    ]);
+    expect(blob.del).toHaveBeenCalledWith([String(blob.put.mock.calls[0][0])]);
     log.mockRestore();
   });
 

@@ -38,9 +38,14 @@ pub fn handle_draw_to_treasury(ctx: Context<DrawToTreasury>, amount: u64) -> Res
     config.require_version()?;
     position.require_version()?;
     require!(!config.paused, VaultError::Paused);
-    // A curator's notice fixes the exposure available for their exit. The treasury may return an
-    // existing draw during notice, but it may not create a new one that blocks or impairs the exit.
-    require!(position.notice_requested_at == 0, VaultError::NoticePending);
+    // A notice submitted during the contractual lock must not make committed capital idle for the
+    // whole term. The treasury may keep drawing while the lock is live. Once the lock expires, a
+    // pending notice protects the exit window: existing draws may be returned, but no new exposure
+    // may be created for that position.
+    require!(
+        position.notice_requested_at == 0 || now < position.lock_end,
+        VaultError::NoticePending
+    );
     let drawn_after = config
         .drawn
         .checked_add(amount)
@@ -263,6 +268,7 @@ pub fn handle_withdraw_unused_coupon_funding(
     let now = Clock::get()?.unix_timestamp;
     let config = &mut ctx.accounts.config;
     config.require_version()?;
+    require!(!config.paused, VaultError::Paused);
     require!(
         config.positions == 0 && config.coupon_owed_total == 0,
         VaultError::VaultNotEmpty

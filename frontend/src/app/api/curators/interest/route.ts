@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import {BlobPreconditionFailedError, del, list, put} from "@vercel/blob";
+import {BlobPreconditionFailedError, del, put} from "@vercel/blob";
 
 /**
  * Records one registration of interest in the curator programme.
@@ -29,9 +29,9 @@ const EMAIL = /^[^@\s]{1,64}@[^@\s.]{1,63}(\.[^@\s.]{1,63})+$/;
 const MAX_EMAIL = 254;
 const CHAINS = new Set(["solana", "ethereum", "canton", "other"]);
 const SIZES = new Set(["under-250k", "250k-1m", "1m-5m", "over-5m", "undisclosed"]);
-const EMAIL_WINDOW_MS = 5 * 60_000;
 const SOURCE_WINDOW_MS = 10 * 60_000;
 const SOURCE_SLOTS = 16;
+const SOURCE_SLOT_MS = SOURCE_WINDOW_MS / SOURCE_SLOTS;
 
 function json(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {
@@ -62,75 +62,40 @@ function conflict(error: unknown): boolean {
       && (error.name === "BlobPreconditionFailedError" || /already exists|overwrite/i.test(error.message)));
 }
 
-type Admission = {duplicate: boolean; gates: string[]};
+type Admission = {gates: string[]};
 
 async function releaseGates(gates: string[]) {
   if (gates.length === 0) return;
   await del(gates);
 }
 
-async function admit(request: Request, secret: string, emailDigest: string): Promise<Response | Admission> {
+async function admit(request: Request, secret: string): Promise<Response | Admission> {
   const now = Date.now();
   const sourceDigest = digest(secret, `source:${sourceAddress(request)}`);
-  const sourceWindow = Math.floor(now / SOURCE_WINDOW_MS);
-  let sourceGate: string | null = null;
-  // Claim the first free source slot. The previous digest-selected slot could reject the second
-  // legitimate colleague behind one office NAT even when fifteen slots were still free.
-  for (let sourceSlot = 0; sourceSlot < SOURCE_SLOTS; sourceSlot += 1) {
-    const pathname = `curators-rate/source/${sourceDigest}/${sourceWindow}/${sourceSlot}.json`;
-    try {
-      await put(pathname, "{}", {
-        access: "private",
-        contentType: "application/json",
-        addRandomSuffix: false,
-        allowOverwrite: false,
-      });
-      sourceGate = pathname;
-      break;
-    } catch (error) {
-      if (!conflict(error)) throw error;
-    }
-  }
-  if (sourceGate === null) {
-    return new Response(JSON.stringify({ok: false, error: "Please wait before submitting again."}), {
-      status: 429,
-      headers: {
-        "content-type": "application/json",
-        "cache-control": "no-store",
-        "retry-after": "600",
-      },
-    });
-  }
-
-  const emailGate = `curators-rate/email/${emailDigest}/${Math.floor(now / EMAIL_WINDOW_MS)}.json`;
+  // Sixteen fixed sub-windows in ten minutes bound the route to one conditional Blob write for an
+  // admitted or refused request. The Vercel edge rule independently enforces the wider 16/10m cap.
+  const sourceSlot = Math.floor(now / SOURCE_SLOT_MS);
+  const sourceGate = `curators-rate/source/${sourceDigest}/${sourceSlot}.json`;
   try {
-    await put(emailGate, "{}", {
+    await put(sourceGate, "{}", {
       access: "private",
       contentType: "application/json",
       addRandomSuffix: false,
       allowOverwrite: false,
     });
   } catch (error) {
-    try {
-      await releaseGates([sourceGate]);
-    } catch {
-      console.error("curators.interest.release failed: BlobError");
-    }
-    if (conflict(error)) {
-      const existing = await list({prefix: `curators/${emailDigest}/`, limit: 1});
-      if (existing.blobs.length > 0) {
-        // A prior registration for this normalized email is durable. The same success response
-        // for first and repeat submissions avoids a five-minute recency oracle.
-        return {duplicate: true, gates: []};
-      }
-      // The gate is stale or another request has not committed its record yet. Remove the stale
-      // gate and fail visibly; a success response is reserved for durable data.
-      await releaseGates([emailGate]);
-      throw new Error("AdmissionInProgress");
-    }
-    throw error;
+    if (!conflict(error)) throw error;
+    const retryAfter = Math.max(1, Math.ceil(((sourceSlot + 1) * SOURCE_SLOT_MS - now) / 1_000));
+    return new Response(JSON.stringify({ok: false, error: "Please wait before submitting again."}), {
+      status: 429,
+      headers: {
+        "content-type": "application/json",
+        "cache-control": "no-store",
+        "retry-after": String(retryAfter),
+      },
+    });
   }
-  return {duplicate: false, gates: [sourceGate, emailGate]};
+  return {gates: [sourceGate]};
 }
 
 export async function POST(request: Request) {
@@ -191,9 +156,8 @@ export async function POST(request: Request) {
 
   let admissionGates: string[] = [];
   try {
-    const admission = await admit(request, process.env.CURATOR_INTEREST_KEY_SECRET, emailDigest);
+    const admission = await admit(request, process.env.CURATOR_INTEREST_KEY_SECRET);
     if (admission instanceof Response) return admission;
-    if (admission.duplicate) return json({ok: true}, 200);
     admissionGates = admission.gates;
     await put(
       key,

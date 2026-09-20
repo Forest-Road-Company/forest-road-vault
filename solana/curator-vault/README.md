@@ -86,14 +86,16 @@ outcome and completes real post-notice withdrawals. The deployed-devnet test is 
 ignored in ordinary runs and hard fails on missing keys, a mismatched snapshot or a mismatched ELF
 when run with `--ignored`.
 
-`npm run test:mutations` rebuilds and tests eight program mutations: early payment of post-boundary
+`npm run test:mutations` rebuilds and tests nine program mutations: early payment of post-boundary
 coupon, global rather than per-position loss attribution, removal of the coupon-liability reserve,
 removal of both emergency-authority constraints, use of mutable global notice terms for an
 existing position, removal of the live treasury-owner checks from both sweep paths, premature
-return of accounted coupon funding and a new treasury draw after withdrawal notice. It asserts
-that each mutation changed the ELF and made its directed test fail, then restores the source and
-the pristine host artifact byte for byte. `npm run test:surface` keeps the 25-instruction,
-38-error and 23-event test census from silently drifting.
+return of accounted coupon funding, a new treasury draw in the protected exit window and terminal
+funding withdrawal while paused. It asserts that each mutation changed the ELF and made both its
+directed test and the stateful campaign fail, then restores the source and the pristine host
+artifact byte for byte, including after SIGINT or SIGTERM. `npm run test:surface` keeps the 25-instruction,
+38-error and 23-event field-assertion census from silently drifting. The census strips comments,
+rejects discarded results and derives the randomized step count from the loop bounds.
 
 ## Accounting properties
 
@@ -106,13 +108,15 @@ the pristine host artifact byte for byte. `npm run test:surface` keeps the 25-in
 - `coupon_payable <= coupon_owed`; coupon checkpointed after the latest completed UTC month stays
   owed for the next boundary.
 - Withdrawal eligibility requires a live notice and cannot precede the position's snapshotted
-  lock end. A partial withdrawal retains the notice; a pending notice blocks new treasury draws,
-  while principal already drawn can still be returned. An explicit cancellation gives up the
-  remaining eligibility.
+  lock end. Notice may overlap the lock and does not idle committed capital while that lock is
+  live. At the lock deadline a pending notice blocks new treasury draws, while principal already
+  drawn can still be returned. A partial withdrawal retains the notice; an explicit cancellation
+  gives up the remaining eligibility.
 - Accrual is path independent with the carried `u128` remainder and rate epochs are strictly
   forward.
-- Pause never blocks withdrawals, coupon payments, principal returns or coupon funding. A payout
-  halt affects one position's coupon transfer while accrual and withdrawal rights continue.
+- Pause never blocks curator withdrawals, coupon payments, principal returns or incoming coupon
+  funding. It blocks deposits, new draws and terminal withdrawal of unused funding. A payout halt
+  affects one position's coupon transfer while accrual and withdrawal rights continue.
 
 ## Deployment state
 
@@ -126,10 +130,11 @@ ProgramData prefix to the committed canonical ELF,
 required zero trailing bytes, decompressed the published IDL and matched its exact SHA-256, and
 checked the recorded authority, account, balance and conservation state. The explicitly selected
 deployed-devnet test passed after fast-forwarding the snapshot through four coupon payments and a
-full exit, the partial-month tail payment and position closure. The canonical 475,640-byte ELF has
-SHA-256 `4cf28ebf3b911a59d7807a852fb81a03fe6680af5ddc94bad74a981efdf3a605`; it was activated at
-finalized devnet slot 501,488,463. The activation changed no Config, Position, mint or token-account
-bytes, as recorded in `deployments/devnet-upgrade-comparison-2026-09-20.json`.
+full exit, the partial-month tail payment and position closure. The current canonical 475,824-byte
+ELF has SHA-256 `c3f365f888cda2daf06bbf8339c7e8ea89cd090b2dac030367f346e78f3b450e`; it was activated at
+finalized devnet slot 501,599,406. The IDL was unchanged. The activation changed no Config,
+Position, mint or token-account bytes, as recorded in
+`deployments/devnet-upgrade-comparison-b716-2026-09-20.json`.
 
 Keys remain outside the repository. The rehearsal refuses any genesis other than devnet. It uses
 documented untracked devnet key paths by default, accepts explicit environment overrides and

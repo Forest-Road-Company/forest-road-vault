@@ -392,7 +392,7 @@ fn devnet_fork_fast_forwarded_through_the_first_coupons_and_a_full_exit() {
     let p0 = f.position();
     assert_eq!(
         c0.rate_epochs[0].bps, 1_250,
-        "devnet vault carries the decided rate"
+        "devnet vault carries the recorded rehearsal rate"
     );
     assert!(
         c0.principal_at_risk
