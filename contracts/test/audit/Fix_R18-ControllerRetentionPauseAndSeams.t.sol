@@ -288,23 +288,79 @@ contract Fix_R18_ControllerTokenLayer is TokenLayerFixture {
     ///         admitted by the R17 rule after it.
     ///
     ///         DELETION MUTATION: remove the `_isDelegatedEOA` branch and this goes RED.
-    function test_R18_C2_a7702DelegatedWalletCannotBeNamedALossSource() public {
-        // CONTROL 1 — as a plain EOA, alice is refused by R17's rule.
-        vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IMintRedeemController.Controller_LossSourceNotContract.selector, alice));
-        controller.setLossSource(alice, true);
+    /// @notice THE INITIALIZER'S MODULE PROBE MUST REFUSE A DELEGATED EOA TOO.
+    ///
+    /// @dev THE INCONSISTENCY, reproduced before it was closed on 2026-09-10. `setLossSource`
+    ///      refuses an EIP-7702 delegated EOA (the test below), because since Pectra a
+    ///      key-controlled wallet carries a 23-byte code field and `code.length == 0` stopped being
+    ///      a test for "is a contract". `_requireModuleResponds`, the Cantina 3.1.2 probe the
+    ///      initializer runs on `usdfr`, `reserves` and `compliance`, was still using the old test.
+    ///      So the very address the loss-source setter refuses could be wired in as a core module.
+    ///
+    ///      WHAT THIS TEST CAN AND CANNOT SHOW, stated rather than glossed. Like
+    ///      `test_R18_C2_a7702DelegatedWalletCannotBeNamedALossSource` below, it MODELS the
+    ///      delegation with `vm.etch` instead of signing one, so the on-chain CODE FIELD is
+    ///      byte-identical to a real designator but the EVM here does NOT follow it: the etched
+    ///      `0xef` prefix is an invalid opcode, so a call to the wallet reverts rather than
+    ///      reaching the delegate. The first draft of this test asserted that the wallet answers
+    ///      `totalSupply()` first, and that assertion correctly failed, which is why it is not
+    ///      here. CONSEQUENCE: this test pins the REFUSAL and the ORDER (the designator limb runs
+    ///      before the staticcall), but it cannot demonstrate on this profile that the staticcall
+    ///      limb would otherwise have ADMITTED the wallet. On a real chain it would, because the
+    ///      EVM follows the designator to a delegate that does answer; that is the whole reason
+    ///      `setLossSource` carries the same limb.
+    ///
+    ///      CONTROL. The same initializer with the real module succeeds, so the guard is not a
+    ///      blanket refusal, and the plain-EOA case is already covered by R17's rule.
+    function test_2026_09_10_theModuleProbeRefusesADelegatedEOA() public {
+        address wallet = makeAddr("delegated-wallet");
+        vm.etch(wallet, abi.encodePacked(bytes3(0xef0100), address(usdfr)));
+        assertEq(wallet.code.length, 23, "the designator must be the real 23-byte shape");
 
-        // alice signs an EIP-7702 delegation to some implementation. Her key still controls her.
-        vm.etch(alice, abi.encodePacked(bytes3(0xef0100), address(vault)));
-        assertEq(alice.code.length, 23, "the designator must be the real 23-byte shape");
+        // Through a PROXY, because the implementation disables its own initializers in the
+        // constructor and a direct call reverts `InvalidInitialization()` before the probe runs.
+        address impl = address(new MintRedeemController());
+        vm.expectRevert(abi.encodeWithSelector(MintRedeemController.Controller_ModuleNotResponding.selector, wallet));
+        new ERC1967Proxy(
+            impl,
+            abi.encodeCall(
+                MintRedeemController.initialize,
+                (admin, guardian, admin, wallet, address(compliance), address(reserves))
+            )
+        );
+
+        // CONTROL: the real module is still accepted through the identical path, so the guard is
+        // refusing the designator rather than refusing everything.
+        new ERC1967Proxy(
+            impl,
+            abi.encodeCall(
+                MintRedeemController.initialize,
+                (admin, guardian, admin, address(usdfr), address(compliance), address(reserves))
+            )
+        );
+    }
+
+    function test_R18_C2_a7702DelegatedWalletCannotBeNamedALossSource() public {
+        address plainEOA = makeAddr("controller-delegation-control-eoa");
+        assertEq(plainEOA.code.length, 0, "plain-EOA control requires a codeless account");
+        // CONTROL 1 — as a plain EOA, plainEOA is refused by R17's rule.
+        vm.prank(admin);
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintRedeemController.Controller_LossSourceNotContract.selector, plainEOA)
+        );
+        controller.setLossSource(plainEOA, true);
+
+        // plainEOA signs an EIP-7702 delegation to some implementation. Her key still controls her.
+        vm.etch(plainEOA, abi.encodePacked(bytes3(0xef0100), address(vault)));
+        assertEq(plainEOA.code.length, 23, "the designator must be the real 23-byte shape");
 
         // R17's rule now ADMITS her. R18's does not.
         vm.prank(admin);
         vm.expectRevert(
-            abi.encodeWithSelector(IMintRedeemController.Controller_LossSourceIsDelegatedEOA.selector, alice)
+            abi.encodeWithSelector(IMintRedeemController.Controller_LossSourceIsDelegatedEOA.selector, plainEOA)
         );
-        controller.setLossSource(alice, true);
-        assertFalse(controller.isLossSource(alice), "A DELEGATED USER WALLET WAS NAMED A LOSS SOURCE (R18 C-2)");
+        controller.setLossSource(plainEOA, true);
+        assertFalse(controller.isLossSource(plainEOA), "A DELEGATED USER WALLET WAS NAMED A LOSS SOURCE (R18 C-2)");
 
         // CONTROL 2 — a real protocol module is still nameable, so the guard is not a blanket ban.
         vm.prank(admin);
@@ -314,8 +370,8 @@ contract Fix_R18_ControllerTokenLayer is TokenLayerFixture {
         // CONTROL 3 — REVOCATION is never blocked by the state of the account being revoked, which
         // is the property R17 documents and R18 must not break.
         vm.prank(admin);
-        controller.setLossSource(alice, false);
-        assertFalse(controller.isLossSource(alice));
+        controller.setLossSource(plainEOA, false);
+        assertFalse(controller.isLossSource(plainEOA));
     }
 
     /// @notice R18 (finding C-2). The prefix, not the length, is what is refused: a 23-byte

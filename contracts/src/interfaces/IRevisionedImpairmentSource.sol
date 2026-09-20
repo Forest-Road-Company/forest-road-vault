@@ -23,6 +23,21 @@ interface IRevisionedImpairmentSource is IImpairmentSource {
     ///      `impairmentBackstopCapacity()` and invalidate if capacity falls below the snapshot.
     function impairmentRiskStateHash() external view returns (bytes32);
 
+    /// @notice Assessment identity plus the live overdue face and directional junior capacity.
+    /// @dev The identity binds risk revisions, declared claims, wiring and per-class curator
+    ///      balances. It excludes posted and unposted past-due amounts: posting is neutral and
+    ///      elapsed interest is handled by the separate exposure. A consumer must snapshot all
+    ///      three values, reject changed identity, lower exposure or lower capacity, and add
+    ///      every later exposure increase to both assessed impairment views. This method does
+    ///      not change the exact hashes used by older consumers.
+    /// @return riskStateHash Identity unchanged by accrual alone or neutral posting.
+    /// @return pastDueExposure Complete recorded plus unposted overdue face, in 18-decimal USDfr.
+    /// @return backstopCapacity Current effective global junior capacity; zero on BSC.
+    function impairmentAssessmentState()
+        external
+        view
+        returns (bytes32 riskStateHash, uint256 pastDueExposure, uint256 backstopCapacity);
+
     /// @notice Current effective capacity of the global junior backstop.
     function impairmentBackstopCapacity() external view returns (uint256);
 }

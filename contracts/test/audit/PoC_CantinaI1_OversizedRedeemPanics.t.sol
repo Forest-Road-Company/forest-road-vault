@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.30;
 
+import {IMintRedeemController} from "../../src/interfaces/IMintRedeemController.sol";
 import {stdError} from "forge-std/StdError.sol";
 import {CreditLayerFixture} from "../helpers/CreditLayerFixture.sol";
 import {Config} from "../../src/libraries/Config.sol";
@@ -39,10 +40,20 @@ contract PoC_CantinaI1_OversizedRedeemPanics is CreditLayerFixture {
         assertGt(controller.redeem(100_000e18, 0), 0, "an ordinary exit settles");
     }
 
-    /// @notice THE FINDING. A max-sized input panics on the unchecked `usdfrIn + drawn`.
-    function test_maxSizedInputPanicsInsteadOfReturningAControllerError() public {
+    /// @notice FIXED 2026-09-09. A max-sized input now returns a decodable controller error.
+    /// @dev THIS TEST IS INVERTED FROM THE FINDING IT RECORDS. It used to assert
+    ///      `stdError.arithmeticError`, i.e. the `Panic(0x11)` Cantina 3.1.1 reported, and passing
+    ///      meant the defect was present. `_quoteRedeem` now bounds `usdfrIn` against
+    ///      `supply - drawn` BEFORE the addition, which is the remedy ADR-0034 section W specified
+    ///      and the form the BSC instance already carried. Bounding the SUM rather than the addend
+    ///      makes the overflow unrepresentable rather than merely unlikely.
+    function test_FIXED_maxSizedInputReturnsAControllerErrorNotAPanic() public {
+        // The selector is the property. The arguments carry the GRID-ROUNDED input and
+        // `supply - drawn` rather than the raw request and raw supply, which is correct and is
+        // exactly why the bound is on the sum: pinning those two numbers here would pin the draw
+        // sizing as well and red on any unrelated change to it.
         vm.prank(alice);
-        vm.expectRevert(stdError.arithmeticError); // Panic(0x11)
+        vm.expectPartialRevert(IMintRedeemController.Controller_RedeemExceedsSupply.selector);
         controller.redeem(type(uint256).max, 0);
     }
 

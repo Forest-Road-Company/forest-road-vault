@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "libraryName": "forestroad_curator_vault",
+  "programId": "3ZPRvNDUDRZuZ8Hug873JtSDJueA8D7PEVE21uLLAvwh",
+  "solanaVerifyVersion": "0.5.0",
+  "solanaCliVersion": "4.0.3",
+  "sbfArch": "v3",
+  "platformTools": "v1.57",
+  "baseImage": "solanafoundation/solana-verifiable-build@sha256:588d0c6f45c2faa4456c7b8279897d8af8c6cd17e9613bb8ddf622a820039eb2",
+  "buildOutput": "target/deploy/forestroad_curator_vault.so",
+  "canonicalArtifact": "deployments/artifacts/forestroad_curator_vault.so"
+}

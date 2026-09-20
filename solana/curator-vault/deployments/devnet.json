@@ -1,0 +1,159 @@
+{
+  "cluster": "devnet",
+  "programId": "3ZPRvNDUDRZuZ8Hug873JtSDJueA8D7PEVE21uLLAvwh",
+  "programData": "D7zfEuNnVS3Xv7rjTFhPYPxynYxyWx3BJKfcJycZknM2",
+  "deployer": "B2QUcpgwM4VLPomh7FeBmxUDXL5SQjA8yvWrAEe7cT82",
+  "build": {
+    "schemaVersion": 2,
+    "gitCommit": "7c4b9589f80fcaf88a9a0393ecc096dfe1f46bd8",
+    "dirty": false,
+    "programId": "3ZPRvNDUDRZuZ8Hug873JtSDJueA8D7PEVE21uLLAvwh",
+    "elfSha256": "4cf28ebf3b911a59d7807a852fb81a03fe6680af5ddc94bad74a981efdf3a605",
+    "elfBytes": 475640,
+    "idlSha256": "0f3c9bab4669da0f45a804bf97419c7957c836b9d384fe585a4ad0d61b9661e5",
+    "idlBytes": 67114,
+    "hostToolchain": {
+      "anchor": "anchor-cli 1.2.0",
+      "solana": "solana-cli 4.1.2 (src:182084b8; feat:c763ae0a, client:Agave)",
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "sbfArch": "v3",
+      "platformTools": "v1.57"
+    },
+    "releaseBuilder": {
+      "solanaVerify": "0.5.0",
+      "solanaCli": "4.0.3",
+      "sbfArch": "v3",
+      "platformTools": "v1.57",
+      "baseImage": "solanafoundation/solana-verifiable-build@sha256:588d0c6f45c2faa4456c7b8279897d8af8c6cd17e9613bb8ddf622a820039eb2"
+    }
+  },
+  "deploymentBuild": {
+    "schemaVersion": 1,
+    "gitCommit": "eed877ed4941163eee2b7b585452970e0be0ff23",
+    "dirty": false,
+    "programId": "3ZPRvNDUDRZuZ8Hug873JtSDJueA8D7PEVE21uLLAvwh",
+    "elfSha256": "2f79410d042658b895a3129f40c19f6ee023cd42df44d24960d56b0f4fe46a7e",
+    "idlSha256": "c4ec68be2ced226c32aab6432b2ba95e9ee2544856bd07b38b6bae28d1e9f50a",
+    "toolchain": {
+      "anchor": "anchor-cli 1.2.0",
+      "solana": "solana-cli 4.1.2 (src:182084b8; feat:c763ae0a, client:Agave)",
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "sbfArch": "v3",
+      "platformTools": "v1.57"
+    }
+  },
+  "deployedAt": "2026-09-20T10:40:39.000Z",
+  "deployedAtSlot": 501341491,
+  "signatures": {
+    "deployProgram": "2cGxzjbWhwQUZhKoYaGTVRy3RokUh161ALU6SvnUc6aZVQfnCpo9amBKAmKgLa2dUsGB6z2ggECmVBy2imDWm9hi",
+    "createMint": "4dQZUxsUPxXq6x6nMzkFZRA5wLgWZ9rXvkxTGFCdGijUJZgaARm31P6QCd8Rr3nuPKLKy3KvsDvRtfyHKQiMHhZ4",
+    "createCuratorAta": "4kL1koShMrVfYh3FUwXsgfT4wM6HVfYkm9E8hbkBjTfdL4AtuTZyuYV5YiD8cPTVAwQvi3oMvT71Ttfq249PwYxb",
+    "createTreasuryAta": "2vqpmbvLhpd7hzwMuPULX4ZSysAoPFsSYiZrJ9PjFgycxUcTykHpyqsdE9URHFoMx7G6Qsj6q9ZZDJt37yEo4Q2M",
+    "mintCurator": "5oL7wBw8rfaCUzFRm7UNNr9fTVKXabGPHEVzNi6SXXaz1YQNeFgfBssPLVBP1cNw9zLRbT4tdNhfCzLmQeLPL53L",
+    "mintTreasury": "2MwtKsJTWP1APv27W9wQcWKsoRjuRdUVBniinj3kWGZqTZzeUyeC7kBxsp8gWec2NMkFcPLYK3d7yrRFdNpqicqv",
+    "initialize": "3kyqaThUEFX3GR4LphkpXE7mbGorM4tpb1Gydm4KCSvEFEB3cKkUy76d7aEdpPRHzMS8k59mAkds3EYSCFAdJ8RK",
+    "allowlist": "gw9pT1nqBEtMCnfwXxSGd38hFuHmYPABbmpNQ7z8Giou4RGodLFQxywUNX9EMjPw6oYP5hrXDrAN1WuvRrotGXo",
+    "deposit": "ANezh2y1C1drJofxRmDnCHpe2iw3eGr5gJXC9M86Kt8toFfCYfyCPdnDWRbX6PKXiW9yugmZA8wwMJPa5fW2xEW",
+    "requestWithdrawal": "cAvn53hGBgE1PEbon3Fmy7Jypko4hbQ4DqMUEN9s2kCkJcyzcrBKebiN5VURTcTt36ruQ99dv3mX3LyND1Y5ZVf",
+    "cancelWithdrawal": "2tzuufZZAvm3cZMkwDakDqn8q3VZicaa1N5QgDAtuhqNWz8QWzkFJDn14GsvjyAQhdQmGDEAXa8yGyF2QErSypSC",
+    "draw": "pt57UQ2JKhUp1ADdfBbcxsKwRt9gnSE5ncCTytRuAMt7VSvPCC6Pcn3X4VZpHwFLQXC27SAKFwxNon5w2w12MmK",
+    "fundCoupons": "5GZHe3zZdWEMtXvw1L7523y7E8j9qzcd3hZzWagKavf3gDA3sYPnmzoC4D7CsmwMQG2zjjf8Miw4TS1oXXYduDzu",
+    "recordLoss": "dCuixRDyBFeALWAEAyKGL6RhoDGbBG62G5niQUSiFdFp3uoqBPSKRNWp8qc5FB9QQFDELiEgUf8fpiyboKujLSY",
+    "returnPrincipal": "5JV3iTQWvh4PKk5u6TG9gZKPUhBNHYsD5Cvm8mGjqstwr95TqmyrXk9c349kabGD65SRRMaYzWWmFLt9f8UcCeUq",
+    "canonicalBuildActivation": "5mhRFiBZHPpP5dyRUTzLRkMD4DM4DrW7ZE7PTd1qrSXn9NomLEZwa2q42VYJ5c9DUpFbt4EuJ7jYB5GrxKJxed1a"
+  },
+  "config": "DHSrDZwwFeWKqHvKvvcoe9KUxJ8djdfkb4SqpPPFu35s",
+  "vaultAta": "4XYLj6XSjrrqF2wuZGrBsnKzgcUY5thPZBmaTfrKqhkM",
+  "couponAta": "3AeRDDPZC9vd95xqNrcx2ZRXJMrTiiEqmRVMTopp5pyG",
+  "curator": "6KYddGmCfXLtvqsvNoga7Br7bs8rJBZ5sdrt3V8NcoAX",
+  "curatorPosition": "BZsjRA1MiwEUa34MTU9nskSgNsa7gNNJjGzrGAMQiP2P",
+  "startedAt": "2026-09-20T10:43:00.966Z",
+  "mint": "7kYkNzAgKr6NDLgyjW3tJddpZ23cykR9t8V1BpKmEsqx",
+  "curatorAta": "2zGMh9otVrv4PonJVdXJ9C7bWVW4AQtiAKtD7P7R1XqU",
+  "treasuryAta": "EcXVmnczfiGjHUbEnaCsWsQxJj236rEyM7nU43wCJqLH",
+  "finishedAt": "2026-09-20T10:43:21.144Z",
+  "nextCouponBoundaryUtc": "2026-10-01T00:00:00.000Z",
+  "runs": 1,
+  "idlMetadata": {
+    "address": "Crpp5qA7HpD3NWJFfuoEGA7Xqy1j1GybXZLHQiTHu6ZT",
+    "program": "ProgM6JCCvbYkfKqJYHePx4xxSUSqJp7rh8Lyv7nk7S",
+    "tool": "@solana-program/program-metadata@0.9.3",
+    "publishedAt": "2026-09-20T17:28:34.000Z",
+    "publishedAtSlot": 501489397,
+    "replacedPartialBufferCloseSignature": "4iGrggjHbRXGV1rfQcaRDFGhuopdn3SngwiF95anbCtwgPEUWa25KnqfFrJLi4SxTiKJTvdXPcZGBSAZw2oftuLR",
+    "signatures": [
+      "3T9tkWWYJUWpA1DgCv5DzcsTsC77Juoq92uFABdJqe3duukBB7c1BPr3gxSKd211DYA9ecmLBsH7EFaiJTTpiqCu",
+      "bmMRsg4huzeYzh83w4tC7pHW2bWBnRJo8wV5sAvpgaAWF3u3bjMVvTprPD18RcaPjM1gKPpcpsJCZoewksgoWrs",
+      "28hwNehZ47SMq5FRuFJ3dcaMGCKNvF2xnGXPsRd8cMcnSVCjbFVfJYjEJkpW2zGf5TbvDCbujf8LfGF3XsN9HJ5Z",
+      "2C783a4aJU2QMLMi8Njnz3B2uQQurCpDsGm3tzPw7r52Y9ohJ597XU3X8brY6LwWLtykhj5CwNUteXvmoe8KF8YW",
+      "3cu3L1fKUBqsCdcTjSRQodYthhPDZPSfY3wUdFx1nb5RwCzeNb79rMjfMZUHxBFC8DhkjmMxSY3eP54UdY65rEQw",
+      "xLbQEqa7f7TLiaxm99ML3avJq4KMtCSSPyxfGHteXUPEoK92Nx6wbmiGYpBfm2r1k9bKCp3fbh5ftKPciMxXBw6",
+      "3NdyjUXg3AiA3nqz4GCA221LW7J1KDrxq82vgzYjFJRF1EMUeRCWbPvc7Lf98z3YnAxCVrCpRVvHMfx5i2ezS4dQ",
+      "5X4unrtLaaGYRYSZmvX9w9ea6Xuz8gcqbgrwykUfJTvMBRm9JBhoguXFRQaPJVKcaqtBNMw3eWz3iFwrDuReYj9b",
+      "5m3Cpej5K8nJwg6mhxFhgCJkf1ivQueVBCvkY2xzrBoK7hU8AZycow7T51TyaezTEdc8zM5JjBvkgWFatCuxjVBS",
+      "4e2EABqwUK4m7fq9JAkNBDu6ATC4Mc6MgStFoJss48QF5DjBfAm89RRoaXpPWcimir4b29eqnzdxeKcFfh3jDLjW"
+    ]
+  },
+  "canonicalBuildActivatedAt": "2026-09-20T17:25:59.000Z",
+  "canonicalBuildActivatedAtSlot": 501488463,
+  "buildActivations": [
+    {
+      "build": {
+        "schemaVersion": 2,
+        "gitCommit": "9524669a2bb0bc69575ccf5a252194d918a1041a",
+        "dirty": false,
+        "programId": "3ZPRvNDUDRZuZ8Hug873JtSDJueA8D7PEVE21uLLAvwh",
+        "elfSha256": "86dcf8374e83268feccf0ddaeca7d51050f7804ac1007858446f753f96b1adfa",
+        "elfBytes": 471728,
+        "idlSha256": "c4ec68be2ced226c32aab6432b2ba95e9ee2544856bd07b38b6bae28d1e9f50a",
+        "idlBytes": 64847,
+        "hostToolchain": {
+          "anchor": "anchor-cli 1.2.0",
+          "solana": "solana-cli 4.1.2 (src:182084b8; feat:c763ae0a, client:Agave)",
+          "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+          "sbfArch": "v3",
+          "platformTools": "v1.57"
+        },
+        "releaseBuilder": {
+          "solanaVerify": "0.5.0",
+          "solanaCli": "4.0.3",
+          "sbfArch": "v3",
+          "platformTools": "v1.57",
+          "baseImage": "solanafoundation/solana-verifiable-build@sha256:588d0c6f45c2faa4456c7b8279897d8af8c6cd17e9613bb8ddf622a820039eb2"
+        }
+      },
+      "activatedAt": "2026-09-20T12:45:03.000Z",
+      "activatedAtSlot": 501386588,
+      "signature": "5Zt9VLtbmvhDtLYzyzVUSXFjvjxHCdcjCvXCDmpAZZakJ7bSFGaZfetRSL9VwiXCXcHc2PgTE6Qy4UCydSC6EVtB"
+    },
+    {
+      "build": {
+        "schemaVersion": 2,
+        "gitCommit": "7c4b9589f80fcaf88a9a0393ecc096dfe1f46bd8",
+        "dirty": false,
+        "programId": "3ZPRvNDUDRZuZ8Hug873JtSDJueA8D7PEVE21uLLAvwh",
+        "elfSha256": "4cf28ebf3b911a59d7807a852fb81a03fe6680af5ddc94bad74a981efdf3a605",
+        "elfBytes": 475640,
+        "idlSha256": "0f3c9bab4669da0f45a804bf97419c7957c836b9d384fe585a4ad0d61b9661e5",
+        "idlBytes": 67114,
+        "hostToolchain": {
+          "anchor": "anchor-cli 1.2.0",
+          "solana": "solana-cli 4.1.2 (src:182084b8; feat:c763ae0a, client:Agave)",
+          "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+          "sbfArch": "v3",
+          "platformTools": "v1.57"
+        },
+        "releaseBuilder": {
+          "solanaVerify": "0.5.0",
+          "solanaCli": "4.0.3",
+          "sbfArch": "v3",
+          "platformTools": "v1.57",
+          "baseImage": "solanafoundation/solana-verifiable-build@sha256:588d0c6f45c2faa4456c7b8279897d8af8c6cd17e9613bb8ddf622a820039eb2"
+        }
+      },
+      "activatedAt": "2026-09-20T17:25:59.000Z",
+      "activatedAtSlot": 501488463,
+      "signature": "5mhRFiBZHPpP5dyRUTzLRkMD4DM4DrW7ZE7PTd1qrSXn9NomLEZwa2q42VYJ5c9DUpFbt4EuJ7jYB5GrxKJxed1a"
+    }
+  ]
+}

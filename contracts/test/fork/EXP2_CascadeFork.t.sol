@@ -138,6 +138,18 @@ contract EXP2_CascadeForkTest is ForkLifecycleFixture {
     ///         A single governance target cut then tries to manufacture headroom out of that
     ///         credited capital. The MARKED FLOOR must hold the line: withdrawing the credited
     ///         capital reverts `Curator_HeadroomExceeded`.
+    ///
+    ///         ADR-0038 pins the size of the credited face. Under `ADR/0038-continuous-interest-accrual-to-susdfr.md`
+    ///         ("Decisions received from Forest Road, 2026-09-10", Q1 and Q2) earned interest enters
+    ///         backing at full face and accrual does not stop at the past-due mark, and under
+    ///         `docs/remediation/CONTINUOUS_ACCRUAL_DESIGN_PANEL_2026-09-10.md` (lines 120 to 128)
+    ///         past-due cohorts carry "dynamic conservative-risk accounting until declaration". So
+    ///         `markPastDue` first posts the facility's accrued interest into its recorded face
+    ///         (`DefaultAccrualLib.prepare` -> `postAccruedLoan`, `AccrualBook.takePosting`), and
+    ///         the past-due pool, the marked floor and the reserve face all carry principal PLUS
+    ///         60 days of the book's integer-slope carrier (`AccrualBook.sol` lines 12 to 15). The
+    ///         figure is derived in closed form below and pinned exactly, so a defect that inflates
+    ///         the face and the pool together (rather than one against the other) still fails.
     function test_B_pastDueMarkedFloorBlocksWithdrawalOfCreditedCapital() public onFork {
         deal(USDC, ops, 30_000_000e6);
         deal(USDC, bob, 30_000_000e6);
@@ -150,17 +162,46 @@ contract EXP2_CascadeForkTest is ForkLifecycleFixture {
         // Age the facility past its payment-due + grace window and mark it past-due (permissionless).
         _warp(60 days);
         defaultManager.markPastDue(tokenId);
-        assertEq(defaultManager.pastDuePrincipal(FILM), 2_000_000e18, "past-due pool not credited");
+
+        // ADR-0038 Q1/Q2: the marked face is principal plus 60 days of streamed interest, derived
+        // from the engine's own arithmetic (fixture note: 2M, 1400 bps, Actual/360, 365-day term,
+        // funded and originated in one block, 1e12 reserve grid):
+        //   1. `ReserveAccrualLib.loanCeiling` (cash-pay) floors the term interest to whole grid
+        //      units: cap = floor(2M * 1400 * 365d / (1e4 * 360d * 1e12)) * 1e12 = 283_888_888_888e12.
+        //   2. `AccrualSegments.plan`: the 365-day period total equals that grid cap, so the cap is
+        //      reachable at H = ceil(cap * 1e4 * 360d / (2M * 1400)) = 31_536_000 s and the first
+        //      technical segment ends one second earlier, at 31_535_999 s.
+        //   3. Its endpoint is the grid-floored simple interest at H-1, and `AccrualBook.schedule`
+        //      admits the integer slope endpoint / 31_535_999 = 9_002_057_613_142_364 wei/s.
+        //   4. `markPastDue` posts via `takePosting`, which takes the streamed clock value without
+        //      reconciling the segment remainder: streamed = slope * 60d.
+        uint256 marked;
+        {
+            uint256 basisRate = 2_000_000e18 * 1400;
+            uint256 den = 10_000 * 360 days;
+            uint256 cap = (basisRate * 365 days / (den * 1e12)) * 1e12;
+            uint256 capHit = (cap * den + basisRate - 1) / basisRate; // mulDiv, Rounding.Ceil
+            assertEq(capHit, 365 days, "the cap is reached exactly at the 365-day term");
+            uint256 segmentSeconds = capHit - 1;
+            uint256 endpoint = (basisRate * segmentSeconds / den) / 1e12 * 1e12;
+            uint256 slope = endpoint / segmentSeconds;
+            assertEq(slope, 9_002_057_613_142_364, "the book's integer slope for this note");
+            marked = 2_000_000e18 + slope * 60 days;
+        }
+        assertEq(marked, 2_046_666_666_666_530_014_976_000, "the exact marked face");
+        assertEq(reserves.deployedTo(tokenId), marked, "deployedTo carries the accrued face");
+        assertEq(defaultManager.pastDuePrincipal(FILM), marked, "past-due pool not credited");
 
         // The governance lever CSG-F1 warns about: drop the first-loss target so the EXPOSURE floor
         // (min(target, exposure)) collapses to 0.1M. Under the pre-fix formula this would expose
-        // 2.9M of headroom (3M - 0.1M). The marked floor must instead pin required at the credited
-        // 2M, leaving only 1M genuinely-excess headroom.
+        // 2.9M of headroom (3M - 0.1M). The marked floor must instead pin required at the
+        // credited face, leaving only 3M - marked of genuinely-excess headroom.
         curator.setFirstLossTarget(FILM, 100_000e18);
-        assertEq(curator.requiredFirstLoss(FILM), 2_000_000e18, "marked floor did not bind");
-        assertEq(curator.headroom(FILM), 1_000_000e18, "credited capital leaked into headroom");
+        assertEq(curator.requiredFirstLoss(FILM), marked, "marked floor did not bind");
+        assertEq(curator.headroom(FILM), 3_000_000e18 - marked, "credited capital leaked into headroom");
+        assertEq(curator.headroom(FILM), 953_333_333_333_469_985_024_000, "the exact honest excess");
 
-        uint256 free = curator.headroom(FILM); // 1M
+        uint256 free = curator.headroom(FILM); // 3M - marked
         // Attempt to withdraw one wei MORE than the honest excess: that first wei is credited
         // layer-1 capital. Must be refused, protecting the senior redemption price.
         vm.expectRevert(abi.encodeWithSelector(ICuratorModule.Curator_HeadroomExceeded.selector, FILM, free + 1, free));

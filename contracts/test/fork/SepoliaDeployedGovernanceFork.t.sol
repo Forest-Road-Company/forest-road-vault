@@ -75,6 +75,7 @@ contract SepoliaDeployedGovernanceForkTest is Test {
     }
 
     function test_sepoliaDeployedFork_governanceExecutesEveryPrivilegedGovernorSetterAndUpgrade() public onPinnedFork {
+        uint256 votingPeriodBefore = governor.votingPeriod();
         address newImplementation = address(new FRGovernor());
         address oldImplementation = _implementation(address(governor));
         assertNotEq(newImplementation, oldImplementation);
@@ -144,7 +145,7 @@ contract SepoliaDeployedGovernanceForkTest is Test {
         assertEq(address(governor.token()), vm.parseJsonAddress(vm.readFile(_manifestPath()), ".votesAggregator"));
         assertEq(governor.timelock(), address(timelock));
         assertEq(governor.votingDelay(), Config.GOV_VOTING_DELAY);
-        assertEq(governor.votingPeriod(), Config.GOV_VOTING_PERIOD);
+        assertEq(governor.votingPeriod(), votingPeriodBefore, "upgrade preserves the existing voting period");
         assertEq(governor.proposalThreshold(), Config.GOV_PROPOSAL_THRESHOLD);
         assertEq(governor.quorumNumerator(), Config.GOV_QUORUM_FRACTION);
         assertEq(timelock.getMinDelay(), Config.TIMELOCK_MIN_DELAY);

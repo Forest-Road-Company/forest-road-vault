@@ -1,0 +1,249 @@
+{
+  "recorded_at_utc": "2026-09-13 03:44 UTC",
+  "source_parent": "845ef861e2c47cd0f1108033189dd394299cb279",
+  "chain": "ethereum",
+  "scope": "Typed local migration preparation, opening commitment reproduction and reviewable import calldata; no broadcast entry point.",
+  "toolchain": {
+    "solc": "0.8.30",
+    "optimizer_runs": 100,
+    "evm_version": "cancun",
+    "via_ir": false,
+    "deny_warnings": true
+  },
+  "unit": {
+    "log": "ethereum-native-opening-tooling-r1.log",
+    "sha256": "8593ebb4ac96269d641dc83a0d91d29fdeca10740f13ed6fbf3f75a93b78146c",
+    "counts": [
+      10,
+      0,
+      0
+    ]
+  },
+  "fork": {
+    "log": "ethereum-native-opening-tooling-fork-r1.log",
+    "sha256": "fa51bdf98e183b7d48535ccebf76c1e50ac373bae125e0b7e115cc725dbac62f",
+    "counts": [
+      10,
+      0,
+      0
+    ]
+  },
+  "fork_block": 25500000,
+  "coverage": {
+    "log": "ethereum-native-opening-tooling-coverage.log",
+    "sha256": "88f51d0da2154504f840e77de40bc3598320577a25d7f51995033f43affe9530",
+    "counts": [
+      10,
+      0,
+      0
+    ]
+  },
+  "migration_helper_coverage": {
+    "FNF": 3,
+    "FNH": 3,
+    "LF": 17,
+    "LH": 17,
+    "BRF": 2,
+    "BRH": 2
+  },
+  "lcov_sha256": "dc5ccf536421c0e531055df5d66149582a19639d723b8bd5a59ec718ccf32165",
+  "controls": {
+    "cases": 7,
+    "detected_test_functions": [
+      "test_failedPreparationRollsBackBindingsRolesAndThreshold",
+      "test_preparationAndEncodedImportCompleteTheRealNativeLifecycle",
+      "test_preparationInitializesTheMissingLegacyQuorum",
+      "test_preparationPreservesAHigherConfiguredQuorum",
+      "test_toolingRequiresAFrozenSessionForItsOpeningPayload"
+    ],
+    "unchanged_test_sha256": {
+      "test/unit/NativeOpeningTooling.t.sol": "f02ed2e44038471c004d6fb52855b5b710789e304feef8519e2224ae6055720b",
+      "test/helpers/MockReserveLossAbsorber.sol": "dcd9552871f5064185754be146500375e3ab07238d2e273d7ffedf155ce414f4",
+      "test/helpers/MockERC20.sol": "9c9b680d37101d4645e8a24eba107453f3cc2bec90479019d284d1312f5a49e9",
+      "test/helpers/ProductionCreditFixture.sol": "79d2fa74da051e6622083c32f621d61fa947f75de710807f0f0429cef0a9d835",
+      "test/helpers/MockAttestationOracle.sol": "afeaca8e30dbeb313a88b653618540d04bae7395292a9cb69007d5ddcbc7b825",
+      "test/helpers/AccrualDebtReference.sol": "67ee5261af46c978ddb88fe2a752109529d30fc46281c3df8ee9eb15ed34c6a9",
+      "test/helpers/CreditLayerFixture.sol": "b6f1ad53d5872ee9ac932ee8f2e43c50c8ac15d6502ede6e1ecae9e09bde7a2d",
+      "test/helpers/MockCascadeBackstop.sol": "851126eb3d8ae66e62ae88dba3eba43a7f8c4541731059ddf74acdcf6a9fb252",
+      "test/helpers/MockReserveLossModules.sol": "bccb21894cfd97b19ade786e04cde7c9b3fd7f42fc9995d87bfc0e27b8bac55a",
+      "test/helpers/TokenLayerFixture.sol": {
+        "sha256": "3e4c63d684d1c631dc0f82988e5bd180c543e529aa620652070d58eda07aa6a5"
+      },
+      "test/helpers/RealOracleFixture.sol": "66cbb300f8317e9eed90cd865ad002116c1588894649fcdd98fe61c64291ef6e",
+      "test/helpers/NativeOpeningFixture.sol": "3a570f76fab263e3fa91f6747dce37bd62dfddfa0661d0dc09cbca1cefaa0ea4",
+      "test/helpers/NativeAccrualFixture.sol": "ad1eea5633642ce357220d1eb7f1091db409686e487efa934d2fc1768922ba67"
+    },
+    "baseline": {
+      "exit_code": 0,
+      "counts": [
+        10,
+        0,
+        0
+      ],
+      "failed_tests": []
+    },
+    "restored": {
+      "exit_code": 0,
+      "counts": [
+        10,
+        0,
+        0
+      ],
+      "failed_tests": []
+    }
+  },
+  "control_results": [
+    {
+      "exit_code": 1,
+      "counts": [
+        2,
+        8,
+        0
+      ],
+      "failed_tests": [
+        "[FAIL: ReserveAccrual_WrongModules()] test_preparationAndEncodedImportCompleteTheRealNativeLifecycle() (gas: 1847465)",
+        "[FAIL: ReserveAccrual_WrongModules()] test_preparationInitializesTheMissingLegacyQuorum() (gas: 2001515)",
+        "[FAIL: ReserveAccrual_WrongModules()] test_preparationPreservesAHigherConfiguredQuorum() (gas: 1788421)",
+        "[FAIL: ReserveAccrual_WrongModules()] test_toolingRequiresAFrozenSessionForItsOpeningPayload() (gas: 1811808)",
+        "[FAIL: ReserveAccrual_WrongModules()] test_preparationAndEncodedImportCompleteTheRealNativeLifecycle() (gas: 1847670)",
+        "[FAIL: ReserveAccrual_WrongModules()] test_preparationInitializesTheMissingLegacyQuorum() (gas: 2001852)",
+        "[FAIL: ReserveAccrual_WrongModules()] test_preparationPreservesAHigherConfiguredQuorum() (gas: 1788758)",
+        "[FAIL: ReserveAccrual_WrongModules()] test_toolingRequiresAFrozenSessionForItsOpeningPayload() (gas: 1812145)",
+        "[FAIL: ReserveAccrual_WrongModules()] test_preparationAndEncodedImportCompleteTheRealNativeLifecycle() (gas: 1847465)",
+        "[FAIL: ReserveAccrual_WrongModules()] test_preparationInitializesTheMissingLegacyQuorum() (gas: 2001515)",
+        "[FAIL: ReserveAccrual_WrongModules()] test_preparationPreservesAHigherConfiguredQuorum() (gas: 1788421)",
+        "[FAIL: ReserveAccrual_WrongModules()] test_toolingRequiresAFrozenSessionForItsOpeningPayload() (gas: 1811808)",
+        "[FAIL: ReserveAccrual_WrongModules()] test_preparationAndEncodedImportCompleteTheRealNativeLifecycle() (gas: 1847670)",
+        "[FAIL: ReserveAccrual_WrongModules()] test_preparationInitializesTheMissingLegacyQuorum() (gas: 2001852)",
+        "[FAIL: ReserveAccrual_WrongModules()] test_preparationPreservesAHigherConfiguredQuorum() (gas: 1788758)",
+        "[FAIL: ReserveAccrual_WrongModules()] test_toolingRequiresAFrozenSessionForItsOpeningPayload() (gas: 1812145)"
+      ],
+      "name": "missing-binding",
+      "matches": 1,
+      "before_sha256": "03baeba2cd4fd4c9af250a72ae9432693455f4c540148924df7fe9207e77fd67",
+      "after_sha256": "4cdcb836cf93dcdb5a07d1974773b2a44b107195d89b40384201fceac5269efe"
+    },
+    {
+      "exit_code": 1,
+      "counts": [
+        8,
+        2,
+        0
+      ],
+      "failed_tests": [
+        "[FAIL: AccrualMigration_OracleNotReady(0x1aF7f588A501EA2B5bB3feeFA744892aA2CF00e6)] test_preparationInitializesTheMissingLegacyQuorum() (gas: 2794598)",
+        "[FAIL: AccrualMigration_OracleNotReady(0x1aF7f588A501EA2B5bB3feeFA744892aA2CF00e6)] test_preparationInitializesTheMissingLegacyQuorum() (gas: 2794261)",
+        "[FAIL: AccrualMigration_OracleNotReady(0x1aF7f588A501EA2B5bB3feeFA744892aA2CF00e6)] test_preparationInitializesTheMissingLegacyQuorum() (gas: 2794261)",
+        "[FAIL: AccrualMigration_OracleNotReady(0x1aF7f588A501EA2B5bB3feeFA744892aA2CF00e6)] test_preparationInitializesTheMissingLegacyQuorum() (gas: 2794598)"
+      ],
+      "name": "missing-quorum-initialization",
+      "matches": 1,
+      "before_sha256": "03baeba2cd4fd4c9af250a72ae9432693455f4c540148924df7fe9207e77fd67",
+      "after_sha256": "95d9e658a95795ba4f0971cefd37eb89026aab7bee12498a3133ea82e9effae2"
+    },
+    {
+      "exit_code": 1,
+      "counts": [
+        8,
+        2,
+        0
+      ],
+      "failed_tests": [
+        "[FAIL: assertion failed: 2 != 3] test_preparationPreservesAHigherConfiguredQuorum() (gas: 2974163)",
+        "[FAIL: assertion failed: 2 != 3] test_preparationPreservesAHigherConfiguredQuorum() (gas: 2974117)",
+        "[FAIL: assertion failed: 2 != 3] test_preparationPreservesAHigherConfiguredQuorum() (gas: 2974117)",
+        "[FAIL: assertion failed: 2 != 3] test_preparationPreservesAHigherConfiguredQuorum() (gas: 2974163)"
+      ],
+      "name": "higher-quorum-overwritten",
+      "matches": 1,
+      "before_sha256": "03baeba2cd4fd4c9af250a72ae9432693455f4c540148924df7fe9207e77fd67",
+      "after_sha256": "9b7570bfbfb88fee18c8157cdba38ff105fa3c5933b862d4cb017d949dbd626d"
+    },
+    {
+      "exit_code": 1,
+      "counts": [
+        8,
+        2,
+        0
+      ],
+      "failed_tests": [
+        "[FAIL: next call did not revert as expected] test_failedPreparationRollsBackBindingsRolesAndThreshold() (gas: 2773294)",
+        "[FAIL: next call did not revert as expected] test_failedPreparationRollsBackBindingsRolesAndThreshold() (gas: 2772957)",
+        "[FAIL: next call did not revert as expected] test_failedPreparationRollsBackBindingsRolesAndThreshold() (gas: 2772957)",
+        "[FAIL: next call did not revert as expected] test_failedPreparationRollsBackBindingsRolesAndThreshold() (gas: 2773294)"
+      ],
+      "name": "empty-roster-accepted-by-tooling",
+      "matches": 1,
+      "before_sha256": "03baeba2cd4fd4c9af250a72ae9432693455f4c540148924df7fe9207e77fd67",
+      "after_sha256": "eeac27a63ca8f2bbbfb98a40e04b9f943c70f02de56440a1d4c1754f83eefa85"
+    },
+    {
+      "exit_code": 1,
+      "counts": [
+        8,
+        2,
+        0
+      ],
+      "failed_tests": [
+        "[FAIL: call reverted as expected, but without data] test_toolingRequiresAFrozenSessionForItsOpeningPayload() (gas: 85027)",
+        "[FAIL: call reverted as expected, but without data] test_toolingRequiresAFrozenSessionForItsOpeningPayload() (gas: 85027)",
+        "[FAIL: call reverted as expected, but without data] test_toolingRequiresAFrozenSessionForItsOpeningPayload() (gas: 85027)",
+        "[FAIL: call reverted as expected, but without data] test_toolingRequiresAFrozenSessionForItsOpeningPayload() (gas: 85027)"
+      ],
+      "name": "inactive-payload-guard-omitted",
+      "matches": 1,
+      "before_sha256": "03baeba2cd4fd4c9af250a72ae9432693455f4c540148924df7fe9207e77fd67",
+      "after_sha256": "3c1ffd1c607a5d44ec42fe2dc99e24ab834e6eed846004beb7a5767bb7baf5fb"
+    },
+    {
+      "exit_code": 1,
+      "counts": [
+        8,
+        2,
+        0
+      ],
+      "failed_tests": [
+        "[FAIL: tooling changed the independently encoded fact: 0x4aab38561d29a4f0d56da3eac0b7916a12cefd70ba98c4c7631ad105de5a53e9 != 0x40d792c0b5ade960d18c33b05abab1fa1888cb206a4d5cdcf3aa488be96ff9d2] test_preparationAndEncodedImportCompleteTheRealNativeLifecycle() (gas: 3078364)",
+        "[FAIL: tooling changed the independently encoded fact: 0xaad3471c69341f7a2a8c7f6a2afea788b5369c9543f66cfed8d2089bbc9cba71 != 0xc04ddc48099a526a4daaf0fe6d56342b70752913f08a6b1af0f7bf9bfe5bb7fe] test_preparationAndEncodedImportCompleteTheRealNativeLifecycle() (gas: 3078450)",
+        "[FAIL: tooling changed the independently encoded fact: 0xaad3471c69341f7a2a8c7f6a2afea788b5369c9543f66cfed8d2089bbc9cba71 != 0xc04ddc48099a526a4daaf0fe6d56342b70752913f08a6b1af0f7bf9bfe5bb7fe] test_preparationAndEncodedImportCompleteTheRealNativeLifecycle() (gas: 3078450)",
+        "[FAIL: tooling changed the independently encoded fact: 0x4aab38561d29a4f0d56da3eac0b7916a12cefd70ba98c4c7631ad105de5a53e9 != 0x40d792c0b5ade960d18c33b05abab1fa1888cb206a4d5cdcf3aa488be96ff9d2] test_preparationAndEncodedImportCompleteTheRealNativeLifecycle() (gas: 3078364)"
+      ],
+      "name": "payload-session-omitted",
+      "matches": 1,
+      "before_sha256": "03baeba2cd4fd4c9af250a72ae9432693455f4c540148924df7fe9207e77fd67",
+      "after_sha256": "064cad9c571342200ae1d8edcc6535f136ce919d6e4e9354af072cf491e3a875"
+    },
+    {
+      "exit_code": 1,
+      "counts": [
+        8,
+        2,
+        0
+      ],
+      "failed_tests": [
+        "[FAIL: reviewable import calldata did not execute] test_preparationAndEncodedImportCompleteTheRealNativeLifecycle() (gas: 3236468)",
+        "[FAIL: reviewable import calldata did not execute] test_preparationAndEncodedImportCompleteTheRealNativeLifecycle() (gas: 3236554)",
+        "[FAIL: reviewable import calldata did not execute] test_preparationAndEncodedImportCompleteTheRealNativeLifecycle() (gas: 3236554)",
+        "[FAIL: reviewable import calldata did not execute] test_preparationAndEncodedImportCompleteTheRealNativeLifecycle() (gas: 3236468)"
+      ],
+      "name": "import-step-changed",
+      "matches": 1,
+      "before_sha256": "03baeba2cd4fd4c9af250a72ae9432693455f4c540148924df7fe9207e77fd67",
+      "after_sha256": "46e3aecf222675899c12a7b213378106e19ff61d47166938bd619badba6e4721"
+    }
+  ],
+  "control_log_sha256": "f7c2cb97af0d2c040365f47210b6e36bc5bb1aa1d751c3195197c103d41984dd",
+  "source_sha256": {
+    "contracts/script/ContinuousAccrualDeployment.sol": "a2e7e0fe40fd7dea15a470bf0ed7e1920e9bd3c26599f0bfa7abc1093b832cab",
+    "contracts/script/ContinuousAccrualMigration.sol": "03baeba2cd4fd4c9af250a72ae9432693455f4c540148924df7fe9207e77fd67",
+    "contracts/test/unit/NativeOpeningTooling.t.sol": "f02ed2e44038471c004d6fb52855b5b710789e304feef8519e2224ae6055720b",
+    "contracts/test/tooling/NativeOpeningToolingControls.py": "b80f6483cc94ae2dfa2cc5c56c908a5aa0c8e70d9378fce3b80bec9c323240a8"
+  },
+  "whole_system_executable_source_match": true,
+  "operating_requirements": [
+    "Dry-run the complete roster and all proposed opening balances before the first import.",
+    "Preserve atomic preparation in one reviewed operator-owned executor invocation; separate broadcast transactions do not inherit EVM call atomicity.",
+    "After all signed imports reconcile, explicitly activate accrual and use the bounded keeper until the book is fresh, then validate all bindings.",
+    "Configure the new opening kind to at least two distinct attesters and preserve a higher configured threshold."
+  ]
+}

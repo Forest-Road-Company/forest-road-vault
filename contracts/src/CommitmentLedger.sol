@@ -8,10 +8,9 @@ import {ICuratorModule} from "./interfaces/ICuratorModule.sol";
 import {Config} from "./libraries/Config.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-/// @title CommitmentLedger — live-event conservative-cascade ledger
-/// @notice The shared backstop reserve is one uncapped pool under ADR-0035. This module records
-///         declaration-ordered event principal and class data, then walks the forward and reverse
-///         cascades while drawing each event only from the reserve still physically live.
+/// @title CommitmentLedger — live-event principal and conservative residual accounting
+/// @notice Per-class principal totals price declared defaults in constant time. Curator pools
+///         cover their own classes after past-due demand; the shared reserve covers the remainder.
 /// @dev The manager is the proxy that deploys this module during initialization. Keeping the
 ///      ledger behind a separate contract leaves the DefaultManager implementation below EIP-170
 ///      while preserving the manager's existing ERC-7201 layout as an append-only address tail.
@@ -30,7 +29,7 @@ contract CommitmentLedger is ICommitmentLedger {
     struct Entry {
         // W6 storage compatibility: these three words are already baselined. Under ADR-0035,
         // `remainingCoverage` is the event's remaining-principal claim bound, not a snapshotted
-        // coverage ceiling; the shared reserve is applied separately during the cascade walk.
+        // coverage ceiling; the shared reserve is applied separately when pricing residuals.
         uint256 remainingCoverage;
         uint256 remainingPrincipal;
         uint256 consumed;
@@ -43,9 +42,8 @@ contract CommitmentLedger is ICommitmentLedger {
         if ($.eventIndexPlusOne[eventId] != 0) revert CommitmentLedger_AlreadyRegistered(eventId);
         $.eventIds.push(eventId);
         $.eventIndexPlusOne[eventId] = $.eventIds.length;
-        Entry storage entry = $.entries[eventId];
-        entry.remainingPrincipal = remainingPrincipal;
         $.eventMetadata[eventId] = uint8(classId);
+        _setPrincipal($, eventId, remainingPrincipal);
         emit CommitmentRegistered(eventId, classId, remainingPrincipal);
     }
 
@@ -57,7 +55,7 @@ contract CommitmentLedger is ICommitmentLedger {
         uint256 oldDeliverable = _min(entry.remainingCoverage, entry.remainingPrincipal);
         uint256 newDeliverable = _min(entry.remainingCoverage, remainingPrincipal);
         $.aggregateDeliverable = $.aggregateDeliverable - oldDeliverable + newDeliverable;
-        entry.remainingPrincipal = remainingPrincipal;
+        _setPrincipal($, eventId, remainingPrincipal);
         emit CommitmentPrincipalUpdated(eventId, remainingPrincipal);
     }
 
@@ -71,6 +69,8 @@ contract CommitmentLedger is ICommitmentLedger {
         uint256 aggregateConsumed;
         // W7 tail append: class plus drawn flag for declaration-time rows.
         mapping(uint256 eventId => uint8) eventMetadata;
+        // Per-class remaining principal, appended without moving any existing ledger field.
+        mapping(uint256 classId => uint256) remainingPrincipalByClass;
     }
 
     struct ResidualState {
@@ -80,7 +80,8 @@ contract CommitmentLedger is ICommitmentLedger {
         uint256 reserve;
         uint256 pastDueLayerTwo;
         address backstop;
-        uint256[5] availableCurator;
+        uint256 declaredCurator;
+        uint256 declaredResidual;
     }
 
     address public immutable manager;
@@ -145,7 +146,7 @@ contract CommitmentLedger is ICommitmentLedger {
         entry.consumed += covered;
         $.aggregateConsumed += covered;
         entry.remainingCoverage = remainingCoverage;
-        entry.remainingPrincipal = remainingPrincipal;
+        _setPrincipal($, eventId, remainingPrincipal);
         emit CommitmentSynced(eventId, remainingCoverage, remainingPrincipal, newDeliverable, $.aggregateDeliverable);
     }
 
@@ -156,14 +157,14 @@ contract CommitmentLedger is ICommitmentLedger {
         uint256 indexPlusOne = $.eventIndexPlusOne[eventId];
         if (indexPlusOne == 0) return;
         uint256 released = _min(entry.remainingCoverage, entry.remainingPrincipal);
+        _setPrincipal($, eventId, 0);
         $.aggregateDeliverable -= released;
         $.aggregateRemaining -= entry.remainingCoverage;
         $.aggregateConsumed -= entry.consumed;
         uint256 index = indexPlusOne - 1;
         uint256 length = $.eventIds.length;
-        // Declaration order is part of the conservative forward/reverse ladder. Compacting with
-        // a swap-and-pop would silently invent a third order after any terminal release, so shift
-        // the bounded live set and preserve the relative order of every survivor.
+        // Preserve the existing eventAt enumeration order when a live row is removed.
+        // Residual reads use per-class totals and never walk this array.
         for (uint256 i = index; i + 1 < length; ++i) {
             uint256 shiftedId = $.eventIds[i + 1];
             $.eventIds[i] = shiftedId;
@@ -195,12 +196,13 @@ contract CommitmentLedger is ICommitmentLedger {
             uint256 curatorForPastDue = _min(pastDue, pool);
             s.pastDueGross += pastDue;
             s.pastDueResidual += pastDue - curatorForPastDue;
-            s.availableCurator[i] = pool - curatorForPastDue;
+            uint256 principal = $.remainingPrincipalByClass[classId];
+            uint256 curatorForDeclared = _min(principal, pool - curatorForPastDue);
+            s.gross += principal;
+            s.declaredCurator += curatorForDeclared;
+            s.declaredResidual += principal - curatorForDeclared;
         }
 
-        for (uint256 i = 0; i < $.eventIds.length; ++i) {
-            s.gross += $.entries[$.eventIds[i]].remainingPrincipal;
-        }
         s.gross += s.pastDueGross;
         if (s.gross == 0) return (0, 0);
 
@@ -213,49 +215,10 @@ contract CommitmentLedger is ICommitmentLedger {
             }
         }
 
-        uint256[5] memory forwardCurator;
-        uint256[5] memory reverseCurator;
-        for (uint256 i = 0; i < Config.NUM_CLASSES; ++i) {
-            forwardCurator[i] = s.availableCurator[i];
-            reverseCurator[i] = s.availableCurator[i];
-        }
-        uint256 forward = _declaredJuniorDelivery($, s, forwardCurator, false);
-        uint256 reverse = _declaredJuniorDelivery($, s, reverseCurator, true);
-        uint256 declaredJunior = _min(forward, reverse);
+        uint256 declaredJunior = s.declaredCurator + _min(s.declaredResidual, s.reserve);
         uint256 pastDueJunior = s.pastDueGross - s.pastDueResidual + s.pastDueLayerTwo;
         residual = s.gross - pastDueJunior - declaredJunior;
         pastDueSenior = s.pastDueResidual - s.pastDueLayerTwo;
-    }
-
-    function _declaredJuniorDelivery(
-        CommitmentLedgerStorage storage $,
-        ResidualState memory s,
-        uint256[5] memory curatorAvailable,
-        bool reverse
-    ) private view returns (uint256 delivered) {
-        uint256 reserve = s.reserve;
-        uint256 length = $.eventIds.length;
-        for (uint256 k = 0; k < length; ++k) {
-            uint256 eventId = reverse ? $.eventIds[length - 1 - k] : $.eventIds[k];
-            Entry storage entry = $.entries[eventId];
-            uint256 principal = entry.remainingPrincipal;
-            if (principal == 0) continue;
-
-            uint256 classIndex = ($.eventMetadata[eventId] & CLASS_MASK) - 1;
-            uint256 curatorTake = _min(principal, curatorAvailable[classIndex]);
-            if (curatorTake != 0) {
-                curatorAvailable[classIndex] -= curatorTake;
-                principal -= curatorTake;
-                delivered += curatorTake;
-            }
-            if (principal == 0 || reserve == 0 || s.backstop == address(0)) continue;
-
-            // ADR-0035: drawn and undrawn events reach the same shared live reserve. No row owns
-            // a ceiling and no first-draw snapshot can survive a replenishment.
-            uint256 layerTwo = _min(principal, reserve);
-            delivered += layerTwo;
-            reserve -= layerTwo;
-        }
     }
 
     function remainingAggregate() external view returns (uint256) {
@@ -307,6 +270,23 @@ contract CommitmentLedger is ICommitmentLedger {
         drawn = metadata & DRAWN_FLAG != 0;
         remainingCoverage = entry.remainingCoverage;
         remainingPrincipal = entry.remainingPrincipal;
+    }
+
+    /// @notice Total remaining principal for one admitted class, without enumerating event rows.
+    /// @param classId Class in the configured range `1..Config.NUM_CLASSES`.
+    /// @return The sum of remaining principal in all live rows of this class.
+    function remainingPrincipalForClass(uint256 classId) external view returns (uint256) {
+        if (classId == 0 || classId > Config.NUM_CLASSES) revert CommitmentLedger_InvalidClass(classId);
+        return _storage().remainingPrincipalByClass[classId];
+    }
+
+    /// @dev Every principal-changing path uses this writer, including registration and release.
+    function _setPrincipal(CommitmentLedgerStorage storage $, uint256 eventId, uint256 next) private {
+        Entry storage entry = $.entries[eventId];
+        uint256 previous = entry.remainingPrincipal;
+        uint256 classId = $.eventMetadata[eventId] & CLASS_MASK;
+        $.remainingPrincipalByClass[classId] = $.remainingPrincipalByClass[classId] - previous + next;
+        entry.remainingPrincipal = next;
     }
 
     function _min(uint256 left, uint256 right) private pure returns (uint256) {

@@ -333,6 +333,18 @@ contract CreditHandler is Test {
         callCount++;
     }
 
+    /// @dev THE PIK DESIGNATION ALTERNATES AND IS DELIBERATELY NOT FUZZED. Until 2026-09-09 both
+    ///      instances hard-coded `pik: false` here, so `capitalizePik` reverted
+    ///      `Waterfall_PikNotDesignated` on every call and PIK1, PIK2 and PIK3 held for a reason
+    ///      that had nothing to do with the properties they assert.
+    ///
+    ///      Alternating on `facilities.length` rather than on a seed is what lets `afterInvariant`
+    ///      assert the reach WITHOUT an assertion that can fail by luck: any run reaching two
+    ///      facilities has originated exactly one of each book. The parity starts on PIK so the
+    ///      FIRST facility originated is a PIK one: `fund` refuses a facility once the clock passes
+    ///      its `nextPaymentDue`, so the earliest-originated facility is much the likeliest to be
+    ///      funded at all, and putting the cash-pay book first left PIK reachable in only 3 of 17
+    ///      campaign runs.
     function originate(uint256 borrowerSeed, uint256 stateSeed, uint256 principal) external {
         if (facilities.length >= MAX_FACILITIES) return;
         principal = bound(principal, 1e18, 2_000_000e18);
@@ -367,7 +379,8 @@ contract CreditHandler is Test {
             paymentScheduleHash: keccak256("fuzz-schedule"),
             rateIndexRef: bytes32(0),
             renewalTermsHash: bytes32(0),
-            offchainRef: keccak256("fuzz-ucc-ref")
+            offchainRef: keccak256("fuzz-ucc-ref"),
+            pik: facilities.length % 2 == 0
         });
         // P-32: all three documentary/credit gate facts commit to the exact same terms hash.
         // Existence-only setters would make the handler's successful path impossible against the
@@ -383,7 +396,140 @@ contract CreditHandler is Test {
         vm.prank(originator);
         uint256 id = bridge.originate(custodian, terms);
         facilities.push(id);
+        if (terms.pik) gPikDesignated++;
         ghostPendingPrincipal += principal;
+        callCount++;
+    }
+
+    // -- PIK capitalisation ghosts ----------------------------------------
+    /// @notice Successful capitalisations this campaign performed.
+    uint256 public gPikCalls;
+    /// @notice PIK periods settled by the DefaultManager path exercised by markPastDue.
+    uint256 public gPikSettledOnMark;
+
+    struct PikMarkObservation {
+        uint256 capitalized;
+        uint256 face;
+        uint256 backing;
+        uint256 supply;
+        uint256 exposure;
+    }
+    /// @notice Total value capitalised, summed from the handler's own reads.
+
+    uint256 public gPikTotal;
+    /// @notice DEFECT COUNTER. A capitalisation moved `backing - supply`. MUST STAY ZERO.
+    uint256 public gPikSurplusMoved;
+    /// @notice DEFECT COUNTER. A legacy PIK balance exceeded its stored cursor's numerical domain.
+    uint256 public gPikOverCeiling;
+    /// @notice DEFECT COUNTER. Registry exposure and deployed principal diverged after a
+    ///         capitalisation, which is what makes a facility unwriteable-off.
+    uint256 public gPikExposureDiverged;
+    /// @notice ANTI-VACUITY. PIK-designated facilities this campaign originated.
+    uint256 public gPikDesignated;
+    /// @notice ANTI-VACUITY. Cranks reaching the call with every handler-side precondition met.
+    uint256 public gPikEligibleAttempts;
+
+    /// @notice Capitalises one contractual interval of PIK interest on a facility.
+    /// @dev DRIVEN INSIDE THE FULL CREDIT LIFECYCLE ON PURPOSE. Capitalisation in isolation proves
+    ///      very little; what matters is that it composes with default, past-due marking, write-off
+    ///      and repayment, all of which this handler also drives. Every refusal below is a
+    ///      documented production precondition, so returning early is correct rather than a swept
+    ///      revert: `fail_on_revert = true` would otherwise turn a fail-closed refusal into a
+    ///      campaign failure.
+    ///
+    ///      THE THREE ASSERTIONS ARE THE POINT. Surplus-neutrality is what keeps a ratified loss out
+    ///      of the cascade's pre-cascade absorption; the ceiling is the only per-facility bound left
+    ///      once coverage stopped gating accrual; and exposure tracking deployed principal is what
+    ///      keeps the facility writeable off at all.
+    function capitalizePik(uint256 facSeed) external {
+        if (!_protocolIsOpen()) return;
+        uint256 n = facilities.length;
+        if (n == 0) return;
+
+        // SELECT WITHIN THE REGION THIS ACTION EXISTS TO EXERCISE. Picking blind reached nothing:
+        // most facilities in a fuzz book are still `Pending`, so a single modular pick found an
+        // unfunded facility in five tries out of five and PIK1/2/3 stayed vacuous even after the
+        // designation was fixed. Scanning from a fuzzed offset keeps the choice fuzz-driven while
+        // guaranteeing that a live PIK facility, if one exists at all, is the one tested.
+        uint256 id;
+        bool found;
+        uint256 base = facSeed % n; // reduce FIRST: `facSeed + k` overflows for a near-max seed
+        for (uint256 k; k < n; ++k) {
+            uint256 cand = facilities[(base + k) % n];
+            ClaimBridge.LoanState cs = _state(cand);
+            if (cs != ClaimBridge.LoanState.Active && cs != ClaimBridge.LoanState.Amortizing) continue;
+            if (!bridge.facility(cand).pik) continue;
+            id = cand;
+            found = true;
+            break;
+        }
+        if (!found) return;
+
+        ClaimBridge.Facility memory f = bridge.facility(id);
+        if (address(defaultManager) != address(0) && defaultManager.pastDueContribution(id) != 0) return;
+        if (f.rateType != ClaimBridge.RateType.Fixed) return;
+        if (f.dayCountConvention != ClaimBridge.DayCountConvention.Actual360) return;
+
+        (uint64 lastAt,) = waterfall.pikCursorOf(id);
+        if (lastAt == 0) return;
+        uint64 dueAt = lastAt + f.paymentInterval;
+        if (dueAt > f.maturity) return;
+        // THE HANDLER IS THE KEEPER, and that is the operational model Forest Road committed to
+        // (decision 12, 2026-09-09: "we will have a keeper do this"). Without this the campaign
+        // could not reach a single successful capitalisation: the generic `warp` action jumps by a
+        // fuzzed amount, so it overshoots `nextPaymentDue` plus the grace window and a passer-by
+        // marks the facility past due, which blocks PIK for the life of the facility. Measured
+        // before this line existed: of six picks, four facilities were unfunded, one was already
+        // past due and one was cash-pay, for zero eligible attempts in EVERY run of the campaign.
+        //
+        // Time only ever moves FORWARD and only ever to the exact contractual due date, which is
+        // what a keeper cranking on schedule does. It does not weaken any property: every
+        // assertion below still runs against whatever the contract then does.
+        if (block.timestamp < dueAt) vm.warp(dueAt);
+
+        uint256 outstanding = reserves.deployedTo(id);
+        if (outstanding == 0) return;
+        if (!f.pik) return; // a cash-pay facility: the designation gate refuses, and correctly
+
+        gPikEligibleAttempts++;
+        // A CAPITALISATION IS A YIELD DELIVERY AND CAN CRYSTALLISE A PROTOCOL FEE, exactly like
+        // `repay`'s interest leg: `capitalizePik` runs the full vault sequence and calls
+        // `accrueFees()` itself. Every other fee-crystallising action in this handler is bracketed
+        // this way; this one was not, and nobody noticed because the action could never succeed
+        // while `originate` hard-coded `pik: false`. The first non-vacuous campaign failed
+        // `invariant_exchangeRate_neverFallsWithoutLossOrFee` on a shrunk sequence ending in
+        // `capitalizePik`, because `accrueFees()` had already reset `lastFeeAccrual` and the high
+        // water mark by the time the invariant read them, so the fee that was genuinely taken no
+        // longer looked due. `_acceptAccruedFeeDilution` is the honest fix rather than a floor
+        // rebase: it moves the floor ONLY if the fee recipient's share balance actually rose.
+        uint256 feeSharesBefore = vault.balanceOf(vault.feeRecipient());
+        uint256 backingBefore = reserves.totalBackingValue();
+        uint256 supplyBefore = usdfr.totalSupply();
+        uint256 expBefore = registry.classExposure(f.classId);
+
+        uint256 amount;
+        try waterfall.capitalizePik(id) returns (uint256 got) {
+            amount = got;
+        } catch {
+            // This legacy campaign permits bounded servicing refusals. Its deterministic
+            // witness requires successful capitalization; PikConcentrationInvariants separately
+            // requires native contractual growth to proceed through a concentration breach.
+            return;
+        }
+
+        // SURPLUS-NEUTRAL: backing and supply moved by exactly the same amount.
+        if (reserves.totalBackingValue() - backingBefore != amount || usdfr.totalSupply() - supplyBefore != amount) {
+            gPikSurplusMoved++;
+        }
+        // The legacy cursor can represent the complete recognized balance.
+        if (reserves.deployedTo(id) > type(uint176).max) gPikOverCeiling++;
+        // EXPOSURE FOLLOWED, which is what keeps the write-off path reachable.
+        if (registry.classExposure(f.classId) - expBefore != amount) gPikExposureDiverged++;
+
+        _acceptAccruedFeeDilution(feeSharesBefore);
+
+        gPikCalls++;
+        gPikTotal += amount;
         callCount++;
     }
 
@@ -399,6 +545,26 @@ contract CreditHandler is Test {
         // turning a correct fail-closed rejection into a `fail_on_revert` invariant failure.
         ClaimBridge.Facility memory facility = bridge.facility(id);
         if (block.timestamp >= facility.maturity || block.timestamp >= facility.nextPaymentDue) return;
+        // AND THE THIRD TIME-SENSITIVE PRECONDITION, ADDED 2026-09-10 WITH THE FUNDING-ANCHORED
+        // FIRST PIK PERIOD. Same reasoning as the two above, and the same convention: respect a
+        // correct fail-closed rejection rather than turn it into a `fail_on_revert` invariant
+        // failure. Forest Road decided that a PIK facility's first period accrues from FUNDING, so
+        // `fund` now refuses a window too short for the interest to be expressible on the USDC grid -
+        // otherwise `nextPaymentDue`, which advances only inside `capitalizePik`, would never advance
+        // and the facility would be frozen for life by its own first crank.
+        //
+        // THIS HANDLER REACHES IT REPEATEDLY AND THAT IS WHY IT IS HERE, not a guess: the campaign
+        // fuzzes small principals and warps freely between origination and funding, and the first run
+        // after the change failed NINE invariants across two suites with
+        // `Waterfall_PikFirstPeriodBelowScaleGrid`, on windows from 2 seconds to a full interval. A
+        // full-interval window below the grid means the facility could never have capitalised at all,
+        // so most of those were facilities this handler was already funding into a frozen state.
+        if (facility.pik) {
+            uint256 firstWindow = uint256(facility.nextPaymentDue) - block.timestamp;
+            uint256 firstAccrual = (facility.principal * uint256(facility.interestRateBps) * firstWindow)
+                / (uint256(Config.BPS) * 360 days);
+            if (firstAccrual < UNIT) return;
+        }
         uint256 principal = facility.principal;
         // seed exactly the idle liquidity the deployment needs
         _mintTo(actors[0], principal);
@@ -447,6 +613,14 @@ contract CreditHandler is Test {
         m.outstanding = reserves.deployedTo(id);
         interest = bound(interest, 0, 300_000e18);
         interest -= interest % UNIT;
+        // A PIK FACILITY NEVER SETTLES A PERIOD IN CASH, and `distribute` now refuses the leg
+        // outright (`Waterfall_PikCashInterestNotPermitted`). That is a production precondition, so
+        // the handler respects it the way it respects every other one rather than driving a call it
+        // knows will revert: `fail_on_revert = true` would turn a correct fail-closed refusal into a
+        // campaign failure. Principal still flows, which is the leg a PIK facility actually uses,
+        // because capitalised interest compounds into principal and comes back that way.
+        if (bridge.facility(id).pik) interest = 0;
+        if (interest == 0 && principal == 0) return;
         principal = bound(principal, 0, m.outstanding);
         principal -= principal % UNIT;
         if (interest == 0 && principal == 0) return;
@@ -473,7 +647,7 @@ contract CreditHandler is Test {
         m.supplyBefore = usdfr.totalSupply();
         uint256 feeSharesBefore = vault.balanceOf(vault.feeRecipient());
 
-        _executeRepayment(id, interest, principal, m.outstanding);
+        if (!_executeRepayment(id, interest, principal, m.outstanding)) return;
         // AUDIT FIX (G3, NARROWED BY SWEEP-1 RMDM-F2): cash principal lowers FACE, and the
         // contract releases only the part of the mark that would otherwise STRAND above the new
         // face. Mirror it here from this handler's OWN input.
@@ -541,6 +715,16 @@ contract CreditHandler is Test {
         uint256 id = facilities[facSeed % facilities.length];
         ClaimBridge.LoanState st = _state(id);
         if (!_isLive(st) && !_isDefaulted(st)) return;
+        // THIS ACTION EXISTS TO DELIVER AN OVERSIZED INTEREST LEG, and a PIK facility can never
+        // carry one: `distribute` refuses it (`Waterfall_PikCashInterestNotPermitted`). Zeroing the
+        // interest would leave the action doing nothing while still claiming to have visited the
+        // R16-01 skim region, so it returns and lets the fuzzer draw a cash-pay facility.
+        //
+        // IT MUST RETURN HERE, ABOVE THE VESTING SWITCH. `setYieldVestingPeriod` crystallizes fees,
+        // so returning below it skips `_acceptAccruedFeeDilution` and reds
+        // `invariant_exchangeRate_neverFallsWithoutLossOrFee` on an entirely legitimate accrual,
+        // which is the exact trap the comment below already records this action falling into once.
+        if (bridge.facility(id).pik) return;
 
         // Captured BEFORE the vesting switch, deliberately: `setYieldVestingPeriod` crystallizes
         // fees, and a checkpoint mint is one of the two documented ways the fee-net rate may
@@ -560,7 +744,13 @@ contract CreditHandler is Test {
         uint256 interest = bound(sizeSeed, lo, lo + held + UNIT);
         if (interest > 5_000_000e18) interest = 5_000_000e18;
         interest -= interest % UNIT;
-        if (interest == 0) return;
+        if (interest == 0) {
+            // SAME TRAP AS ABOVE, and this one predates the PIK work: the vesting switch has
+            // already crystallized fees by the time we get here, so a bare return leaves that mint
+            // unattributed and the rate floor stale.
+            _acceptAccruedFeeDilution(feeSharesBefore);
+            return;
+        }
 
         bool openBefore = vault.maxDeposit(address(this)) != 0;
         uint256 expFee = interest * waterfall.protocolFeeBps() / 10_000;
@@ -570,7 +760,7 @@ contract CreditHandler is Test {
         uint256 expWithheld = _seniorImpairmentCeiling(expFee);
         expFee -= expWithheld;
 
-        _executeRepayment(id, interest, 0, reserves.deployedTo(id));
+        assertTrue(_executeRepayment(id, interest, 0, reserves.deployedTo(id)), "cash interest was refused as PIK");
         _acceptAccruedFeeDilution(feeSharesBefore);
 
         uint256 stream = vault.unvestedYield();
@@ -600,33 +790,97 @@ contract CreditHandler is Test {
         callCount++;
     }
 
-    function _executeRepayment(uint256 id, uint256 interest, uint256 principal, uint256 outstanding) internal {
-        uint256 usdcAmount = (interest + principal) / UNIT;
-        usdc.mint(borrower, usdcAmount);
+    function _executeRepayment(uint256 id, uint256 interest, uint256 principal, uint256 outstanding)
+        internal
+        returns (bool)
+    {
+        uint256 amount = (interest + principal) / UNIT;
+        usdc.mint(borrower, amount);
         vm.prank(borrower);
-        usdc.approve(address(reserves), usdcAmount);
-        bytes32 paymentId = keccak256(abi.encode("fuzz-payment", id, callCount, interest, principal));
+        usdc.approve(address(reserves), amount);
+        IWaterfallEngine.Payment memory payment = IWaterfallEngine.Payment({
+            tokenId: id,
+            paymentId: keccak256(abi.encode("fuzz-payment", id, callCount, interest, principal)),
+            payer: borrower,
+            interest: interest,
+            principal: principal,
+            nextPaymentDue: 0
+        });
         ClaimBridge.Facility memory f = bridge.facility(id);
-        uint64 nextDue = principal == outstanding ? 0 : f.nextPaymentDue + f.paymentInterval;
-        if (nextDue > f.maturity) nextDue = f.maturity;
+        uint64 next = principal == outstanding ? 0 : f.nextPaymentDue + f.paymentInterval;
+        payment.nextPaymentDue = next > f.maturity ? f.maturity : next;
+        _attestModeledPayment(payment, amount);
+        return _distributeModeledPayment(payment);
+    }
+
+    function _attestModeledPayment(IWaterfallEngine.Payment memory payment, uint256 amount) private {
         oracle.setPayload(
-            id,
+            payment.tokenId,
             IAttestationOracle.AttestationKind.PaymentReceived,
-            keccak256(abi.encode(paymentId, id, address(usdc), borrower, usdcAmount, interest, principal, nextDue)),
+            keccak256(
+                abi.encode(
+                    payment.paymentId,
+                    payment.tokenId,
+                    address(usdc),
+                    payment.payer,
+                    amount,
+                    payment.interest,
+                    payment.principal,
+                    payment.nextPaymentDue
+                )
+            ),
             uint64(block.timestamp),
             true
         );
-        vm.prank(servicer);
-        waterfall.distribute(
-            IWaterfallEngine.Payment({
-                tokenId: id,
-                paymentId: paymentId,
-                payer: borrower,
-                interest: interest,
-                principal: principal,
-                nextPaymentDue: nextDue
-            })
+    }
+
+    /// @notice Payoff attempts refused with a payable PIK coupon still outstanding.
+    uint256 public gPikPayoffRefusals;
+
+    /// @dev Read the recorded contractual cursor and independently price a coupon. The model
+    ///      never asks the production planner or its payoff helper which outcome to expect.
+    function _modeledPayoffDue(uint256 id, ClaimBridge.Facility memory f) private view returns (uint64 due) {
+        bytes32 root = 0xcf0c34fc0be88a30eafd83d03dde401c38c60299c8a6f87d9915e05fa29cdd00;
+        bytes32 slot = keccak256(abi.encode(id, uint256(root) + 9));
+        uint256 first = uint256(vm.load(address(waterfall), slot));
+        uint256 second = uint256(vm.load(address(waterfall), bytes32(uint256(slot) + 1)));
+        uint64 start = uint64(first);
+        due = start + uint64(second);
+        if (due > block.timestamp || due > f.maturity) return 0;
+        uint64 funding = uint64(second >> 64);
+        if (funding > start) start = funding;
+        uint256 coupon = (first >> 80) * uint16(first >> 64) * (due - start) / (10_000 * 360 days);
+        if (coupon / UNIT == 0) return 0;
+    }
+
+    function _distributeModeledPayment(IWaterfallEngine.Payment memory payment) private returns (bool) {
+        ClaimBridge.Facility memory f = bridge.facility(payment.tokenId);
+        uint256 face = reserves.deployedTo(payment.tokenId);
+        uint64 due;
+        if (f.pik && _isLive(f.state) && payment.principal == face && !reserves.accrualSnapshot().enabled) {
+            due = _modeledPayoffDue(payment.tokenId, f);
+        }
+        if (due == 0) {
+            vm.prank(servicer);
+            waterfall.distribute(payment);
+            return true;
+        }
+        uint256 backing = reserves.totalBackingValue();
+        uint256 supply = usdfr.totalSupply();
+        vm.expectRevert(
+            abi.encodeWithSelector(IWaterfallEngine.Waterfall_PikSettlementRequired.selector, payment.tokenId, due)
         );
+        vm.prank(servicer);
+        waterfall.distribute(payment);
+        assertEq(reserves.deployedTo(payment.tokenId), face, "refused payoff changed debt");
+        assertEq(reserves.totalBackingValue(), backing, "refused payoff changed backing");
+        assertEq(usdfr.totalSupply(), supply, "refused payoff changed supply");
+        assertEq(uint256(bridge.facility(payment.tokenId).state), uint256(f.state), "refused payoff changed lifecycle");
+        (,, bool satisfied) = oracle.latestPayload(payment.tokenId, IAttestationOracle.AttestationKind.PaymentReceived);
+        assertTrue(satisfied, "refused payoff consumed its attestation");
+        ++gPikPayoffRefusals;
+        ++callCount;
+        return false;
     }
 
     function postFirstLoss(uint256 classSeed, uint256 amount) external {
@@ -713,6 +967,35 @@ contract CreditHandler is Test {
         callCount++;
     }
 
+    /// @notice Legacy interest recorded by the mandatory pre-default servicing step.
+    uint256 public gPikSettledOnDefault;
+
+    function _observePikBeforeDefault(uint256 id) private view returns (PikMarkObservation memory previous) {
+        previous = PikMarkObservation({
+            capitalized: waterfall.pikCapitalisedTotalOf(id),
+            face: reserves.deployedTo(id),
+            backing: reserves.totalBackingValue(),
+            supply: usdfr.totalSupply(),
+            exposure: registry.classExposure(bridge.facility(id).classId)
+        });
+    }
+
+    /// @dev Update the independent supply ledger only after checking all observable deltas.
+    function _recordPikSettlementOnDefault(uint256 id, PikMarkObservation memory previous) private {
+        uint256 amount = waterfall.pikCapitalisedTotalOf(id) - previous.capitalized;
+        if (amount == 0) return;
+        assertTrue(bridge.facility(id).pik, "cash default recorded PIK");
+        assertEq(reserves.deployedTo(id), previous.face + amount, "default coupon face mismatch");
+        assertEq(reserves.totalBackingValue(), previous.backing + amount, "default coupon backing mismatch");
+        assertEq(usdfr.totalSupply(), previous.supply + amount, "default coupon supply mismatch");
+        assertEq(registry.classExposure(bridge.facility(id).classId), previous.exposure + amount);
+        assertEq(defaultManager.defaultedContribution(id), previous.face + amount, "default lost its coupon risk");
+        gPikTotal += amount;
+        ++gPikCalls;
+        ++gPikEligibleAttempts;
+        ++gPikSettledOnDefault;
+    }
+
     function declareDefault(uint256 facSeed) external {
         if (facilities.length == 0) return;
         uint256 id = facilities[facSeed % facilities.length];
@@ -725,8 +1008,10 @@ contract CreditHandler is Test {
             true
         );
         uint256 feeSharesBefore = vault.balanceOf(vault.feeRecipient());
+        PikMarkObservation memory beforeDefault = _observePikBeforeDefault(id);
         vm.prank(servicer);
         defaultManager.declareDefault(id, bytes32(0));
+        _recordPikSettlementOnDefault(id, beforeDefault);
         _acceptAccruedFeeDilution(feeSharesBefore);
         ghostUnsyncedRecovery[id] = 0; // declare re-snapshots from `deployedTo`
         // H-5: `declareDefault` CONVERTS a past-due facility -- the contract's `_releasePastDue`
@@ -739,17 +1024,9 @@ contract CreditHandler is Test {
 
     // ── Past-due accounting trigger (permissionless; H-5) ────────────────
 
-    /// @dev H-5 REACH ACTION: flag a live receivable facility past due. `markPastDue` gates on
-    ///      `block.timestamp > maturity + graceWindow` (maturity is ~365 days out, the grace window
-    ///      is 21 days), and no ordinary action jumps time that far, so this action WARPS FORWARD to
-    ///      the facility's grace end when needed -- the only reliable way to reach the past-due state
-    ///      (the `warp` action tops out at 30 days). Time only ever moves forward, so this cannot
-    ///      lower gross value (`invariant_exchangeRate_neverFallsWithoutLossOrFee`); it can, however,
-    ///      strand OTHER not-yet-funded facilities past their maturity (`fund` skips a matured
-    ///      facility), which is a deliberate, reported reach shift into the post-maturity regime.
-    ///      Every precondition early-returns so the action is a clean no-op when it cannot fire
-    ///      (`fail_on_revert = true`); with all preconditions met `markPastDue` cannot revert.
-    /// @param facSeed Selects the facility to attempt to mark.
+    /// @notice Advances a live facility past maturity and grace, then requests a mark.
+    /// @dev A successful PIK settlement records income without adding a past-due cohort.
+    ///      A genuine mark records its independently measured reserve exposure instead.
     function markPastDue(uint256 facSeed) external {
         if (facilities.length == 0) return;
         uint256 id = facilities[facSeed % facilities.length];
@@ -762,27 +1039,66 @@ contract CreditHandler is Test {
         if (reserves.deployedTo(id) == 0) return;
 
         ClaimBridge.Facility memory f = bridge.facility(id);
-        uint64 graceEnd = f.maturity + defaultManager.graceWindow(f.classId);
+        uint256 window = defaultManager.graceWindow(f.classId);
+        uint256 graceEnd = uint256(f.maturity) + window;
+        if (f.pik) {
+            uint256 paymentWindows = uint256(f.nextPaymentDue) + 2 * window;
+            if (paymentWindows > graceEnd) graceEnd = paymentWindows;
+        }
         if (block.timestamp <= graceEnd) {
             // forward-only warp to just past the grace end so the mark's time gate is satisfied
             vm.warp(uint256(graceEnd) + 1);
         }
 
-        // G2W: mirror the contract's EMPTY -> non-empty relief anchor, read from the contract's own
-        // gross aggregate BEFORE the mark lands (see `ghostReliefAnchor`).
-        if (defaultManager.pastDueExposure() == 0) ghostReliefAnchor = block.timestamp;
-
+        bool emptyBefore = defaultManager.pastDueExposure() == 0;
+        PikMarkObservation memory beforeMark = PikMarkObservation({
+            capitalized: waterfall.pikCapitalisedTotalOf(id),
+            face: reserves.deployedTo(id),
+            backing: reserves.totalBackingValue(),
+            supply: usdfr.totalSupply(),
+            exposure: registry.classExposure(f.classId)
+        });
         uint256 feeSharesBefore = vault.balanceOf(vault.feeRecipient());
+        if (f.pik && !reserves.accrualSnapshot().enabled) {
+            vm.expectCall(address(waterfall), abi.encodeWithSelector(WaterfallEngine.capitalizePik.selector, id));
+        }
         defaultManager.markPastDue(id);
         _acceptAccruedFeeDilution(feeSharesBefore);
+        if (_recordPikSettlementOnMark(id, f, beforeMark)) return;
+
+        // The absence of a capitalization is not assumed to prove a mark: check its exact
+        // recorded amount against the reserve before updating the independent cohort model.
+        assertEq(defaultManager.pastDueContribution(id), beforeMark.face, "PAST-DUE MARK MISSING OR WRONG");
+        assertEq(reserves.deployedTo(id), beforeMark.face, "A MARK CHANGED RECEIVABLE FACE");
+        if (emptyBefore) ghostReliefAnchor = block.timestamp;
         _noteRampReach();
-        // record the ghost flag AND the mark-time snapshot (read from ReserveManager, independent of
-        // the contract's `pastDueContribution`); `markPastDue` does not move `deployedTo`, so reading
-        // it after the call still equals the contract's recorded snapshot.
         _pastDueFlag[id] = true;
         _pastDueSnapshot[id] = reserves.deployedTo(id);
         ghostPastDueMarks++;
         callCount++;
+    }
+
+    /// @dev Detect settlement from a separate module's capitalization history, then reconcile
+    ///      face, backing, supply and registry exposure before recording any success counter.
+    function _recordPikSettlementOnMark(uint256 id, ClaimBridge.Facility memory f, PikMarkObservation memory previous)
+        private
+        returns (bool)
+    {
+        uint256 amount = waterfall.pikCapitalisedTotalOf(id) - previous.capitalized;
+        if (amount == 0) return false;
+        assertTrue(f.pik, "CASH FACILITY CAPITALIZED ON MARK");
+        assertEq(reserves.deployedTo(id), previous.face + amount, "PIK MARK FACE DIVERGED");
+        assertEq(reserves.totalBackingValue(), previous.backing + amount, "PIK MARK BACKING DIVERGED");
+        assertEq(usdfr.totalSupply(), previous.supply + amount, "PIK MARK SUPPLY DIVERGED");
+        assertEq(registry.classExposure(f.classId), previous.exposure + amount, "PIK MARK EXPOSURE DIVERGED");
+        assertLe(reserves.deployedTo(id), type(uint176).max, "PIK MARK EXCEEDED NUMERIC CAPACITY");
+        assertEq(defaultManager.pastDueContribution(id), 0, "SETTLED PIK WAS MARKED PAST DUE");
+        gPikCalls++;
+        gPikEligibleAttempts++;
+        gPikTotal += amount;
+        gPikSettledOnMark++;
+        callCount++;
+        return true;
     }
 
     /// @dev H-5 REACH ACTION: the servicer clears a currently-flagged facility's past-due mark. Guard
@@ -1111,8 +1427,10 @@ contract CreditHandler is Test {
                 true
             );
             uint256 feeSharesBefore = vault.balanceOf(vault.feeRecipient());
+            PikMarkObservation memory beforeDefault = _observePikBeforeDefault(id);
             vm.prank(servicer);
             defaultManager.declareDefault(id, bytes32(0));
+            _recordPikSettlementOnDefault(id, beforeDefault);
             _acceptAccruedFeeDilution(feeSharesBefore);
             _syncPastDueGhostOnDeclare(id); // H-5: this declare may convert a past-due facility
             ++have;
@@ -1503,7 +1821,7 @@ contract CreditHandler is Test {
 
         uint256 newFace = outstanding - principal;
         uint256 expectedConsumed = mark > newFace ? mark - newFace : 0;
-        _executeRepayment(id, 0, principal, outstanding);
+        if (!_executeRepayment(id, 0, principal, outstanding)) return;
         _consumeGhostMarkOnCollection(id, newFace);
         if (_isDefaulted(st)) ghostUnsyncedRecovery[id] += principal;
         if (_isLive(st)) _syncPastDueGhostOnRepay(id);

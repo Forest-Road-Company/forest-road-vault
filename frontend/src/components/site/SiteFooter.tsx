@@ -50,6 +50,9 @@ export function SiteFooter() {
               <Link href="/points" className="block py-1 text-on-navy-muted hover:text-on-navy">
                 Points
               </Link>
+              <Link href="/curators" className="block py-1 text-on-navy-muted hover:text-on-navy">
+                Curators
+              </Link>
               <Link href="/app" className="block py-1 text-on-navy-muted hover:text-on-navy">
                 App
               </Link>
@@ -71,7 +74,7 @@ export function SiteFooter() {
               {/* External destinations: plain anchors, not next/link, off-origin URLs are never
                   client-side navigations, so Link adds nothing and obscures the intent. */}
               <a
-                href="https://discord.gg/3rrEx8bxWr"
+                href="https://discord.com/invite/swXQWqrAgf"
                 target="_blank"
                 rel="noreferrer noopener"
                 className="block py-1 text-on-navy-muted hover:text-on-navy"

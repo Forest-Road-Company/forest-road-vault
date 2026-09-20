@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.30;
 
+import {IMintRedeemController} from "../../src/interfaces/IMintRedeemController.sol";
 import {TokenLayerFixture} from "../helpers/TokenLayerFixture.sol";
 
 /// @title PoC for the Cantina Managed question on `MintRedeemController._redeem` (line 594)
@@ -24,12 +25,43 @@ contract PoC_CantinaArmedFreezeDirectRedeem is TokenLayerFixture {
         // ...and still nothing is physically missing, so `_requireCustodiedReserve` sees nothing.
         assertEq(reserves.idleCustodyShortfall(), 0, "arm is pre-physical by construction");
 
-        (uint256 quoted,) = controller.previewRedeem(100e18);
-        assertEq(quoted, 100e6, "the armed protocol still quotes PAR to a direct holder");
+        // FIXED 2026-09-09. The direct door now shuts with the other two.
+        vm.prank(alice);
+        vm.expectPartialRevert(IMintRedeemController.Controller_ReserveLossArmFreeze.selector);
+        controller.redeem(100e18, 0);
+    }
+
+    /// @notice THE GUARD IS NOT A PERMANENT FREEZE: opening the incident lifts it.
+    /// @dev This is the property that made the predicate's second limb worth getting right. The
+    ///      guard keys on `activeReserveLossIncidentId`, which only `ratifyAndOpen` sets, NOT on
+    ///      the `incidentId` that `reserveLossArm` returns — that one is DERIVED
+    ///      (`custodyEventId(armId)`) and is non-zero for any standing arm, so a guard keyed on it
+    ///      could never fire at all. Asserted on the SELECTOR rather than on success, because once
+    ///      the loss is physical `_requireCustodiedReserve` legitimately holds the door shut for
+    ///      its own reasons; what must stop is THIS guard.
+    function test_FIXED_openingTheIncidentLiftsTheArmFreeze() public {
+        _mintUSDfr(alice, 100e6);
+        _armReserveLoss(3);
 
         vm.prank(alice);
-        uint256 got = controller.redeem(100e18, 0);
-        assertEq(got, 100e6, "DIRECT REDEMPTION SETTLED AT PAR WHILE THE INTERLOCK WAS ARMED");
+        (bool okBefore, bytes memory dataBefore) =
+            address(controller).call(abi.encodeWithSignature("redeem(uint256,uint256)", uint256(100e18), uint256(0)));
+        assertFalse(okBefore, "the armed window must refuse");
+        assertEq(bytes4(dataBefore), IMintRedeemController.Controller_ReserveLossArmFreeze.selector, "armed freeze");
+
+        // The signalled loss becomes physical and governance ratifies it.
+        _createReserveShortfall(50e18);
+        _ratifyCurrentReserveLoss(50e18);
+
+        vm.prank(alice);
+        (bool okAfter, bytes memory dataAfter) =
+            address(controller).call(abi.encodeWithSignature("redeem(uint256,uint256)", uint256(100e18), uint256(0)));
+        if (!okAfter) {
+            assertTrue(
+                bytes4(dataAfter) != IMintRedeemController.Controller_ReserveLossArmFreeze.selector,
+                "the ARM freeze must lift once the incident is open, whatever else refuses"
+            );
+        }
     }
 
     /// @notice MATERIALITY. The escape is not cosmetic. The holder who acted on the public
@@ -43,24 +75,25 @@ contract PoC_CantinaArmedFreezeDirectRedeem is TokenLayerFixture {
 
         _armReserveLoss(2);
 
-        // Alice reads the ReserveLossArmed event and leaves at par, in the arm window.
+        // FIXED 2026-09-09. Alice can no longer read the ReserveLossArmed event and leave at par.
         vm.prank(alice);
-        assertEq(controller.redeem(100e18, 0), 100e6, "alice exits whole");
-        assertEq(controller.totalUSDfr(), 100e18, "alice is out");
+        vm.expectPartialRevert(IMintRedeemController.Controller_ReserveLossArmFreeze.selector);
+        controller.redeem(100e18, 0);
+        assertEq(controller.totalUSDfr(), 200e18, "nobody escaped the arm window");
 
         // The loss the Guardian was signalling now materialises: 50 USDC gone from custody.
         _createReserveShortfall(50e18);
         assertEq(reserves.idleCustodyShortfall(), 50e18);
 
-        // Bob is now frozen out entirely -- `_requireCustodiedReserve` shuts the door behind alice.
-        (uint256 bobGets,) = controller.previewRedeem(100e18);
-        assertEq(bobGets, 0, "the door alice walked through is now shut");
+        // THE MATERIALITY, INVERTED. The same 50e18 hole now sits under the WHOLE 200e18 of supply
+        // rather than under whoever was too slow, which is exactly what ADR-0033 section 5's
+        // interlock is for. Both holders are frozen together by `_requireCustodiedReserve`.
+        assertEq(reserves.recognizedBackingValue(), 150e18, "the hole is carried by the full cohort");
         vm.prank(bob);
         vm.expectRevert();
         controller.redeem(100e18, 0);
-
-        // Bob's remaining claim is 100e18 USDfr against 50e18 of recognised backing. Had the
-        // interlock held alice too, the same 50e18 hole would have sat under 200e18 of supply.
-        assertEq(reserves.recognizedBackingValue(), 50e18, "bob's cohort carries the whole hole");
+        vm.prank(alice);
+        vm.expectRevert();
+        controller.redeem(100e18, 0);
     }
 }

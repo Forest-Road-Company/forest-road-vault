@@ -5,6 +5,13 @@ pragma solidity 0.8.30;
 /// @notice Mainnet-v1 treasury for canonical USDC and deployed facility principal.
 /// @dev USD values use 18 decimals. USDC amounts use the token's native 6 decimals.
 interface IReserveManager {
+    /// @notice Recognition or an opening import makes a return to legacy accounting unsafe.
+    error ReserveManager_LegacyRollbackUnsafe();
+
+    /// @notice Refuses a legacy-code rollback once accrual activation or migration has started.
+    /// @dev Read-only execution guard for a governance batch, not authority to upgrade.
+    function requireLegacyRollbackSafe() external view;
+
     /// @notice Canonical USDC was pulled into recorded idle custody.
     event USDCDeposited(address indexed from, uint256 requested, uint256 credited);
     /// @notice Canonical USDC was released from recorded idle custody.
@@ -41,6 +48,14 @@ interface IReserveManager {
     event ReserveLossArmed(uint256 indexed armId, uint256 indexed incidentId, bytes32 evidenceHash);
     /// @notice Governance cancelled an unused arm and disabled future Guardian arms.
     event ReserveLossArmCancelled(uint256 indexed armId, bytes32 indexed evidenceHash);
+    /// @notice Governance cancelled a custody false alarm while retaining all credit marks.
+    event UnratifiedReserveLossArmCancelled(
+        uint256 indexed armId, bytes32 indexed evidenceHash, uint256 retainedPrincipalImpairment
+    );
+    /// @notice A previously ratified arm must use the incident settlement path.
+
+    error ReserveManager_ArmAlreadyRatified(uint256 armId);
+
     /// @notice Governance closed the arm-bound incident and disabled future Guardian arms.
     event ReserveLossArmFinalized(uint256 indexed armId, uint256 indexed incidentId, bytes32 indexed evidenceHash);
     /// @notice Governance ratified and executed the current objective custody shortfall.
@@ -65,6 +80,13 @@ interface IReserveManager {
     event PrincipalDeployed(uint256 indexed facilityId, uint256 amount);
     /// @notice A retained origination fee became additional facility principal.
     event FeeCapitalized(uint256 indexed facilityId, uint256 amount);
+
+    /// @notice Contractually accrued PIK interest joined a facility's deployed principal.
+    /// @dev No cash moved and, unlike `FeeCapitalized`, none was retained either.
+    /// @param facilityId The facility.
+    /// @param amount 18-decimal value capitalised.
+    /// @param deployedAfter The facility's deployed principal after the act.
+    event PikCapitalized(uint256 indexed facilityId, uint256 amount, uint256 deployedAfter);
     /// @notice A cash receipt increased idle custody and reduced the stated principal leg.
     event PaymentReceived(
         uint256 indexed facilityId, address indexed payer, uint256 usdcAmount, uint256 principalReturned
@@ -102,6 +124,8 @@ interface IReserveManager {
     event ExitPrepaymentRecorded(uint256 amount, uint256 outstanding);
     /// @notice A facility loss consumed part of the historical exit-prepayment ledger.
     event ExitPrepaymentConsumed(uint256 indexed facilityId, uint256 consumed, uint256 outstanding);
+    /// @notice A custody loss consumed the surplus backing part of an exit prepayment.
+    event ExitPrepaymentAbsorbedByCustody(uint256 indexed incidentId, uint256 consumed, uint256 outstanding);
 
     /// @notice Requested USDC value exceeds recorded idle value.
     error ReserveManager_InsufficientIdleValue(uint256 requestedValue, uint256 idleValue);
@@ -254,6 +278,13 @@ interface IReserveManager {
     ///         no adjudicated loss, incident or deficit exists; future Guardian arms stay disabled.
     function cancelAndDisable(uint256 expectedArmId, bytes32 evidenceHash) external;
 
+    /// @notice Cancels an unratified custody false alarm and disables further guardian arms.
+    /// @dev Requires accounted custody and no unsettled custody incident or reserve deficit.
+    ///      Independent credit impairment and exit prepayments remain unchanged.
+    /// @param expectedArmId Exact active arm being cancelled.
+    /// @param evidenceHash Nonzero commitment to the governance resolution evidence.
+    function cancelUnratifiedArm(uint256 expectedArmId, bytes32 evidenceHash) external;
+
     /// @notice Governance kill switch for repeated Guardian arms.
     function setGuardianReserveLossArmsEnabled(bool enabled) external;
 
@@ -320,6 +351,13 @@ interface IReserveManager {
     /// @notice Adds retained origination-fee cash as facility principal without moving custody.
     function recordFeeCapitalization(uint256 facilityId, uint256 amount) external;
 
+    /// @notice Capitalises accrued PIK interest into a facility's deployed principal. No cash moves.
+    /// @dev CREDIT_ROLE, and in practice `WaterfallEngine.capitalizePik` alone, which carries every
+    ///      bound. See `ReserveManager.recordPikCapitalization` for why there is no idle check.
+    /// @param facilityId The facility.
+    /// @param amount 18-decimal value to capitalise, exact on the USDC grid.
+    function recordPikCapitalization(uint256 facilityId, uint256 amount) external;
+
     /// @notice Atomically pulls exact USDC and accounts the principal leg.
     function recordPayment(uint256 facilityId, address payer, uint256 usdcAmount, uint256 principal)
         external
@@ -347,7 +385,8 @@ interface IReserveManager {
     function principalImpairmentOf(uint256 facilityId) external view returns (uint256);
     /// @notice Recorded idle plus deployed principal, net of conservative impairments.
     function totalBackingValue() external view returns (uint256);
-    /// @notice Remaining face principal deployed to one facility.
+    /// @notice Outstanding receivable face deployed to one facility.
+    /// @dev Continuous accrual includes earned but unreceived cash and PIK interest.
     function deployedTo(uint256 facilityId) external view returns (uint256);
     /// @notice Canonical six-decimal USDC token held by the reserve.
     function usdc() external view returns (address);

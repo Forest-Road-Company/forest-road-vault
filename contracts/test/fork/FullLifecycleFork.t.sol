@@ -50,7 +50,24 @@ contract FullLifecycleForkTest is ForkLifecycleFixture {
         uint256 vaultAssetsBefore = vault.totalAssets();
         uint256 vaultHeldBefore = usdfr.balanceOf(address(vault));
         uint256 feeSharesBefore = vault.balanceOf(ops);
-        _repay(tokenId, 20_000e18, 50_000e18);
+        // The fixture note is fixed 14%, Actual/360. Pay one earned monthly coupon,
+        // rounded to USDC's grid, rather than an arbitrary payment at origination.
+        _warp(30 days);
+        {
+            uint256 interest = (uint256(200_000e18) * 1400 * 30 days / (10_000 * 360 days)) / 1e12 * 1e12;
+            assertEq(reserves.accruedDebt(tokenId).interest, interest, "interest matches the signed note");
+            uint256 accruedAssets = vault.totalAssets();
+            assertGt(accruedAssets, vaultAssetsBefore, "senior income exists before the cash receipt");
+            _repay(tokenId, interest, 50_000e18);
+            // One USDC base unit plus one wei per elapsed second bounds native settlement
+            // rounding and the portfolio's integer-slope interpolation, as in the cash journal.
+            assertApproxEqAbs(
+                vault.totalAssets(),
+                accruedAssets,
+                1e12 + 30 days,
+                "receipt changes accrued NAV only within its stated rounding bound"
+            );
+        }
 
         // Launch policy: realized senior yield is recognized and its performance fee is
         // checkpointed atomically in the repayment transaction.

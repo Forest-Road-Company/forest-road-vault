@@ -2028,7 +2028,8 @@ contract CascadeSeniorityHandler is GuardProbe {
             paymentScheduleHash: keccak256("audit-cascade-schedule"),
             rateIndexRef: bytes32(0),
             renewalTermsHash: bytes32(0),
-            offchainRef: keccak256("audit-cascade-ref")
+            offchainRef: keccak256("audit-cascade-ref"),
+            pik: false
         });
     }
 

@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 import {CreditLayerFixture} from "../helpers/CreditLayerFixture.sol";
+import {IReserveManager} from "../../src/interfaces/IReserveManager.sol";
 import {ICuratorModule} from "../../src/interfaces/ICuratorModule.sol";
 import {Config} from "../../src/libraries/Config.sol";
 import {Roles} from "../../src/libraries/Roles.sol";
@@ -163,25 +164,34 @@ contract Fix_R6CF1_CustodyCuratorFreeze is CreditLayerFixture {
         curator.withdrawFirstLoss(FILM, 1e18);
     }
 
-    /// @notice C-01 clause 2. A LATCHED residual deficit keeps the freeze on even after governance
-    ///         closes the incident — closing is a declaration that the adjudication is finished,
-    ///         not that the capital was found. This ordering is forced by the contract:
-    ///         `resolveReserveDeficit` REQUIRES the incident to be closed first.
-    function test_R6CF1_latchedDeficitHoldsTheFreezeAfterTheIncidentCloses() public {
-        // A loss larger than every layer combined latches `reserveDeficit`: layer 1 holds 300k,
-        // the backstop mock is unfunded and the vault is unstaked, so 100k has nowhere to go.
+    /// @notice An arm with an unfunded custody deficit cannot be closed through the legacy entry.
+    /// @dev Finalization releases the curator freeze only after actual capital restores backing.
+    function test_latchedDeficitRequiresFundedArmFinalization() public {
         _mintUSDfrTo(alice, 100_000e18);
         uint256 armId = _applyCustodyLoss(44, 400_000e18);
-        assertEq(reserves.reserveDeficit(), 100_000e18, "a residual deficit must have latched");
-
+        assertEq(reserves.reserveDeficit(), 100_000e18);
         (uint256 incidentId,) = reserves.activeReserveLossIncident();
+        vm.expectRevert(abi.encodeWithSelector(IReserveManager.ReserveManager_ArmAlreadyActive.selector, armId));
         vm.prank(admin);
         reserves.closeReserveLossIncident(incidentId);
         (uint256 stillActive,) = reserves.activeReserveLossIncident();
-        assertEq(stillActive, 0, "the incident is closed");
+        assertEq(stillActive, incidentId);
         (uint256 stillArmed,,,) = reserves.reserveLossArm();
-        assertEq(stillArmed, armId, "the canonical adjudication arm remains live");
-        assertTrue(curator.custodyFreezeActive(), "the arm and residual still hold layer 1");
+        assertEq(stillArmed, armId);
+        assertTrue(curator.custodyFreezeActive());
+        vm.expectRevert(
+            abi.encodeWithSelector(IReserveManager.ReserveManager_DeficitStillExists.selector, 100_000e18, 100_000e18)
+        );
+        vm.prank(admin);
+        reserves.finalizeAndDisable(armId, keccak256("unfunded"));
+        vm.startPrank(bob);
+        usdc.approve(address(reserves), 100_000e6);
+        reserves.recapitalize(100_000e6);
+        vm.stopPrank();
+        vm.prank(admin);
+        reserves.finalizeAndDisable(armId, keccak256("funded"));
+        assertEq(reserves.reserveDeficit(), 0);
+        assertFalse(curator.custodyFreezeActive());
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -243,8 +253,8 @@ contract Fix_R6CF1_CustodyCuratorFreeze is CreditLayerFixture {
 
     /// @notice C-01 clause 4. The pre-arm must outlast the FULL governance path, and that duration
     ///         must be DERIVED — a hardcoded literal silently becomes wrong the day governance
-    ///         retunes any of the three parameters. Asserted here against the `Config` launch
-    ///         parameters, which are the floor when no governor is wired.
+    ///         retunes any of the three parameters. Asserted here against the preserved ten-day
+    ///         custody floor, including when no governor is wired.
     function test_R6CF1_preArmOutlastsTheDerivedGovernancePath() public view {
         assertGt(
             uint256(curator.custodyPreArmDuration()),
@@ -460,7 +470,7 @@ contract Fix_R6CF1_CustodyCuratorFreeze is CreditLayerFixture {
     // ─────────────────────────────────────────────────────────────────────
 
     function _configGovernancePath() internal pure returns (uint256) {
-        return uint256(Config.GOV_VOTING_DELAY) + uint256(Config.GOV_VOTING_PERIOD) + Config.TIMELOCK_MIN_DELAY;
+        return 10 days; // Preserved custody floor, independent of the new launch vote length.
     }
 
     function _applyCustodyLoss(uint256 context, uint256 loss) internal returns (uint256 armId) {

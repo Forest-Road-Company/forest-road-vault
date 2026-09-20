@@ -6,10 +6,9 @@ import {ICommitmentLedger} from "./interfaces/ICommitmentLedger.sol";
 import {IConservativeImpairmentBook} from "./interfaces/IConservativeImpairmentBook.sol";
 
 /// @title ConservativeImpairmentMath — the ADR-0022 conservative-redemption NAV arithmetic
-/// @notice Routes the event-aware junior-cascade residual from `CommitmentLedger` through the
-///         governed G2W unattested-past-due clamp and relief ramp. W7 deliberately changes the
-///         pre-W7 aggregate arithmetic: exact undrawn-event re-snapshotting cannot be derived from
-///         the old class aggregates.
+/// @notice Routes the ledger's fixed-class junior residual through the governed past-due clamp
+///         and relief ramp. Per-class remaining-principal aggregates preserve the prior event
+///         calculation; the original algorithm remains a test-only equivalence reference.
 /// @dev **STATELESS AND UNPRIVILEGED BY CONSTRUCTION.** No storage, no constructor arguments, no
 ///      roles, no upgrade hook, no value handling. Every external call it makes is `view`, hence a
 ///      `STATICCALL`: the book it is handed, that book's ledger and registry, and the vault read
@@ -40,9 +39,9 @@ import {IConservativeImpairmentBook} from "./interfaces/IConservativeImpairmentB
 ///      this implementation against an independently structured reconstruction over published
 ///      event rows; the live counterpart verifies declaration, draw, recovery and release wiring.
 ///
-///      **HISTORICAL PRE-W7 EXTRACTION MEASUREMENTS FOLLOW.** W7 replaces the aggregate read path
-///      with a ledger walk, so the figures below are context, not current certification evidence;
-///      `W7_PerEventLadder.t.sol` is the current hard-probe measurement. The manager is behind an ERC-1967 proxy, so every value this calculator reads back
+///      The extraction measurements below are historical. The current ledger uses fixed-class
+///      aggregates, and the current measurements are recorded in
+///      `docs/remediation/ACCRUAL_BUILD_LOG_2026-09-12.md`. The manager's proxy means each read
 ///      costs a proxy delegatecall hop. RE-MEASURED ON THE MERGED TREE, 2026-08-08, with ONE
 ///      harness run against BOTH trees (same fixture, same cooling) rather than two reports
 ///      compared across sessions — the figures below therefore price the WHOLE change (the
@@ -118,7 +117,7 @@ import {IConservativeImpairmentBook} from "./interfaces/IConservativeImpairmentB
 ///      expensive, the answer is to REVERT the extraction and find margin elsewhere, not to batch
 ///      the reads.
 ///
-///      **WHAT THE EXTRACTION BOUGHT, MEASURED ON THE MERGED BUILD.** `DefaultManager` ships with
+///      **WHAT THE EXTRACTION BOUGHT, MEASURED ON THE MERGED BUILD.** the historical `DefaultManager` build had
 ///      545 bytes of runtime margin. The G2W synthesis alone costs it 204 bytes and it had 215, so
 ///      without this extraction the two fixes could not both have shipped — the ~2.1 KB of
 ///      arithmetic living here is exactly what made room for the owner decision.
@@ -128,18 +127,15 @@ contract ConservativeImpairmentMath {
     ///         curator first-loss per CLASS, then the global sGROVE backstop.
     /// @dev ADR-0022 conservative-redemption NAV. Bounded loop over the fixed class set.
     ///
-    ///      W7 retires the drawn/undrawn aggregate closed form. It is impossible in general: two
-    ///      books can expose byte-identical aggregates while containing different event sizes and
-    ///      class allocations, so their class-specific curator delivery differs. `CommitmentLedger`
-    ///      therefore registers every declared event and walks the actual cascade in forward and
-    ///      reverse declaration order. Under ADR-0035 drawn and undrawn rows both consume the same
-    ///      shared live reserve; no row owns a ceiling or snapshot. Each event consumes its class
-    ///      curator pool first, then the reserve still live at its turn. The lower of the two
-    ///      full-realization ladders is the
-    ///      conservative credit: it is neither above what the worst enumerated order can fund nor
-    ///      below what that order physically delivers. This also removes W6's unconditional
-    ///      subtraction of curator capital from drawn room, which under-credited a funded cohort
-    ///      whose principals dominated every room in both orders.
+    ///      The ledger maintains total remaining declared principal P_c for each class. After
+    ///      reserving min(pastDue_c, pool_c) for that class's past-due cohort, its available
+    ///      curator pool is A_c. Declared curator delivery is sum_c min(P_c, A_c).
+    ///      The shared sGROVE reserve then delivers min(remaining declared demand, reserve
+    ///      after past-due). This shared pool has no event-owned cap under ADR-0035.
+    ///      The fixed class count makes this read O(1) in the number and order of default rows.
+    ///      `contracts/test/helpers/CommitmentLedgerReference.sol` preserves the original
+    ///      event algorithm; `contracts/test/unit/CommitmentLedgerResiduals.t.sol` compares it
+    ///      with the aggregate result across randomized balances, rows and declaration orders.
     ///
     ///      ─────────────────────────────────────────────────────────────────────────────────────
     ///      OWNER DECISION 2026-08-07 (G2W): AN UNATTESTED PAST-DUE MARK IS NOT AN ATTESTED DEFAULT
@@ -249,16 +245,14 @@ contract ConservativeImpairmentMath {
     ///      offered to the PAST-DUE cohort FIRST. With a fixed junior pool `J` split as
     ///      `j_pastDue + j_declared`, the reported mark is `(D - j_declared) + w*(P - j_pastDue)`,
     ///      which is MAXIMISED by sending all of `J` to the discounted cohort because `w < 1`. Total
-    ///      past-due priority is preserved as the fixed policy step before the declared-event
-    ///      forward/reverse ladder. W7 does not reinterpret a merely past-due facility as a
-    ///      declared event: it has no executable loss row until the attested declaration occurs.
+    ///      past-due priority is preserved before the declared class-aggregate calculation.
+    ///      A merely past-due facility has no declared row until its attested declaration.
     ///
-    ///      `pastDueSenior <= residual` IS A THEOREM, NOT AN ASSUMPTION — and it must be, because
-    ///      the registry subtracts them and an underflow there would revert every redemption. W7
-    ///      makes it structural: `pastDueSenior = pastDueGross - pastDueJunior`, while
-    ///      `residual = pastDueSenior + (declaredGross - declaredJunior)`. Every event's junior
-    ///      delivery is individually clamped by its remaining principal, so the parenthesized
-    ///      declared term cannot be negative.
+    ///      Per-class clamping guarantees pastDueSenior <= residual: pastDueSenior is
+    ///      pastDueGross - pastDueJunior, and residual adds declaredGross - declaredJunior.
+    ///      Every class's curator delivery is clamped to its declared principal and available
+    ///      curator remainder. The shared reserve draw is also clamped to residual declared
+    ///      demand, so declaredJunior cannot exceed declaredGross.
     ///
     ///      THE LOUD STOP STILL FIRES. The declared cohort is NOT clamped and NOT weighted, so a
     ///      genuine near-total senior loss on the attested path still drives the conservative NAV to
@@ -276,10 +270,9 @@ contract ConservativeImpairmentMath {
             vault = vaultAddress;
             ledger = ledgerAddress;
         }
-        // The standalone ledger owns the per-event data and the only implementation of the W7
-        // ladder. It also preserves G2W's policy attribution by offering each class's curator pool
-        // and the shared live layer-2 reserve to the discounted past-due cohort before declared
-        // events.
+        // The ledger owns both rows and their per-class remaining-principal totals. Its fixed
+        // class calculation gives past-due the first use of junior capacity, then declared rows.
+        // Declaration order does not affect this read; release preserves eventAt enumeration.
         (uint256 residual, uint256 pastDueSenior) = ICommitmentLedger(ledger).conservativeResiduals();
         if (residual == 0) return 0;
 

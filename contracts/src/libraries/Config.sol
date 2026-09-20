@@ -41,7 +41,8 @@ library Config {
     /// @dev Fixed at genesis, minted to the Forest Road treasury (ADR-0013).
     uint256 internal constant GROVE_INITIAL_SUPPLY = 1_000_000_000e18;
     uint48 internal constant GOV_VOTING_DELAY = 1 days;
-    uint32 internal constant GOV_VOTING_PERIOD = 7 days;
+    /// @dev Fresh Ethereum genesis: owner-approved 2026-09-18; existing proxy settings persist.
+    uint32 internal constant GOV_VOTING_PERIOD = 2 days;
     uint256 internal constant GOV_PROPOSAL_THRESHOLD = 1_000_000e18; // 0.1% of supply
     uint256 internal constant GOV_QUORUM_FRACTION = 4; // % of total votes
     uint256 internal constant TIMELOCK_MIN_DELAY = 2 days;
@@ -50,6 +51,9 @@ library Config {
     ///      floor prevents a broken or shortened timing dependency from failing open.
     uint256 internal constant RESERVE_LOSS_MIN_PREARM_DURATION = 11 days;
     uint256 internal constant RESERVE_LOSS_SCHEDULING_SLACK = 1 days;
+    /// @dev Preserve the original curator pre-arm floor when launch voting is shortened.
+    ///      Longer live governance schedules still extend the derived protection.
+    uint256 internal constant CURATOR_PRE_ARM_MIN_GOVERNANCE_PATH = 10 days;
 
     /// @dev Protocol fee on distributed interest (waterfall), in bps. Launch default
     ///      is deliberately modest; governance-adjustable; economic-review item.

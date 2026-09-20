@@ -7,6 +7,8 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {CreditLayerFixture} from "../helpers/CreditLayerFixture.sol";
 import {CreditHandler} from "./handlers/CreditHandler.sol";
 import {Config} from "../../src/libraries/Config.sol";
+import {ClaimBridge} from "../../src/ClaimBridge.sol";
+import {ContinuousCreditInvariantFixture} from "./handlers/ContinuousCreditInvariantFixture.sol";
 
 /// @dev Stateful-fuzz invariants for the CREDIT LAYER over the full stack
 ///      (CLAUDE.md §1.3). The two centerpiece properties — waterfall value
@@ -50,7 +52,7 @@ contract CreditInvariants is CreditLayerFixture {
         handler.setVaultAdmin(admin);
         targetContract(address(handler));
         // ghost-free helper views must not be fuzzed as actions
-        bytes4[] memory selectors = new bytes4[](21);
+        bytes4[] memory selectors = new bytes4[](22);
         selectors[0] = CreditHandler.depositAndStake.selector;
         selectors[1] = CreditHandler.originate.selector;
         selectors[2] = CreditHandler.fund.selector;
@@ -100,7 +102,32 @@ contract CreditInvariants is CreditLayerFixture {
         // invariants this repository has already been bitten by. This reach action drives the
         // expiry deterministically whenever a cohort is standing.
         selectors[20] = CreditHandler.expireReliefRamp.selector;
+        // PIK CAPITALISATION. REGISTERING THIS IS THE WHOLE POINT: an unregistered selector is
+        // never driven, and PIK1/2/3 would then hold because the path was never entered rather
+        // than because the properties are true. That is the exact failure mode the two vacuous
+        // invariants above were bitten by, and on the BSC instance PIK1/2/3 shipped vacuous for
+        // a different reason (the handler hard-coded `pik: false`) until 2026-09-09.
+        selectors[21] = CreditHandler.capitalizePik.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
+    }
+
+    /// @notice Both the refused payoff and the later successful payoff are reachable through the handler.
+    function test_legacyPayoffRefusalIsReachableInCreditHandler() public {
+        handler.depositAndStake(0, 5_000_000e6);
+        handler.originate(0, 0, 1_000_000e18);
+        uint256 id = bridge.totalOriginated();
+        assertGt(id, 0);
+        handler.fund(0);
+        assertEq(reserves.deployedTo(id), 1_000_000e18);
+        vm.warp(bridge.facility(id).nextPaymentDue);
+        handler.repay(0, 0, 1_000_000e18);
+        assertEq(handler.gPikPayoffRefusals(), 1);
+        assertEq(reserves.deployedTo(id), 1_000_000e18);
+        handler.capitalizePik(0);
+        assertGt(reserves.deployedTo(id), 1_000_000e18);
+        handler.repay(0, 0, reserves.deployedTo(id));
+        assertEq(reserves.deployedTo(id), 0);
+        assertEq(uint256(bridge.facility(id).state), uint256(ClaimBridge.LoanState.Repaid));
     }
 
     /// @notice INVARIANT (backing, ADR-0012): supply never exceeds backing — now
@@ -314,8 +341,192 @@ contract CreditInvariants is CreditLayerFixture {
         handler.ghostRampObservedExpired();
     }
 
+    // ---------------------------------------------------------------------
+    //  PIK capitalisation
+    // ---------------------------------------------------------------------
+
+    /// @notice PIK1. CAPITALISATION IS SURPLUS-NEUTRAL. Backing and supply move by the same amount.
+    /// @dev THE ONE THAT GUARDS THE CASCADE. The cascade absorbs a ratified loss out of
+    ///      `backing - supply` BEFORE it runs, so a capitalisation that raised backing alone would
+    ///      let a custody loss skip the curator draw entirely: no first-loss, no senior burn.
+    ///      Checked ACROSS each call in the handler rather than sampled between them, because "it
+    ///      netted out eventually" and "it never moved" are different claims.
+    function invariant_PIK1_capitalisationIsSurplusNeutral() public view {
+        assertEq(handler.gPikSurplusMoved(), 0, "PIK1: A CAPITALISATION MOVED backing - supply");
+    }
+
+    /// @notice Legacy PIK debt always fits the frozen-basis cursor's numerical domain.
+    function invariant_PIK2_noFacilityPassesItsCeiling() public view {
+        assertEq(handler.gPikOverCeiling(), 0, "PIK balance exceeded numeric capacity");
+        uint256 n = handler.facilitiesLength();
+        for (uint256 i; i < n; ++i) {
+            uint256 id = handler.facilities(i);
+            if (!bridge.facility(id).pik) continue;
+            assertLe(reserves.deployedTo(id), type(uint176).max, "PIK balance cannot fit its cursor");
+        }
+    }
+
+    /// @notice PIK3. Registry exposure follows deployed principal through a capitalisation.
+    /// @dev THIS IS WHAT KEEPS A CAPITALISED FACILITY WRITEABLE OFF. `DefaultManager.realizeLoss`
+    ///      pairs its write-down with `recordExposureDecrease`, which reverts
+    ///      `Registry_ExposureUnderflow` if exposure lags. A capitalisation that raised `deployed`
+    ///      without raising exposure would pin the facility in `Defaulted` forever and depress the
+    ///      senior NAV permanently.
+    function invariant_PIK3_exposureTracksDeployedThroughCapitalisation() public view {
+        assertEq(handler.gPikExposureDiverged(), 0, "PIK3: exposure and deployed diverged on a capitalisation");
+    }
+
+    /// @notice PIK4. A CONCENTRATION DIMENSION STANDING ABOVE ITS LIMIT ADMITS NOTHING NEW, EVEN AFTER
+    ///         CAPITALISATION HAS DEEPENED IT.
+    ///
+    /// @dev ADDED 2026-09-10, BECAUSE THE CONCENTRATION PROPERTY WAS VACUOUS FOR PIK IN BOTH SUITES
+    ///      THAT ENCODE IT. An adversarial round found that
+    ///      `CollateralInvariants.invariant_concentration_limitsHold` and
+    ///      `ProductionCreditGateInvariants.invariant_INV16_concentrationNeverExceededByAnOrigination`
+    ///      run on handlers that hard-code `pik: false` and never reach `recordCapitalizedExposure`,
+    ///      while THIS suite - the only one whose handler actually cranks `capitalizePik` - declared no
+    ///      concentration invariant at all. CLAUDE.md section 1.3 lists concentration limits as a
+    ///      safety-spec invariant, so the spec read as satisfied while the one path that can exceed a
+    ///      limit was unobserved. That is this repository's own recorded failure mode on the newest
+    ///      write path.
+    ///
+    ///      THE PROPERTY IS THE CORRECTED ONE, not the old one. Capitalisation MAY deepen a breach;
+    ///      that is deliberate, because a crank that reverts on a breach manufactures a credit event.
+    ///      What may never happen is an ADMISSION into a breached dimension. So this asserts the half
+    ///      that survives, against live state, on the suite that can actually reach it.
+    ///
+    ///      IT IS HONEST ABOUT ITS OWN REACH. A campaign need not drive any dimension into breach, and
+    ///      this file's rule is that a per-run assertion which passes by luck is worse than none - so
+    ///      the teeth are in the deterministic
+    ///      `PikLiveness.test_FIXED_PIK_aBreachedDimensionAdmitsNothingWhileInterestIsRecordedInFull`, which
+    ///      records interest beyond the former cap. This invariant is the standing net: it costs
+    ///      nothing, and it fires the first time a campaign does reach a breach with headroom left.
+    function invariant_PIK4_aBreachedDimensionAdmitsNothing() public view {
+        uint256 total = registry.totalBookExposure();
+        (,, uint256 floor) = registry.limits();
+        uint256 base = total > floor ? total : floor; // the book size admission measures against
+        bytes32 probe = keccak256("pik4-probe-borrower-with-no-exposure");
+
+        for (uint256 c = 1; c <= Config.NUM_CLASSES; ++c) {
+            uint256 exp = registry.classExposure(c);
+            uint256 limit = registry.classParams(c).concentrationLimitBps;
+            if (exp <= limit * base / Config.BPS) continue;
+            assertEq(
+                registry.concentrationHeadroom(c, probe, bytes32(0)),
+                0,
+                "PIK4: a class standing above its limit admitted new principal"
+            );
+        }
+    }
+
+    /// @notice DETERMINISTIC ANTI-VACUITY FOR PIK, AND IT REPLACES AN ASSERTION THAT COULD NOT FAIL.
+    /// @dev `afterInvariant` asserts that a PIK facility was DESIGNATED, which is not the same claim
+    ///      as PIK1/PIK2/PIK3 having anything to check. Both halves below have been the live defect
+    ///      in this programme within the last day: the BSC handler hard-coded `pik: false` so every
+    ///      crank reverted at the designation gate, and the Ethereum invariant file never registered
+    ///      the selector at all, so the action was never driven and all three passed anyway.
+    ///
+    ///      It is a plain unit test rather than a per-run invariant assertion ON PURPOSE. Handler
+    ///      ghosts reset between fuzz runs and `afterInvariant` sees only the last one, so a per-run
+    ///      assertion on `gPikCalls` would fail by luck, and this file's own rule is that such an
+    ///      assertion is worse than none. Driving the sequence by hand cannot fail by luck.
+    function test_wiring_capitalizePikIsRegisteredAndActuallyCapitalises() public {
+        FuzzSelector[] memory targets = targetSelectors();
+        bool registered;
+        for (uint256 i; i < targets.length; ++i) {
+            if (targets[i].addr != address(handler)) continue;
+            for (uint256 j; j < targets[i].selectors.length; ++j) {
+                if (targets[i].selectors[j] == CreditHandler.capitalizePik.selector) registered = true;
+            }
+        }
+        assertTrue(registered, "capitalizePik is not a fuzz target: PIK1/PIK2/PIK3 would pass without ever running");
+
+        // The book alternates, starting on PIK, so the first facility originated is a PIK facility.
+        handler.depositAndStake(0, 5_000_000e18);
+        handler.originate(0, 0, 1_000_000e18);
+        handler.fund(0);
+        handler.capitalizePik(0); // the action warps to the contractual due date itself
+        assertGt(handler.gPikDesignated(), 0, "the handler originated no PIK facility");
+        assertGt(handler.gPikCalls(), 0, "capitalizePik never completed: PIK1/PIK2/PIK3 assert nothing");
+    }
+
+    /// @notice The registered default action must record overdue PIK into the independent supply ledger.
+    function test_wiring_defaultRecordsPikAndKeepsAccountingInvariants() public {
+        handler.depositAndStake(0, 5_000_000e18);
+        handler.originate(0, 0, 1_000_000e18);
+        handler.fund(0);
+        uint256 id = handler.facilities(0);
+        ClaimBridge.Facility memory f = bridge.facility(id);
+        uint256 expected = reserves.deployedTo(id);
+        uint256 initialFace = expected;
+        for (uint256 i; i < 3; ++i) {
+            expected += expected * f.interestRateBps * f.paymentInterval / (10_000 * 360 days) / 1e12 * 1e12;
+        }
+        vm.warp(uint256(f.nextPaymentDue) + 2 * f.paymentInterval);
+        handler.declareDefault(0);
+        assertEq(handler.gPikSettledOnDefault(), 1, "default did not exercise coupon posting");
+        assertEq(reserves.deployedTo(id), expected, "default differs from the independent coupon model");
+        assertEq(handler.gPikTotal(), expected - initialFace);
+        invariant_backing_supplyNeverExceedsBacking();
+        invariant_supply_fullyAccounted();
+        invariant_exposure_reconciles();
+        invariant_reserves_and_pools_reconcile();
+    }
+
+    /// @notice The registered past-due action executes PIK settlement and keeps the model coherent.
+    function test_wiring_pastDueActionSettlesPikAndMaintainsBookkeeping() public {
+        FuzzSelector[] memory targets = targetSelectors();
+        bool registered;
+        for (uint256 i; i < targets.length; ++i) {
+            if (targets[i].addr != address(handler)) continue;
+            for (uint256 j; j < targets[i].selectors.length; ++j) {
+                if (targets[i].selectors[j] == CreditHandler.markPastDue.selector) registered = true;
+            }
+        }
+        assertTrue(registered, "past-due action is not a fuzz target");
+        handler.depositAndStake(0, 5_000_000e18);
+        handler.originate(0, 0, 1_000_000e18);
+        handler.fund(0);
+        handler.markPastDue(0);
+        assertEq(handler.gPikSettledOnMark(), 1, "PIK settlement guard was not exercised");
+        assertEq(handler.ghostPastDueMarks(), 0, "a settled period entered the past-due model");
+        assertGt(handler.gPikTotal(), 0, "settlement recognized no income");
+        invariant_PIK1_capitalisationIsSurplusNeutral();
+        invariant_PIK2_noFacilityPassesItsCeiling();
+        invariant_PIK3_exposureTracksDeployedThroughCapitalisation();
+        invariant_backing_supplyNeverExceedsBacking();
+        invariant_waterfall_conservesValue();
+    }
+
+    /// @notice Repeated mark requests settle every signed PIK period before the terminal mark.
+    function test_wiring_pastDueActionCatchesUpBeforeRecordingTerminalMark() public {
+        handler.depositAndStake(0, 5_000_000e18);
+        handler.originate(0, 0, 1_000_000e18);
+        handler.fund(0);
+        for (uint256 i; i < 13; ++i) {
+            handler.markPastDue(0);
+        }
+        assertEq(handler.gPikSettledOnMark(), 12, "signed PIK periods were omitted");
+        assertEq(handler.ghostPastDueMarks(), 1, "terminal mark was not recorded exactly once");
+        uint256 id = handler.facilities(0);
+        assertEq(defaultManager.pastDueContribution(id), reserves.deployedTo(id), "terminal mark omitted debt");
+        invariant_pendingImpairmentNeverUnderMarks();
+        invariant_pendingImpairmentNeverOverMarks();
+        invariant_backing_supplyNeverExceedsBacking();
+    }
+
     function afterInvariant() public view {
         assertGt(handler.callCount(), 0, "VACUOUS: credit handler executed no successful action");
+        // ANTI-VACUITY FOR PIK, ADDED 2026-09-09. On the BSC instance these three invariants were
+        // vacuous from the day they were written: the handler hard-coded `pik: false`, so every
+        // `capitalizePik` call reverted at the designation gate and was swallowed by the try/catch,
+        // and all three defect counters stayed at zero because the path was never entered. This
+        // instance never had the invariants at all. The handler now ALTERNATES the designation on
+        // `facilities.length`, so this assertion cannot fail by luck: any run that originated two
+        // facilities originated one of each book. It fails only if someone hard-codes the flag.
+        if (handler.facilitiesLength() >= 2) {
+            assertGt(handler.gPikDesignated(), 0, "VACUOUS: no PIK facility was originated");
+        }
         // OWNER DECISION 2026-08-07 (G2W) — PER-RUN ANTI-VACUITY FOR THE RELIEF RAMP.
         // `invariant_pendingImpairmentNeverUnderMarks` now models the RAMPED weight. A model that
         // is never evaluated with a live unattested cohort constrains nothing, and this repository
@@ -630,5 +841,14 @@ contract CreditInvariants is CreditLayerFixture {
             ceiling,
             "NAV OVER-MARKS SENIOR IMPAIRMENT (impairment stranded above live at-risk principal)"
         );
+    }
+}
+
+/// @dev Actual native cash accrual, signed receipts, and the shared Ethereum loss cascade.
+contract ContinuousCashCreditInvariants is ContinuousCreditInvariantFixture {}
+
+contract ContinuousPikCreditInvariants is ContinuousCreditInvariantFixture {
+    function _pikFacilities() internal pure override returns (bool) {
+        return true;
     }
 }

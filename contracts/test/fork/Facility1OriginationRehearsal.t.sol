@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
 
-import {ClaimBridge} from "../../src/ClaimBridge.sol";
+import {IFacility1Bridge} from "../helpers/Facility1HistoricalBridge.sol";
 import {IAttestationOracle} from "../../src/interfaces/IAttestationOracle.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {Roles} from "../../src/libraries/Roles.sol";
@@ -26,12 +26,9 @@ interface IController {
     function backingInvariantHolds() external view returns (bool);
 }
 
-/// @notice Rehearsal of the facility 1 origination against a pinned mainnet fork, required by
-///         CLAUDE.md prime directive 1 as amended 2026-08-27 before any real signature or transfer.
-///
-///         Proves the terms encoding, the terms hash, the three attestation digests, the mint gate
-///         and the funding accounting. It does NOT prove the production key path: the real attester
-///         keys cannot sign here, so ATTESTER_ROLE is granted to two throwaway signers on the fork.
+/// @notice Replays Facility 1 origination with disposable local signers at block 25,848,835.
+/// @dev Checks the historical terms encoding, signed hash, mint gate and funding accounting.
+///      This historical rehearsal does not authorize a current deployment or real signing.
 contract Facility1OriginationRehearsal is Test {
     address constant BRIDGE = 0x46FE513a20a1d4Fe77ecEcB763C6843D7AbBF32a;
     address constant ORACLE = 0x5e01d55B4B6c361Dd8b9B889F21A731E22281167;
@@ -46,8 +43,8 @@ contract Facility1OriginationRehearsal is Test {
     uint256 constant PK1 = 0xA11CE;
     uint256 constant PK2 = 0xB0B;
 
-    function _terms() internal pure returns (ClaimBridge.OriginationTerms memory t) {
-        t = ClaimBridge.OriginationTerms({
+    function _terms() internal pure returns (IFacility1Bridge.OriginationTerms memory t) {
+        t = IFacility1Bridge.OriginationTerms({
             classId: 2,
             borrowerId: bytes32(uint256(1)),
             stateId: bytes32(0),
@@ -58,8 +55,8 @@ contract Facility1OriginationRehearsal is Test {
             fundingRecipient: RECIPIENT,
             paymentInterval: 7889400,
             nextPaymentDue: 1790726400,
-            rateType: ClaimBridge.RateType.Fixed,
-            dayCountConvention: ClaimBridge.DayCountConvention.Thirty360,
+            rateType: IFacility1Bridge.RateType.Fixed,
+            dayCountConvention: IFacility1Bridge.DayCountConvention.Thirty360,
             renewable: false,
             paymentScheduleHash: 0xd6694762e3fb1746f2a6627abac995e529593b4638825eb3c8d6e0463f34d7e8,
             rateIndexRef: bytes32(0),
@@ -115,8 +112,8 @@ contract Facility1OriginationRehearsal is Test {
         IAccessControl(ORACLE).grantRole(Roles.ATTESTER_ROLE, vm.addr(PK2));
         vm.stopPrank();
 
-        ClaimBridge.OriginationTerms memory t = _terms();
-        bytes32 termsHash = ClaimBridge(BRIDGE).creditTermsHash(t);
+        IFacility1Bridge.OriginationTerms memory t = _terms();
+        bytes32 termsHash = IFacility1Bridge(BRIDGE).creditTermsHash(t);
         console2.log("termsHash:");
         console2.logBytes32(termsHash);
         assertEq(
@@ -132,9 +129,9 @@ contract Facility1OriginationRehearsal is Test {
         uint256 backingBefore = IReserves(RESERVES).totalBackingValue();
 
         vm.prank(OPS);
-        uint256 tokenId = ClaimBridge(BRIDGE).originate(TREASURY, t);
+        uint256 tokenId = IFacility1Bridge(BRIDGE).originate(TREASURY, t);
         assertEq(tokenId, 1, "first facility must be id 1");
-        assertEq(ClaimBridge(BRIDGE).ownerOf(1), TREASURY, "NFT must land with the treasury");
+        assertEq(IFacility1Bridge(BRIDGE).ownerOf(1), TREASURY, "NFT must land with the treasury");
 
         vm.prank(OPS);
         IWaterfall(WATERFALL).fund(1, 100_000_000); // exactly 100e6 USDC

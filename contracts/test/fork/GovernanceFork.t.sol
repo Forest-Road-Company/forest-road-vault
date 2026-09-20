@@ -57,7 +57,7 @@ contract ForkToggleImpairment is IImpairmentSource {
 ///
 ///      GOVERNANCE ARITHMETIC at these parameters (Config): GROVE supply 1e27, quorum 4% =
 ///      40,000,000e18, proposal threshold 1,000,000e18, voting delay 1 day, voting period
-///      7 days, timelock min delay 2 days. A full lifecycle therefore takes 10 days + 2s.
+///      2 days, timelock min delay 2 days. A full lifecycle therefore takes 5 days + 2s.
 contract GovernanceForkTest is ForkLifecycleFixture {
     // ── EIP-1967 implementation slot (upgrade assertions) ────────────────
     bytes32 internal constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
@@ -272,7 +272,7 @@ contract GovernanceForkTest is ForkLifecycleFixture {
 
         // launch parameters, as deployed
         assertEq(governor.votingDelay(), 1 days);
-        assertEq(governor.votingPeriod(), 7 days);
+        assertEq(governor.votingPeriod(), 2 days);
         assertEq(governor.proposalThreshold(), 1_000_000e18);
         assertEq(governor.quorumNumerator(), 4);
         assertEq(governor.quorumDenominator(), 100);
@@ -367,7 +367,7 @@ contract GovernanceForkTest is ForkLifecycleFixture {
         uint256 id = _propose(p, ops);
         assertEq(governor.proposalProposer(id), ops);
         assertEq(governor.proposalSnapshot(id), t0 + 1 days, "snapshot = propose + GOV_VOTING_DELAY");
-        assertEq(governor.proposalDeadline(id), t0 + 8 days, "deadline = snapshot + GOV_VOTING_PERIOD");
+        assertEq(governor.proposalDeadline(id), t0 + 3 days, "deadline = snapshot + GOV_VOTING_PERIOD");
         assertEq(governor.proposalEta(id), 0, "not queued yet");
         assertTrue(governor.proposalNeedsQueuing(id), "every proposal goes through the timelock");
         _assertState(id, IGovernor.ProposalState.Pending, "pending immediately after propose");
@@ -393,7 +393,7 @@ contract GovernanceForkTest is ForkLifecycleFixture {
         assertTrue(governor.hasVoted(id, ops));
 
         // exactly AT the deadline it is still Active; one second later it has Succeeded
-        _warp(7 days - 1); // now == proposalDeadline
+        _warp(2 days - 1); // now == proposalDeadline
         assertEq(block.timestamp, governor.proposalDeadline(id), "standing exactly on the deadline second");
         _assertState(id, IGovernor.ProposalState.Active, "still active AT the deadline second");
         _warp(1);
@@ -431,7 +431,7 @@ contract GovernanceForkTest is ForkLifecycleFixture {
             assertEq(durationAfter, Config.DEFAULT_EPOCH_DURATION, "untouched dials are untouched");
             assertEq(stateAfter, 10_000, "untouched dials are untouched");
         }
-        assertEq(block.timestamp, t0 + 10 days + 1, "the whole lifecycle is 1d delay + 7d vote + 2d timelock");
+        assertEq(block.timestamp, t0 + 5 days + 1, "the whole lifecycle is 1d delay + 2d vote + 2d timelock");
     }
 
     /// @notice ADR-0031 governance path on a pinned Ethereum fork. The real Governor and
@@ -552,13 +552,13 @@ contract GovernanceForkTest is ForkLifecycleFixture {
         assertEq(bpsAfter, 5_000);
         assertEq(queue.availableLiquidity(), 500_000e18, "5000bps of the SAME 1,000,000e18");
 
-        // the ADR-0022 forced hold still binds: 10 days into the governance process the
+        // the ADR-0022 forced hold still binds: five days into the governance process the
         // request is nowhere near settleable, and closeEpoch says so by NAME
         assertEq(queue.eligibleToSettleAt(requestId), requestedAt + 21 days);
         vm.expectRevert(abi.encodeWithSelector(IRedemptionQueue.Queue_AllInCooldown.selector, requestedAt + 21 days));
         queue.closeEpoch(10);
 
-        _warp(11 days + 1); // past the 21-day cooldown
+        _warp(requestedAt + 21 days + 1 - block.timestamp); // wait out the independent redemption cooldown
         queue.closeEpoch(10);
 
         (, uint256 sharesRemaining, uint256 assetsClaimable,,) = queue.request(requestId);

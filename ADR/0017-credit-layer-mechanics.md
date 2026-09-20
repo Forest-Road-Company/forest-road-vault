@@ -120,10 +120,26 @@ accounting default.
   recovered LTV survives expiry).
 - **Cure window:** per-class, default `Config.DEFAULT_MARGIN_CURE_WINDOW = 1 day`
   (ADR-0015 "hours-to-days"; economic-review item).
-- **Pause policy:** only the permissionless triggers are guardian-pausable (the lever
-  if marks are suspect). `declareDefault` / `accelerate` / `realizeLoss` /
-  `absorbLoss` are deliberately never pausable — suppressing loss recognition is not
-  an emergency remedy.
+- **Numerator (amended 2026-09-16, ADR-0038 owner decision 1):** the LTV every trigger
+  reads is `deployedTo(facility) / mark`, and under continuous accrual `deployedTo` is
+  the outstanding balance including accrued, unpaid and capitalised interest, not the
+  principal. The facility documents define the ratio the same way
+  (`docs/legal-wrapper.md` section 6.1).
+- **Pause policy (clarified 2026-09-18):** the DefaultManager pause gates its
+  permissionless triggers. Its role-gated default, acceleration and loss methods
+  have no manager-level pause guard, and curator absorption and default-freeze
+  bookkeeping have no curator-level pause guard. This is a local property, not a
+  promise that every dependency remains available.
+- **Owner-approved legacy PIK exception:** completed legacy coupons must be recorded
+  before default. A pause on WaterfallEngine, ReserveManager, MintRedeemController
+  or USDfr blocks that posting and therefore blocks declaration, including the
+  acceleration route, until the dependency is resumed. Failure rolls back the
+  entire declaration; it does not omit interest or freeze a partly updated loan.
+  The same dependency rule applies to preparatory coupon batches. A loan with no
+  completed legacy coupon does not require this posting. Continuous-accrual loans
+  retain their separate checkpoint path. Operators must resolve the posting pause,
+  prepare any backlog in bounded batches, then declare default under standing
+  default evidence.
 
 ## Roles
 
@@ -132,3 +148,11 @@ loss realization) — Forest Road servicing keys until Phase G binds these paths
 attested facts; the role then gates who may *execute* an attested action, not what is
 true. CREDIT_ROLE grants: WaterfallEngine + DefaultManager on treasury/controller/
 registry/bridge; DefaultManager on CuratorModule (`absorbLoss`).
+
+## Legacy PIK recognition before default and bounded preparation, 2026-09-18
+
+The owner's instruction to record earned legacy PIK before declaring default applies to both unmarked and already past-due loans, including acceleration. All completed contractual coupons are recorded at the note's frozen basis and schedule, with both configured interest and performance fees. Default stops further earning; preparation must neither erase an existing risk mark nor assert a cure. Calls either complete their bounded postings or revert their own changes.
+
+The API ceiling remains sixteen coupons per preparation or declaration call, but it is not a transaction-gas guarantee. Bound, recognition-disabled upgrade fixtures with production credit dependencies and a live assessment exceed the 16,777,216-gas comparison budget at sixteen. The owner accepted this legacy-only limitation on 2026-09-18 because the selected release uses fresh deployment with accrual enabled before funding. Reusing the upgrade route requires an exact-state gas rehearsal and smaller explicit preparation batches; the current ceiling is unchanged.
+
+The four posting-dependency pauses described above remain effective. For any future multi-transaction legacy preparation, pause and verify both the redemption queue and CuratorModule before default evidence becomes public. Keep both paused until declaration and accounting checks complete; retain the resulting class default freeze when removing the temporary pause. The earlier queue-only procedure is superseded. See the [legacy preparation runbook](../docs/LEGACY_PIK_DEFAULT_RUNBOOK.md) for the accepted scope, measurements and limits. This documentation does not claim the corrected operating sequence was executed against a live deployment.

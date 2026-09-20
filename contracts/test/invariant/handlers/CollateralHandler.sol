@@ -946,7 +946,8 @@ contract CollateralHandler is Test {
             paymentScheduleHash: keccak256("invariant-schedule"),
             rateIndexRef: bytes32(0),
             renewalTermsHash: bytes32(0),
-            offchainRef: c.offchainRef
+            offchainRef: c.offchainRef,
+            pik: false
         });
     }
 

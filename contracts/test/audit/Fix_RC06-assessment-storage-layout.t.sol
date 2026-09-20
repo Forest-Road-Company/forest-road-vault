@@ -36,24 +36,17 @@ contract LayoutProbeSource is IRevisionedImpairmentSource {
         return keccak256(abi.encode("risk", revision));
     }
 
+    function impairmentAssessmentState() external view returns (bytes32, uint256, uint256) {
+        return (keccak256(abi.encode("risk", revision)), 250e18, capacity);
+    }
+
     function impairmentBackstopCapacity() external view returns (uint256) {
         return capacity;
     }
 }
 
-/// @dev AUDIT FIX (RC-06 / re-check structural item 1). The FRV-FS-04 remediation grew
-///      `AssessmentStorage` from five fields to seven. ADR-0031 later appended the
-///      performance-fee impairment snapshot and its presence bit. Nothing in the repository or CI
-///      checks storage layout. This contract is UUPS-upgradeable over a live proxy, so a
-///      future edit that INSERTS or REORDERS a field — rather than appending — silently
-///      reinterprets every later field on the deployed proxy. That is the state-corrupting
-///      upgrade class, the only failure mode in this batch the rubric rates High, and it was
-///      guarded by eyesight alone.
-///
-///      ERC-7201 namespaced storage is invisible to `forge inspect storage-layout` (the
-///      contract declares no top-level state), so the meaningful check is this: pin every
-///      field to its exact offset from the namespace base by reading the slots directly.
-///      Inserting a field mid-struct moves everything after it and fails these assertions.
+/// @notice Pins every assessment field to its exact namespace offset, including the appended
+///         accrual snapshot. This complements the source-graph and compiler layout gates.
 contract FixRC06AssessmentStorageLayoutTest is Test {
     // keccak256(abi.encode(uint256(keccak256("forestroad.storage.AssessedImpairmentSource")) - 1))
     // & ~bytes32(uint256(0xff)) — mirrored from the contract; a change here must be deliberate.
@@ -80,7 +73,7 @@ contract FixRC06AssessmentStorageLayoutTest is Test {
         return vm.load(address(source), bytes32(uint256(BASE) + offset));
     }
 
-    /// @dev Pins all nine fields, in order, at their exact offsets from the namespace base.
+    /// @dev Pins all twelve fields, in order, at their exact offsets from the namespace base.
     function test_RC06_assessmentStorageFieldsAreAtTheirPinnedOffsets() public {
         uint64 validUntil = uint64(block.timestamp + 10 days);
         bytes32 evidence = keccak256("memorandum");
@@ -107,9 +100,11 @@ contract FixRC06AssessmentStorageLayoutTest is Test {
         // +8 performanceFeeImpairmentSnapshotted (bool) — APPENDED by ADR-0031
         assertEq(uint256(_slot(8)), 1, "slot 8: performanceFeeImpairmentSnapshotted moved");
 
-        // Nothing may be written past the declared tail: a tenth field would land here and
-        // would be invisible to the offsets above.
-        assertEq(uint256(_slot(9)), 0, "slot 9: struct grew without updating this layout pin");
+        (bytes32 accrualRiskHash, uint256 exposure,) = base.impairmentAssessmentState();
+        assertEq(_slot(9), accrualRiskHash, "slot 9: assessedAccrualRiskStateHash moved");
+        assertEq(uint256(_slot(10)), exposure, "slot 10: assessedPastDueExposure moved");
+        assertEq(uint256(_slot(11)), 1, "slot 11: accrualStateSnapshotted moved");
+        assertEq(uint256(_slot(12)), 0, "slot 12: struct grew without updating this layout pin");
     }
 
     /// @dev Every remediation field must be APPENDED, never inserted. If a future change
@@ -128,7 +123,7 @@ contract FixRC06AssessmentStorageLayoutTest is Test {
         // would leave a stale directional snapshot that could revive a dead assessment.
         vm.prank(admin);
         source.clearAssessment();
-        for (uint256 i = 1; i <= 8; ++i) {
+        for (uint256 i = 1; i <= 11; ++i) {
             assertEq(uint256(_slot(i)), 0, "clearAssessment left a field set");
         }
         assertEq(address(uint160(uint256(_slot(0)))), address(base), "clear must not touch baseSource");

@@ -31,6 +31,9 @@ post-recovery payment to those redeemers.
 
 ### 1. Time-limited governed assessment
 
+The continuous-income refinement below supersedes the absolute-value matching rule for
+accruing overdue cohorts. It preserves the existing publication authority and expiry bounds.
+
 `AssessedImpairmentSource` wraps both impairment views exposed by `DefaultManager`.
 Governance may publish an absolute `assessedSeniorImpairment` denominated in 18-decimal USDfr,
 calculated after professionally estimated recoveries and both junior layers.
@@ -140,3 +143,58 @@ Before staking and before requesting redemption, the frontend must disclose:
   of the vault.
 - Governance gains a material valuation power. Timelock delay, evidence publication, monitoring,
   and valuation-policy sign-off are therefore mainnet gates.
+
+## Continuous overdue income, 2026-09-16
+
+For an undeclared overdue cohort, elapsed interest increases gross receivable face without
+creating a new recovery event. Binding an absolute assessment to that moving amount caused
+an otherwise current memorandum to expire in practice on the next second. The assessment
+now retains its validity and reserves all additional overdue income at zero assumed recovery
+until that income is professionally reassessed.
+
+At publication record senior assessment `A0`, performance-fee impairment `F0`, overdue gross
+exposure `E0` across all undeclared overdue cohorts, reachable shared capacity `K0`, and the
+separate risk identity returned by
+`DefaultManager.impairmentAssessmentState()`. At a later read, let `E` be current overdue
+exposure and `C` the current conservative senior impairment. While identity and expiry remain
+valid, `E >= E0`, and current shared capacity is at least `K0`:
+
+- senior redemption impairment is `min(C, A0 + E - E0)`;
+- performance-fee impairment is `F0 + E - E0`.
+
+The initial fee mark still includes the junior-capital credit fixed at publication. A beneficial
+backstop contribution can reduce the live senior ceiling, but cannot offset the additional gross
+income reserved for fee accounting. BSC has no shared backstop and returns zero capacity.
+
+The new risk identity retains chain and manager identity, impairment revision, module wiring,
+class curator balances, declared principal, drawn principal, commitment-ledger aggregates,
+and the recorded relief anchor. Neutral posting moves face between recorded and unposted
+terms without changing the identity or total exposure. A new overdue mark, cure, repayment,
+default, loss, or relevant capital change continues to require fresh assessment evidence.
+The correction changes the assessment wrapper's impairment views; loss realization retains
+the chain's existing curator, shared-backstop where present, and senior cascade.
+
+The existing `impairmentStateHash()` and `impairmentRiskStateHash()` retain their exact legacy
+compositions, including accruing overdue exposure. This preserves conservative behavior for
+an older wrapper during an accounting-first upgrade. The new tuple is a separate interface;
+its moving exposure must never be ignored by a consumer.
+
+The wrapper appends three fields after its existing nine storage fields. On the first upgrade
+from the previous implementation, existing memoranda lack the new presence flag and fall
+back to conservative pricing until republication, even if the old exact hash still matches.
+The same holds after a rollback only if the appended fields were cleared first.
+Operational order is:
+update the linked default library and DefaultManager, update the wrapper, then republish a
+supported memorandum. The previous wrapper's upgrade authorization executes before its
+replacement is installed; it cannot enforce the new interface. If upgraded first, its existing
+memorandum still falls back conservatively and publication refuses an incompatible base.
+
+**Before any rollback of the wrapper or DefaultManager, governance must clear the
+assessment using the current wrapper and verify the appended snapshot fields are zero.**
+The previous implementation cannot clear them. Without this step, a memorandum published
+under the previous code can inherit a stale accrual snapshot when upgraded forward; the
+reviewed case over-reserves loss. Restore the compatible DefaultManager and wrapper in
+the order above, then publish a fresh supported memorandum.
+
+No deployment or governance transaction is executed by this correctness change. See
+[validation and contract paths](../docs/remediation/ASSESSMENT_ACCRUAL_FIX_2026-09-16.md).

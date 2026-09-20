@@ -767,17 +767,24 @@ contract Fix_R17_ControllerTokenLayer is TokenLayerFixture {
     ///         transaction away. The sibling setters on `ReserveManager` already refuse a codeless
     ///         address; this applies the same constraint.
     function test_R17_C6_anEOACannotBeNamedALossSource() public {
-        _mintUSDfr(alice, 100e6);
+        address plainEOA = makeAddr("controller-plain-eoa-loss-source");
+        assertEq(plainEOA.code.length, 0, "plain-EOA control requires a codeless account");
+        vm.prank(complianceAdmin);
+        compliance.setAllowed(plainEOA, true);
+        usdc.mint(plainEOA, 100e6);
+        _mintUSDfr(plainEOA, 100e6);
 
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IMintRedeemController.Controller_LossSourceNotContract.selector, alice));
-        controller.setLossSource(alice, true);
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintRedeemController.Controller_LossSourceNotContract.selector, plainEOA)
+        );
+        controller.setLossSource(plainEOA, true);
 
-        assertFalse(controller.isLossSource(alice));
+        assertFalse(controller.isLossSource(plainEOA));
         vm.prank(creditModule);
-        vm.expectRevert(abi.encodeWithSelector(IMintRedeemController.Controller_NotLossSource.selector, alice));
-        controller.burnLoss(alice, 100e18);
-        assertEq(usdfr.balanceOf(alice), 100e18, "A NAMED HOLDER WAS SEIZED");
+        vm.expectRevert(abi.encodeWithSelector(IMintRedeemController.Controller_NotLossSource.selector, plainEOA));
+        controller.burnLoss(plainEOA, 100e18);
+        assertEq(usdfr.balanceOf(plainEOA), 100e18, "A NAMED HOLDER WAS SEIZED");
     }
 
     /// @notice R17. The constraint is on AUTHORIZATION only. A governance kill-switch that a

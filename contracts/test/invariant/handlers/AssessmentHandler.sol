@@ -23,6 +23,7 @@ contract AssessmentHandler is Test {
     bytes32 public modelStateHash;
     bytes32 public modelRiskStateHash;
     uint256 public modelBackstopCapacity;
+    uint256 public modelPastDueExposure;
     bool public modelPresent;
 
     uint256 public publishCount;
@@ -55,8 +56,7 @@ contract AssessmentHandler is Test {
         modelPerformanceFeeImpairment = assessed + (base.performanceFeeImpairment() - conservative);
         modelValidUntil = validUntil;
         modelStateHash = base.impairmentStateHash();
-        modelRiskStateHash = base.impairmentRiskStateHash();
-        modelBackstopCapacity = base.impairmentBackstopCapacity();
+        (modelRiskStateHash, modelPastDueExposure, modelBackstopCapacity) = base.impairmentAssessmentState();
         modelPresent = true;
         publishCount++;
         callCount++;
@@ -135,19 +135,21 @@ contract AssessmentHandler is Test {
 
     function expectedActive() public view returns (bool) {
         if (!modelPresent || block.timestamp > modelValidUntil) return false;
-        if (base.impairmentStateHash() == modelStateHash) return true;
-        return modelRiskStateHash != bytes32(0) && base.impairmentRiskStateHash() == modelRiskStateHash
-            && base.impairmentBackstopCapacity() >= modelBackstopCapacity;
+        (bytes32 risk, uint256 exposure, uint256 capacity) = base.impairmentAssessmentState();
+        return risk == modelRiskStateHash && exposure >= modelPastDueExposure && capacity >= modelBackstopCapacity;
     }
 
     function expectedPendingSeniorImpairment() external view returns (uint256) {
         uint256 conservative = base.pendingSeniorImpairment();
         if (!expectedActive()) return conservative;
-        return modelAssessed < conservative ? modelAssessed : conservative;
+        uint256 adjusted = modelAssessed + base.pastDueExposure() - modelPastDueExposure;
+        return adjusted < conservative ? adjusted : conservative;
     }
 
     function expectedPerformanceFeeImpairment() external view returns (uint256) {
-        return expectedActive() ? modelPerformanceFeeImpairment : base.performanceFeeImpairment();
+        return expectedActive()
+            ? modelPerformanceFeeImpairment + base.pastDueExposure() - modelPastDueExposure
+            : base.performanceFeeImpairment();
     }
 
     function _clearModel() private {
@@ -157,6 +159,7 @@ contract AssessmentHandler is Test {
         modelStateHash = bytes32(0);
         modelRiskStateHash = bytes32(0);
         modelBackstopCapacity = 0;
+        modelPastDueExposure = 0;
         modelPresent = false;
     }
 }

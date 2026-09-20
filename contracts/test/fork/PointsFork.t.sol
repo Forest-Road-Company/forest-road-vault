@@ -5,6 +5,7 @@ import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol"
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {console2} from "forge-std/console2.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 import {ForkLifecycleFixture} from "./ForkLifecycleFixture.sol";
 import {PointsModule} from "../../src/PointsModule.sol";
@@ -57,6 +58,80 @@ contract GasBurnerPoints {
 ///         That is what makes the 1x-vs-3x comparison an exact equality rather than a
 ///         tolerance, and it is asserted, not assumed.
 contract PointsForkTest is ForkLifecycleFixture {
+    /// @dev Mirror of `ReserveRoundingLib.AccrualRoundingAllocated` for `vm.expectEmit`.
+    event AccrualRoundingAllocated(
+        uint256 indexed facilityId,
+        uint64 indexed closureNonce,
+        uint256 amount,
+        uint256 prepaid,
+        uint256 curator,
+        uint256 backstop,
+        uint256 senior,
+        uint256 unabsorbed,
+        uint256 markConsumed
+    );
+    /// @dev Mirror of `ReserveAccrualCreditLib.AccrualLoanAligned` for `vm.expectEmit`.
+    event AccrualLoanAligned(
+        uint256 indexed facilityId,
+        uint64 indexed closureNonce,
+        uint64 at,
+        uint256 positiveCorrection,
+        uint256 roundingLoss,
+        bool stopped
+    );
+
+    // ── ADR-0038 continuous-accrual closure figures (derived by `_modelClosure`) ──────
+    // ADR/0038-continuous-interest-accrual-to-susdfr.md ("Implementation mechanism and
+    // checkpoint, 2026-09-11": "Maturity or earlier default declaration stops earning";
+    // Ethereum's "curator -> sGROVE -> senior correction"), CONTINUOUS_ACCRUAL_OWNER_DIRECTIONS
+    // _2026-09-11.md ("Both existing fees on both interest types": "Losses still use each chain's
+    // native cascade. Ethereum uses curator, sGROVE, then senior"), ACCRUAL_BUILD_LOG_2026-09-12.md
+    // ("WP3f/WP4: rounding continuation and ordered correction") and accrual-panel/
+    // LIFECYCLE_ACCOUNTING_2026-09-11.md (lines 51-57, the formula; 182-189, the native order).
+    // Declaring a default CLOSES the loan's first technical segment. The Book streamed that
+    // segment at an integer slope plus a mulDiv remainder; the closure compares the recognized
+    // amount with the grid-floored canonical simple interest. When recognized > canonical the
+    // excess is a sub-native-unit rounding loss charged through the native cascade, curator
+    // layer FIRST, before any real loss lands; when canonical > recognized the book is credited
+    // instead and nothing is charged. Fixture facility: 1400 bps, Actual/360, maturity one
+    // year out, cap = grid-floored full-year interest, scale 1e12. Every test below self-checks
+    // its literal against the model.
+    //   4e23, 30 days: recognized 4,666,666,666,636,563,503,188 minus canonical
+    //     4,666,666,666,000,000,000,000 = 636,563,503,188 (rounding loss, charged).
+    //   8e23, 30 days: recognized 9,333,333,333,273,127,006,377 minus canonical
+    //     9,333,333,333,000,000,000,000 = 273,127,006,377 (rounding loss, charged).
+    //   6e23, 30 days: recognized 6,999,999,999,995,941,146,497 is BELOW canonical
+    //     7,000,000,000,000,000,000,000 by 4,058,853,503 (positive correction, nothing charged).
+    uint256 internal constant DUST_4E23_30D = 636_563_503_188;
+    uint256 internal constant DUST_8E23_30D = 273_127_006_377;
+    uint256 internal constant POSCORR_6E23_30D = 4_058_853_503;
+    // PointsModule `_recordCuratorLoss` folds EVERY absorption into the class survival factor,
+    // `WAD * after / before`, COMPOUNDED. The dust is epoch 0; each real loss multiplies on.
+    // Derived by `_survivalChain`; the tests self-check the literals.
+    //   2e23 posted, dust then 1e23: WAD*(2e23-D)/2e23 = 999,999,999,996,817,182, then
+    //     *(1e23-D)/(2e23-D) = 499,999,999,996,817,182.
+    //   4e23 posted, dust then 1e23, 1e23, 1e23, 5e22: WAD*(4e23-D)/4e23 = 999,999,999,999,317,182,
+    //     then 749,999,999,999,317,182; 499,999,999,999,317,182; 249,999,999,999,317,182;
+    //     124,999,999,999,317,182.
+    uint256 internal constant SURV_2E23_DUST_1E23 = 499_999_999_996_817_182;
+    uint256 internal constant SURV_4E23_DUST = 999_999_999_999_317_182;
+    uint256 internal constant SURV_4E23_DUST_L1 = 749_999_999_999_317_182;
+    uint256 internal constant SURV_4E23_DUST_L2 = 499_999_999_999_317_182;
+    uint256 internal constant SURV_4E23_DUST_L3 = 249_999_999_999_317_182;
+    uint256 internal constant SURV_4E23_DUST_L4 = 124_999_999_999_317_182;
+    // A permissionless checkpoint writes a frozen position's cached balance to
+    // `bal * survival / seen` (`_applyCuratorDilution`), which is WAD-truncated, so the cache
+    // lands BELOW the live pool by the truncation (96,812 wei in the single-loss shape, 193,623
+    // wei at each step of the repeated one). Derived by `_dilutedCache`; the tests pin the exact
+    // cache AND assert it never exceeds the live `postedOf`.
+    //   2e23 * 499,999,999,996,817,182 / WAD = 99,999,999,999,363,436,400,000.
+    //   4e23 * 749,999,999,999,317,182 / WAD = 299,999,999,999,726,872,800,000; that * L2 / L1
+    //     = 199,999,999,999,726,872,800,000; that * L3 / L2 = 99,999,999,999,726,872,800,000.
+    uint256 internal constant CACHE_2E23_DUST_1E23 = 99_999_999_999_363_436_400_000;
+    uint256 internal constant CACHE_4E23_DUST_L1 = 299_999_999_999_726_872_800_000;
+    uint256 internal constant CACHE_4E23_DUST_L2 = 199_999_999_999_726_872_800_000;
+    uint256 internal constant CACHE_4E23_DUST_L3 = 99_999_999_999_726_872_800_000;
+
     // ── independently computed expectations (see the header; floor semantics matched) ──
     // B = 1e24 USDfr, S = t0, unit 1e18, rate 1e18/unit/day, USDfr multiplier 3x.
     uint256 internal constant USDFR_1E24_1D = 3_004_109_589_041_095_890_410_937;
@@ -380,6 +455,100 @@ contract PointsForkTest is ForkLifecycleFixture {
         return _model(1e24, age, 1 days, 30_000);
     }
 
+    // ── ADR-0038 closure model (independent of the contract; see the constants above) ──
+
+    /// @dev Simple interest on a fixture facility (1400 bps, Actual/360) over `elapsed`
+    ///      seconds, floored to USDC's 1e12 grid: the canonical contractual claim.
+    function _gridInterest(uint256 principal, uint256 elapsed) private pure returns (uint256 x) {
+        x = (principal * 1400 * elapsed) / (10_000 * 31_104_000);
+        x -= x % 1e12;
+    }
+
+    /// @dev The signed discrepancy AccrualLoans._close reports when a fixture facility's FIRST
+    ///      technical segment is closed `elapsed` seconds after funding. Restates, without
+    ///      reading the contract: the segment's cap is the grid-floored full-year interest and
+    ///      is reachable, so AccrualSegments.plan ends the segment ONE SECOND before the first
+    ///      instant attaining it (capHit = ceil(gridCap * 10,000 * yearSeconds / (principal *
+    ///      rate))); AccrualBook.open streams the segment's grid amount at the integer slope
+    ///      amount / duration; reconcile credits mulDiv(amount % duration, elapsed, duration)
+    ///      at the stop; the canonical claim is `_gridInterest(principal, elapsed)`.
+    function _modelClosure(uint256 principal, uint256 elapsed)
+        private
+        pure
+        returns (uint256 positiveCorrection, uint256 roundingLoss)
+    {
+        uint256 gridCap = _gridInterest(principal, 365 days);
+        uint256 den = principal * 1400;
+        uint256 capHit = (gridCap * 10_000 * 31_104_000 + den - 1) / den;
+        uint256 end = capHit - 1 < 365 days ? capHit - 1 : 365 days;
+        uint256 segment = _gridInterest(principal, end);
+        uint256 recognized = (segment / end) * elapsed + ((segment % end) * elapsed) / end;
+        uint256 canonical = _gridInterest(principal, elapsed);
+        if (canonical > recognized) positiveCorrection = canonical - recognized;
+        else roundingLoss = recognized - canonical;
+    }
+
+    /// @dev PointsModule `_recordCuratorLoss` compounding, restated: `WAD * after / before` for
+    ///      the dust epoch on `posted`, then multiplied on by each of the first `count` losses.
+    function _survivalChain(uint256 posted, uint256 dust, uint256[4] memory losses, uint256 count)
+        private
+        pure
+        returns (uint256 survival)
+    {
+        uint256 before = posted;
+        uint256 after_ = posted - dust;
+        survival = (1e18 * after_) / before;
+        for (uint256 i; i < count; ++i) {
+            before = after_;
+            after_ = before - losses[i];
+            survival = (survival * after_) / before;
+        }
+    }
+
+    /// @dev The repeated-loss shape: 4e23 posted, DUST_8E23_30D, then 1e23, 1e23, 1e23, 5e22.
+    function _survival8(uint256 count) private pure returns (uint256) {
+        return _survivalChain(4e23, DUST_8E23_30D, [uint256(1e23), 1e23, 1e23, 5e22], count);
+    }
+
+    /// @dev PointsModule `_applyCuratorDilution` cache write-down, restated: `bal * cur / seen`.
+    function _dilutedCache(uint256 bal, uint256 cur, uint256 seen) private pure returns (uint256) {
+        return (bal * cur) / seen;
+    }
+
+    /// @dev Declares a default the way the fixture does, but with the ADR-0038 closure PINNED:
+    ///      the model's discrepancy for `principal` at `elapsed` is expected on the
+    ///      `AccrualLoanAligned` event (closure nonce 1, stopped), a rounding loss is expected
+    ///      on `AccrualRoundingAllocated` charged ENTIRELY to the curator layer (prepaid,
+    ///      backstop, senior and unabsorbed all zero), and a zero rounding loss is proved to
+    ///      emit NO `AccrualRoundingAllocated` at all. The attestation is relayed first so the
+    ///      expectations bind to `declareDefault` itself. Returns the model's figures so the
+    ///      caller can pin them to the literal constants.
+    function _declareDefaultPinningClosure(uint256 tokenId, uint256 principal, uint256 elapsed)
+        private
+        returns (uint256 positiveCorrection, uint256 roundingLoss)
+    {
+        (positiveCorrection, roundingLoss) = _modelClosure(principal, elapsed);
+        _attest(tokenId, IAttestationOracle.AttestationKind.DefaultDeclared, keccak256(abi.encode(tokenId, bytes32(0))));
+        if (roundingLoss != 0) {
+            vm.expectEmit(true, true, false, true, address(reserves));
+            emit AccrualRoundingAllocated(tokenId, 1, roundingLoss, 0, roundingLoss, 0, 0, 0, 0);
+        }
+        vm.expectEmit(true, true, false, true, address(reserves));
+        emit AccrualLoanAligned(tokenId, 1, uint64(block.timestamp), positiveCorrection, roundingLoss, true);
+        vm.recordLogs();
+        vm.prank(ops);
+        defaultManager.declareDefault(tokenId, bytes32(0));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 allocated = AccrualRoundingAllocated.selector;
+        uint256 seen;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter == address(reserves) && logs[i].topics[0] == allocated) ++seen;
+        }
+        assertEq(
+            seen, roundingLoss == 0 ? 0 : 1, "AccrualRoundingAllocated is emitted iff the closure had a rounding loss"
+        );
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // 4. Exit intent ends participation; a fresh wallet restarts the ramp.
     // ─────────────────────────────────────────────────────────────────────
@@ -691,6 +860,15 @@ contract PointsForkTest is ForkLifecycleFixture {
     ///         exact pro-rata dilution. A permissionless `checkpoint` must NOT be able to lift
     ///         the freeze (that was the original H-03 bypass); only `reconcile` may, and the
     ///         frozen window is forfeited rather than back-paid.
+    ///
+    ///         ADR-0038 (continuous accrual; see the DUST constants for the citations): declaring
+    ///         the default at day 30 closes the loan's accrual segment and charges the sub-unit
+    ///         interpolation excess `DUST_4E23_30D` to the curator layer FIRST (pinned on the
+    ///         `AccrualRoundingAllocated` event: curator = dust, prepaid, backstop, senior and
+    ///         unabsorbed all zero). That charge is itself curator loss epoch 0, at the same
+    ///         instant as the real loss (epoch 1), so the pool, the survival factor, the
+    ///         checkpoint cache and the post-thaw accrual are all pinned NET of the dust, to
+    ///         the wei. The freeze pin (`frozenAt == the loss instant`) is unchanged.
     function test_fork_curatorLossFreezesPointsAndOnlyReconcileThaws() public onFork {
         curator.setCuratorApproved(Config.CLASS_FILM_TAX_CREDITS, alice, true);
         assertEq(_mintFromUSDC(alice, 3_000_000e6), 3e24, "funds");
@@ -709,19 +887,49 @@ contract PointsForkTest is ForkLifecycleFixture {
             "30 clean days at 5x on 2e23 posted"
         );
 
-        // A real, attested default; the loss is exactly half the first-loss pool.
-        _declareDefault(tokenId, bytes32(0));
+        // Self-check: the closure and dilution models reproduce the pinned literals.
+        _selfCheckSingleLossFigures();
+
+        // A real, attested default. ADR-0038: the declaration closes the accrual segment and
+        // the dust is charged to layer 1 BEFORE the real loss, which is exactly half the
+        // ORIGINAL first-loss pool. The helper pins the allocation event: curator = dust,
+        // prepaid 0, backstop 0, senior 0, unabsorbed 0, closure nonce 1.
+        (, uint256 dust) = _declareDefaultPinningClosure(tokenId, 4e23, 30 days);
+        assertEq(dust, DUST_4E23_30D, "the closure charged exactly the modelled dust");
+        assertEq(
+            curator.poolBalance(Config.CLASS_FILM_TAX_CREDITS),
+            2e23 - DUST_4E23_30D,
+            "ADR-0038: the sub-unit accrual correction came out of layer 1 at declaration"
+        );
+        assertEq(points.curatorLossEpochCount(Config.CLASS_FILM_TAX_CREDITS), 1, "the dust registered epoch 0");
         _realizeLoss(tokenId, 1e23, bytes32(0));
 
-        assertEq(curator.poolBalance(Config.CLASS_FILM_TAX_CREDITS), 1e23, "layer 1 absorbed exactly the loss");
-        assertEq(curator.postedOf(Config.CLASS_FILM_TAX_CREDITS, alice), 1e23, "alice diluted pro-rata");
-        assertEq(points.curatorLossEpochCount(Config.CLASS_FILM_TAX_CREDITS), 1, "one loss epoch logged");
+        assertEq(
+            curator.poolBalance(Config.CLASS_FILM_TAX_CREDITS),
+            2e23 - DUST_4E23_30D - 1e23,
+            "layer 1 absorbed exactly the loss, net of the dust it had already paid"
+        );
+        assertEq(
+            curator.postedOf(Config.CLASS_FILM_TAX_CREDITS, alice),
+            2e23 - DUST_4E23_30D - 1e23,
+            "alice diluted pro-rata (she is the only curator)"
+        );
+        assertEq(points.curatorLossEpochCount(Config.CLASS_FILM_TAX_CREDITS), 2, "dust epoch 0 + real loss epoch 1");
         uint64 lossAt = points.curatorLossAt(Config.CLASS_FILM_TAX_CREDITS, 0);
         assertEq(lossAt, uint64(block.timestamp), "logged at the absorption instant");
+        assertEq(
+            points.curatorLossAt(Config.CLASS_FILM_TAX_CREDITS, 1),
+            lossAt,
+            "the real loss shares the declaration instant"
+        );
         assertEq(points.lastCuratorLossAt(Config.CLASS_FILM_TAX_CREDITS), lossAt, "legacy observability field agrees");
         (uint64 lossRound, uint256 survivalWad) = points.curatorDilutionState(Config.CLASS_FILM_TAX_CREDITS);
         assertEq(lossRound, 0, "no wipe: the pro-rata ratio was usable, so no round bump");
-        assertEq(survivalWad, 5e17, "exactly half the class survived (1e23 of 2e23)");
+        assertEq(
+            survivalWad,
+            SURV_2E23_DUST_1E23,
+            "WAD*(2e23-dust)/2e23, then *(1e23-dust)/(2e23-dust): half the class survived, compounded onto the dust"
+        );
 
         (bool frozen, uint64 frozenAt) = points.curatorFreezeStatus(alice, Config.CLASS_FILM_TAX_CREDITS);
         assertTrue(frozen, "the position is frozen by the un-reconciled loss");
@@ -745,8 +953,13 @@ contract PointsForkTest is ForkLifecycleFixture {
         assertTrue(frozen, "still frozen after the checkpoint");
         assertEq(
             points.curatorTracked(alice, Config.CLASS_FILM_TAX_CREDITS),
-            1e23,
-            "but the checkpoint DID write the cached balance down (monotone, downward only)"
+            CACHE_2E23_DUST_1E23,
+            "but the checkpoint DID write the cached balance down (monotone, downward only): 2e23 * survival / WAD"
+        );
+        assertLe(
+            points.curatorTracked(alice, Config.CLASS_FILM_TAX_CREDITS),
+            curator.postedOf(Config.CLASS_FILM_TAX_CREDITS, alice),
+            "the WAD-truncated cache never sits above the live posted amount"
         );
 
         // Only `reconcile` thaws — and only against the live posted amount.
@@ -769,14 +982,127 @@ contract PointsForkTest is ForkLifecycleFixture {
         _warp(30 days);
         assertEq(
             points.curatorPointsInClass(alice, Config.CLASS_FILM_TAX_CREDITS),
-            earnedBeforeLoss + _model(1e23, 60 days, 30 days, 50_000),
-            "accrual resumes on the SURVIVING half, keeping its original maturity anchor"
+            earnedBeforeLoss + _model(2e23 - DUST_4E23_30D - 1e23, 60 days, 30 days, 50_000),
+            "accrual resumes on the SURVIVING half (net of the dust), keeping its original maturity anchor"
         );
+    }
+
+    /// @dev The single-loss shape's ADR-0038 figures, each derived from the independent model
+    ///      and pinned to its literal (kept out of the test frame for stack depth).
+    function _selfCheckSingleLossFigures() private pure {
+        (uint256 posCorr, uint256 dust) = _modelClosure(4e23, 30 days);
+        assertEq(posCorr, 0, "4e23 at day 30: the interpolation is ABOVE the canonical claim");
+        assertEq(dust, DUST_4E23_30D, "closure model self-check: 4e23 day-30 dust");
+        assertEq(
+            _survivalChain(2e23, DUST_4E23_30D, [uint256(1e23), 0, 0, 0], 1),
+            SURV_2E23_DUST_1E23,
+            "survival self-check: dust epoch then 1e23 of (2e23 - dust), compounded"
+        );
+        assertEq(
+            _dilutedCache(2e23, SURV_2E23_DUST_1E23, 1e18),
+            CACHE_2E23_DUST_1E23,
+            "cache self-check: 2e23 * survival / WAD, truncated"
+        );
+        assertLt(CACHE_2E23_DUST_1E23, 2e23 - DUST_4E23_30D - 1e23, "the truncated cache is below the live pool");
+        assertEq(2e23 - DUST_4E23_30D - 1e23 - CACHE_2E23_DUST_1E23, 96_812, "by exactly the WAD truncation");
+    }
+
+    /// @notice ADR-0038 control for the dust pins in this section: declaring the default with
+    ///         NO elapsed accrual closes the segment with a ZERO discrepancy, so nothing is
+    ///         charged to any layer, no `AccrualRoundingAllocated` is emitted, no curator loss
+    ///         epoch is registered and nobody is frozen; the real loss then comes out of the
+    ///         UNDILUTED pool exactly and the survival factor is exactly one half. This isolates
+    ///         elapsed accrual as the sole source of the dust: it is a closure artefact of the
+    ///         streamed segment, not a cascade one.
+    function test_fork_declarationWithNoElapsedAccrualChargesNoDust() public onFork {
+        uint256 classId = Config.CLASS_FILM_TAX_CREDITS;
+        curator.setCuratorApproved(classId, alice, true);
+        assertEq(_mintFromUSDC(alice, 3_000_000e6), 3e24, "funds");
+        _stake(alice, 1e24);
+        vm.startPrank(alice);
+        usdfr.approve(address(curator), 2e23);
+        curator.postFirstLoss(classId, 2e23);
+        vm.stopPrank();
+        uint256 tokenId = _originateAndFund(4e23);
+
+        // Same block, same second: the segment is closed at zero elapsed time.
+        (uint256 posCorr, uint256 dust) = _declareDefaultPinningClosure(tokenId, 4e23, 0);
+        assertEq(posCorr, 0, "no elapsed time: nothing to credit");
+        assertEq(dust, 0, "no elapsed time: nothing to charge");
+        assertEq(curator.poolBalance(classId), 2e23, "the pool is untouched by the declaration");
+        assertEq(points.curatorLossEpochCount(classId), 0, "no curator loss epoch was registered");
+        (bool frozen, uint64 frozenAt) = points.curatorFreezeStatus(alice, classId);
+        assertFalse(frozen, "a zero-discrepancy closure freezes nobody");
+        assertEq(frozenAt, 0, "no freeze instant");
+
+        _realizeLoss(tokenId, 1e23, bytes32(0));
+        assertEq(curator.poolBalance(classId), 1e23, "the real loss comes out of the UNDILUTED pool exactly");
+        assertEq(curator.postedOf(classId, alice), 1e23, "alice diluted 2e23 -> 1e23 exactly");
+        assertEq(points.curatorLossEpochCount(classId), 1, "exactly one epoch: the real loss");
+        (uint64 lossRound, uint256 survivalWad) = points.curatorDilutionState(classId);
+        assertEq(lossRound, 0, "usable ratio, no distrust round");
+        assertEq(survivalWad, 5e17, "exactly half the class survived (1e23 of 2e23)");
+        (frozen, frozenAt) = points.curatorFreezeStatus(alice, classId);
+        assertTrue(frozen, "the REAL loss froze her");
+        assertEq(frozenAt, uint64(block.timestamp), "at the loss instant");
+    }
+
+    /// @notice CLAUDE.md 1.3 cascade ordering at dust scale (ADR-0038's correction order,
+    ///         curator -> sGROVE -> senior). With layer 2 FUNDED (150,000 USDfr of sGROVE
+    ///         coverage) and layer 1 solvent, the day-30 closure dust and the real loss are
+    ///         both taken by layer 1 alone: the backstop is not drawn while the class curator
+    ///         pool has capacity. The zero-coverage tests in this section cannot tell
+    ///         curator-first from backstop-first (an inverted order still lands on the curator
+    ///         when sGROVE is empty); this one can, and is the ordering proof for the cluster.
+    function test_fork_dustAndLossStayInLayerOneWhileLayerTwoHasCapacity() public onFork {
+        uint256 classId = Config.CLASS_FILM_TAX_CREDITS;
+        curator.setCuratorApproved(classId, alice, true);
+        assertEq(_mintFromUSDC(alice, 3_000_000e6), 3e24, "funds");
+        _stake(alice, 1e24);
+        vm.startPrank(alice);
+        usdfr.approve(address(curator), 2e23);
+        curator.postFirstLoss(classId, 2e23);
+        vm.stopPrank();
+        // Layer 2 gets REAL capacity before origination.
+        assertEq(_mintFromUSDC(ops, 500_000e6), 5e23, "ops funds the backstop");
+        vm.startPrank(ops);
+        usdfr.approve(address(sGrove), 150_000e18);
+        sGrove.fundCoverage(150_000e18);
+        vm.stopPrank();
+        assertEq(sGrove.coverageReserve(), 150_000e18, "layer 2 funded");
+        uint256 tokenId = _originateAndFund(4e23);
+        _warp(30 days);
+
+        // The helper pins backstop = 0 on the allocation event while layer 2 holds 150,000e18.
+        (, uint256 dust) = _declareDefaultPinningClosure(tokenId, 4e23, 30 days);
+        assertEq(dust, DUST_4E23_30D, "the dust is the same with layer 2 funded");
+        assertEq(curator.poolBalance(classId), 2e23 - DUST_4E23_30D, "layer 1 took the WHOLE dust");
+        assertEq(sGrove.coverageReserve(), 150_000e18, "layer 2 was NOT drawn while layer 1 had capacity");
+        (uint256 drawn,) = sGrove.eventCoverage(tokenId);
+        assertEq(drawn, 0, "no coverage was recorded against the facility");
+        assertEq(reserves.roundingLossUnabsorbed(), 0, "and nothing was left unabsorbed");
+
+        _realizeLoss(tokenId, 1e23, bytes32(0));
+        assertEq(curator.poolBalance(classId), 2e23 - DUST_4E23_30D - 1e23, "layer 1 took the real loss too");
+        assertEq(sGrove.coverageReserve(), 150_000e18, "layer 2 still untouched after the real loss");
+        (drawn,) = sGrove.eventCoverage(tokenId);
+        assertEq(drawn, 0, "still no coverage drawn for the facility");
+        assertEq(points.curatorLossEpochCount(classId), 2, "dust epoch + real loss epoch, both on layer 1");
     }
 
     /// @notice A class loss dilutes EVERY curator in the class pro-rata off a single
     ///         recorded ratio (no per-curator hook exists), and reconciling ONE curator must
     ///         not thaw another.
+    ///
+    ///         ADR-0038 sign pin: for THIS shape (6e23 at day 30) the closure's interpolation
+    ///         is `POSCORR_6E23_30D` wei BELOW the canonical claim, so the declaration credits
+    ///         the book (`positiveCorrection`) and charges the curator layer NOTHING. The exact
+    ///         `5e17` / `1e23` / `5e22` figures below survive only by the SIGN of that
+    ///         discrepancy: 4e23 and 8e23 at day 30 flip it (`DUST_4E23_30D`,
+    ///         `DUST_8E23_30D`) and would charge the pool before the loss. The sign is pinned
+    ///         on the `AccrualLoanAligned` event so a future principal or instant change fails
+    ///         loudly here instead of silently turning this test into another member of that
+    ///         cluster.
     function test_fork_curatorLossDilutesEveryCuratorInTheClassProRata() public onFork {
         uint256 classId = Config.CLASS_FILM_TAX_CREDITS;
         curator.setCuratorApproved(classId, alice, true);
@@ -803,7 +1129,13 @@ contract PointsForkTest is ForkLifecycleFixture {
         assertEq(points.curatorPointsInClass(bob, classId), bobEarned, "bob's 30 clean days");
         assertEq(aliceEarned / 2, bobEarned, "and they are exactly 2:1, as the capital is");
 
-        _declareDefault(tokenId, bytes32(0));
+        // ADR-0038: pinned as a positive correction of exactly POSCORR_6E23_30D and a zero
+        // rounding loss (so no AccrualRoundingAllocated, no charge, no dust epoch).
+        (uint256 posCorr, uint256 dust) = _declareDefaultPinningClosure(tokenId, 6e23, 30 days);
+        assertEq(posCorr, POSCORR_6E23_30D, "closure model self-check: 6e23 day-30 positive correction");
+        assertEq(dust, 0, "6e23 at day 30: the interpolation is BELOW canonical, nothing is charged");
+        assertEq(curator.poolBalance(classId), 3e23, "no dust: the pool is untouched by the declaration");
+        assertEq(points.curatorLossEpochCount(classId), 0, "and no curator loss epoch was registered");
         _realizeLoss(tokenId, 15e22, bytes32(0)); // exactly half the pool
 
         (uint64 round, uint256 survival) = points.curatorDilutionState(classId);
@@ -849,12 +1181,21 @@ contract PointsForkTest is ForkLifecycleFixture {
     ///           - the accrual ceiling stays at loss #1 through losses #2 and #3, so a later
     ///             loss can never re-open the window an earlier one closed (that was the H-03
     ///             harm reached by the "single overwritable timestamp" implementation), and
-    ///           - the cached balance is written down by the COMPOUNDED ratio
-    ///             (0.75 x 2/3 x 1/2 = 0.25), landing exactly on the live `postedOf` at every
-    ///             step rather than drifting high.
+    ///           - the cached balance is written down by the COMPOUNDED ratio (the dust
+    ///             factor, then 0.75 x 2/3 x 1/2 of what remained), landing on the exact
+    ///             WAD-truncated write-down at every step and never above the live `postedOf`.
     ///         A fourth loss AFTER reconciliation then proves the ceiling does move once the
     ///         position is genuinely caught up — the freeze tracks the watermark, it is not
     ///         a one-way latch.
+    ///
+    ///         ADR-0038 (continuous accrual; see the DUST constants for the citations): the
+    ///         declaration at day 30 closes the 8e23 facility's accrual segment and charges
+    ///         `DUST_8E23_30D` to the curator layer first, registering curator loss epoch 0 at
+    ///         the loss #1 instant. Losses #2 to #4 land on the already-stopped loan, so no
+    ///         further segment closes and no further dust is charged: every later pool figure
+    ///         moves by exactly the loss. All epoch indices are therefore one higher, every
+    ///         survival factor compounds onto the dust factor (`SURV_4E23_DUST_*`), and the
+    ///         freeze ceiling (loss #1's instant, t0 + 30 days) is unchanged.
     function test_fork_repeatedCuratorLossesPinTheFreezeAtTheFirstUnseenLoss() public onFork {
         uint256 classId = Config.CLASS_FILM_TAX_CREDITS;
         curator.setCuratorApproved(classId, alice, true);
@@ -870,16 +1211,26 @@ contract PointsForkTest is ForkLifecycleFixture {
         uint256 clean30 = _model(4e23, 0, 30 days, 50_000);
         assertEq(points.curatorPointsInClass(alice, classId), clean30, "30 clean days at 5x on 4e23 posted");
 
-        _declareDefault(tokenId, bytes32(0));
+        _selfCheckRepeatedLossFigures();
+        // ADR-0038: the declaration closes the segment; the 8e23 facility's day-30 excess is
+        // charged to layer 1 (pinned on the allocation event: curator = dust, backstop 0,
+        // senior 0, unabsorbed 0) and registers curator loss epoch 0.
+        _declareDefaultPinned8e23(tokenId);
+        assertEq(curator.poolBalance(classId), 4e23 - DUST_8E23_30D, "ADR-0038: dust charged to layer 1 at declaration");
+        assertEq(points.curatorLossEpochCount(classId), 1, "the dust registered epoch 0");
+        assertEq(points.curatorLossAt(classId, 0), uint64(t0 + 30 days), "the dust epoch is at the declaration instant");
+        _assertDilution(classId, 0, SURV_4E23_DUST, "dust epoch: WAD*(4e23-dust)/4e23, no distrust round");
 
-        // ── loss #1 of 3: pool 4e23 -> 3e23 (survival 0.75) ──────────────
+        // ── loss #1 of 3: pool (4e23-dust) -> (3e23-dust) ────────────────
         _realizeLoss(tokenId, 1e23, bytes32(0));
         assertEq(block.timestamp, t0 + 30 days, "loss #1 lands at t0+30d");
-        assertEq(curator.poolBalance(classId), 3e23, "layer 1 absorbed exactly the loss");
-        assertEq(curator.postedOf(classId, alice), 3e23, "alice diluted pro-rata");
-        assertEq(points.curatorLossEpochCount(classId), 1, "one loss epoch logged");
-        assertEq(points.curatorLossAt(classId, 0), uint64(t0 + 30 days), "logged at the absorption instant");
-        _assertDilution(classId, 0, 75e16, "loss #1: 0.75 of the class survived, no distrust round");
+        assertEq(curator.poolBalance(classId), 4e23 - DUST_8E23_30D - 1e23, "layer 1 absorbed exactly the loss");
+        assertEq(curator.postedOf(classId, alice), 4e23 - DUST_8E23_30D - 1e23, "alice diluted pro-rata");
+        assertEq(points.curatorLossEpochCount(classId), 2, "dust epoch 0 + loss #1 as epoch 1");
+        assertEq(points.curatorLossAt(classId, 1), uint64(t0 + 30 days), "logged at the absorption instant");
+        _assertDilution(
+            classId, 0, SURV_4E23_DUST_L1, "loss #1: 0.75 of what the dust left, COMPOUNDED onto the dust factor"
+        );
         _assertFreeze(alice, classId, true, uint64(t0 + 30 days), "frozen, pinned at loss #1");
 
         // A permissionless checkpoint mid-freeze: writes the cache DOWN, credits nothing,
@@ -887,20 +1238,31 @@ contract PointsForkTest is ForkLifecycleFixture {
         _warp(10 days);
         vm.prank(carol);
         points.checkpoint(alice);
-        assertEq(points.curatorTracked(alice, classId), 3e23, "checkpoint wrote the cache down to the diluted stake");
-        assertEq(points.curatorTracked(alice, classId), curator.postedOf(classId, alice), "== the live posted amount");
+        assertEq(
+            points.curatorTracked(alice, classId),
+            CACHE_4E23_DUST_L1,
+            "checkpoint wrote the cache down to 4e23 * survival / WAD (WAD-truncated)"
+        );
+        assertLe(
+            points.curatorTracked(alice, classId),
+            curator.postedOf(classId, alice),
+            "never above the live posted amount"
+        );
         assertEq(points.curatorPointsInClass(alice, classId), clean30, "and credited nothing past loss #1");
         _assertFreeze(alice, classId, true, uint64(t0 + 30 days), "the ceiling is unmoved by a checkpoint");
 
-        // ── loss #2 of 3: pool 3e23 -> 2e23 (cumulative survival 0.5) ────
+        // ── loss #2 of 3: pool (3e23-dust) -> (2e23-dust); no new closure, no new dust ──
         _warp(20 days);
         _realizeLoss(tokenId, 1e23, bytes32(0));
         assertEq(block.timestamp, t0 + 60 days, "loss #2 lands at t0+60d");
-        assertEq(points.curatorLossEpochCount(classId), 2, "the log APPENDS, it does not overwrite");
-        assertEq(points.curatorLossAt(classId, 0), uint64(t0 + 30 days), "loss #1 is still in the log, unmoved");
-        assertEq(points.curatorLossAt(classId, 1), uint64(t0 + 60 days), "loss #2 appended after it");
-        _assertDilution(classId, 0, 5e17, "0.75 x (2/3) COMPOUNDED -- not the latest ratio alone (2/3)");
-        assertEq(curator.postedOf(classId, alice), 2e23, "alice diluted again");
+        assertEq(points.curatorLossEpochCount(classId), 3, "the log APPENDS, it does not overwrite");
+        assertEq(points.curatorLossAt(classId, 0), uint64(t0 + 30 days), "the dust epoch is still in the log, unmoved");
+        assertEq(points.curatorLossAt(classId, 1), uint64(t0 + 30 days), "loss #1 is still in the log, unmoved");
+        assertEq(points.curatorLossAt(classId, 2), uint64(t0 + 60 days), "loss #2 appended after it");
+        _assertDilution(classId, 0, SURV_4E23_DUST_L2, "dust x 0.75 x (2/3) COMPOUNDED -- not the latest ratio alone");
+        assertEq(
+            curator.postedOf(classId, alice), 4e23 - DUST_8E23_30D - 2e23, "alice diluted again, by exactly the loss"
+        );
         _assertFreeze(
             alice, classId, true, uint64(t0 + 30 days), "STILL loss #1: a LATER loss cannot move the ceiling (H-03)"
         );
@@ -908,38 +1270,65 @@ contract PointsForkTest is ForkLifecycleFixture {
         _warp(10 days);
         vm.prank(carol);
         points.checkpoint(alice);
-        assertEq(points.curatorTracked(alice, classId), 2e23, "cache compounded down, in one step, to 0.5x");
-        assertEq(points.curatorTracked(alice, classId), curator.postedOf(classId, alice), "== the live posted amount");
+        assertEq(
+            points.curatorTracked(alice, classId),
+            CACHE_4E23_DUST_L2,
+            "cache compounded down, in one step: previous cache * L2 / L1"
+        );
+        assertLe(
+            points.curatorTracked(alice, classId),
+            curator.postedOf(classId, alice),
+            "never above the live posted amount"
+        );
         assertEq(points.curatorPointsInClass(alice, classId), clean30, "and STILL nothing past loss #1");
         _assertFreeze(alice, classId, true, uint64(t0 + 30 days), "two losses deep, still pinned at the FIRST");
 
-        // ── loss #3 of 3: pool 2e23 -> 1e23 (cumulative survival 0.25) ───
+        // ── loss #3 of 3: pool (2e23-dust) -> (1e23-dust) ────────────────
         _warp(20 days);
         _realizeLoss(tokenId, 1e23, bytes32(0));
         assertEq(block.timestamp, t0 + 90 days, "loss #3 lands at t0+90d");
-        assertEq(points.curatorLossEpochCount(classId), 3, "three loss epochs");
-        assertEq(points.curatorLossAt(classId, 2), uint64(t0 + 90 days), "the third is appended");
-        _assertDilution(classId, 0, 25e16, "0.75 x (2/3) x (1/2) COMPOUNDED across all three losses");
-        assertEq(curator.postedOf(classId, alice), 1e23, "a quarter of the original stake survives");
+        assertEq(points.curatorLossEpochCount(classId), 4, "dust epoch + three loss epochs");
+        assertEq(points.curatorLossAt(classId, 3), uint64(t0 + 90 days), "the third loss is appended");
+        _assertDilution(classId, 0, SURV_4E23_DUST_L3, "dust x 0.75 x (2/3) x (1/2) COMPOUNDED across all three losses");
+        assertEq(
+            curator.postedOf(classId, alice),
+            4e23 - DUST_8E23_30D - 3e23,
+            "a quarter of the original stake, net of the dust, survives"
+        );
         _assertFreeze(alice, classId, true, uint64(t0 + 30 days), "STILL pinned at loss #1, 60 days earlier");
 
         _warp(30 days);
         vm.prank(carol);
         points.checkpoint(alice);
-        assertEq(points.curatorTracked(alice, classId), 1e23, "cache down to a quarter, exactly");
-        assertEq(points.curatorTracked(alice, classId), curator.postedOf(classId, alice), "== the live posted amount");
+        assertEq(
+            points.curatorTracked(alice, classId),
+            CACHE_4E23_DUST_L3,
+            "cache down to a quarter: previous cache * L3 / L2"
+        );
+        assertLe(
+            points.curatorTracked(alice, classId),
+            curator.postedOf(classId, alice),
+            "never above the live posted amount"
+        );
         assertEq(
             points.curatorPointsInClass(alice, classId),
             clean30,
             "90 days of freeze across THREE losses accrued exactly nothing"
         );
 
-        // ── only `reconcile` thaws, and it thaws through ALL THREE at once ──
+        // ── only `reconcile` thaws, and it thaws through ALL FOUR epochs at once ──
         vm.prank(carol);
         points.reconcile(alice);
         _assertFreeze(alice, classId, false, 0, "reconcile caught the position up through every recorded loss");
-        assertEq(points.curatorLossEpochCount(classId), 3, "the log is untouched by the thaw");
-        assertEq(points.curatorTracked(alice, classId), 1e23, "snapped to the live posted amount");
+        assertEq(points.curatorLossEpochCount(classId), 4, "the log is untouched by the thaw");
+        assertEq(
+            points.curatorTracked(alice, classId), 4e23 - DUST_8E23_30D - 3e23, "snapped to the live posted amount"
+        );
+        assertEq(
+            points.curatorTracked(alice, classId),
+            curator.postedOf(classId, alice),
+            "== the live posted amount, exactly"
+        );
         assertEq(
             points.curatorPointsInClass(alice, classId),
             clean30,
@@ -948,18 +1337,18 @@ contract PointsForkTest is ForkLifecycleFixture {
 
         // Accrual resumes on the surviving quarter, keeping the ORIGINAL maturity anchor.
         _warp(30 days);
-        uint256 postThaw = _model(1e23, 120 days, 30 days, 50_000);
+        uint256 postThaw = _model(4e23 - DUST_8E23_30D - 3e23, 120 days, 30 days, 50_000);
         assertEq(
             points.curatorPointsInClass(alice, classId),
             clean30 + postThaw,
-            "days 120-150 accrue on the surviving quarter, at the day-120 ramp"
+            "days 120-150 accrue on the surviving quarter (net of the dust), at the day-120 ramp"
         );
 
         // ── loss #4, AFTER reconciliation: the ceiling moves to the NEW loss ──
         _realizeLoss(tokenId, 5e22, bytes32(0));
         assertEq(block.timestamp, t0 + 150 days, "loss #4 lands at t0+150d");
-        assertEq(points.curatorLossEpochCount(classId), 4, "four loss epochs");
-        _assertDilution(classId, 0, 125e15, "0.25 x 0.5 compounded onward, across the reconcile boundary");
+        assertEq(points.curatorLossEpochCount(classId), 5, "dust epoch + four loss epochs");
+        _assertDilution(classId, 0, SURV_4E23_DUST_L4, "x 0.5 compounded onward, across the reconcile boundary");
         _assertFreeze(
             alice, classId, true, uint64(t0 + 150 days), "NOW pinned at loss #4 -- the freeze tracks the watermark"
         );
@@ -969,6 +1358,44 @@ contract PointsForkTest is ForkLifecycleFixture {
             clean30 + postThaw,
             "and the new freeze halts accrual again, exactly at the loss #4 instant"
         );
+    }
+
+    /// @dev The repeated-loss test's ADR-0038 declaration, kept out of its frame for stack depth.
+    function _declareDefaultPinned8e23(uint256 tokenId) private {
+        (uint256 posCorr, uint256 dust) = _declareDefaultPinningClosure(tokenId, 8e23, 30 days);
+        assertEq(posCorr, 0, "8e23 at day 30: the interpolation is ABOVE the canonical claim");
+        assertEq(dust, DUST_8E23_30D, "the closure charged exactly the modelled 8e23 dust");
+    }
+
+    /// @dev The repeated-loss shape's ADR-0038 figures, each derived from the independent model
+    ///      and pinned to its literal (kept out of the test frame for stack depth).
+    function _selfCheckRepeatedLossFigures() private pure {
+        (uint256 posCorr, uint256 dust) = _modelClosure(8e23, 30 days);
+        assertEq(posCorr, 0, "8e23 at day 30: no positive correction");
+        assertEq(dust, DUST_8E23_30D, "closure model self-check: 8e23 day-30 dust");
+        assertEq(_survival8(0), SURV_4E23_DUST, "survival self-check: dust epoch");
+        assertEq(_survival8(1), SURV_4E23_DUST_L1, "survival self-check: after loss #1");
+        assertEq(_survival8(2), SURV_4E23_DUST_L2, "survival self-check: after loss #2");
+        assertEq(_survival8(3), SURV_4E23_DUST_L3, "survival self-check: after loss #3");
+        assertEq(_survival8(4), SURV_4E23_DUST_L4, "survival self-check: after loss #4");
+        assertEq(_dilutedCache(4e23, SURV_4E23_DUST_L1, 1e18), CACHE_4E23_DUST_L1, "cache self-check: after loss #1");
+        assertEq(
+            _dilutedCache(CACHE_4E23_DUST_L1, SURV_4E23_DUST_L2, SURV_4E23_DUST_L1),
+            CACHE_4E23_DUST_L2,
+            "cache self-check: after loss #2"
+        );
+        assertEq(
+            _dilutedCache(CACHE_4E23_DUST_L2, SURV_4E23_DUST_L3, SURV_4E23_DUST_L2),
+            CACHE_4E23_DUST_L3,
+            "cache self-check: after loss #3"
+        );
+        assertEq(
+            4e23 - DUST_8E23_30D - 1e23 - CACHE_4E23_DUST_L1,
+            193_623,
+            "cache #1 sits below the pool by the WAD truncation"
+        );
+        assertEq(4e23 - DUST_8E23_30D - 2e23 - CACHE_4E23_DUST_L2, 193_623, "cache #2 likewise");
+        assertEq(4e23 - DUST_8E23_30D - 3e23 - CACHE_4E23_DUST_L3, 193_623, "cache #3 likewise");
     }
 
     /// @dev Asserts a class's recorded dilution state exactly (kept out of the caller's frame:

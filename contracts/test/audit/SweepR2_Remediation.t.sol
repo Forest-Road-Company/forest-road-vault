@@ -12,6 +12,7 @@ import {IRedemptionQueue} from "../../src/interfaces/IRedemptionQueue.sol";
 import {Config} from "../../src/libraries/Config.sol";
 import {CreditLayerFixture} from "../helpers/CreditLayerFixture.sol";
 import {GovernanceFixture} from "../helpers/GovernanceFixture.sol";
+import {ImpairmentReadChecks} from "../helpers/ImpairmentReadChecks.sol";
 
 /// @dev SWEEP-2 S2-F5. A one-shot participation-points module that moves ONE WEI of USDfr into the
 ///      draw source from inside the `CuratorModule -> DefaultManager` transfer that
@@ -113,12 +114,14 @@ contract SweepR2_RemediationCredit is CreditLayerFixture {
     ///      modes were caught by the equality alone. See
     ///      `S2_GuardVacuity.t.sol::test_S2_anOverDeliveringDrawSourceMustStillBeRefused`.
     function test_S2_F5_control_anUnderDeliveringOrOverReportingSourceIsStillRefused() public {
-        _shortBookWithJuniorCapital();
+        uint256 id = _bookWithJuniorCapital();
         S2LyingDrawSource liar = new S2LyingDrawSource(address(reserves));
         vm.startPrank(admin);
         reserves.setLossAbsorber(address(liar));
         controller.setLossSource(address(liar), true);
         vm.stopPrank();
+
+        _recognizeTestMark(id);
 
         liar.setMode(S2LyingDrawSource.Mode.OverReport); // reports `target`, delivers nothing
         vm.prank(alice);
@@ -237,6 +240,11 @@ contract SweepR2_RemediationCredit is CreditLayerFixture {
     // ═════════════════════════════════════════════════════════════════════
 
     function _shortBookWithJuniorCapital() private returns (uint256 id) {
+        id = _bookWithJuniorCapital();
+        _recognizeTestMark(id);
+    }
+
+    function _bookWithJuniorCapital() private returns (uint256 id) {
         id = _liveFilmFacility(500_000e18);
         _mintUSDfrTo(alice, 400_000e18);
         _mintUSDfrTo(anchorCurator, 200_000e18);
@@ -246,6 +254,9 @@ contract SweepR2_RemediationCredit is CreditLayerFixture {
         usdfr.approve(address(curator), 200_000e18);
         curator.postFirstLoss(FILM, 200_000e18);
         vm.stopPrank();
+    }
+
+    function _recognizeTestMark(uint256 id) private {
         vm.prank(admin);
         reserves.recognizePrincipalImpairment(id, 100_000e18, keccak256("sweep2-mark"));
     }
@@ -297,13 +308,12 @@ contract S2LyingDrawSource {
 }
 
 /// @title SWEEP-2 REMEDIATION — the reserve/custody cascade and the affordability ceiling
-contract SweepR2_RemediationReserve is GovernanceFixture {
+contract SweepR2_RemediationReserve is GovernanceFixture, ImpairmentReadChecks {
     uint256 internal constant FILM = Config.CLASS_FILM_TAX_CREDITS;
 
-    /// @dev `sUSDfr.IMPAIRMENT_SOURCE_PROBE_GAS` after SWEEP-2 F-S2-01 raised it from 200,000.
-    uint256 internal constant HARD_PROBE_CAP = 400_000;
-    /// @dev The affordability ceiling, re-pinned against the PRODUCTION shape (measured 187,865).
-    uint256 internal constant PRODUCTION_CEILING = 250_000;
+    /// @dev Current fixed per-getter budget in VaultAccrualLib, with a separate regression margin.
+    uint256 internal constant HARD_PROBE_CAP = 1_000_000;
+    uint256 internal constant PRODUCTION_CEILING = 750_000;
 
     /// @dev Compose the older sweep scenarios with W7's arm-bound custody adjudication. Reuse the
     ///      standing arm for a later incremental loss in the same test; every amount is still
@@ -633,18 +643,9 @@ contract SweepR2_RemediationReserve is GovernanceFixture {
     //                     PRODUCTION shape rather than a one-class fixture.
     // ═════════════════════════════════════════════════════════════════════
 
-    /// @notice THE BINDING AFFORDABILITY TEST. `ConservativeImpairmentMathLiveEquivalence
-    ///         ::test_markStaysWellInsideTheImpairmentSourceProbeBudget` measures a fixture with
-    ///         ONE impaired class, no past-due cohort, no drawn cohort and no ADR-0027 assessment —
-    ///         and `pendingSeniorImpairment`'s loop does `if (d == 0) continue;` BEFORE
-    ///         `curator.poolBalance(classId)`, so four of five per-class proxy hops never happen.
-    ///         MEASURED PRE-FIX: that fixture 98,909 gas; the production shape 142,465; with a live
-    ///         ADR-0027 assessment 166,691; with the permissionless `fundCoverage` top-up ADR-0027
-    ///         requires NOT to invalidate an assessment, 187,865 — i.e. 6.1% headroom under the old
-    ///         200,000 budget, not the 50% the calculator's NatSpec claimed, and 9,465 OVER the
-    ///         133,000 ceiling that was reporting green in CI.
-    /// @dev MUTATION: lower `sUSDfr.IMPAIRMENT_SOURCE_PROBE_GAS` back to 200,000 (compiles) -> the
-    ///      interlock test below reds. Lower `PRODUCTION_CEILING` to 133,000 -> this test reds.
+    /// @notice Same-transaction cost for this legacy workout shape. Fresh-transaction
+    ///         measurements and the temperature control are in FreshImpairmentBudget.t.sol.
+    ///         This test does not establish a cold-read bound.
     function test_FS201_theProductionShapeFitsTheProbeBudgetWithRealHeadroom() public {
         _productionWorkoutShape();
 
@@ -658,7 +659,6 @@ contract SweepR2_RemediationReserve is GovernanceFixture {
         assertTrue(matches, "the assessment must still be VALID -- that is the point of the directional path");
 
         assessedImpairmentSource.pendingSeniorImpairment();
-        _coolWholeMarkPath();
 
         uint256 before = gasleft();
         assessedImpairmentSource.pendingSeniorImpairment();
@@ -671,14 +671,7 @@ contract SweepR2_RemediationReserve is GovernanceFixture {
         assertLt(used, HARD_PROBE_CAP, "F-S2-01: and must answer inside sUSDfr's probe budget");
     }
 
-    /// @notice THE CONSEQUENCE, ASSERTED ON THE INTERLOCK ITSELF. The only gas-capped consumer of
-    ///         the mark is `sUSDfr.clearUnreadableImpairmentSource()`, which REFUSES while the
-    ///         source answers inside `IMPAIRMENT_SOURCE_PROBE_GAS`. Under-budgeting that probe does
-    ///         not break redemption pricing — it makes an incident-response lever that permanently
-    ///         drops the conservative mark and ratchets the HWM fee-free usable against a HEALTHY
-    ///         source. This asserts the interlock still fires in the production workout shape.
-    /// @dev MUTATION: lower `IMPAIRMENT_SOURCE_PROBE_GAS` to 150,000 (compiles) -> RED here: the
-    ///      healthy source is declared unreadable and the clear succeeds.
+    /// @notice A readable production source keeps its conservative mark under the actual probe.
     function test_FS201_theStillReadableInterlockFiresInTheProductionWorkoutShape() public {
         _productionWorkoutShape();
         assertEq(vault.impairmentSource(), address(assessedImpairmentSource), "precondition: the source is wired");
@@ -686,10 +679,6 @@ contract SweepR2_RemediationReserve is GovernanceFixture {
         vm.prank(admin);
         assessedImpairmentSource.setAssessment(base / 2, uint64(block.timestamp + 20 days), keccak256("memo"));
         _seedCoverage(50_000e18);
-        // COLD, exactly as a real `clearUnreadableImpairmentSource()` transaction is. Warm storage
-        // makes this read ~3x cheaper and would hide the whole finding: the pre-fix 200,000 budget
-        // measured GREEN on a warm one-class fixture while the cold production shape cost 187,865.
-        _coolWholeMarkPath();
 
         vm.prank(admin);
         vm.expectRevert(
@@ -813,16 +802,6 @@ contract SweepR2_RemediationReserve is GovernanceFixture {
         );
     }
 
-    function _coolWholeMarkPath() internal {
-        vm.cool(address(defaultManager));
-        vm.cool(address(assessedImpairmentSource));
-        vm.cool(address(defaultManager.impairmentMath()));
-        vm.cool(address(curator));
-        vm.cool(address(sGrove));
-        vm.cool(address(registry));
-        vm.cool(address(vault));
-        vm.cool(address(usdfr));
-    }
 }
 
 /// @dev Local alias so the interlock error selector can be named without importing the whole vault

@@ -850,6 +850,37 @@ contract ReserveManagerTest is TokenLayerFixture {
         assertTrue(controller.backingInvariantHolds(), "C-02: reconciliation cannot create a deficit");
     }
 
+    function test_provedSurplusAbsorbsCustodyLossWithoutBurningSeniorAssets() public {
+        _mintUSDfr(alice, 100e6);
+        vm.startPrank(alice);
+        usdfr.approve(address(vault), 100e18);
+        vault.deposit(100e18, alice);
+        vm.stopPrank();
+        _deposit(bob, 50e6);
+        assertEq(controller.totalUSDfr(), 100e18);
+        assertEq(controller.backingValue(), 150e18);
+        _createReserveShortfall(25e18);
+        (, uint256 incidentId) = _armReserveLoss(90401);
+        vm.expectEmit(true, false, false, true, address(reserves));
+        emit IReserveManager.ReserveLossAllocated(incidentId, 25e18, 25e18, 0, 0, 0, 0);
+
+        (uint256 settledIncident, uint256 loss) = _ratifyCurrentReserveLoss(25e18);
+
+        assertEq(settledIncident, incidentId);
+        assertEq(loss, 25e18);
+        assertEq(controller.totalUSDfr(), 100e18);
+        assertEq(usdfr.balanceOf(address(vault)), 100e18);
+        assertEq(controller.backingValue(), 125e18);
+        assertEq(reserves.idleUSDC(), 125e6);
+        assertEq(usdc.balanceOf(address(reserves)), 125e6);
+        (uint256 backingReduction, uint256 surplus, uint256 requiredBurn) = reserves.recognizedReserveLoss();
+        assertEq(backingReduction, 0);
+        assertEq(surplus, 0);
+        assertEq(requiredBurn, 0);
+        assertEq(reserves.reserveDeficit(), 0);
+        assertTrue(controller.backingInvariantHolds());
+    }
+
     function test_deploymentMovesIdleIntoFacilityWithoutChangingBacking() public {
         _deposit(alice, 100e6);
         vm.prank(creditModule);

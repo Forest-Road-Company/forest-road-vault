@@ -20,6 +20,18 @@ interface IWaterfallEngine {
     // ── Events ───────────────────────────────────────────────────────────
 
     event Funded(uint256 indexed tokenId, address indexed recipient, uint256 principal);
+
+    /// @notice One contractual interval of PIK interest joined a facility's deployed principal.
+    /// @dev No cash moved. `rateBps` is the SNAPSHOT the period ran at rather than the facility's
+    ///      live rate, which is what makes amendments forward-only.
+    event PikInterestCapitalized(
+        uint256 indexed tokenId,
+        uint256 indexed classId,
+        uint256 amount,
+        uint256 balanceAfter,
+        uint64 periodEnd,
+        uint16 rateBps
+    );
     /// @notice OID origination fee (ADR-0019): the borrower netted `principal - fee`;
     ///         the fee's stables stay in the treasury and the fee mints to the
     ///         protocol fee recipient against them.
@@ -123,6 +135,63 @@ interface IWaterfallEngine {
     ///         principal stables did not actually arrive in the treasury this tx).
     error Waterfall_BackingWouldBreak(uint256 tokenId);
     error Waterfall_PrincipalExceedsOutstanding(uint256 tokenId, uint256 principal, uint256 outstanding);
+
+    // ── PIK capitalisation (docs/SPEC_INTEREST_ACCRUAL.md) ─────────────────
+    /// @notice The facility does not contractually capitalise interest. Cash-pay loans pay their
+    ///         interest through `distribute`; capitalising it too would recognise it twice.
+    error Waterfall_PikNotDesignated(uint256 tokenId);
+
+    /// @notice A PIK facility was handed a payment carrying a cash INTEREST leg.
+    /// @dev THE DESIGNATION GATE USED TO BE ONE-DIRECTIONAL. It stopped a cash-pay loan
+    ///      capitalising, and nothing stopped a PIK loan paying cash: `distribute` never read
+    ///      `f.pik`. The leg routed to the senior vault and advanced `nextPaymentDue` while
+    ///      `pikCursor` stayed put, so the permissionless crank still saw the period unsettled
+    ///      and capitalised it, growing `deployed` by interest already paid and minting it to
+    ///      the vault a second time. Under a PIK facility the capitalisation IS the payment and
+    ///      the interest returns as `payment.principal` (spec decision 7), so a non-zero
+    ///      interest leg here is always a servicing error.
+    error Waterfall_PikCashInterestNotPermitted(uint256 tokenId);
+    /// @notice PIK is restricted to Receivable classes, because the past-due distress guard only
+    ///         works there. A marked-to-market class has no reachable distress predicate.
+    error Waterfall_PikClassNotReceivable(uint256 tokenId, uint256 classId);
+    /// @notice The facility is not performing, so it may not capitalise interest.
+    error Waterfall_PikNotPerforming(uint256 tokenId, uint8 state);
+    /// @notice The facility is flagged past due. Past due is a `DefaultManager` flag rather than a
+    ///         `ClaimBridge` state, so this is a separate check.
+    error Waterfall_PikPastDue(uint256 tokenId);
+    /// @notice Only Fixed-rate facilities capitalise; a Variable rate has no attested index.
+    error Waterfall_PikRateTypeUnsupported(uint256 tokenId);
+    /// @notice Only Actual/360 is implemented; Thirty360 needs the exact civil-date count.
+    error Waterfall_PikDayCountUnsupported(uint256 tokenId);
+    /// @notice The facility has never been funded, so its PIK clock has not started. This is also
+    ///         the MIGRATION guard for facilities that predate the feature.
+    error Waterfall_PikNotFunded(uint256 tokenId);
+    /// @notice The next contractual interval has not elapsed yet.
+    error Waterfall_PikIntervalNotElapsed(uint256 tokenId, uint64 dueAt);
+    /// @notice The interval would settle past maturity; the balance is due, not compounding.
+    error Waterfall_PikPastMaturity(uint256 tokenId, uint64 maturity);
+    /// @notice The facility has no outstanding principal to capitalise against.
+    error Waterfall_PikNothingOutstanding(uint256 tokenId);
+    /// @notice Record the elapsed PIK coupon before closing a performing legacy loan.
+    error Waterfall_PikSettlementRequired(uint256 tokenId, uint64 dueAt);
+    /// @notice Deprecated selector retained for decoding earlier implementations; no longer emitted.
+    error Waterfall_PikBalanceCapReached(uint256 tokenId, uint256 outstanding, uint256 ceiling);
+    /// @notice Full interest or the next frozen basis cannot fit the registry's numerical domain.
+    error Waterfall_PikExposureCapacity(uint256 tokenId);
+    /// @notice The interval's interest rounds to nothing on the USDC grid.
+    error Waterfall_PikBelowScaleGrid(uint256 tokenId, uint256 scale);
+    /// @notice A PIK facility cannot be funded so late in its first period that the first
+    ///         capitalisation would round to nothing on the USDC grid.
+    /// @dev Added 2026-09-10 with the funding-anchored first period. `checkFundable` already refuses
+    ///      funding at or after `nextPaymentDue`, so the window is at least one second; what it does
+    ///      not guarantee is that the window is long enough for the interest to be expressible. Since
+    ///      `nextPaymentDue` advances only inside `capitalizePik`, a facility funded too late in its
+    ///      first period would be frozen for life by its own first crank, so this fails closed BEFORE
+    ///      any value moves. The remedy is the operator's: amend the schedule, or fund sooner.
+    /// @param tokenId The facility.
+    /// @param window Seconds remaining in the first period at the funding block.
+    /// @param scale The smallest amount the facility's currency can express, in 18-dec terms.
+    error Waterfall_PikFirstPeriodBelowScaleGrid(uint256 tokenId, uint256 window, uint256 scale);
 
     // ── Servicing paths (SERVICER_ROLE; attested facts per ADR-0007) ─────
     /// @notice Funds a Pending facility: deploys exactly its principal from idle

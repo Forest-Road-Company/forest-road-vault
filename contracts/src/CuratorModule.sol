@@ -688,9 +688,9 @@ contract CuratorModule is
     // ── Default freeze (audit R4-EC2) ────────────────────────────────────
 
     /// @inheritdoc ICuratorModule
-    /// @dev CREDIT_ROLE (the DefaultManager) records a default entering the class. Not
-    ///      pausable — a default must always be recordable, mirroring the cascade. The
-    ///      counter lets concurrent defaults on one class each require their own lift.
+    /// @dev This CREDIT_ROLE hook is not gated by the curator pause. DefaultManager
+    ///      may first need legacy PIK posting, whose dependencies can be paused.
+    ///      Each recorded default increments a counter and requires its own lift.
     function freezeOnDefault(uint256 classId) external onlyRole(Roles.CREDIT_ROLE) {
         _requireKnownClass(classId);
         CuratorStorage storage $ = _storage();
@@ -1492,12 +1492,12 @@ contract CuratorModule is
     }
 
     /// @dev AUDIT FIX (F3-PA-c). The governance path the pre-arm must outlast, UNBOUNDED except
-    ///      for overflow safety: the longer of the `Config` launch floor and the live reading.
+    ///      for overflow safety: the longer of the preserved ten-day `Config` floor and the live reading.
     ///      `custodyPreArmGovernancePath()` is this value bounded by `CUSTODY_PRE_ARM_MAX_PATH`;
     ///      the difference between the two is exactly what
     ///      `custodyPreArmCoversLiveGovernancePath()` reports.
     function _governancePath() private view returns (uint256) {
-        uint256 path = uint256(Config.GOV_VOTING_DELAY) + uint256(Config.GOV_VOTING_PERIOD) + Config.TIMELOCK_MIN_DELAY;
+        uint256 path = Config.CURATOR_PRE_ARM_MIN_GOVERNANCE_PATH;
         uint256 live = _liveGovernancePath(_storage().governor);
         return live > path ? live : path;
     }

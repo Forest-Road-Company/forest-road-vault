@@ -1,0 +1,310 @@
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.30;
+
+/// @title ICollateralRegistry
+/// @notice Per-vertical collateral-class parameters and book-level concentration
+///         accounting (ADR-0003 as amended: five classes at genesis, one of which is
+///         marked-to-market per ADR-0015).
+interface ICollateralRegistry {
+    /// @notice How a class's collateral behaves - drives valuation and remedy paths.
+    enum CollateralModel {
+        Receivable, // legal-enforcement remedies (UCC foreclosure, secondary sale)
+        MarkedToMarket // margin-call / liquidation remedies (ADR-0015)
+
+    }
+
+    struct ClassParams {
+        string name;
+        CollateralModel model;
+        bool active;
+        uint16 maxLtvBps; // draw ceiling (initial LTV for MTM classes)
+        uint64 maxMaturity; // seconds from origination
+        uint16 concentrationLimitBps; // max share of total book in this class
+        // -- marked-to-market extension (zero for receivable classes) ------
+        uint16 marginCallLtvBps; // breach -> MarginCalled + cure window
+        uint16 liquidationLtvBps; // breach / cure expiry -> LiquidationInitiated
+        uint64 maxMarkAge; // valuation freshness bound (seconds)
+    }
+
+    event ClassSet(uint256 indexed classId);
+    event ExposureRecorded(uint256 indexed classId, bytes32 indexed borrowerId, bytes32 indexed stateId, int256 delta);
+
+    /// @notice Emitted alongside `ExposureRecorded` when the increase came from PIK capitalisation
+    ///         rather than from an origination, so the two are distinguishable in the event stream.
+    /// @dev Origination exposure is a decision somebody made and an admission check passed.
+    ///      Capitalised exposure is arithmetic on a term already agreed. A reader reconciling the
+    ///      book needs to tell them apart, and `ExposureRecorded` alone cannot.
+    event CapitalizedExposureRecorded(
+        uint256 indexed classId, bytes32 indexed borrowerId, bytes32 indexed stateId, uint256 principal
+    );
+    event BorrowerLimitSet(uint16 limitBps);
+    /// @notice Governance set a per-borrower concentration limit overriding the global one.
+    /// @param borrowerId The borrower key.
+    /// @param limitBps The borrower's own max share of the book, in bps.
+    event BorrowerLimitOverrideSet(bytes32 indexed borrowerId, uint16 limitBps);
+    /// @notice Governance removed a per-borrower override; the global limit applies again.
+    /// @param borrowerId The borrower key.
+    event BorrowerLimitOverrideCleared(bytes32 indexed borrowerId);
+    event StateLimitSet(uint16 limitBps);
+    event ConcentrationFloorSet(uint256 floor);
+    /// @notice Governance changed the forward weight of an UNATTESTED past-due mark
+    ///         (OWNER DECISION 2026-08-07).
+    /// @param bps The new weight, in bps of the executable senior charge.
+    event PastDueWeightSet(uint256 bps);
+
+    /// @notice A class crossed FROM within its concentration limit TO above it
+    ///         (AUDIT FIX M-02). This is a book-shrink artefact: an amortising
+    ///         repayment, a default write-down, or the retirement of an unfunded
+    ///         facility removes exposure elsewhere, so an untouched class's SHARE of the
+    ///         remaining book rises without that class growing. Such a decrease can never
+    ///         be blocked (blocking it would let a concentration limit veto a loss being
+    ///         realized, inverting the loss cascade), so the breach is reported, not
+    ///         prevented - and no new exposure may be added to the class while it stands.
+    /// @param classId The class now above its limit.
+    /// @param exposure The class's exposure after the change (18-dec).
+    /// @param totalExposure The whole book's exposure after the change (18-dec).
+    /// @param limitBps The class's configured limit as a share of the book.
+    /// @param bookAboveFloor Whether the whole book is above the bootstrap floor. False
+    ///        means this is ordinary genesis concentration on a book too small for the
+    ///        relative limits to be the operative constraint (the absolute allowance
+    ///        `limitBps * floor / BPS` is); alerting should filter on this rather than
+    ///        treat a first facility at 100% of a tiny book as a risk incident.
+    event ConcentrationDrift(
+        uint256 indexed classId, uint256 exposure, uint256 totalExposure, uint16 limitBps, bool bookAboveFloor
+    );
+
+    /// @notice A class that was above its concentration limit is back within it - because
+    ///         the book grew around it or its own exposure fell (AUDIT FIX M-02).
+    /// @param classId The class now within its limit.
+    /// @param exposure The class's exposure after the change (18-dec).
+    /// @param totalExposure The whole book's exposure after the change (18-dec).
+    /// @param limitBps The class's configured limit as a share of the book.
+    /// @param bookAboveFloor Whether the whole book is above the bootstrap floor.
+    event ConcentrationHealed(
+        uint256 indexed classId, uint256 exposure, uint256 totalExposure, uint16 limitBps, bool bookAboveFloor
+    );
+
+    /// @notice A borrower crossed FROM within its concentration limit TO above it
+    ///         (AUDIT FIX M-02). Emitted for the borrower a write touches and for any id
+    ///         passed to `syncConcentrationBreaches`; the borrower key set is unbounded and
+    ///         not enumerable on-chain, but is fully recoverable from `ExposureRecorded`.
+    event BorrowerConcentrationDrift(
+        bytes32 indexed borrowerId, uint256 exposure, uint256 totalExposure, uint16 limitBps, bool bookAboveFloor
+    );
+
+    /// @notice A borrower that was above its concentration limit is back within it.
+    event BorrowerConcentrationHealed(
+        bytes32 indexed borrowerId, uint256 exposure, uint256 totalExposure, uint16 limitBps, bool bookAboveFloor
+    );
+
+    /// @notice A US state crossed FROM within its concentration limit TO above it.
+    event StateConcentrationDrift(
+        bytes32 indexed stateId, uint256 exposure, uint256 totalExposure, uint16 limitBps, bool bookAboveFloor
+    );
+
+    /// @notice A US state that was above its concentration limit is back within it.
+    event StateConcentrationHealed(
+        bytes32 indexed stateId, uint256 exposure, uint256 totalExposure, uint16 limitBps, bool bookAboveFloor
+    );
+
+    error Registry_UnknownClass(uint256 classId);
+    error Registry_ClassInactive(uint256 classId);
+    error Registry_BadParams();
+    /// @notice A configured class cannot change between receivable and marked-to-market
+    ///         accounting. The model selects materially different valuation and remedy
+    ///         paths and is fixed for the lifetime of a launch class.
+    error Registry_ModelImmutable(uint256 classId);
+    /// @notice The requested principal would push the book past the range in which the
+    ///         concentration arithmetic is provably overflow-free. Fails loudly with a
+    ///         decodable error rather than an arithmetic panic.
+    error Registry_PrincipalTooLarge();
+    /// @notice `setPastDueWeight` was asked for a weight of zero (which re-opens H-5/D5-03 by
+    ///         disabling the only permissionless senior protection on receivables) or a weight of
+    ///         `Config.BPS` or more (which restores the defect the weight exists to fix: an
+    ///         unattested mark carrying the same forward weight as an attested declared default).
+    ///         OWNER DECISION 2026-08-07. DO NOT DELETE EITHER BOUND.
+    /// @param bps The rejected weight.
+    error Registry_InvalidPastDueWeight(uint256 bps);
+    error Registry_ConcentrationExceeded(uint256 classId, uint256 wouldBe, uint256 limit);
+    error Registry_BorrowerConcentrationExceeded(bytes32 borrowerId, uint256 wouldBe, uint256 limit);
+    error Registry_StateConcentrationExceeded(bytes32 stateId, uint256 wouldBe, uint256 limit);
+    error Registry_ExposureUnderflow();
+
+    /// @notice Sets/updates a collateral class. Timelocked governance only.
+    /// @dev A class's collateral model is immutable after its first configuration.
+    function setClass(uint256 classId, ClassParams calldata p) external;
+
+    /// @notice Sets a per-borrower concentration limit overriding the global borrower limit.
+    function setBorrowerLimitOverride(bytes32 borrowerId, uint16 limitBps) external;
+
+    /// @notice Clears a per-borrower concentration limit override.
+    function clearBorrowerLimitOverride(bytes32 borrowerId) external;
+
+    /// @notice Class parameters (reverts for unknown classes).
+    function classParams(uint256 classId) external view returns (ClassParams memory);
+
+    /// @notice Reverts unless adding `principal` for (`classId`,`borrowerId`,`stateId`)
+    ///         respects every concentration limit (class, borrower, state). View-only;
+    ///         `recordExposure` performs the same checks at write time.
+    function checkConcentration(uint256 classId, bytes32 borrowerId, bytes32 stateId, uint256 principal)
+        external
+        view;
+
+    /// @notice Records an exposure increase (origination). Only CREDIT_ROLE (the
+    ///         collateral/credit layer). Enforces all concentration limits.
+    function recordExposureIncrease(uint256 classId, bytes32 borrowerId, bytes32 stateId, uint256 principal) external;
+
+    /// @notice Records an exposure increase that came from PIK interest CAPITALISATION rather than
+    ///         from an origination. Only CREDIT_ROLE. Books the exposure and reports every
+    ///         concentration breach exactly as the origination path does, but does NOT revert on
+    ///         one.
+    ///
+    /// @dev WHY THIS IS NOT A HOLE IN THE CONCENTRATION LIMIT, and why it is not optional.
+    ///      A concentration limit governs ADMISSION: it decides whether the book takes on a new
+    ///      risk somebody chose to take. Compounding interest is not that. Nobody elects it, the
+    ///      borrower cannot decline it, no capital moves, and the obligation was priced at
+    ///      origination when the limit was checked. Routing it through `recordExposureIncrease`
+    ///      meant a PIK book grew into its own limit with no adversary and then FROZE, and because
+    ///      `ClaimBridge.nextPaymentDue` only advances inside `WaterfallEngine.capitalizePik`, the
+    ///      freeze turned a borrower performing exactly as contracted into a permissionlessly
+    ///      markable past-due facility, and through `DefaultManager.pastDueExposure` into pending
+    ///      senior impairment. The protocol's own refusal became the credit event.
+    ///
+    ///      WHAT IS PRESERVED. The class must be known; the overflow bound that keeps the
+    ///      concentration arithmetic safe still applies; the exposure is booked in full, which is
+    ///      what keeps the facility WRITEABLE OFF (`realizeLoss` pairs its write-down with
+    ///      `recordExposureDecrease`, which reverts `Registry_ExposureUnderflow` if exposure lags);
+    ///      and every breach flag and drift event fires. Governance sees the limit crossed. The
+    ///      limit keeps its whole observation function and loses only its ability to brick a
+    ///      performing borrower.
+    ///
+    ///      `recordExposureDecrease` already carries this exact reasoning for the same reason:
+    ///      "Reporting only - never a revert path."
+    ///
+    ///      WHAT THIS ADDS TO `CREDIT_ROLE`, stated because an auditor will ask. The role could
+    ///      already move exposure in both directions: `recordExposureIncrease` upward subject to
+    ///      the limits, and `recordExposureDecrease` downward with no check at all. This adds an
+    ///      upward path that skips the limit, so a CREDIT_ROLE holder can now inflate a class past
+    ///      its concentration ceiling. That moves NO VALUE - exposure is a reporting and
+    ///      write-off-accounting quantity, not a balance - and it moves the book in the
+    ///      CONSERVATIVE direction, making it read as more concentrated than it is. The role
+    ///      remains a protocol-modules-only grant for the reasons recorded on
+    ///      `recordExposureDecrease`, and this function does not change that requirement.
+    ///
+    ///      IF FOREST ROAD WANTS CAPITALISATION TO HARD-STOP AT THE LIMIT INSTEAD, that is a
+    ///      one-line change back to `recordExposureIncrease` in `WaterfallEngine.capitalizePik`,
+    ///      and it reinstates the denial of service knowingly rather than by accident.
+    function recordCapitalizedExposure(uint256 classId, bytes32 borrowerId, bytes32 stateId, uint256 principal)
+        external;
+
+    /// @notice Records an exposure decrease (repayment/writedown). Only CREDIT_ROLE.
+    function recordExposureDecrease(uint256 classId, bytes32 borrowerId, bytes32 stateId, uint256 principal) external;
+
+    /// @notice Current book exposure per class / borrower / state (18-dec).
+    function classExposure(uint256 classId) external view returns (uint256);
+    function borrowerExposure(bytes32 borrowerId) external view returns (uint256);
+    function stateExposure(bytes32 stateId) external view returns (uint256);
+    function totalBookExposure() external view returns (uint256);
+
+    /// @notice A class's current share of the whole book, in bps (0 on an empty book).
+    function classConcentrationBps(uint256 classId) external view returns (uint256);
+
+    /// @notice Whether a dimension's CURRENT share of the book exceeds its configured
+    ///         limit - the standing disclosure fact, floor-independent (AUDIT FIX M-02).
+    function isOverConcentrated(uint256 classId, bytes32 borrowerId, bytes32 stateId)
+        external
+        view
+        returns (bool classOver, bool borrowerOver, bool stateOver);
+
+    /// @notice The forward weight, in bps, that an UNATTESTED permissionless past-due mark
+    ///         (`DefaultManager.markPastDue`) carries in the conservative redemption NAV,
+    ///         relative to an ATTESTED declared default (OWNER DECISION 2026-08-07).
+    /// @dev Governed credit-risk policy, so it lives with the advance rates and concentration
+    ///      limits rather than in DefaultManager (which is EIP-170 constrained and contended).
+    ///      Never returns zero: an unset slot reads `Config.DEFAULT_PAST_DUE_WEIGHT_BPS`.
+    /// @return bps The effective weight, strictly between 0 and `Config.BPS`.
+    function pastDueWeightBps() external view returns (uint256 bps);
+
+    /// @notice Applies the governed unattested-past-due weight to an executable senior charge.
+    /// @dev Called by `DefaultManager.pendingSeniorImpairment` on the past-due cohort's charge
+    ///      AFTER the executable bound has been applied. Rounds UP (over-mark is the safe
+    ///      direction). OWNER DECISION 2026-08-07 - DO NOT turn this into a pass-through.
+    /// @param amount The executable senior charge attributable to the past-due cohort.
+    /// @return weighted The discounted charge that enters the conservative redemption NAV.
+    function weightedPastDueImpairment(uint256 amount) external view returns (uint256 weighted);
+
+    /// @notice The TOTAL conservative senior mark: the attested cohort at full weight plus the
+    ///         unattested past-due cohort, clamped to executable capacity and ramp-weighted.
+    /// @dev OWNER DECISION 2026-08-07. Clamps `pastDueSenior` to the senior absorption capacity
+    ///      `realizeLoss` could actually reach today (`vaultAssets` less the attested cohort's prior
+    ///      claim), THEN applies the governed weight, which itself ramps from
+    ///      `pastDueWeightBps()` back to `Config.BPS` over one `Config.DEFAULT_REDEEM_COOLDOWN`.
+    ///      Both the CLAMP-BEFORE-WEIGHT order and the ramp's expiry are load-bearing; see the
+    ///      implementation NatSpec.
+    /// @param pastDueSenior The past-due cohort's post-junior senior residual.
+    /// @param residual The TOTAL post-junior senior residual (both cohorts), unweighted.
+    /// @param vault The `sUSDfr` vault whose `totalAssets()` is layer 3's hard ceiling in
+    ///        `realizeLoss`. Read here rather than passed in as a number so the governed weight and
+    ///        the ceiling it is applied to stay in one timelocked module; see the implementation
+    ///        NatSpec, which also carries the recursion warning.
+    /// @param anchor `DefaultManager.pastDueReliefAnchor`. ZERO (unset) fails SAFE to full weight.
+    /// @return mark The total conservative senior impairment entering the redemption NAV.
+    function conservativeSeniorMark(uint256 pastDueSenior, uint256 residual, address vault, uint256 anchor)
+        external
+        view
+        returns (uint256 mark);
+
+    /// @notice The forward weight, in bps, an unattested past-due mark carries after `elapsed`
+    ///         seconds of its relief ramp (OWNER DECISION 2026-08-07).
+    /// @dev Ramps linearly from `pastDueWeightBps()` at `elapsed == 0` to `Config.BPS` at
+    ///      `elapsed >= Config.DEFAULT_REDEEM_COOLDOWN`, and stays at `Config.BPS` thereafter.
+    ///      A read-only convenience for operations and reference models; the mark itself does NOT
+    ///      route through it (see the implementation NatSpec for why).
+    /// @param elapsed Seconds since `DefaultManager.pastDueReliefAnchor`.
+    /// @return bps The effective weight, in `[pastDueWeightBps(), Config.BPS]`.
+    function pastDueRampWeightBps(uint256 elapsed) external view returns (uint256 bps);
+
+    /// @notice Governance sets the forward weight of an unattested past-due mark.
+    /// @dev Rejects 0 (re-opens H-5/D5-03) and `Config.BPS` or more (restores the defect).
+    /// @param bps The new weight, strictly between 0 and `Config.BPS`.
+    function setPastDueWeight(uint256 bps) external;
+
+    /// @notice Bitmap of classes currently above their limit; bit `classId - 1` set.
+    /// @dev Recomputed from the book on every call - never served from a cached slot, so it
+    ///      cannot report a clean book in the window after an implementation upgrade.
+    function overConcentratedClasses() external view returns (uint256 bitmap);
+
+    /// @notice The borrower concentration limit actually in force for `borrowerId`.
+    /// @dev The global limit assumes a vertical has many borrowers. A SINGLE-BORROWER vertical
+    ///      (Digital Assets, ADR-0015) makes the class and borrower dimensions measure the same
+    ///      exposure, so governance may set a per-borrower override. Every admission, breach
+    ///      and headroom read routes through this same number.
+    /// @param borrowerId The borrower key.
+    /// @return limitBps The effective limit in bps.
+    /// @return overridden True when a per-borrower override is set.
+    function effectiveBorrowerLimitBps(bytes32 borrowerId) external view returns (uint16 limitBps, bool overridden);
+
+    /// @notice Whether each supplied borrower currently holds more than the per-borrower limit
+    ///         as a share of the book - its OWN limit where one is overridden. The key set is
+    ///         unbounded on-chain; recover it from the `ExposureRecorded` stream and pass it in.
+    function overConcentratedBorrowers(bytes32[] calldata borrowerIds) external view returns (bool[] memory over);
+
+    /// @notice Whether each supplied state currently holds more than the per-state limit as
+    ///         a share of the book. Zero ids read false.
+    function overConcentratedStates(bytes32[] calldata stateIds) external view returns (bool[] memory over);
+
+    /// @notice Recomputes and events every concentration transition for all five classes
+    ///         plus the supplied borrower/state ids. Permissionless: it moves no value and
+    ///         only publishes facts the views already expose, so anyone (a keeper, a risk
+    ///         desk, the upgrade transaction itself) can announce a standing breach without
+    ///         waiting for the next origination or repayment.
+    function syncConcentrationBreaches(bytes32[] calldata borrowerIds, bytes32[] calldata stateIds) external;
+
+    /// @notice The largest `principal` that `checkConcentration` would admit right now for
+    ///         (`classId`,`borrowerId`,`stateId`) - the binding minimum across the class,
+    ///         borrower and state dimensions. Zero for an unknown or inactive class.
+    function concentrationHeadroom(uint256 classId, bytes32 borrowerId, bytes32 stateId)
+        external
+        view
+        returns (uint256);
+}

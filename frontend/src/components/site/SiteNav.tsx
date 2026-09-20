@@ -13,6 +13,7 @@ const links = [
   { href: "/transparency", label: "Transparency" },
   { href: "/docs", label: "Docs" },
   { href: "/points", label: "Points" },
+  { href: "/curators", label: "Curators" },
 ] as const;
 
 export function SiteNav() {

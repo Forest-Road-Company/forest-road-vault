@@ -1,0 +1,182 @@
+# Foundry configuration — rigor per CLAUDE.md §1.4.
+# The `default` profile compiles exactly as we intend to deploy (optimizer on),
+# so every test run exercises the deployed configuration.
+
+[profile.default]
+src = "src"
+out = "out"
+libs = ["../../contracts/lib"]
+test = "test"
+script = "script"
+
+# Pinned compiler (CLAUDE.md §3.1) — do not float.
+solc_version = "0.8.30"
+evm_version = "cancun"
+
+# Optimizer as it will be deployed; tests run against this configuration.
+optimizer = true
+# AUDIT R15-01 / four-input consolidation. Lowered from 1000 on 2026-07-30 to buy EIP-170
+# headroom in `sUSDfr`, then from 500 to 100 on 2026-08-10 because the required four-input
+# ReserveManager/DefaultManager composition cannot deploy at 500 (2,672 B / 1,232 B over) or at
+# runs 1 (ReserveManager still 619 B over). At runs 100, after removing duplicated private merge
+# machinery, the tight margins are ReserveManager 57 B and DefaultManager 137 B. The same ten-test
+# fee-stack suite passes at both settings; 500 -> 100 costs +0.82%..+2.52% per deterministic test,
+# +2.00% in aggregate (27,519,992 -> 28,071,178 gas), and +1.49%..+1.52% on the fuzz median/mean.
+# This changes every contract's bytecode and therefore requires a fresh deployment receipt after
+# the final tree freezes. Every gate is re-run at this setting so §1.4 tests the deployed profile.
+optimizer_runs = 100
+
+# Fail fast and loud.
+deny_warnings = true
+
+# The repository's test and deployment-script corpus contains intentionally oversized harness
+# contracts. Solc emits 5574 (EIP-170 runtime size) and 3860 (init-code size) for oversized
+# test/script harnesses, then 4591 after the diagnostic count reaches 256. Foundry applies this
+# filter after solc emits 4591, so omitting that meta-notice still makes a cold clone fail before
+# test discovery. `tools/check-solc-warning-census.mjs` independently fails on every warning code
+# outside 5574/3860, preventing 4591 from masking a new warning family. The production size gate
+# remains the separate, exact EIP-170 check over deployed contracts.
+ignored_error_codes = [5574, 3860, 4591]
+
+# Deploy scripts write the machine-readable deployment manifest here (CLAUDE.md §2.1).
+#
+# AUDIT G11/G12 — READ-ONLY access to `./src` and `./out` is what makes the CLAUDE.md §1.3
+# access-control invariant EXHAUSTIVE instead of a hand-written sample. `test/invariant/
+# AccessControlSurfaceInvariants.t.sol` enumerates the privileged surface at RUNTIME:
+# `vm.readDir("src")` finds every module, the source text says which functions carry an
+# `onlyRole(` modifier, and the compiled artifact's `methodIdentifiers` turns those names into
+# real selectors. A newly added privileged function is therefore probed automatically — a
+# hand-maintained table would silently stop being exhaustive the day someone forgot to update it.
+# DO NOT REMOVE these two entries: without them that suite cannot enumerate anything and the
+# §1.3 access-control property degrades to the 29-entry sample it replaced.
+fs_permissions = [
+    { access = "read-write", path = "./deployments" },
+    { access = "read", path = "./src" },
+    { access = "read", path = "./out" },
+]
+
+# Fuzzing floor for non-critical suites (CLAUDE.md §1.4: >= 256 minimum).
+[profile.default.fuzz]
+runs = 1024
+max_test_rejects = 131072
+
+[profile.default.invariant]
+runs = 256
+depth = 128
+fail_on_revert = true       # handlers are written to never revert; a revert is a bug
+call_override = false
+
+# ── Heavy profile: critical value/accounting suites (CLAUDE.md §1.4: >= 10k) ──
+# Run with FOUNDRY_PROFILE=heavy — used in CI and before every checkpoint.
+[profile.heavy]
+
+[profile.heavy.fuzz]
+runs = 10000
+max_test_rejects = 1048576
+
+[profile.heavy.invariant]
+runs = 512
+depth = 256
+fail_on_revert = true
+
+# ── Lite profile: quick iteration only; never the basis for a status claim ──
+[profile.lite]
+
+[profile.lite.fuzz]
+runs = 64
+
+[profile.lite.invariant]
+runs = 16
+depth = 32
+
+# ── Coverage profile: instrumented, bounded, and warning-tolerant ─────
+# Run with:
+#   FOUNDRY_PROFILE=coverage forge coverage --offline --report summary
+# The test-only seeders are deliberately kept compilable without `--ir-minimum`;
+# that workaround perturbs timestamp/gas-sensitive tests and can produce false reds.
+# Foundry overlays every named profile on `default`; `inherits` is not a supported key in either
+# the repository-pinned 1.3.2 toolchain or newer Forge. Keep the coverage campaign explicit so a
+# parser warning cannot silently restore the default 1,024 fuzz / 256 x 128 invariant workload.
+[profile.coverage]
+deny_warnings = false
+# Instrumentation substantially increases constructor/setup gas for the exhaustive access-control
+# and deployment-authorization harnesses. This is only the local test transaction ceiling; it does
+# not relax the production runtime-size check or any default/heavy profile limit.
+gas_limit = 4_000_000_000
+
+[profile.coverage.fuzz]
+runs = 64
+max_test_rejects = 131072
+# P-30's independently reproduced seed reaches all nine Oracle handler selectors. Coverage is a
+# deterministic execution census; the default/heavy tiers retain the broader security campaigns.
+seed = "0x0000000000000000000000000000000000000000000000000000000000000001"
+
+[profile.coverage.invariant]
+runs = 16
+# A depth of 32 can end a run before OracleHandler.replaySupersededFact is selected, correctly
+# tripping the anti-vacuity assertion. At 128, the focused instrumented campaign passes with all
+# nine selectors reached in every independently executed invariant campaign.
+depth = 128
+fail_on_revert = true
+call_override = false
+
+[fmt]
+line_length = 120
+tab_width = 4
+bracket_spacing = false
+int_types = "long"
+
+[rpc_endpoints]
+sepolia = "${SEPOLIA_RPC_URL}"
+mainnet_fork = "${MAINNET_FORK_RPC_URL}"
+
+[etherscan]
+sepolia = {key = "${ETHERSCAN_API_KEY}"}
+
+# ── forge-lint triage (P-50) ──────────────────────────────────────────
+#
+# WHY THIS SECTION EXISTS. `deny_warnings = true` was written for SOLC warnings, and this tree has
+# ZERO of those. Foundry later began routing forge-lint findings through the same gate, and there
+# are 526 of them — none a defect. The effect was that **a fresh clone of this repository could not
+# run its own test suite**: `forge test` died with "Compiler run failed: more than 256 warnings".
+# Long-lived worktrees never saw it, because lint does not re-fire on a warm cache. That is why it
+# went unnoticed until 2026-08-11, when a clone was made from scratch.
+#
+# Each exclusion below is triaged, not swept. `deny_warnings` stays TRUE and keeps doing its real
+# job on solc.
+[lint]
+exclude_lints = [
+    # FALSE POSITIVE, verified at every site. `1 << uint256(AttestationKind.X)`
+    # (script/Deploy.s.sol:568-571) and `1 << (c - 1)` (src/CollateralRegistry.sol:570, :755) are
+    # the correct bitmap idiom; the operands are not reversed.
+    "incorrect-shift",
+
+    # NAMING — deliberate house convention, not drift. This codebase carries acronyms that no
+    # mixedCase rule can express: USDfr, USDC, DSRA, sGROVE, NAV, MTM, LTV, UCC. Renaming
+    # `_deployUSDC` to `_deployUsdc` or `onUSDfrTransfer` to `onUsdfrTransfer` would make the code
+    # harder to read and would break interface conformance for the points hooks.
+    "mixed-case-function",
+    "mixed-case-variable",
+    "screaming-snake-case-immutable",
+    "screaming-snake-case-const",
+    "pascal-case-struct",
+
+    # CONTRARY TO HOUSE STYLE. Suggests replacing keccak256 with hand-rolled assembly for gas.
+    # CLAUDE.md §3.1 requires preferring well-audited standard implementations over hand-rolled
+    # primitives on anything security-sensitive. Declining this is the correct call.
+    "asm-keccak256",
+
+    # COVERED BY A BETTER INSTRUMENT. 209 findings, essentially all in test/. Production uses
+    # SafeERC20 throughout (§3.1), and Slither carries the real analogue — `arbitrary-send-erc20`,
+    # High/High, explicitly triaged in slither-baseline.json, which fails CI on anything new.
+    "erc20-unchecked-transfer",
+
+    # 24 findings, ALL in test/. Real but cosmetic. Excluded rather than churn a dozen audit test
+    # files mid-landing; worth a dedicated cleanup pass, tracked as a Low.
+    "unused-import",
+
+    # ALREADY TRIAGED ELSEWHERE. 16 findings; slither-baseline.json carries `divide-before-multiply`
+    # against MintRedeemController._quoteRedeem/_redeem and PointsModule._epochPoints, each with a
+    # recorded rationale. Triaged, not ignored — see .security-audit/slither-triage.md.
+    "divide-before-multiply",
+]

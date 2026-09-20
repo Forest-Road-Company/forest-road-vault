@@ -1,173 +1,119 @@
 # Forest Road Vault
 
-A real-world-credit protocol on Ethereum L1. It takes USDC, issues a fully-backed synthetic dollar
-(`USDfr`) against it, lends that capital into identified, lien-perfected off-chain credit facilities,
-and passes the interest through to a yield-bearing ERC-4626 vault (`sUSDfr`) — with a three-layer
-loss cascade underneath.
+Forest Road Vault is a real-world-credit protocol built around identified credit facilities,
+continuous recognition of earned cash and PIK interest, and a three-layer loss cascade: curator
+capital, the protocol backstop, then senior principal.
 
-Off-chain facts enter only through an m-of-n attested oracle. The protocol integrates no AMM, no
-price feed and no external DeFi protocol; USDC is the only external token.
+This public repository contains the current Ethereum v2 source, the pre-deployment BNB Smart Chain
+source, the Solana curator-vault program, their reviewable tests and build inputs, and the Next.js
+application. It is a curated source release from private engineering repositories. Operational
+runbooks, signing material, mainnet role topology, keeper infrastructure, and raw working evidence
+remain outside the public tree.
 
-> **This repository currently contains the application and the published documentation — not the
-> contract source.** The contracts are published after the mainnet deployment. Until then, the
-> Sepolia contracts are verified on Etherscan and readable there, and every review round, finding
-> and disposition is published here and on the project site. See *What is in this repository*.
+## Deployment status
 
----
-
-## Status — read this before anything else
-
-**The contracts are deployed to Ethereum mainnet. The protocol is not yet accepted for production
-use, and the public application still points at Sepolia.**
-
-| | |
+| System | Status |
 |---|---|
-| Deployed | Ethereum **mainnet** (chain 1), 16 August 2026, block 25768251, from source commit `f1f1f47`. Also on **Sepolia**, where test assets have no value. |
-| Mainnet addresses | `contracts/deployments/1-production-v1.json` and `docs/deployments/mainnet-v1-2026-08-16-deployment-report.md`. |
-| Bootstrap authority | **Surrendered.** The timelock holds `DEFAULT_ADMIN` and `UPGRADER` on every module; no authority role survives on any deployer EOA. Verified on-chain, not merely scripted. |
-| Remaining before production use | **§8 acceptance against the deployed stack**, and authorizer sign-off on the ceremony declaration. Launch-runbook activation is a separate, human-owned decision. |
-| Public application | Still **Sepolia** — the deployed frontend has not been promoted to a mainnet build. |
-| External security audit | Corrovera Security's AI-assisted review was received and owner-dispositioned on 4 August 2026, closing Part 11 gate 1. **That report does not claim to be an unqualified independent audit** — read the register below rather than the word "audited". |
-| Open findings | Several, published in full — see below. |
-
-A mainnet deployment is not a launch. The stack holds a nominal 100 USDC seed, the concentration
-limits are set to their production values, and **nothing has been accepted under §8**. Treat the
-addresses as real and the system as not yet in service.
-
-The Sepolia deployment separately retains bootstrap admin privileges, uses a mock stablecoin, and
-runs with concentration limits fully open. **Nothing green on the testnet deployment is evidence
-about the production configuration.**
+| Ethereum v2 | Deployed on Ethereum mainnet at block `26,006,832` as a qualification deployment. Continuous cash and PIK accrual was enabled at genesis. The source under `contracts/src/` is byte-identical to the source used for the verified deployment. Deployment alone is not production acceptance. |
+| BNB Smart Chain | Source complete and reviewed; no BSC mainnet deployment has occurred. A fresh deployment enables continuous accrual at genesis. See `bsc/README.md`. |
+| Solana curator vault | Current canonical program is on devnet at `3ZPRvNDUDRZuZ8Hug873JtSDJueA8D7PEVE21uLLAvwh`; no Solana mainnet deployment has occurred. The committed ELF hash is `4cf28ebf3b911a59d7807a852fb81a03fe6680af5ddc94bad74a981efdf3a605`. |
+| Frontend | Source is under `frontend/`. Production releases expose `/api/revision`, which binds the served build to its Git commit. |
 
 Token characterization is a matter for counsel. Nothing in this repository is a securities-law
-representation, and nothing here should be read as representing the instruments as non-securities.
+representation or represents any instrument as a non-security.
+
+## Repository layout
+
+```text
+contracts/              Ethereum v2 contracts, tests, generic scripts and pinned dependencies
+bsc/contracts/          BNB Smart Chain production contract source and pinned build configuration
+solana/curator-vault/   Solana program, tests, deterministic build inputs and public devnet evidence
+frontend/               Next.js application, contract interfaces and published review register
+ADR/                    Architecture decisions suitable for public review
+docs/                   Threat model, access-control matrix, invariants and public specifications
+```
+
+The BSC package reuses the exact dependency revisions pinned as root contract submodules. Its
+public `foundry.toml` and `remappings.txt` only redirect dependency paths to those shared pins; its
+Solidity source is unchanged from the reviewed BSC commit recorded in `bsc/README.md`.
 
 ## Security posture
 
-Everything we have found is published, including what is still open and what was accepted rather
-than fixed:
+The repository publishes the threat model, access-control matrix, invariant specification,
+architecture decisions, source, and the tests that do not depend on withheld operational scripts.
+The application also renders the public review register under `/docs/audit`.
 
-- **Audit register** (`/docs/audit` on the project site) — every review round, each with its
-  own findings, severities and remediation history. Fifteen published rounds, most recent
-  numbered Round 16.
-- **Protocol guarantees** (`/docs/guarantees`) — the invariant
-  specification, mapped to the on-chain mechanism enforcing each property and the test suite
-  proving it.
-- **Security & testing** (`/docs/security`) — assurance posture and the
-  current status of each production gate.
+This source release is not a statement that any network is ready to receive customer funds.
+Production acceptance, counsel review, per-asset admission review, authority setup, and any
+chain-specific external review remain separate release decisions. For Solana, production Squads,
+the emergency signer, counsel review, and a specialist Solana review remain pre-mainnet gates.
 
-The engineering rounds are internal and do not substitute for external review. Corrovera Security's
-independent AI-assisted review is published in full in the Audit Register; Forest Road accepted its
-two Medium findings with recorded conditions and revisit triggers. That review satisfies Forest
-Road's one-external-audit launch requirement. Its stated scope and methodological limits remain
-part of the evidence and are not upgraded by that policy decision.
+Report suspected defects privately to **jevans@forestroad.com**. Test against your own deployment,
+a testnet, or a fork. Do not test against live assets or degrade public services.
 
-### Reproduction proofs
+## What is deliberately withheld
 
-Every finding in the register has a reproducing test. Those proofs are **not** in this repository.
-
-For findings that are **open and exploitable against a live deployment**, the register states the
-mechanism, the impact and the fix, but withholds the reproduction recipe until remediation. That is
-ordinary responsible-disclosure practice, and it is a deliberate exception to our policy of
-publishing in full. The independent Corrovera review is summarised in full on the Audit Register —
-its scope, its stated methodological limits, both Medium findings and Forest Road's dispositions —
-while the raw report is withheld, because its finding sections are working reproduction recipes for
-mechanisms that are accepted but not remediated.
-
-One published finding names a proof that is withheld for a different reason, and we would rather
-say so than let the register imply otherwise. **FRV-DSA-001** (High, Remediated — "Mainnet
-deployment authorization approved parameters without binding principals or artifacts") records that
-the remediation is "proven by a pinned mainnet-fork test". That test, and the unit suite that pins
-the same authorization hash, are the two files withheld above because they import the mainnet
-deployment scripts. A reader of this repository can therefore neither run that proof nor read the
-script it exercises, and should treat that one disposition as asserted rather than independently
-reproducible here.
-
-Reviewers, auditors and integrators can request the full evidence archive.
-
-### Reporting a vulnerability
-
-Please report privately rather than opening a public issue: **jevans@forestroad.com**.
-
-Include enough detail to reproduce — the affected contract and function, the conditions required,
-and the impact you believe it has. If you have a proof-of-concept test, send it; if you would rather
-establish a channel before sending details, say so and we will.
-
-We will acknowledge receipt, tell you plainly whether we consider it a finding and at what severity,
-and agree a disclosure timing with you. Findings that survive validation are published on the audit
-register with their severity and disposition — including those we accept rather than fix — and
-reproduction detail is withheld until the mechanism is remediated. Reporters are credited unless
-they ask not to be.
-
-There is no bug bounty at this stage. Nothing here waives any right, but we have no interest in
-pursuing good-faith research: test against your own deployment or a fork rather than the live
-testnet, do not access or modify data that is not yours, and do not degrade the service for others.
-
-## What is in this repository
-
-```
-frontend             the Next.js application and the published documentation, including
-                     the full audit register — every round, finding and disposition
-```
-
-### What is not here yet, and why
-
-This is a curated snapshot of a private working repository, not a mirror of it, and it is being
-published in two stages.
-
-**Stage one, now — the application and the documentation.** The audit register ships in full,
-including the findings that are still open and the ones accepted rather than fixed. So does the
-invariant specification, the threat model and the access-control matrix. You can read exactly what
-was found and what was decided about it.
-
-**Stage two, after the mainnet deployment — the contract source, the test suite and the ADRs.**
-Holding these back is a deliberate sequencing decision rather than a claim that they are sensitive:
-they publish the deployment topology at the moment we are preparing to deploy it. The tradeoff is
-real and worth stating, because the usual argument runs the other way — publishing source before
-launch means more eyes while nothing is at risk. What blunts the cost here is that the Sepolia
-contracts are already verified on Etherscan and readable today, and mainnet source is verified at
-deployment, so this defers packaging rather than concealment.
-
-Permanently withheld, in both stages:
-
-| Withheld | Why |
+| Withheld | Reason |
 |---|---|
-| The mainnet deployment, validation and handover scripts | `DeployMainnet`, `ValidateMainnet`, `MainnetConfig`, `MainnetConfigReceipt` and `Handover`. They publish the mainnet role topology and the handover sequence. To be revisited after launch. The generic `Deploy`, `Validate`, `QA`, `UpgradeOracle` and `PrivilegeAudit` scripts **are** published — they take every address from configuration, and the test suite does not compile without them. |
-| Four test files that import those scripts | `MainnetDeploymentFork`, `DeployValidateHandoverFork`, `Fix_C01-deploy-tooling` and `DeepSecurityDeploymentAuthorization` — 82 tests. They cannot compile without the withheld scripts, and one unresolved import stops the entire suite compiling, so the choice was these four or all of it. See *Reproduction proofs* for the one register finding this affects. |
-| The mainnet control-Safe fork test | `MainnetControlSafesFork` pins the exact pre-launch control-wallet topology. It is withheld with the operational address records and will be revisited after launch. |
-| The off-chain keeper and private bundle feed | Operational infrastructure carrying private-relay, encrypted-bundle delivery and credential-boundary detail. Not required to review the on-chain protocol. |
-| Deployment manifests and reports | Operational records. Live addresses are published on the project site instead, where they can be reconciled against on-chain state. |
-| The launch runbook | Operational and incident procedure. Publishing it carries no benefit to a reader and real downside. |
-| Raw audit reports and evidence | They carry reproduction detail for findings that are still live. See *Reproduction proofs* below. |
-| Internal working state and process notes | No evaluative value; discloses operational infrastructure. |
+| Mainnet deployment, validation, handover, and legacy-upgrade transaction scripts | They expose live role topology, CREATE ordering, and operational sequencing. Generic build and local-validation helpers required by the published tests are included. |
+| Tests that import withheld scripts | Solidity compilation is all-or-nothing. The publisher derives this exclusion from imports so the remaining public suite compiles. |
+| Mainnet control-wallet probes, deployment manifests, and ceremony receipts | These are operational records. Deployed Ethereum source remains verified on Etherscan. |
+| Keeper services, private bundle feeds, and launch/incident runbooks | They disclose relay, credential-boundary, and response details unrelated to reviewing contract logic. |
+| Raw working reports and remediation archives | They contain reproduction and operational detail beyond the curated public review register. |
+| Solana signing and deployment entrypoints | The public package includes program source, deterministic build tooling, tests, canonical artifact, and read-only devnet evidence. |
 
-Credentials and ceremony records have never been committed to any repository.
+No `.env` file, private key, mnemonic, KMS credential, or signing payload is part of this release.
 
-## Building and testing
+## Build and test
 
-```bash
-cd frontend
-npm install
-npm test                      # logic, contract↔UI synchronization, and render tests
-NEXT_PUBLIC_CHAIN_ID=11155111 npm run build
+Initialize the pinned dependencies first:
+
+```sh
+git submodule update --init --recursive
 ```
 
-The build refuses to select a network implicitly — `NEXT_PUBLIC_CHAIN_ID` is required. Copy
-`frontend/.env.example` for the full variable list; it contains placeholders only. Every
-`NEXT_PUBLIC_*` value is compiled into the browser bundle and is public by construction, so nothing
-secret belongs there. Set the optional
-`NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` to a dedicated Reown project ID to enable WalletConnect QR
-and mobile deep-link sessions. That ID is intentionally browser-visible, is not a signing secret,
-and must be protected with Reown's production/preview origin allowlist.
+Ethereum v2:
 
-## Design decisions
+```sh
+cd contracts
+forge build
+forge test --offline
+```
 
-The locked decisions are identified-per-asset collateral rather than a blind pool; variable-yield
-pass-through rather than a fixed rate; Ethereum L1; four credit verticals plus a marked-to-market
-digital-assets class at launch; and the three-layer loss cascade.
+Some fork suites additionally require explicitly configured RPC endpoints. The published tree omits
+tests whose only path to compilation imports a withheld operational script.
 
-The protocol overview and the invariant specification are published here under
-`frontend/src/content/docs/`, and rendered on the project site. The full architecture decision
-records arrive with the contract source in stage two.
+BNB Smart Chain source:
+
+```sh
+cd bsc/contracts
+forge build --sizes
+```
+
+Solana curator vault:
+
+```sh
+cd solana/curator-vault
+npm ci
+npm run build:program
+npm run test:program
+npm run test:surface
+npm run test:ops
+npm run typecheck
+```
+
+Frontend:
+
+```sh
+cd frontend
+npm ci
+npm test
+./node_modules/.bin/tsc --noEmit
+npm run lint
+```
+
+Production frontend builds require the documented public `NEXT_PUBLIC_*` configuration. Browser
+configuration is public by construction; secrets do not belong in those variables.
 
 ## License
 

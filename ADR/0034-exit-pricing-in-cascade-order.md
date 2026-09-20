@@ -20,7 +20,8 @@ the exit off the **gross** book mark:
 - `MintRedeemController._quoteRedeem` derives its price from `backingValue()`, i.e.
   `ReserveManager.totalBackingValue()`, which nets **nothing** against junior capital.
 - The senior `sUSDfr` path prices off `DefaultManager.pendingSeniorImpairment()`, which **does** net
-  against curator first-loss per class and then the global sGROVE backstop (the ADR-0022
+  against curator first-loss (POOLED across classes, amended 2026-09-09; see the
+  implementation requirements) and then the global sGROVE backstop (the ADR-0022
   conservative-redemption NAV).
 
 So two redemption paths in the same tree price off two different bases, and the direct path is the
@@ -208,8 +209,34 @@ pays for an estimate, but requires per-exit residual-claim machinery that does n
 
 **Implementation requirements (none optional):**
 - The draw is ATOMIC with the redemption. A quote that cannot be funded must not be issued.
-- The draw respects cascade ORDER within the junior layers: curator first-loss per class, then the
-  global sGROVE backstop — never inverted, never skipping.
+- The draw respects cascade ORDER within the junior layers: curator first-loss, then the global
+  sGROVE backstop — never inverted, never skipping.
+
+  **AMENDED 2026-09-09 by Forest Road decision, in session: the exit draw pools curator first-loss
+  ACROSS classes rather than charging it per class.** As first written this clause said "per class",
+  and the implementation deviated from it and said so in `DefaultManager`'s own NatSpec, which
+  demanded a sign-off. This is that sign-off, and the reasoning is recorded rather than assumed.
+
+  A redemption has no collateral class. The deficit it prices against is a BLEND of two sources: a
+  class-attributable credit impairment (`principalImpairment[facilityId]`, and the facility carries
+  a classId) and a class-LESS custody shortfall, which can be produced by an idle write-down with no
+  facility involved at all. Splitting one blended number into class shares is arbitrary in exactly
+  the part that comes from custody. And pooling is not a new posture: **ADR-0033 already mandates it
+  for the other source** — "all five curator pools absorb pro rata by their pre-call balances,
+  skipping zero allocations" — so a class-less exit draw makes the two deficit sources consistent
+  rather than introducing an exception.
+
+  **THIS AMENDS THE EXIT DRAW ONLY, AND THE BOUNDARY IS LOAD-BEARING.** A REALISED credit loss is
+  still charged to the class that caused it (`DefaultManager` calls `absorbLoss(f.classId, ...)`),
+  and that must not be pooled: first-loss capital is POSTED per class (`postFirstLoss(classId,
+  amount)`), curators are APPROVED per class, and ADR-0004 computes subordination headroom per class
+  against posted capital. Pooling realised losses would let a class-2 default consume a class-5
+  curator's stake and would break that model. The three absorption sites therefore divide as:
+  realised credit loss per class, custody loss pooled (ADR-0033), exit draw pooled (this amendment).
+
+  **REQUIRED DISCLOSURE.** A curator's posted first-loss can be drawn to price a redemption whose
+  deficit arose in another class. That is a commercial term of posting first-loss and must appear
+  wherever curator terms are published, not only in this ADR.
 - The draw must not exceed what the cascade would have absorbed anyway; it brings absorption FORWARD in
   time, it does not enlarge it.
 - Decision Z's stateful invariant must cover the drawn path: no exit may leave a remaining holder worse
@@ -292,3 +319,28 @@ change — an uncovered path makes the invariant vacuous for it.
   sub-decision is unaffected.
 - The `realizeLoss` guard comment and any dependent NatSpec must be corrected to state the position
   in X, so the tree asserts one thing.
+
+
+## Armed-window availability amendment — owner direction, 2026-09-17
+
+The owner approved preventing withdrawals while an unratified custody arm stands.
+Every direct exit now waits for resolution, including discounted exits with no junior
+capital. Admission is independent of permissionless contributions to the backstop.
+An allowed exit after resolution continues to use the ordinary junior-first cascade.
+
+A refusal rolls back allocation, burns, prepayments and cash movement together. A different
+open incident cannot release this arm's restriction. Once this arm's own incident is
+ratified, the existing custody and accounting checks continue to govern settlement.
+Advisory direct-exit quotes are suspended during the unratified window.
+
+Governance can resolve an objectively reconciled false alarm through
+`cancelUnratifiedArm(expectedArmId, evidenceHash)`. It requires nonzero evidence, exact arm
+identity, an unused arm-derived incident identity, no active or unsettled custody incident,
+no recorded reserve deficit, and fully accounted physical custody. It preserves all credit
+impairments and exit prepayments, consumes the arm and disables further guardian arms.
+Credit risk and its other interlocks remain in force. The stronger preconditions on the
+existing general cancellation/finalization paths are unchanged.
+
+Upgrade the reserve and its linked incident library before the controller so the governed
+resolution is available before the stronger exit restriction. Deployment and governance
+execution remain human-owned. Validation status belongs in the dated remediation record.

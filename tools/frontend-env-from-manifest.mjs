@@ -4,6 +4,8 @@ import path from "node:path";
 import {createHash} from "node:crypto";
 import {createRequire} from "node:module";
 import {fileURLToPath} from "node:url";
+import {verifyCuratorDeploymentBinding} from "./curator-vault-manifest.mjs";
+import {verifyReownOriginPolicy} from "../frontend/src/lib/reownOriginPolicy.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const frontendDir = path.join(here, "..", "frontend");
@@ -31,6 +33,50 @@ if (
   throw new Error(
     "NEXT_PUBLIC_CHAIN_ID must be Ethereum (1), Sepolia (11155111), or the local-fork profile (31337)",
   );
+}
+
+// ── Solana curator vault gate (every profile) ────────────────────────────────
+// The /curators wallet surface is wired by three NEXT_PUBLIC_CURATOR_VAULT_* variables. A
+// configured build is refused unless the cluster, program, mint and generated IDL all match a
+// committed deployment manifest and its clean build receipt. This prevents a preview/devnet
+// build from silently targeting an old rehearsal just as the mainnet checks prevent a release
+// from targeting an unreviewed program or a look-alike mint.
+if (verifyBuildEnv) {
+  const cluster = process.env.NEXT_PUBLIC_CURATOR_VAULT_CLUSTER;
+  const programId = process.env.NEXT_PUBLIC_CURATOR_VAULT_PROGRAM_ID;
+  const mint = process.env.NEXT_PUBLIC_CURATOR_VAULT_MINT;
+  const set = [cluster, programId, mint].filter((v) => v && v.length > 0).length;
+  if (set !== 0 && set !== 3) {
+    throw new Error("NEXT_PUBLIC_CURATOR_VAULT_{CLUSTER,PROGRAM_ID,MINT} must be set together or not at all");
+  }
+  if (cluster && cluster !== "devnet" && cluster !== "mainnet-beta") {
+    throw new Error("NEXT_PUBLIC_CURATOR_VAULT_CLUSTER must be devnet or mainnet-beta");
+  }
+  const base58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+  if (set === 3 && (!base58.test(programId) || !base58.test(mint))) {
+    throw new Error("NEXT_PUBLIC_CURATOR_VAULT_PROGRAM_ID and _MINT must be base58 Solana addresses");
+  }
+  if (cluster === "mainnet-beta") {
+    const CANONICAL_USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    if (mint !== CANONICAL_USDC) {
+      throw new Error("mainnet-beta curator vault builds must use canonical USDC");
+    }
+  }
+  if (set === 3) {
+    const deploymentDirectory = path.join(here, "..", "solana", "curator-vault", "deployments");
+    const frontendIdlPath = path.join(frontendDir, "src", "config", "curator-vault.idl.json");
+    verifyCuratorDeploymentBinding({cluster, programId, mint, deploymentDirectory, frontendIdlPath});
+    process.stdout.write(
+      `Curator vault gate: ${cluster} program ${programId}, IDL and clean build receipt match the committed manifest.\n`,
+    );
+  }
+}
+
+// A syntactically valid Reown project ID is still unusable when the deployed browser origin is
+// absent from that project's dashboard allowlist. Verify the public configuration before every
+// release build so QR/mobile connection cannot silently ship broken again.
+if (verifyBuildEnv) {
+  await verifyReownOriginPolicy();
 }
 
 // `npm run build` invokes this mode for every profile. Sepolia and the dedicated

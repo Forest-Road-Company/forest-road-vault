@@ -785,7 +785,8 @@ contract SepoliaDeployedNegativeQAForkTest is Test {
             paymentScheduleHash: keccak256("NEGQA_AMORTIZATION"),
             rateIndexRef: bytes32(0),
             renewalTermsHash: bytes32(0),
-            offchainRef: keccak256("NEGQA_CREDIT_FILE")
+            offchainRef: keccak256("NEGQA_CREDIT_FILE"),
+            pik: false
         });
     }
 

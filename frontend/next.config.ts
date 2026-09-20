@@ -5,6 +5,10 @@ import {PHASE_PRODUCTION_BUILD} from "next/constants.js";
 
 const isDevelopment = process.env.NODE_ENV === "development";
 const isLocalFork = process.env.NEXT_PUBLIC_CHAIN_ID === "31337";
+const sourceRevision = process.env.VERCEL_GIT_COMMIT_SHA?.toLowerCase();
+if (process.env.VERCEL === "1" && !/^[0-9a-f]{40}$/.test(sourceRevision ?? "")) {
+  throw new Error("VERCEL_GIT_COMMIT_SHA must identify the exact source revision for a Vercel build");
+}
 const localConnectSources = isDevelopment || isLocalFork
   ? " http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*"
   : "";
@@ -33,6 +37,7 @@ const securityHeaders = [
   {key: "Cross-Origin-Opener-Policy", value: "same-origin"},
   {key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()"},
   {key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload"},
+  ...(sourceRevision ? [{key: "X-FRV-Source-Revision", value: sourceRevision}] : []),
 ] as const;
 
 export default function createNextConfig(phase: string): NextConfig {

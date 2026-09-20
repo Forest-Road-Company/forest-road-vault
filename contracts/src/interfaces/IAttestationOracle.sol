@@ -19,7 +19,10 @@ interface IAttestationOracle {
         Valuation,
         LossRealized,
         PastDueCured,
-        TermsAmended
+        TermsAmended,
+        /// @dev One-shot opening debt for continuous accrual. The payload binds the reserve,
+        ///      migration session, cutoff, facility identity, contractual cursor and balances.
+        AccrualOpening
     }
 
     /// @notice Lifecycle of a single ECONOMIC FACT, keyed by (facilityId, kind, payload).
@@ -83,6 +86,8 @@ interface IAttestationOracle {
     error Oracle_ZeroValuation();
     error Oracle_StaleValuation(uint64 asOf, uint64 existing);
     error Oracle_NotSatisfied(uint256 facilityId, AttestationKind kind);
+    /// @notice Process or revoke the current action before submitting another of the same kind.
+    error Oracle_UnconsumedFact(uint256 facilityId, AttestationKind kind, bytes32 payload);
     error Oracle_BadThreshold();
     /// @notice AUDIT FIX (C4-01/C4-02): this economic fact has already left `None`. It was
     ///         recorded, spent, or revoked, and no re-signing under a fresh nonce brings it back.

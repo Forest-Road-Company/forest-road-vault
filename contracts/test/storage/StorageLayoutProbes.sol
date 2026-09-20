@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.30;
+import {ReserveAccrualStorageLib} from "../../src/libraries/ReserveAccrualStorageLib.sol";
 
 import {AssessedImpairmentSource} from "../../src/AssessedImpairmentSource.sol";
 import {AttestationOracle} from "../../src/AttestationOracle.sol";
@@ -20,11 +21,23 @@ import {WaterfallEngine} from "../../src/WaterfallEngine.sol";
 import {ICollateralRegistry} from "../../src/interfaces/ICollateralRegistry.sol";
 import {SUSDfr} from "../../src/sUSDfr.sol";
 
+import {IContinuousAccrual} from "../../src/interfaces/IContinuousAccrual.sol";
+import {AccrualBook} from "../../src/libraries/AccrualBook.sol";
+import {AccrualLoans} from "../../src/libraries/AccrualLoans.sol";
+import {AccrualSchedule} from "../../src/libraries/AccrualSchedule.sol";
+import {AccrualSegments} from "../../src/libraries/AccrualSegments.sol";
+import {VaultAccrualLib} from "../../src/libraries/VaultAccrualLib.sol";
+
 /// @dev Compiler-visible probe for ReserveManager's ERC-7201 storage root. Production contracts
 ///      intentionally hold this struct at a namespaced assembly slot, which makes their ordinary
 ///      `forge inspect ... storage-layout` output empty. Declaring the exact production type as a
 ///      conventional state variable forces solc to emit its member slots and offsets.
 contract StorageLayoutAggregateProbe {
+    ReserveAccrualStorageLib.Identity internal accrualIdentity;
+    ReserveAccrualStorageLib.Rounding internal accrualRounding;
+    ReserveAccrualStorageLib.Migration internal accrualMigration;
+    ReserveAccrualStorageLib.State internal accrualReserveState;
+
     AssessedImpairmentSource.AssessmentStorage internal assessmentStorage;
     AttestationOracle.OracleStorage internal oracleStorage;
     AttestationOracle.Record internal oracleRecord;
@@ -55,6 +68,26 @@ contract StorageLayoutAggregateProbe {
     SGrove.Unbond internal unbond;
     USDfr.USDfrStorage internal usdfrStorage;
     WaterfallEngine.WaterfallStorage internal waterfallStorage;
+    // ADDED 2026-09-09 with PIK. `pikCursor` is a mapping value inside the namespaced struct, so
+    // solc never emits its members from `waterfallStorage` alone and the source-side check reported
+    // it as newly reachable and unprobed. It occupies one slot: uint64 + uint16 + uint176 = 256.
+    WaterfallEngine.PikCursor internal pikCursor;
     ICollateralRegistry.ClassParams internal classParams;
     SUSDfr.SUSDfrStorage internal sUsdfrStorage;
+
+    // Continuous-accrual namespaces and every reachable storage struct.
+    IContinuousAccrual.Delivery internal continuousDelivery;
+    IContinuousAccrual.Modules internal continuousModules;
+    IContinuousAccrual.PricingState internal continuousPricing;
+    IContinuousAccrual.Snapshot internal continuousSnapshot;
+    AccrualBook.Book internal accrualBook;
+    AccrualBook.Clock internal accrualClock;
+    AccrualBook.Entry internal accrualEntry;
+    AccrualBook.Group internal accrualGroup;
+    AccrualLoans.Loan internal accrualLoan;
+    AccrualLoans.State internal accrualLoanState;
+    AccrualSchedule.Event internal accrualEvent;
+    AccrualSchedule.Heap internal accrualHeap;
+    AccrualSegments.Terms internal accrualTerms;
+    VaultAccrualLib.State internal accrualVaultState;
 }

@@ -60,7 +60,6 @@ contract S2_DrawnGreaterThanTargetHasNoFalsifier is ADR0034Y_AtomicJuniorExitDra
     ///      `MintRedeemController._drawJuniorForExit` (compiles; `target` is still read on the
     ///      line above and on the revert path) -> RED here, and RED nowhere else in the tree.
     function test_S2_anOverDeliveringDrawSourceMustStillBeRefused() public {
-        _recognise(MARK);
         OverDeliveringExitDrawSource src =
             new OverDeliveringExitDrawSource(IERC20(address(usdfr)), bob, address(reserves), 1e18);
         vm.prank(bob);
@@ -69,6 +68,9 @@ contract S2_DrawnGreaterThanTargetHasNoFalsifier is ADR0034Y_AtomicJuniorExitDra
         reserves.setLossAbsorber(address(src));
         controller.setLossSource(address(src), true);
         vm.stopPrank();
+
+        // Bind the test source before the mark activates the rebind guard.
+        _recognise(MARK);
 
         vm.prank(alice);
         vm.expectPartialRevert(IMintRedeemController.Controller_ExitDrawNotDelivered.selector);
@@ -79,7 +81,6 @@ contract S2_DrawnGreaterThanTargetHasNoFalsifier is ADR0034Y_AtomicJuniorExitDra
     ///         drawn)`, so the claim that `test_Y_G06` exercises the `drawn > target` limb is
     ///         checkable — and false. In BOTH of the named falsifier's modes `drawn` is ZERO.
     function test_S2_theNamedFalsifierNeverReachesTheOverDeliveryLimb() public {
-        _recognise(MARK);
         for (uint8 mode = 0; mode < 2; ++mode) {
             uint256 snap = vm.snapshotState();
             LyingExitDrawSource liar = new LyingExitDrawSource(IERC20(address(usdfr)), mode);
@@ -87,6 +88,9 @@ contract S2_DrawnGreaterThanTargetHasNoFalsifier is ADR0034Y_AtomicJuniorExitDra
             reserves.setLossAbsorber(address(liar));
             controller.setLossSource(address(liar), true);
             vm.stopPrank();
+
+            // Bind the test source before the mark activates the rebind guard.
+            _recognise(MARK);
 
             vm.prank(alice);
             try controller.redeem(EXIT, 0, block.timestamp) returns (uint256) {

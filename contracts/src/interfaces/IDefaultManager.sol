@@ -44,6 +44,10 @@ interface IDefaultManager is IRevisionedImpairmentSource, IReserveLossAbsorber {
     event BackstopSet(address indexed backstop);
     /// @notice The append-only per-event commitment ledger wired to this manager.
     event CommitmentLedgerSet(address indexed ledger);
+    /// @notice Governance installed a fresh empty ledger from this implementation's factory.
+    /// @param previous The previously stored ledger address.
+    /// @param ledger The new ledger owned by this DefaultManager proxy.
+    event CommitmentLedgerReplaced(address indexed previous, address indexed ledger);
     /// @notice A receivable facility that ran past `maturity + graceWindow` was flagged past due by
     ///         the permissionless `markPastDue` trigger (AUDIT FIX H-5, REDESIGNED 2026-07-22). This
     ///         is a REVERSIBLE ACCOUNTING mark ONLY. It does NOT transition the facility to
@@ -58,6 +62,17 @@ interface IDefaultManager is IRevisionedImpairmentSource, IReserveLossAbsorber {
     /// @param maturity The facility's absolute maturity timestamp that was breached.
     /// @param outstanding The at-risk principal recorded into the past-due impairment pool.
     event PastDueMarked(uint256 indexed tokenId, uint256 indexed classId, uint64 maturity, uint256 outstanding);
+    /// @notice `markPastDue` found the facility's PIK period settleable and SETTLED IT instead of
+    ///         marking. The facility was not past due: its schedule has advanced.
+    /// @dev The observable half of round nine's change, and the reason it is an event rather than a
+    ///      revert. A caller who expected a mark and got this has had their gas spent on the remedy
+    ///      rather than on a credit event, and `ClaimBridge.nextPaymentDue` has moved - so the outcome
+    ///      is reconstructable from events alone, which CLAUDE.md section 3.1 requires of the register.
+    ///      A revert could not do this: it would roll the settlement back.
+    /// @param tokenId The facility whose period was settled.
+    /// @param classId Its collateral class.
+    /// @param settledDue The due date that stood before the crank advanced it.
+    event PikPeriodSettledInsteadOfMark(uint256 indexed tokenId, uint256 indexed classId, uint64 settledDue);
     /// @notice A facility's past-due mark was removed (AUDIT FIX H-5, REDESIGNED 2026-07-22): either
     ///         a servicer cure (`clearPastDue`) or a conversion into a declared default
     ///         (`declareDefault` on a past-due facility, which releases the reversible past-due
@@ -81,6 +96,10 @@ interface IDefaultManager is IRevisionedImpairmentSource, IReserveLossAbsorber {
     ///         request-anchored, so a redeemer who queued well before maturity can still have its
     ///         cooldown elapse before the mark lands (see `markPastDue` and `setGraceWindow`).
     event GraceWindowSet(uint256 indexed classId, uint64 window);
+
+    /// @notice The WaterfallEngine whose `paused()` flag gates the PIK branch of `markPastDue`.
+    /// @param engine The engine address, or zero to disable the guard.
+    event WaterfallSet(address indexed engine);
     /// @notice Unrealized-impairment contribution left the class's pool WITHOUT a realized loss
     ///         (ADR-0022). `amount` is the portion de-recognised by this call, NEVER the
     ///         realized loss (that is reported by `LossRealized`), so summing this event and
@@ -142,6 +161,11 @@ interface IDefaultManager is IRevisionedImpairmentSource, IReserveLossAbsorber {
     /// @param maturity Its maturity timestamp.
     /// @param graceEnd The first timestamp at which it becomes markable (`maturity + graceWindow`).
     error DefaultManager_NotPastDue(uint256 tokenId, uint64 maturity, uint64 graceEnd);
+
+    /// @notice A failed legacy PIK settlement is still inside its bounded additional grace window.
+    error DefaultManager_PikCrankBlocked(uint256 tokenId);
+    /// @notice A temporary bridge operation must finish before a legacy PIK mark can be evaluated.
+    error DefaultManager_CreditOperationBusy();
     /// @notice `markPastDue` was called on a facility already flagged past due — the mark is
     ///         idempotent and must not double-count into the impairment pool (AUDIT FIX H-5).
     error DefaultManager_AlreadyPastDue(uint256 tokenId);
@@ -177,7 +201,28 @@ interface IDefaultManager is IRevisionedImpairmentSource, IReserveLossAbsorber {
     // ── Receivable remedy path (SERVICER_ROLE) ───────────────────────────
     /// @notice Declares default: freezes the position (dual-record freeze) and emits
     ///         the class remedy reference for off-chain enforcement.
+    /// @dev Records up to 16 completed legacy PIK coupons before freezing. Posting failures and
+    ///      longer backlogs revert atomically; use settleLegacyPikForDefault to prepare batches.
+    ///      The manager's pause is not a gate, but required posting dependencies may be paused.
     function declareDefault(uint256 tokenId, bytes32 evidenceHash) external;
+
+    /// @notice Records 1..16 completed legacy PIK coupons under standing default evidence.
+    /// @dev Servicer-only preparation for long backlogs. Keeps the loan's state and any past-due
+    ///      mark, including its episode clock, intact. It neither declares default nor asserts cure.
+    /// @param tokenId Facility whose completed coupons must be recorded.
+    /// @param evidenceHash Same evidence hash used by the standing DefaultDeclared attestation.
+    /// @param maxPeriods Maximum coupons to record, between one and 16.
+    /// @return processed Completed coupons recorded.
+    /// @return pendingDue Next payable elapsed coupon, or zero if none remains.
+    function settleLegacyPikForDefault(uint256 tokenId, bytes32 evidenceHash, uint256 maxPeriods)
+        external
+        returns (uint256 processed, uint64 pendingDue);
+
+    /// @notice An attested preparation batch completed without changing the facility state.
+    event LegacyPikPreparedForDefault(uint256 indexed tokenId, uint256 processed, uint64 pendingDue);
+
+    /// @notice Newly recorded legacy PIK remains included in an existing past-due risk mark.
+    event LegacyPikRiskRecorded(uint256 indexed tokenId, uint256 indexed classId, uint256 amount, uint256 contribution);
 
     /// @notice Shifts a Defaulted facility to Accelerated (waterfall acceleration).
     function accelerate(uint256 tokenId) external;
@@ -250,7 +295,9 @@ interface IDefaultManager is IRevisionedImpairmentSource, IReserveLossAbsorber {
     ///         residual, not closed here).
     function setGraceWindow(uint256 classId, uint64 window) external;
 
-    /// @notice Wires the sGROVE backstop (Phase H). Zero address = no layer 2 yet.
+    /// @notice Wires the sGROVE backstop before continuous binding; zero then means no layer two.
+    /// @dev Once bound, this setter accepts only the existing address. Replacement requires
+    ///      a separately specified migration of both native loss routes.
     function setBackstop(address backstop_) external;
 
     /// @notice Creates the commitment ledger for a pre-ledger proxy after an upgrade.
@@ -258,6 +305,11 @@ interface IDefaultManager is IRevisionedImpairmentSource, IReserveLossAbsorber {
     ///      been consumed, because creating a fresh ledger after a draw would erase that event's
     ///      residual-principal record and could overstate future coverage.
     function initializeCommitmentLedger() external;
+
+    /// @notice Replaces the commitment ledger while every declared-principal class and consumed coverage are zero.
+    /// @dev Uses the same admin and accrual-idle gates as initialization. The fresh ledger is
+    ///      created by the immutable factory associated with the current implementation.
+    function replaceCommitmentLedger() external;
 
     /// @notice Wired module addresses, including the append-only commitment ledger tail.
     function modules()
@@ -276,6 +328,8 @@ interface IDefaultManager is IRevisionedImpairmentSource, IReserveLossAbsorber {
 
     // ── Views ────────────────────────────────────────────────────────────
     /// @notice Current attested LTV of a facility in bps (outstanding / mark).
+    /// @dev The numerator is deployed receivable face, including earned unreceived interest
+    ///      under continuous accrual. The configured thresholds apply to that full face.
     function currentLtvBps(uint256 tokenId) external view returns (uint256 ltvBps, uint64 asOf);
 
     /// @notice Active margin-call cure deadline (0 = no active margin call).

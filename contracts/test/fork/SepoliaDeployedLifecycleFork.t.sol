@@ -837,7 +837,8 @@ contract SepoliaDeployedLifecycleForkTest is Test {
             paymentScheduleHash: keccak256("DEPLOYED_FORK_DIGITAL_SCHEDULE"),
             rateIndexRef: bytes32(0),
             renewalTermsHash: bytes32(0),
-            offchainRef: keccak256("DEPLOYED_FORK_DIGITAL_CREDIT_FILE")
+            offchainRef: keccak256("DEPLOYED_FORK_DIGITAL_CREDIT_FILE"),
+            pik: false
         });
     }
 
@@ -860,7 +861,8 @@ contract SepoliaDeployedLifecycleForkTest is Test {
             paymentScheduleHash: keccak256("DEPLOYED_FORK_AMORTIZATION"),
             rateIndexRef: bytes32(0),
             renewalTermsHash: bytes32(0),
-            offchainRef: keccak256("DEPLOYED_FORK_CREDIT_FILE")
+            offchainRef: keccak256("DEPLOYED_FORK_CREDIT_FILE"),
+            pik: false
         });
         bytes32 termsHash = bridge.creditTermsHash(terms);
         // P-32: documentary admission facts are commitments to this deal, not generic paperwork.

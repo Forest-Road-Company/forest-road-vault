@@ -31,6 +31,16 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Production builds require Vercel's 40-character `VERCEL_GIT_COMMIT_SHA`. After promoting a
+deployment, bind the served site to the exact reviewed commit:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+node tools/verify-frontend-revision.mjs \
+  --url https://forestroadvault.com \
+  --commit <40-character-final-commit>
+```
+
+The production project also requires `CRON_SECRET`, the daily schedule in `vercel.json`, and a
+fixed-window WAF rule on `POST /api/curators/interest` allowing at most 16 requests per source IP
+per 600 seconds. The application-level Blob gates remain a second layer and the cron deletes only
+expired `curators-rate/` gate objects.

@@ -39,6 +39,103 @@ ordering*; it cannot verify that an attested off-chain fact (a filed UCC, a rece
 payment, a declared default) is true. This is the central risk the legal wrapper and the
 attestation-trust acceptance (Part 11) exist to manage.
 
+### 2.1 The role set, and what each one can do if it is captured
+
+Fourteen roles are declared in `Roles.sol`. This table is the threat model's own view of them: not
+what each role is for, which the access-control matrix records, but what an attacker holding it
+could do. It is generated against the compiled surface by `tools/check-threat-model.mjs`, so a role
+added tomorrow reds this document rather than quietly escaping the model.
+
+| Role | Held by | If captured |
+|---|---|---|
+| `DEFAULT_ADMIN_ROLE` | governance timelock | everything below, plus every module setter. The 48h delay is the only brake, so timelock capture is total capture. |
+| `UPGRADER_ROLE` | governance timelock | replaces any implementation, which is a superset of every other role. Same brake. |
+| `GUARDIAN_ROLE` | guardian multisig | pauses user paths. Cannot touch the cascade. The real damage is LIVENESS: a pause held past one payment interval plus the grace window used to make the whole PIK book markable past due, which is why `DefaultManager.markPastDue` now refuses a PIK facility while the crank is paused. |
+| `ATTESTER_ROLE` | m-of-n attester quorum | asserts off-chain facts. THE PRIMARY TRUST ASSUMPTION: a dishonest quorum can originate against a claim that does not exist, declare a default that has not happened, or attest a payment that never arrived. Threshold, EIP-712 domain binding, single-use consumption and expiry bound the blast radius; they do not remove it. |
+| `SERVICER_ROLE` | Forest Road ops | records payments and realises losses. A captured servicer can realise a loss that did not occur, but only up to outstanding principal and only with a `LossRealized` attestation it cannot mint itself. |
+| `ORIGINATOR_ROLE` | Forest Road ops | originates facilities. Bounded by the attestation gate and by concentration limits, which is why those limits stay a REVERT on the origination path even though capitalisation no longer re-checks them. |
+| `CREDIT_ROLE` | protocol modules only | the cross-module primitives: deploy, capitalise, pay, write down, record exposure. **MUST NEVER BE GRANTED TO AN EOA.** An EOA holding it could call `ReserveManager.recordPayment`/`recordPrincipalWritedown` directly and lower `deployedTo` without cash arriving or the cascade running. Several threat-model arguments elsewhere in this document depend on that grant discipline. |
+| `CONTROLLER_ROLE` | `MintRedeemController` | the mint/redeem authority over `USDfr`. Capture is equivalent to unbacked issuance. |
+| `MINTER_ROLE` | `MintRedeemController` | mints `USDfr`. Same. |
+| `LOSS_BURNER_ROLE` | cascade modules | burns `USDfr` during loss absorption. Capture destroys holder balances; it cannot create supply. |
+| `FEE_ACCOUNTING_ROLE` | `sUSDfr` fee path | crystallises management and performance fees. Capture dilutes senior holders up to the governed fee bounds, not without limit. |
+| `RESERVE_ADMIN_ROLE` | governance | reserve valuation acts, which are deliberately authenticated because a governance write-down leaves `live > recorded` on purpose. |
+| `SETTLEMENT_KEEPER_ROLE` | keeper EOA | drives redemption-queue settlement. Capture is a LIVENESS risk only: it cannot change who is owed, and the queue is reconstructable from events. |
+| `COMPLIANCE_ADMIN_ROLE` | compliance ops | maintains the `ComplianceRegistry` allowlist. Capture blocks minting for honest users and admits unscreened ones; it moves no value directly. |
+
+### 2.2 Modules not covered by the component sections below
+
+- `AccrualMath`, `AccrualSchedule`, `AccrualBook`, `AccrualCeiling`, `AccrualLoans` and
+  `AccrualSegments` — the reserve-owned continuous-interest core. The deployed path now uses the
+  fixed-basis math and indexed next-event queue; `AccrualIndex` remains an unused preparatory
+  alternative with no authority or external entry point. The active core validates rate, basis,
+  year convention and time domains, retains exactly one full-width scheduled event per facility,
+  caps the complete signed PIK obligation before admission, and attributes aggregate and
+  facility-level accrual from the same frozen basis. Its principal failure modes are arithmetic
+  drift, a missed lifecycle checkpoint, scheduling corruption and admitting a future PIK curve
+  outside the proved numeric ceiling. Differential histories, schedule invariants and the
+  100-facility opening tests cover those properties.
+- `ReserveAccrualStorageLib` and `ReserveAccrualViewsLib` — storage-only and constant-time view
+  surfaces for that book. They hold no authority. Reads must remain O(1), use the same live
+  namespace as mutations, and fail closed while an event boundary or opening migration is due.
+- `ReserveAccrualCreditLib`, `ReserveAccrualLib` and `ReserveAccrualServiceLib` — linked reserve
+  lifecycle, materialization and bounded servicing bodies. They execute by delegatecall in the
+  `ReserveManager` proxy context; the host retains role, pause and reentrancy checks. A wrong link
+  address is therefore equivalent to a reserve implementation compromise, so the deployment
+  receipt and live validator bind every link target and runtime hash.
+- `ReserveCascadeLib`, `ReserveIncidentLib`, `ReserveMigrationLib`, `ReserveRoundingLib` and
+  `ReserveWiringLib` — linked custody cascade, incident, existing-book import, sub-unit correction
+  and permanent module-binding bodies. Their critical properties are curator → sGROVE → senior
+  order, no partial NAV during migration, preservation of earned fee claims during rounding, and
+  immutable identity agreement across every accrual consumer. The `ReserveManager` entry points
+  retain the authority and reentrancy guards; none of these libraries is a separately callable
+  policy surface.
+- `DefaultAccrualLib` and `DefaultBackstopLib` — native past-due/default accrual accounting and
+  backstop wiring in the `DefaultManager` context. They must checkpoint before a risk-state
+  transition, stop earning at declaration, keep undeclared past-due accrual inside the conservative
+  mark, and price curator pools per class before the single shared sGROVE reserve. The host keeps
+  servicing/governance admission and the cross-contract reentrancy boundary.
+- `BridgeAccrualLib`, `ControllerAccrualLib`, `VaultAccrualLib` and `WaterfallAccrualLib` — linked
+  adapters that validate the permanently bound reserve identities and carry accrual coherently
+  through origination, mint/redeem, vault NAV/fees and cash/PIK servicing. Each runs in its host
+  proxy context and relies on the host's role and reentrancy guard. Cross-module identity drift,
+  stale accrual, partial paired delivery and callback re-entry must revert atomically.
+- `VaultFeeMath` — the extracted management-fee retention formula used by `sUSDfr`. It owns no
+  storage or authority; its risk is rounding or checkpoint-frequency dependence, covered by the
+  fee differential and long-time tests.
+
+Section 4 walks the value-moving path. These contracts sit off it and are modelled here so that
+"not in section 4" never silently means "not modelled".
+
+- `CollateralRegistry` — class parameters, exposure accounting and the concentration limits. A
+  captured `DEFAULT_ADMIN_ROLE` can widen a limit or raise the concentration floor; both are
+  timelocked and both are visible as `ConcentrationDrift`/`ConcentrationHealed` events. Note the
+  asymmetry introduced 2026-09-10: `recordExposureIncrease` still REVERTS on breach, while
+  `recordCapitalizedExposure` reports and does not, because compounding interest is not an
+  admission decision and a reverting crank manufactured credit events.
+- `ComplianceRegistry` — the KYC allowlist consulted on mint. Read-only to the value path.
+- `CommitmentLedger` / `CommitmentLedgerFactory` — per-event remaining principal for the layer-2
+  draw, one ledger per manager, created by the factory at `initialize`. Only the owning manager can
+  write (`onlyManager`, an inline caller guard rather than a role, which is why the access-control
+  suite pins inline guards separately).
+- `ConservativeImpairmentMath` — pure arithmetic for the conservative senior mark. No state, no
+  privileges; its risk is a wrong formula, not a wrong caller, so it is covered by the invariant
+  tier rather than by access control.
+- `MtmAtomicExecutor` — the marked-to-market margin path executor. Out of scope for launch classes,
+  which are all Receivable.
+- `PointsModule` — off-value-path incentive accounting. Cannot move capital.
+- `GroveToken` — the governance token. Its risk is governance capture, covered by the timelock rows
+  above and by ADR-0026.
+- `RecoveryTopUpDistributor` — routes recovered principal back to senior holders. Value-moving but
+  post-cascade; the amounts it distributes are already fixed by the cascade that ran before it.
+- `DefaultInitLib` / `DefaultLossLib` — delegatecalled bodies extracted from `DefaultManager` on
+  2026-09-10 for EIP-170, mirroring the `ReserveCreditLib` pattern. The SAME rule applies and it is
+  the whole risk: a library cannot see its caller's modifiers, so `DefaultManager` keeps
+  `onlyRole(SERVICER_ROLE)` and `nonReentrant` on `realizeLoss` and nothing may call
+  `DefaultLossLib.realizeLoss` from a path that lacks them. The extraction was verbatim; the
+  ADR-0012 ordering rule (all burns before the write-down) moved with the body and is restated in
+  the library header.
+
 ## 3. Trust boundaries
 
 1. **Off-chain ↔ on-chain (attestations).** The highest-value boundary. Mitigations:
@@ -62,6 +159,28 @@ attestation-trust acceptance (Part 11) exist to manage.
 - *Custody/accounting divergence* → inbound receipts are exact, funding and payment
   transitions are atomic, and reconciliation can only lower recognized backing.
 - *Reentrancy via token callbacks* → `nonReentrant` + CEI on all value moves.
+
+**Reserve credit path, delegatecalled (ReserveStorageLib / ReserveCreditLib)**
+- *Extraction changed behaviour* → `ReserveCreditLib` holds the BODIES of `recordDeployment`,
+  `recordFeeCapitalization`, `recordPikCapitalization`, `recordPayment` and
+  `recordPrincipalWritedown` verbatim; `ReserveManager` keeps every entry point and every
+  `onlyRole`, `nonReentrant` and `whenNotPaused` modifier on it. A library cannot see a caller's
+  modifiers, so an unguarded call site would be an unguarded treasury door: nothing may call into
+  this library except those five entry points.
+- *Storage divergence* → the `ReserveStorage` struct and its single ERC-7201 `$.slot` assignment
+  stay declared in `ReserveManager.sol`. The libraries are HANDED the pointer rather than deriving
+  it, so exactly one place in the repository knows where the live proxy's storage lives, and both
+  storage-layout gates verify unchanged against the committed baselines.
+- *Delegatecall context confusion* → these are public library functions reached by delegatecall,
+  so `address(this)` is the proxy. That is what keeps `safeTransfer`, `balanceOf(address(this))`
+  and the self-deployment guard meaning what they meant inline.
+- *Link-time substitution* → public library functions require LINKING, which is new for this
+  tree. A wrong or malicious library address at link time is a full compromise of the credit path;
+  the deployment manifest must record the library addresses and post-deploy validation must check
+  them.
+- *Silent proof loss* → `ReserveStorageLib`'s functions are internal deliberately. A library
+  calling another library's public function leaves a placeholder that symbolic tooling cannot
+  link, and every proof then fails while the suite and size gate stay green.
 
 **Attestation / origination (AttestationOracle / ClaimBridge)**
 - *Single-attester forgery* → high-value kinds floored at m-of-n ≥ 2 (`setThreshold`
@@ -169,7 +288,7 @@ attestation-trust acceptance (Part 11) exist to manage.
   is therefore remediated; keeper liveness and Safe fallback are the operational residuals.
 - *Global mark can halt the queue (G2)* → intentional: global senior impairment is applied to
   the sUSDfr staked base. A sufficiently large book-wide mark can make the head unredeemable. The
-  accepted design retains the `d04e652` payment-episode protections: monotonic due high-water mark,
+  accepted design retains the d04e652 payment-episode protections: monotonic due high-water mark,
   no same-due relief restart, conservative unset-anchor behavior, and a ramp to full weight over
   one redemption cooldown. Monitoring and disclosure remain required.
 - *Price changes while a long epoch is being processed (G4)* → intentional between external
@@ -203,7 +322,7 @@ attestation-trust acceptance (Part 11) exist to manage.
   `contracts/deployments/1-production-v1.json`. Completed-v4 runtime/broadcast/authorization and
   `deployments/1.json` records are immutable and never accepted by the production validator; the
   shared base script source remains part of the current delta. The frontend principal-set
-  reconstruction includes the distinct nonzero `queueKeeper`; any zero/substituted keeper or stale
+  reconstruction includes the distinct nonzero <!-- tm-check:ignore-start describes the DEPLOYMENT MANIFEST of this tree, not its src/ symbols -->`queueKeeper`<!-- tm-check:ignore-end -->; any zero/substituted keeper or stale
   static authorization fails closed. Current default, focused and forced cold receipt/validator
   compilation pass; the configured-heavy explicit-exit receipt and clean local source freeze also
   pass. The frozen identities are `contracts/src` tree
@@ -247,22 +366,22 @@ detail is in `security-review.md`.
 | F4 | Low | Value stranded by a post-fill jurisdiction block has no governed recovery path. | Accepted (may be intended for sanctions). |
 | R4-EC3 | Historical Low | Redemption-queue budget-snapshot timing griefing (no extraction). | **Fixed by D7:** `closeEpoch` is keeper-authenticated. Production still requires keeper activation, health and Safe-fallback rehearsal. |
 | Deploy | Info | Testnet `KEEP_OPS_ADMIN=true` leaves the ops EOA as `DEFAULT_ADMIN`; testnet attester keys derive from one secret. | **Production MUST** run `KEEP_OPS_ADMIN=false` with genuinely-separated attester signers. |
-| R5-EC1 | Low | An sGROVE reward slice streamed while `totalStaked == 0` is stranded with no governance sweep; a dominant staker can weaponize it to burn a funder's routed rewards (no attacker profit; custody invariant intact). | **Recommended:** a governance `sweepStrandedRewards()` (ADR-0021 economic decision → Forest Road). |
+| R5-EC1 | Low | An sGROVE reward slice streamed while `totalStaked == 0` is stranded with no governance sweep; a dominant staker can weaponize it to burn a funder's routed rewards (no attacker profit; custody invariant intact). | **Recommended:** a governance <!-- tm-check:ignore-start describes a RECOMMENDED primitive NOT YET BUILT on this tree; modelled ahead of integration so it cannot land unmodelled -->`sweepStrandedRewards()`<!-- tm-check:ignore-end --> (ADR-0021 economic decision, Forest Road). |
 | R5-OR1 | Info | (a) `PaymentReceived` is one record slot per facility — a second attested payment overwrites the first before distribution (liveness). (b) Oracle `pause()` blocks only new submissions; the guardian must ALSO pause `DefaultManager`/`ClaimBridge` to freeze the margin/mint path (two-switch coordination). | Ops notes; no code change. |
 | R5-I1 | Info | `liftDefaultFreeze` is per-class, not tokenId-bound — a governance double-lift could reopen the R4-EC2 window (inside the trusted-timelock boundary). | Governance-ops discipline; consider tokenId-binding lifts. |
 | R5-TEST | Med (rigor) | Historical test-strength gap: the stateful cascade invariant used an uncapped mock while the audit-era production backstop was capped; the backing invariant was self-referential with no config-transition fuzz. | R6 fixed the backing half. ADR-0035 later made the production reserve intentionally uncapped per event; current production-backed cascade suites still bind the live shared-reserve behavior. |
 | S3-F1 | Historical Medium liveness | Near-total curator-pool residuals made later repost share arithmetic overflow. | **Fixed; current exact-heavy green.** Repaired tree passes 1,921/0/326 at 512 x 256 with captured Forge exit and no recurrence. Earlier acceptance is history only; reopen on any panic. |
 | G1c | Governance policy | No post-queue veto and the 21-day holder exit cannot outrun the two-day Timelock. | **Intentional.** No proposal guardian; disclose queued finality and monitor proposal lifecycle. |
-| G2 | Economic/liveness policy | Global senior impairment can make the sUSDfr queue head unredeemable. | **Intentional with `d04e652` safeguards retained.** Reopen if the payment-episode high-watermark/ramp/fail-safe rules change. |
+| G2 | Economic/liveness policy | Global senior impairment can make the sUSDfr queue head unredeemable. | **Intentional with d04e652 safeguards retained.** Reopen if the payment-episode high-watermark/ramp/fail-safe rules change. |
 | G3 | Incident liveness/accounting | An over-capacity `realizeLoss` reverts, leaving face-value accounting until remediation. | **Accepted manual frozen-protocol remedy.** Mandatory rehearsal; no value path reopens until recapitalization/upgrade and successful on-chain recognition. |
 | G4 | Queue pricing policy | A mark revision between settlement calls can make later chunks use a different price. | **Intentional live inter-call pricing.** Preserve FIFO and transaction/revision monitoring; no claim of intra-call repricing. |
-| PROD-V1-FLOW | Deployment identity / operator integrity | A replacement could overwrite the v4 receipt, validate the wrong manifest, or omit `queueKeeper` from frontend receipt reconstruction. | **Implemented; current default/heavy/focused/cold-build and clean local source-freeze evidence green.** Dedicated production script/validator/receipt names and `1-production-v1.json`; completed-v4 records/manifest immutable while shared base source remains in scope; zero/substituted keeper rejected. No production tag/manifest exists; pinned CI/RPC/Slither, formal review and regenerated authorization remain open. |
+| PROD-V1-FLOW | Deployment identity / operator integrity | A replacement could overwrite the v4 receipt, validate the wrong manifest, or omit <!-- tm-check:ignore-start describes the DEPLOYMENT MANIFEST of this tree, not its src/ symbols -->`queueKeeper`<!-- tm-check:ignore-end --> from frontend receipt reconstruction. | **Implemented; current default/heavy/focused/cold-build and clean local source-freeze evidence green.** Dedicated production script/validator/receipt names and `1-production-v1.json`; completed-v4 records/manifest immutable while shared base source remains in scope; zero/substituted keeper rejected. No production tag/manifest exists; pinned CI/RPC/Slither, formal review and regenerated authorization remain open. |
 | GOV-TL-V1 | Governance liveness / authority integrity | Inherited `updateTimelock` changes only the Governor pointer and could orphan roles on the old Timelock. | **Fixed for v1; focused/current default/heavy evidence green.** Endpoint is governance-only and terminally reverts; future migration requires an independently reviewed Governor upgrade plus atomic role transfer. |
 | **R7-SM1** | Low | A facility `originate`d then never funded sits in `Pending` forever (only exit is `Pending→Active` via `fund`); its class/borrower/state concentration exposure is stranded, keeping `CuratorModule._requiredFirstLoss` inflated and curator first-loss headroom locked. **Conservative direction** — only shrinks future capacity, never permits over-concentration; value conservation intact. | **Governance-recoverable WITHOUT an upgrade** (timelock `grantRole(CREDIT_ROLE)` → `recordExposureDecrease`). Proper fix: a future governed `cancel/expire` transition out of `Pending`. Not a redeploy blocker. |
 | ADR27-VAL1 | High (governance trust) | A malicious or unsupported `AssessedImpairmentSource.setAssessment` can reduce the queue haircut to zero while a real senior loss remains likely, allowing early redeemers to shift that loss to stayers. | Timelock-only; amount can never exceed the zero-recovery base, expires after at most 30 days, commits to a published evidence hash, and automatically fails back to zero recovery. It is also bound to `DefaultManager`'s monotonic revision and to the live **risk-state** hash, so every new default/past-due/recovery/realization or curator first-loss change invalidates it immediately. **sGROVE backstop capacity is deliberately excluded from that hash and compared directionally instead (RC-01 era fix for FRV-FS-04): a capacity DECREASE invalidates, a capacity INCREASE does not.** An increase can only make a published assessment more conservative, whereas an exact-match rule let anyone void a depositor-favourable assessment with a dust `fundCoverage` donation, since that entry point is permissionless. Independent valuation-policy and monitoring sign-off remain mainnet gates. |
 | ADR31-EQ1 | Medium (economic) | A single global HWM is not a depositor tax lot: someone entering during a drawdown shares fee-free recovery to the old protocol peak and may share a later fee on pre-entry gains deferred by performance impairment, even while junior support makes queued-exit impairment zero. There is no clawback of crystallized fees after a later loss. | Deliberate scalable design; the Stake surface independently warns whenever `feeExchangeRate() < highWaterMark()`, monitor both values, and obtain economic/legal acceptance. Per-investor lots/share classes are a future redesign, not a parameter change. |
 | ADR31-EQ2 | Medium (economic under-collection, accepted 2026-07-30) | After serving the 21-day queue cooldown, an incumbent can exit and redeposit during a junior-covered fee deferral. Basis-additive entry plus the holder-protective pro-rata exit law can then reduce the protocol's later performance fee even though assets return. | Forest Road explicitly accepted this direction and declined a launch exit-equalization fee. The per-share HWM cannot fall across the exit, so the residual under-collects protocol revenue rather than charging stayers on non-profit. A composed production-wired regression pins the behavior; monitor material round trips and reopen only as a lot/equalization/share-class economic redesign. |
-| ADR31-VAL1 | Medium (governance/economic) | Professional assessment timing can alter performance-fee NAV between lazy checkpoints; direct USDfr donations are fee-bearing gain. | Timelocked/evidenced assessment policy, permissionless checkpoints, junior-credit snapshotting, event monitoring, and external audit. This newly added accounting surface is not production-approved. |
+| ADR31-VAL1 | Medium (governance/economic) | Professional assessment timing can alter performance-fee NAV between lazy checkpoints; direct USDfr donations are fee-bearing gain. | Timelocked/evidenced assessment policy, permissionless checkpoints, junior-credit snapshotting, event monitoring, and external audit. The v2 deployment contains this surface but remains closed pending operational acceptance. |
 | ADR31-LIVE1 | High (liveness, remediated) | A reverting, malformed, or semantically inconsistent impairment source can make every fee checkpoint fail and therefore block deposits, queue operations, repayments, and default transitions; checkpointing through that same source also prevents the normal setter from clearing it. | Non-zero replacements are validated through both impairment views and their required ordering before wiring. The normal path remains fail-loud and checkpointed. A separate timelocked recovery function can only clear the current source after a fixed-budget ABI/ordering probe fails, enforces a separate recovery-gas reserve so under-gassing cannot fake failure, emits failure evidence, and HWM-ratchets any lifted NAV fee-free. A valid source cannot use the bypass. Regressions cover reverting, short-return, performance-only malformed, and `performance < redemption` sources. |
 | ADR31-REC1 | Low (economic under-collection, accepted emergency trade-off) | Clearing an unreadable impairment source lifts marked NAV and ratchets that lift fee-free. Any performance fee embedded in the live impairment/recovery gap is permanently waived. | Recovery is timelock-only, can only clear a source that fails a fixed-budget ABI-shape probe, emits failure evidence, and is an incident path rather than ordinary valuation governance. Monitoring must quantify the waived fee and production must remain paused until a validated source is restored. Regressions cover both reverting and successful-but-malformed current sources. |
 | ADR31-EXIT1 | High (economic, remediated; delta review pending) | Carrying an asset hurdle out solely at junior-supported redemption NAV lets a leaver shed deferred performance-fee exposure onto stayers when redemption NAV exceeds performance-fee NAV. | Exits retain `max(asset carry, pro-rata carry)`. A production-wired queue regression cures the impairment and value-asserts that only stayers' proportional deferred profit is charged; the dual-NAV stateful campaign independently derives the same law from pre-flow state. |
@@ -278,10 +397,10 @@ detail is in `security-review.md`.
   checkpoint-frequency neutral on an unchanged NAV; approximation/rounding and long-time
   bounds are explicit external-audit scope.
 - **Canonical Ethereum USDC** — the only launch reserve token. Earlier frozen/baseline candidates
-  have pinned-mainnet evidence against the real six-decimal proxy, including mint/redeem, funding,
-  repayment, queue settlement and custody accounting. The current owner-aligned candidate's 326
-  expected offline-RPC skips do not carry that evidence forward; its mandatory RPC-backed fork and
-  attack matrix remains an open release gate.
+  and the fresh v2 deployment have pinned-mainnet evidence against the real six-decimal proxy,
+  including mint/redeem, funding, repayment, queue settlement and custody accounting. RPC-backed
+  fork checks are release evidence and must be rerun serially after any source, deployment or
+  provider change; an offline skip is never counted as a pass.
 - **The attester infrastructure** — off-chain; the trust root (see §2).
 
 ## 7. Production assurance gates (Part 11 — human-owned)
@@ -289,29 +408,46 @@ detail is in `security-review.md`.
 External security audit · securities-law opinion · executed legal wrapper · economic
 review · attestation-trust acceptance. The internal campaign includes historical/baseline pinned
 canonical-USDC fork tests and a Halmos proof of the modeled cascade conservation/ordering
-arithmetic. The owner-aligned source still requires its mandatory RPC-backed matrix. Existing
-results support but do not replace that rerun, independent reviews, controlled deployment ceremony,
-monitoring, incident response, and ongoing governance obligations.
+arithmetic. Existing results support but do not replace a current exact-source rerun, independent
+reviews, controlled deployment ceremony, monitoring, incident response, and ongoing governance
+obligations.
 
-The instrumented coverage receipt is 1,912 pass / exactly one known gas-sensitive FS2 red / three
-skip, with the hard source-function verifier at 682/682. `--allow-failure` is only an LCOV-emission
-mechanism; ordinary default/heavy profiles own correctness and any additional coverage-only failure
-must be reviewed explicitly.
+The coverage receipt and its hard source-function denominator must be regenerated for the exact
+release source. `--allow-failure` is only an LCOV-emission mechanism; ordinary default/heavy
+profiles own correctness and every coverage-only failure must still be reviewed explicitly.
 
-Forest Road's 2026-07-29 owner decision permits a disposable mainnet deployment for controlled
-testing only. Corrovera now satisfies Forest Road's one-external-audit requirement, but the address
-set remains closed to third-party capital and real legal claims, uses only controlled test wallets
-and an approved test budget, and is not a production release. It exists to perform live-address
-operational qualification; production still requires a fresh deployment and every gate above.
+The fresh Ethereum v2 address set deployed on 2026-09-18 remains closed to user operations while
+live-address qualification runs. Corrovera satisfies Forest Road's independent source-review gate;
+that review and this internal evidence do not authorize third-party capital. Opening the system is
+a separate human governance and operational decision after every gate above is reviewed.
 
 The round-4 ADR-0031 review found no High issue and confirmed the holder-harming exit
 defect closed. Forest Road accepted the remaining protocol-under-collection tradeoff.
-The locally frozen owner-aligned candidate (`contracts/src`
-`9714bd1dc5b8b2175576d88ba907f21453e65b6a`; `contracts/script`
-`92669e22b5d4f6200b90905b8a78af240153311d`) seeds legacy zero-HWM upgrades from `totalAssets()`, enforces
-dual-NAV upgrade order, validates the complete backstop interface, fixes the UI dust
-trigger, gates EIP-170 size in CI, and launches with zero yield vesting plus an atomic
-post-interest checkpoint. Exact-source independent review and fresh receipts remain
-required; prior hashes and approvals do not cover this source.
+The reviewed contract tree deployed for v2 is bound by the deployment manifest, implementation and
+library runtime hashes, and the post-handover fork pin. It enables continuous accrual from genesis,
+enforces dual-NAV dependency order, validates the complete backstop interface, gates EIP-170 size,
+and launches with zero yield vesting plus an atomic post-interest checkpoint. Any contract change
+invalidates that identity evidence and requires new bytecode, review and deployment receipts.
 
 *Living document — update as the surface, mitigations, or accepted risks change.*
+
+
+## Continuous-accrual delivery module, updated 2026-09-18
+
+USDfr now has an explicitly bound reserve permit path for delivering already recognized
+senior and protocol-fee claims. One-time token/controller/vault identity checks, monotone
+nonces and consumed per-leg authorization constrain the paused mint exception. Compliance
+and points still execute; other token mutations are excluded during the batch. The first
+points hook retains a second-leg allowance when both claims are delivered. The reserve
+host supplies coherent prices, consumes only the selected virtual obligations, and proves actual
+supply/recipient deltas. The token cannot independently prove that economic book, so reserve,
+controller, vault, waterfall, default and registry identities are permanently cross-bound.
+
+The host integration is complete on the fresh v2 deployment: fixed-rate cash and PIK interest
+accrue continuously from frozen contractual bases, both protocol and performance fees crystallize
+as income is earned, PIK compounds only on its signed schedule, and earning stops at default or
+maturity. Every basis/rate/status transition checkpoints first. Opening migration remains an
+upgrade-only path and deliberately fails closed until its signed roster is complete. System-level
+evidence therefore combines the exact deployed-block lifecycle suite, differential histories,
+stateful invariants, function coverage, static analysis and serialized RPC-backed fork tests;
+isolated token tests alone are insufficient.

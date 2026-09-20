@@ -100,16 +100,27 @@ contract CascadeOrderedExitInvariants is CreditLayerFixture {
             admin,
             facilityId,
             [alice, bob],
-            address(vault)
+            address(vault),
+            guardian
         );
         targetContract(address(handler));
 
-        bytes4[] memory selectors = new bytes4[](4);
+        bytes4[] memory selectors = new bytes4[](6);
         selectors[0] = CascadeOrderedExitHandler.recogniseMark.selector;
         selectors[1] = CascadeOrderedExitHandler.releaseMark.selector;
         selectors[2] = CascadeOrderedExitHandler.fundBackstop.selector;
         selectors[3] = CascadeOrderedExitHandler.exit.selector;
+        selectors[4] = CascadeOrderedExitHandler.arm.selector;
+        selectors[5] = CascadeOrderedExitHandler.cancelArm.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
+        // Seed the new transitions without consuming capital or retaining a credit mark.
+        handler.recogniseMark(100_000e18);
+        handler.arm();
+        handler.exit(300_000e18);
+        handler.cancelArm();
+        handler.releaseMark(type(uint256).max);
+        assertGt(handler.gArmedRefusals(), 0, "the pending-arm restriction was not exercised");
+        assertGt(handler.gArmResolutions(), 0, "the resolution path was not exercised");
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -122,6 +133,13 @@ contract CascadeOrderedExitInvariants is CreditLayerFixture {
     ///         a holder haircut at the gross mark while the tranche contracted to take first loss
     ///         sat intact — and it is FALSE of the pre-Y-bis contract by construction, which is
     ///         what `test_Z_theInvariantRedsAgainstADeliberatelyBrokenDraw` demonstrates.
+    function invariant_pendingArmPreservesJuniorProtection() public view {
+        assertEq(handler.gForbiddenArmedExits(), 0, "pending arm admitted a protected exit");
+        assertGt(handler.gArms(), 0);
+        assertGt(handler.gArmedRefusals(), 0);
+        assertGt(handler.gArmResolutions(), 0);
+    }
+
     function invariant_Z_noExitAbsorbsLossWhileJuniorCapitalRemains() public view {
         assertEq(
             handler.gAbsorbedWhileJuniorRemained(),

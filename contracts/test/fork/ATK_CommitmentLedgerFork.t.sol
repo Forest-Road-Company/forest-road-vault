@@ -110,6 +110,29 @@ contract ATK_CommitmentLedgerForkTest is ForkLifecycleFixture {
     ///         then attack the "registers exactly once" invariant from both sides: the manager
     ///         path must refuse to re-declare a defaulted facility (no second row), and an
     ///         adversary must not be able to inject a duplicate row directly.
+    ///
+    ///         Post-deployment pin (commit 456ae25, Corrovera finding R167). `declareDefault`
+    ///         leaves the DefaultDeclared fact STANDING rather than consuming it
+    ///         (`DefaultManager.declareDefault` NatSpec: "The attestation stays standing (not
+    ///         consumed)"), so the oracle's pending-action rule refuses a SECOND DefaultDeclared
+    ///         bundle for the facility with `Oracle_UnconsumedFact(id, DefaultDeclared, <standing
+    ///         payload>)` before any manager code runs. Specified by:
+    ///           - `IAttestationOracle.Oracle_UnconsumedFact` NatSpec: "Process or revoke the
+    ///             current action before submitting another of the same kind";
+    ///           - `AttestationOracle.attest`: "A second action must not strand an accepted
+    ///             payment, loss or servicing approval";
+    ///           - `audit-reports/corrovera-dual-chain-2026-09-13/corrovera-ensemble/
+    ///             SUPPORTED-FINDINGS.md`, R167 ("Superseded one-shot facts are permanently
+    ///             stranded"), suggested direction: "prevent a same-kind attest from overwriting
+    ///             a still-satisfied record before it is consumed";
+    ///           - `docs/remediation/ACCRUAL_BUILD_LOG_2026-09-12.md`, entry "2026-09-14,
+    ///             Feedback correction: replay lifecycle coverage (ETH)": fixtures that
+    ///             "attempted to replace a pending action after R167 correctly prohibited that
+    ///             transition" are repaired by retiring the action through the valid lifecycle.
+    ///         The manager gate is still reached twice with a `consumeExact`-satisfying fact:
+    ///         once with the STANDING fact (replay probe), and once with a fresh fact after
+    ///         governance `revoke`, the only retirement for this kind. Both must be refused
+    ///         `DefaultManager_NotDefaultable` and the ledger must hold exactly one row.
     function test_atk_defaultRegistersExactlyOnce() public onFork {
         CommitmentLedger ledger = _ledger();
         uint256 principal = 1_000_000e18;
@@ -129,12 +152,43 @@ contract ATK_CommitmentLedgerForkTest is ForkLifecycleFixture {
         assertEq(remainingPrincipal, principal, "outstanding principal captured");
         assertEq(ledger.consumed(id), 0, "no coverage consumed at declaration");
 
-        // (1) the manager path refuses to re-declare a defaulted facility -> no second row.
-        _attest(
-            id,
-            IAttestationOracle.AttestationKind.DefaultDeclared,
-            keccak256(abi.encode(id, keccak256("atk-evidence-2")))
+        // (1) `declareDefault` leaves the DefaultDeclared fact STANDING by design (it is the
+        //     on-chain record backing the remedy; DefaultManager.declareDefault NatSpec), so the
+        //     oracle's pending-action rule (commit 456ae25, R167) refuses a SECOND DefaultDeclared
+        //     fact for this facility before any manager code runs, naming the STANDING payload
+        //     (not the submission). Both payloads are the manager's evidence binding,
+        //     keccak256(abi.encode(tokenId, evidenceHash)), exactly as `_declareDefault` builds it.
+        bytes32 firstPayload = keccak256(abi.encode(id, keccak256("atk-evidence-1")));
+        bytes32 secondPayload = keccak256(abi.encode(id, keccak256("atk-evidence-2")));
+        (bytes32 standingPayload,, bool standingSatisfied) =
+            oracle.latestPayload(id, IAttestationOracle.AttestationKind.DefaultDeclared);
+        assertTrue(standingSatisfied, "the declared fact is still standing after declareDefault");
+        assertEq(standingPayload, firstPayload, "the standing record is the first evidence-bound fact");
+        (IAttestationOracle.AttestationInput memory a2, bytes[] memory sigs2) =
+            _signedBundle(id, IAttestationOracle.AttestationKind.DefaultDeclared, secondPayload);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAttestationOracle.Oracle_UnconsumedFact.selector,
+                id,
+                IAttestationOracle.AttestationKind.DefaultDeclared,
+                firstPayload
+            )
         );
+        oracle.attest(a2, sigs2);
+
+        // (1b) the standing fact is not a replay surface: it satisfies `consumeExact`, so this
+        //      call reaches the manager's state gate, where the facility is Defaulted (terminal
+        //      for `declareDefault`); re-presenting the SAME evidence is refused and no second
+        //      row appears.
+        vm.prank(ops);
+        vm.expectRevert(abi.encodeWithSelector(IDefaultManager.DefaultManager_NotDefaultable.selector, id));
+        defaultManager.declareDefault(id, keccak256("atk-evidence-1"));
+
+        // (1c) once governance retires the pending action (the only retirement for this kind),
+        //      the oracle accepts a second fact and the manager path STILL refuses to re-declare.
+        vm.prank(ops);
+        oracle.revoke(id, IAttestationOracle.AttestationKind.DefaultDeclared);
+        _attest(id, IAttestationOracle.AttestationKind.DefaultDeclared, secondPayload);
         vm.prank(ops);
         vm.expectRevert(abi.encodeWithSelector(IDefaultManager.DefaultManager_NotDefaultable.selector, id));
         defaultManager.declareDefault(id, keccak256("atk-evidence-2"));
@@ -212,6 +266,31 @@ contract ATK_CommitmentLedgerForkTest is ForkLifecycleFixture {
     function _ledger() internal view returns (CommitmentLedger) {
         (,,,,,,, address ledgerAddr) = defaultManager.modules();
         return CommitmentLedger(ledgerAddr);
+    }
+
+    /// @dev A real 2-of-n EIP-712 bundle that is built and signed but NOT submitted, so an
+    ///      oracle refusal can be wrapped in `vm.expectRevert` (the fixture's `_attest` submits
+    ///      immediately, and its first external call is the `attestationDigest` view).
+    ///      Signatures are sorted ascending by signer address, as the oracle enforces.
+    function _signedBundle(uint256 facilityId, IAttestationOracle.AttestationKind kind, bytes32 payload)
+        internal
+        returns (IAttestationOracle.AttestationInput memory a, bytes[] memory sigs)
+    {
+        a = IAttestationOracle.AttestationInput({
+            facilityId: facilityId,
+            kind: kind,
+            payload: payload,
+            asOf: uint64(block.timestamp),
+            expiry: uint64(block.timestamp + 1 hours),
+            nonce: ++attestationNonce
+        });
+        bytes32 digest = oracle.attestationDigest(a);
+        (uint256 lo, uint256 hi) = vm.addr(PK1) < vm.addr(PK2) ? (PK1, PK2) : (PK2, PK1);
+        sigs = new bytes[](2);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(lo, digest);
+        sigs[0] = abi.encodePacked(r, s, v);
+        (v, r, s) = vm.sign(hi, digest);
+        sigs[1] = abi.encodePacked(r, s, v);
     }
 
     /// @dev Post `amount` USDfr as sGROVE layer-2 coverage from `who`.

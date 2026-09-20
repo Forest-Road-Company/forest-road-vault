@@ -1699,7 +1699,8 @@ contract CreditGateAuthorisationHandler is GuardProbe {
             paymentScheduleHash: SCHEDULE_HASH,
             rateIndexRef: bytes32(0),
             renewalTermsHash: bytes32(0),
-            offchainRef: OFFCHAIN_REF
+            offchainRef: OFFCHAIN_REF,
+            pik: false
         });
     }
 

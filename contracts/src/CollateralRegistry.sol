@@ -10,64 +10,37 @@ import {ICollateralRegistry} from "./interfaces/ICollateralRegistry.sol";
 import {Config} from "./libraries/Config.sol";
 import {IsUSDfr} from "./interfaces/IsUSDfr.sol";
 import {Roles} from "./libraries/Roles.sol";
+import {IContinuousAccrual, IAccrualToken} from "./interfaces/IContinuousAccrual.sol";
+import {IAccrualExposure, IAccrualExposureRegistry} from "./interfaces/IAccrualExposure.sol";
+import {IMintRedeemController} from "./interfaces/IMintRedeemController.sol";
 
 /// @title CollateralRegistry
-/// @notice Governance-set parameters for the five collateral classes (ADR-0003 as
-///         amended; ADR-0015 for the marked-to-market class) and the book's
-///         concentration accounting: per-class, per-borrower, and per-state limits are
-///         enforced here at every exposure increase — the on-chain diversification
-///         guarantee (CLAUDE.md §1.3 concentration invariant).
-/// @dev CONCENTRATION SEMANTICS (AUDIT FIX M-02 — read this before quoting the limits as
-///      a continuous cap).
+/// @notice Parameters for the configured collateral classes and their concentration accounting.
+/// @dev Origination admission checks class, borrower and state exposure against each limit's
+///      share of max(post-trade book, concentrationFloor). The bootstrap floor supplies an
+///      assumed minimum book size; it does not disable admission checks.
 ///
-///      THE ADMISSION RULE, in one sentence: no exposure increase may leave the class,
-///      borrower or state it touches holding more than its `limitBps` share of
-///      `max(post-trade book, concentrationFloor)`.
+///      Contractual cash interest and PIK capitalization may increase exposure beyond those
+///      admission limits. Repayment, loss and cancellation may also increase the remaining
+///      facilities' share of a shrinking book. None of these accounting transitions is a new
+///      origination, and concentration limits must not prevent recording them.
 ///
-///      The bootstrap floor is a FLOOR ON THE ASSUMED BOOK SIZE, not an exemption from the
-///      limits. A young book is inherently concentrated (the first facility is 100% of it),
-///      so measuring against `max(book, floor)` lets the book be built while still capping
-///      every dimension in absolute terms at `limitBps * floor / BPS` — at the launch
-///      defaults that is 8.75m per class (3500bps), 3.75m per borrower (1500bps) and 6.25m
-///      per state (2500bps) against a 25m floor. The rule is continuous at the floor
-///      (`book == floor` gives the same number both ways) and monotone in the amount added,
-///      so `concentrationHeadroom` is its exact inverse. It is never inert at any
-///      configuration, and it does not depend on any new storage slot — an upgraded proxy
-///      whose new slots read zero still enforces it.
+///      Breach views disclose each dimension's share of the actual book, without the bootstrap
+///      floor. Admission uses the floor and concentrationHeadroom reports the admissible amount.
+///      Stored exposure transitions emit drift/healing events; continuously accruing unposted
+///      interest is visible in the live views before the next posting event.
 ///
-///      Limits are an ADMISSION control, not a standing property, and they cannot be
-///      anything else: exposure falls through repayment, default write-down and the
-///      retirement of an unfunded facility, and none of those may ever be blocked — a
-///      concentration check able to revert `realizeLoss` would let a risk limit veto a loss
-///      being realized, inverting the three-layer cascade. A shrinking book therefore
-///      mechanically raises the SHARE held by whatever did not shrink. What this contract
-///      guarantees is:
-///        1. no increase may leave a dimension above its limit measured against
-///           `max(post-trade book, floor)` — including an increase that would CREATE a
-///           fresh breach on a mature book, and an increase that would DEEPEN a standing
-///           one on a book of any size;
-///        2. a resulting breach is never silent: every transition is evented
-///           (`ConcentrationDrift`/`ConcentrationHealed` for classes,
-///           `BorrowerConcentrationDrift`/`Healed` and `StateConcentrationDrift`/`Healed`
-///           for the other two dimensions) and readable (`isOverConcentrated`,
-///           `overConcentratedClasses`, `overConcentratedBorrowers`,
-///           `overConcentratedStates`, `classConcentrationBps`, `concentrationHeadroom`).
-///           `overConcentratedClasses` is recomputed from the book on every read, so it can
-///           never disagree with `isOverConcentrated` — in particular not in the window
-///           after an implementation upgrade, before any cached bit has been written.
-///      Consequence, and the honest wording for docs and public copy: the book can stand
-///      above a limit; it can never be MOVED further above one.
-/// @dev DISCLOSURE vs ADMISSION. The breach views and events report the RAW share of the
-///      real book (floor-independent), because that is the fact a risk desk needs. The
-///      admission rule uses `max(book, floor)`. On a book above the floor the two coincide;
-///      below it a young book can read "over limit" and still admit exposure —
-///      `concentrationHeadroom` is the sole authority on what is admissible, and the drift
-///      events carry `bookAboveFloor` so an alerting pipeline can separate a genuine
-///      incident from ordinary bootstrap.
-/// @dev Class parameters are launch defaults pending the pre-mainnet economic review
-///      (brief Part 11 gate 5). Nothing here characterizes any instrument under
-///      securities law (brief Part 0.5).
-contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgradeable, ICollateralRegistry {
+///      A permanent native-accrual binding includes unposted earned interest in both admission
+///      and disclosure. Posting moves the same amount into stored exposure; repayments and losses
+///      subtract stored exposure after the required posting. Class parameters remain subject to
+///      the separate economic review recorded in the design documents.
+contract CollateralRegistry is
+    Initializable,
+    AccessControlUpgradeable,
+    UUPSUpgradeable,
+    ICollateralRegistry,
+    IAccrualExposureRegistry
+{
     /// @custom:storage-location erc7201:forestroad.storage.CollateralRegistry
     struct RegistryStorage {
         mapping(uint256 classId => ClassParams) classes;
@@ -82,7 +55,7 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         // is smaller, so a young book is not self-blocking while every dimension is still
         // capped at `limitBps * floor / BPS` in absolute terms. Governance-adjustable.
         uint256 concentrationFloor;
-        // ── appended after the fields above (namespaced storage: appending is
+        // -- appended after the fields above (namespaced storage: appending is
         //    upgrade-safe). These are EVENT EDGE-DETECTION CACHES ONLY. Every breach view
         //    recomputes from the book, so a slot reading zero on a freshly upgraded proxy
         //    degrades to "announce the standing breach on the next sync", never to
@@ -91,7 +64,7 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         uint256 overLimitBits; // bit classId-1 set while that class was last seen in breach
         mapping(bytes32 borrowerId => bool) borrowerOverLimit;
         mapping(bytes32 stateId => bool) stateOverLimit;
-        // ── PER-BORROWER LIMIT OVERRIDE (append-only TAIL; must stay last) ──────────────
+        // -- PER-BORROWER LIMIT OVERRIDE (append-only TAIL; must stay last) --------------
         // The global `borrowerLimitBps` assumes a vertical has many borrowers. That is false
         // for Digital Assets (ADR-0015), which is a SINGLE borrower by construction -- Forest
         // Road's own trading subsidiary. With one borrower the class and borrower dimensions
@@ -101,15 +74,17 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         // wind-down borrower) stays expressible and cannot be confused with "use the global".
         mapping(bytes32 borrowerId => uint16) borrowerLimitOverrideBps;
         mapping(bytes32 borrowerId => bool) borrowerLimitOverridden;
-        // ── OWNER DECISION 2026-08-07 (G2W): unattested past-due forward weight ─────────
+        // -- OWNER DECISION 2026-08-07 (G2W): unattested past-due forward weight ---------
         // (append-only TAIL; must stay last.) The credit-risk policy weight that
         // `DefaultManager.pendingSeniorImpairment()` applies to the UNATTESTED, permissionless
         // past-due pool. It lives here, with the other governed credit-risk parameters (advance
         // rates, concentration limits), and NOT in DefaultManager, because DefaultManager has
         // very little EIP-170 headroom and is contended by three workstreams.
         //
-        // ZERO MEANS UNSET, NOT "NO MARK" — see `pastDueWeightBps()`.
+        // ZERO MEANS UNSET, NOT "NO MARK" - see `pastDueWeightBps()`.
         uint256 pastDueWeightBps;
+        // Continuous exposure source, appended after every historical field.
+        address accrualReserve;
     }
 
     // keccak256(abi.encode(uint256(keccak256("forestroad.storage.CollateralRegistry")) - 1)) & ~bytes32(uint256(0xff))
@@ -118,11 +93,24 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
 
     /// @dev Largest exposure/floor for which `x * Config.BPS` cannot overflow. Every
     ///      admission keeps `totalExp` at or under this, so the concentration arithmetic
-    ///      can never panic — least of all on the decrease path, which carries loss
+    ///      can never panic - least of all on the decrease path, which carries loss
     ///      realization and must never revert.
     uint256 private constant MAX_SAFE_EXPOSURE = type(uint256).max / Config.BPS;
 
     error Registry_ZeroAddress();
+    /// @notice The continuous source cannot be replaced after its governed binding.
+    error Registry_AccrualAlreadyBound();
+    /// @notice The reserve must identify this registry and compatible, already bound modules.
+    error Registry_InvalidAccrualReserve(address reserve);
+    /// @notice Only the bound reserve may post already recognized virtual exposure.
+    error Registry_AccrualReserveOnly(address caller);
+
+    /// @notice Governance permanently bound the authoritative continuous exposure source.
+    event AccrualReserveSet(address indexed reserve);
+    /// @notice Already recognized interest was neutrally transferred into stored exposure.
+    event AccruedExposureRecorded(
+        uint256 indexed classId, bytes32 indexed borrowerId, bytes32 indexed stateId, uint256 amount
+    );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -145,10 +133,62 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         $.concentrationFloor = 25_000_000e18; // launch default; economic review pending
     }
 
-    // ── governance ───────────────────────────────────────────────────────
+    // -- governance -------------------------------------------------------
+
+    /// @inheritdoc IAccrualExposureRegistry
+    /// @dev Token binding and the controller's existing route establish the same reserve;
+    ///      the bridge must identify this registry. All fixed-size address replies are validated
+    ///      before storage is written. No legacy field or exposure is changed by binding.
+    function setAccrualReserve(address reserve) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        RegistryStorage storage $ = _storage();
+        if ($.accrualReserve != address(0)) revert Registry_AccrualAlreadyBound();
+        if (reserve.code.length == 0) revert Registry_InvalidAccrualReserve(reserve);
+        bytes memory data = _bindingReply(reserve, abi.encodeCall(IContinuousAccrual.accrualModules, ()), 224, reserve);
+        uint256[7] memory words = abi.decode(data, (uint256[7]));
+        for (uint256 i; i < 7; ++i) {
+            if (words[i] > type(uint160).max || address(uint160(words[i])).code.length == 0) {
+                revert Registry_InvalidAccrualReserve(reserve);
+            }
+        }
+        IContinuousAccrual.Modules memory m = abi.decode(data, (IContinuousAccrual.Modules));
+        if (m.registry != address(this)) revert Registry_InvalidAccrualReserve(reserve);
+        data = _bindingReply(m.token, abi.encodeCall(IAccrualToken.accrualReserve, ()), 32, reserve);
+        if (abi.decode(data, (uint256)) != uint256(uint160(reserve))) revert Registry_InvalidAccrualReserve(reserve);
+        data = _bindingReply(m.controller, abi.encodeCall(IMintRedeemController.modules, ()), 96, reserve);
+        uint256[3] memory route = abi.decode(data, (uint256[3]));
+        if (
+            route[0] != uint256(uint160(m.token)) || route[1] > type(uint160).max
+                || route[2] != uint256(uint160(reserve))
+        ) revert Registry_InvalidAccrualReserve(reserve);
+        data = _bindingReply(m.bridge, abi.encodeWithSignature("modules()"), 64, reserve);
+        uint256[2] memory bridgeRoute = abi.decode(data, (uint256[2]));
+        if (bridgeRoute[0] != uint256(uint160(address(this))) || bridgeRoute[1] > type(uint160).max) {
+            revert Registry_InvalidAccrualReserve(reserve);
+        }
+        data = _bindingReply(
+            reserve, abi.encodeCall(IAccrualExposure.accrualExposure, (uint8(0), bytes32(0))), 32, reserve
+        );
+        uint256 unposted = abi.decode(data, (uint256));
+        if ($.totalExp > MAX_SAFE_EXPOSURE || unposted > MAX_SAFE_EXPOSURE - $.totalExp) {
+            revert Registry_InvalidAccrualReserve(reserve);
+        }
+        data = _bindingReply(reserve, abi.encodeCall(IAccrualExposure.accrualReservedExposure, ()), 32, reserve);
+        if (abi.decode(data, (uint256)) > MAX_SAFE_EXPOSURE - $.totalExp - unposted) {
+            revert Registry_InvalidAccrualReserve(reserve);
+        }
+        IAccrualExposure(reserve).requireAccrualIdle();
+        $.accrualReserve = reserve;
+        emit AccrualReserveSet(reserve);
+    }
+
+    /// @inheritdoc IAccrualExposureRegistry
+    function accrualReserve() external view returns (address) {
+        return _storage().accrualReserve;
+    }
 
     /// @inheritdoc ICollateralRegistry
     function setClass(uint256 classId, ClassParams calldata p) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireAccrualIdle();
         if (classId == 0 || classId > Config.NUM_CLASSES) revert Registry_UnknownClass(classId);
         if (bytes(p.name).length == 0 || p.maxLtvBps == 0 || p.maxLtvBps > Config.BPS) revert Registry_BadParams();
         if (p.concentrationLimitBps == 0 || p.concentrationLimitBps > Config.BPS) revert Registry_BadParams();
@@ -189,7 +229,7 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     ///      struct, so it reads ZERO on every proxy upgraded from a pre-G2W implementation. Zero
     ///      would mean "an unattested past-due mark carries no forward weight at all", which
     ///      re-opens H-5 (the permissionless senior protection disappears while a conflicted
-    ///      servicer sits on the declaration — finding A-02 records that the attester IS the
+    ///      servicer sits on the declaration - finding A-02 records that the attester IS the
     ///      servicer) and D5-03 (seniors priced at par while underwater). Reading zero as
     ///      "governance has not spoken, use the derived default" makes the SAFE value the one an
     ///      un-migrated proxy gets, and removes any need for a reinitializer.
@@ -203,7 +243,7 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     ///      direction (D5-03 records that UNDER-marking is the dangerous one), so the rounding
     ///      dust always lands against the exiting senior rather than in their favour.
     ///
-    ///      CORRECTED (SWEEP-1 VAC-F1, 2026-08-08) — THIS HELPER IS NOT ON THE VALUE PATH, AND
+    ///      CORRECTED (SWEEP-1 VAC-F1, 2026-08-08) - THIS HELPER IS NOT ON THE VALUE PATH, AND
     ///      THIS NOTE USED TO CLAIM IT WAS. It read: "DO NOT DELETE OR INLINE-SIMPLIFY THIS TO A
     ///      PASS-THROUGH. It is the single place the unattested past-due charge is discounted;
     ///      deleting the multiply restores the defect." MEASURED: neutralising the multiply here
@@ -217,7 +257,7 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     ///      therefore proved an ORACLE moved, not that a live guard was killed.
     ///
     ///      WHAT IT IS FOR, STATED HONESTLY: it is the canonical, single-definition form of the
-    ///      unattested discount — the reference every off-chain consumer, dashboard and test
+    ///      unattested discount - the reference every off-chain consumer, dashboard and test
     ///      oracle reads. AUDIT FIX (SWEEP-2 CSG-F5): this sentence used to end "...and the thing
     ///      `conservativeSeniorMark`'s inline weighting MUST AGREE WITH". IT CANNOT, AND MUST NOT BE
     ///      MADE TO. This helper has NO relief-ramp term, so it agrees with the value path only at
@@ -238,8 +278,8 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     ///      BENEFIT OF THE DOUBT WITH AN EXPIRY, not a permanent discount.
     ///
     ///      WHY IT EXPIRES. The doubt being extended is precisely "the servicer may not yet have had
-    ///      time to attest". After one `Config.DEFAULT_REDEEM_COOLDOWN` — the same window a senior
-    ///      must wait to exit — that doubt is spent: nobody has declared a default, nobody has
+    ///      time to attest". After one `Config.DEFAULT_REDEEM_COOLDOWN` - the same window a senior
+    ///      must wait to exit - that doubt is spent: nobody has declared a default, nobody has
     ///      cleared the mark, and the facility is still overdue. So the relief winds off on its own,
     ///      with NO transaction from anyone, and the pre-G2W loud stop returns. This is what bounds
     ///      the D5-03 under-mark to a window instead of leaving it permanent.
@@ -251,9 +291,9 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     ///      (CITATION CORRECTED, SWEEP-1 VAC-F8: the name previously given here,
     ///      `test_g2w_ramp_theWeightIsMonotoneNonDecreasingInElapsed`, does not exist in the tree.
     ///      An unfollowable citation defeats the whole point of the "DO NOT DELETE, falsified by X"
-    ///      convention — the next engineer greps, finds nothing, and concludes the guard is unpinned.)
+    ///      convention - the next engineer greps, finds nothing, and concludes the guard is unpinned.)
     ///
-    ///      THE `elapsed >= ramp` EARLY RETURN IS NOT AN OPTIMISATION — DO NOT DELETE IT. Without
+    ///      THE `elapsed >= ramp` EARLY RETURN IS NOT AN OPTIMISATION - DO NOT DELETE IT. Without
     ///      it the linear term overshoots `BPS` for `elapsed > ramp`, i.e. an unattested mark past
     ///      the ramp would be charged MORE than an attested declared default of the same size, and
     ///      at large `elapsed` the multiply overflows. It is also the path an UNSET anchor takes
@@ -265,20 +305,20 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     ///      WHY THIS READS THE VAULT ITSELF INSTEAD OF BEING HANDED `totalAssets()`. Originally an
     ///      EIP-170 budget decision: generating the `IsUSDfr(...).totalAssets()` call inside
     ///      `DefaultManager.pendingSeniorImpairment` cost that contract a measured 115 bytes it did
-    ///      not have. THAT REASON EXPIRED AT THE MERGE — the conservative-NAV arithmetic now lives
+    ///      not have. THAT REASON EXPIRED AT THE MERGE - the conservative-NAV arithmetic now lives
     ///      in `ConservativeImpairmentMath`, which is a fresh ~2 KB contract with room to spare, so
     ///      the call could be moved back. IT WAS DELIBERATELY NOT MOVED, for a reason that does not
     ///      expire: the vault read and the weight it feeds are ONE governed policy statement, and
     ///      keeping them in the same timelocked module means governance can never end up with a
     ///      weight it controls applied to a ceiling it does not. Moving it would also be a value-path
-    ///      change with no test motivating it. The trade, unchanged: `CollateralRegistry` — which
-    ///      has ~9.8 KB spare — carries a read edge to `sUSDfr`.
+    ///      change with no test motivating it. The trade, unchanged: `CollateralRegistry` - which
+    ///      has ~9.8 KB spare - carries a read edge to `sUSDfr`.
     ///
     ///      THE RECURSION TRAP MOVED HERE WITH IT. `totalAssets()` is
     ///      `USDfr.balanceOf(vault) - unvestedYield()`: two storage reads and a token balance, none
     ///      of which touches an impairment source. IT MUST NEVER BECOME `redemptionTotalAssets()`,
     ///      which calls back through `AssessedImpairmentSource` into
-    ///      `DefaultManager.pendingSeniorImpairment` and therefore into THIS function — every
+    ///      `DefaultManager.pendingSeniorImpairment` and therefore into THIS function - every
     ///      redemption would become an unbounded recursion.
     ///
     ///      `vault` IS CALLER-SUPPLIED AND THAT IS SAFE HERE. This function is `view`, writes
@@ -289,7 +329,7 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     /// @param residual The TOTAL post-junior senior residual (both cohorts), unweighted.
     /// @param vault The `sUSDfr` vault whose `totalAssets()` is layer 3's hard ceiling in
     ///        `realizeLoss`. Supplied by `DefaultManager` from its own configured storage.
-    /// @param anchor `DefaultManager.pastDueReliefAnchor` — when the unattested cohort last went
+    /// @param anchor `DefaultManager.pastDueReliefAnchor` - when the unattested cohort last went
     ///        empty -> non-empty. ZERO (unset) yields `elapsed == block.timestamp`, which is past
     ///        the ramp and therefore FULL weight: the fail-safe.
     /// @return mark The TOTAL conservative senior mark: the attested cohort at full weight plus the
@@ -304,14 +344,14 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         uint256 declaredSenior = residual - pastDueSenior; // ATTESTED: full weight, never clamped
         uint256 vaultAssets = IsUSDfr(vault).totalAssets();
         uint256 elapsed = block.timestamp - anchor;
-        // (1) THE EXECUTABLE BOUND, FIRST — and it never expires, because it is a structural fact
+        // (1) THE EXECUTABLE BOUND, FIRST - and it never expires, because it is a structural fact
         //     about `realizeLoss`, not a benefit of the doubt. LOAD-BEARING: replacing
         //     `executable` with `vaultAssets` hands the unattested cohort the capacity the ATTESTED
         //     cohort can already spend this block, which double-counts layer 3. Falsified by
         //     `test_g2w_attestedCohortHasFirstClaimOnTheExecutableCapacity`.
         uint256 executable = vaultAssets > declaredSenior ? vaultAssets - declaredSenior : 0;
         uint256 amount = pastDueSenior < executable ? pastDueSenior : executable;
-        // (2)+(3) THE RAMPED WEIGHT, SECOND. ORDER IS LOAD-BEARING — DO NOT SWAP. Weighting first
+        // (2)+(3) THE RAMPED WEIGHT, SECOND. ORDER IS LOAD-BEARING - DO NOT SWAP. Weighting first
         //     and clamping second collapses to the clamp whenever the mark is large
         //     (`min(w*P, E) == E`), which is precisely the case the owner decision is about, and
         //     the fix then silently does nothing at any facility size above the clamp. Falsified by
@@ -348,19 +388,20 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     ///        - `bps == 0` is rejected: a zero weight neuters `markPastDue` entirely and re-opens
     ///          H-5/D5-03. The decision was to weight the unattested mark DOWN, never off.
     ///        - `bps >= Config.BPS` is rejected: at or above parity the unattested mark carries the
-    ///          same (or a greater) forward weight as an ATTESTED declared default — exactly the
+    ///          same (or a greater) forward weight as an ATTESTED declared default - exactly the
     ///          defect the weight exists to close. Governance must not restore it by transaction.
     ///
-    ///      OPERATIONAL NOTE — PAIR AN INCREASE WITH `AssessedImpairmentSource.clearAssessment()`.
+    ///      OPERATIONAL NOTE - PAIR AN INCREASE WITH `AssessedImpairmentSource.clearAssessment()`.
     ///      This setter does NOT advance `DefaultManager.impairmentRevision`, so a professional
     ///      assessment standing under the old weight survives the change. The directions are not
     ///      symmetric: a DECREASE lowers `DefaultManager.pendingSeniorImpairment()` and the wrapper
     ///      caps the assessment at that live base, so it takes effect immediately; an INCREASE
     ///      raises the base while the (lower) assessment continues to price redemptions until it
-    ///      expires — bounded by `MAX_ASSESSMENT_TTL` (30 days) and clearable in one transaction by
+    ///      expires - bounded by `MAX_ASSESSMENT_TTL` (30 days) and clearable in one transaction by
     ///      the same timelock that calls this function. Deliberately not wired through the revision
     ///      counter: it would need a storage write on a `view` path, which is impossible.
     function setPastDueWeight(uint256 bps) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireAccrualIdle();
         if (bps == 0 || bps >= Config.BPS) revert Registry_InvalidPastDueWeight(bps);
         _storage().pastDueWeightBps = bps;
         emit PastDueWeightSet(bps);
@@ -368,6 +409,7 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
 
     /// @notice Sets the per-borrower concentration limit (bps of total book).
     function setBorrowerLimit(uint16 limitBps) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireAccrualIdle();
         if (limitBps == 0 || limitBps > Config.BPS) revert Registry_BadParams();
         _storage().borrowerLimitBps = limitBps;
         emit BorrowerLimitSet(limitBps);
@@ -394,6 +436,7 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     /// @param borrowerId The borrower key.
     /// @param limitBps Max share of the book for this borrower (0 = admit no new exposure).
     function setBorrowerLimitOverride(bytes32 borrowerId, uint16 limitBps) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireAccrualIdle();
         if (limitBps > Config.BPS) revert Registry_BadParams();
         RegistryStorage storage $ = _storage();
         $.borrowerLimitOverrideBps[borrowerId] = limitBps;
@@ -405,6 +448,7 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     /// @notice Removes a per-borrower override, returning that borrower to the global limit.
     /// @param borrowerId The borrower key.
     function clearBorrowerLimitOverride(bytes32 borrowerId) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireAccrualIdle();
         RegistryStorage storage $ = _storage();
         if (!$.borrowerLimitOverridden[borrowerId]) revert Registry_BadParams();
         delete $.borrowerLimitOverrideBps[borrowerId];
@@ -415,12 +459,13 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
 
     /// @notice Sets the per-state concentration limit (bps of total book).
     function setStateLimit(uint16 limitBps) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireAccrualIdle();
         if (limitBps == 0 || limitBps > Config.BPS) revert Registry_BadParams();
         _storage().stateLimitBps = limitBps;
         emit StateLimitSet(limitBps);
     }
 
-    /// @notice Sets the bootstrap concentration floor — the book size the relative limits
+    /// @notice Sets the bootstrap concentration floor - the book size the relative limits
     ///         assume when the real book is smaller (see the contract-level note).
     /// @dev Bounded so the concentration arithmetic can never overflow. Raising the floor
     ///      raises every dimension's absolute allowance (`limitBps * floor / BPS`) on a book
@@ -428,12 +473,13 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     ///      the same class of governance power as `setClass`'s `concentrationLimitBps` and
     ///      is timelocked identically.
     function setConcentrationFloor(uint256 floor) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireAccrualIdle();
         if (floor > MAX_SAFE_EXPOSURE) revert Registry_BadParams();
         _storage().concentrationFloor = floor;
         emit ConcentrationFloorSet(floor);
     }
 
-    // ── exposure accounting (credit layer) ───────────────────────────────
+    // -- exposure accounting (credit layer) -------------------------------
 
     /// @inheritdoc ICollateralRegistry
     function recordExposureIncrease(uint256 classId, bytes32 borrowerId, bytes32 stateId, uint256 principal)
@@ -453,10 +499,79 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     }
 
     /// @inheritdoc ICollateralRegistry
-    function recordExposureDecrease(uint256 classId, bytes32 borrowerId, bytes32 stateId, uint256 principal)
+    function recordCapitalizedExposure(uint256 classId, bytes32 borrowerId, bytes32 stateId, uint256 principal)
         external
         onlyRole(Roles.CREDIT_ROLE)
     {
+        _requireAccrualFresh();
+        RegistryStorage storage $ = _storage();
+        // AN UNKNOWN CLASS IS STILL REFUSED. A capitalisation against a class that does not exist
+        // is a wiring error, not a servicing act, and nothing legitimate reaches here with one.
+        if (!$.known[classId]) revert Registry_UnknownClass(classId);
+        // AN INACTIVE CLASS IS DELIBERATELY *NOT* REFUSED, and this is the second gate the
+        // origination path applies that this one does not. Stated explicitly because it is a
+        // behaviour change and an easy thing to "fix" back.
+        //
+        // `setClass(active: false)` stops the book taking on NEW exposure in a class. It is not a
+        // statement that existing facilities have stopped accruing interest, and the borrower has
+        // no say in it. If capitalisation reverted here, deactivating a class would freeze the
+        // crank on every PIK facility in it, and a frozen crank does not merely fail: it stops
+        // `ClaimBridge.nextPaymentDue` advancing and converts performing borrowers into
+        // permissionlessly markable past-due facilities. That is the exact defect this function
+        // exists to remove, reintroduced through a different lever. Governance keeps every tool it
+        // had for a class it wants to wind down - it can decline to originate, and it can declare
+        // and realise losses - without manufacturing a credit event against borrowers who are
+        // paying as contracted. Pinned by
+        // `test_PIK_anInactiveClassDoesNotFreezeTheCrank`.
+        // The overflow bound stays too: the concentration arithmetic elsewhere in this contract
+        // (and `_breaches` in particular) is only division-free and overflow-free inside it.
+        if (principal > _numericHeadroom($, _totalExposure($))) revert Registry_PrincipalTooLarge();
+
+        $.classExp[classId] += principal;
+        $.borrowerExp[borrowerId] += principal;
+        if (stateId != bytes32(0)) $.stateExp[stateId] += principal;
+        $.totalExp += principal;
+        emit ExposureRecorded(classId, borrowerId, stateId, int256(principal));
+        emit CapitalizedExposureRecorded(classId, borrowerId, stateId, principal);
+        // REPORTING IS PRESERVED IN FULL. The breach flags and the drift/heal events fire exactly
+        // as they do on the origination path, so governance sees a class cross its limit here just
+        // as it would there. The limit is not relaxed; it stops being a REVERT and stays a REPORT.
+        _syncClassBreaches($);
+        _syncBorrowerBreach($, borrowerId);
+        if (stateId != bytes32(0)) _syncStateBreach($, stateId);
+    }
+
+    /// @inheritdoc IAccrualExposureRegistry
+    /// @dev The reserve has already removed the same virtual amount and increased its local
+    ///      recorded face. Write every native registry dimension before source-backed disclosure.
+    ///      No origination concentration or active-class gate may veto contractual earned income.
+    function recordAccruedExposure(uint256 classId, bytes32 borrowerId, bytes32 stateId, uint256 amount) external {
+        RegistryStorage storage $ = _storage();
+        if ($.accrualReserve == address(0) || msg.sender != $.accrualReserve) {
+            revert Registry_AccrualReserveOnly(msg.sender);
+        }
+        if (!$.known[classId]) revert Registry_UnknownClass(classId);
+        if (amount > MAX_SAFE_EXPOSURE - _totalExposure($)) revert Registry_PrincipalTooLarge();
+        $.classExp[classId] += amount;
+        $.borrowerExp[borrowerId] += amount;
+        if (stateId != bytes32(0)) $.stateExp[stateId] += amount;
+        $.totalExp += amount;
+        emit ExposureRecorded(classId, borrowerId, stateId, int256(amount));
+        emit AccruedExposureRecorded(classId, borrowerId, stateId, amount);
+        _syncClassBreaches($);
+        _syncBorrowerBreach($, borrowerId);
+        if (stateId != bytes32(0)) _syncStateBreach($, stateId);
+    }
+
+    /// @notice Removes the proved loss from the bound reserve's protected rounding continuation.
+    /// @dev All ordinary credit writes retain idle admission; only the permanent source may continue.
+    function recordAccruedWriteDown(uint256 classId, bytes32 borrowerId, bytes32 stateId, uint256 amount) external {
+        address reserve = _storage().accrualReserve;
+        if (reserve == address(0) || msg.sender != reserve) revert Registry_AccrualReserveOnly(msg.sender);
+        _decreaseExposure(classId, borrowerId, stateId, amount);
+    }
+
+    function _decreaseExposure(uint256 classId, bytes32 borrowerId, bytes32 stateId, uint256 principal) private {
         RegistryStorage storage $ = _storage();
         if (
             $.classExp[classId] < principal || $.borrowerExp[borrowerId] < principal
@@ -467,17 +582,26 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         if (stateId != bytes32(0)) $.stateExp[stateId] -= principal;
         $.totalExp -= principal;
         emit ExposureRecorded(classId, borrowerId, stateId, -int256(principal));
-        // Reporting only — never a revert path. A repayment, a default write-down and
-        // `ClaimBridge.cancelPending` all land here, and none of them may be blocked. The
-        // sweep is bounded, division-free and overflow-free (see `_breaches`), so it cannot
-        // revert on any state reachable through this contract.
+        // Reporting imposes no concentration veto on a repayment, default write-down or
+        // cancellation. Effective source reads use the same capped, numerically bounded Book
+        // as public disclosure. The idle gate above prevents overlapping host accounting.
         _syncClassBreaches($);
         _syncBorrowerBreach($, borrowerId);
         if (stateId != bytes32(0)) _syncStateBreach($, stateId);
     }
 
     /// @inheritdoc ICollateralRegistry
+    function recordExposureDecrease(uint256 classId, bytes32 borrowerId, bytes32 stateId, uint256 principal)
+        external
+        onlyRole(Roles.CREDIT_ROLE)
+    {
+        _requireAccrualIdle();
+        _decreaseExposure(classId, borrowerId, stateId, principal);
+    }
+
+    /// @inheritdoc ICollateralRegistry
     function syncConcentrationBreaches(bytes32[] calldata borrowerIds, bytes32[] calldata stateIds) external {
+        _requireAccrualIdle();
         RegistryStorage storage $ = _storage();
         _syncClassBreaches($);
         for (uint256 i = 0; i < borrowerIds.length; ++i) {
@@ -488,7 +612,7 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         }
     }
 
-    // ── views ────────────────────────────────────────────────────────────
+    // -- views ------------------------------------------------------------
 
     /// @inheritdoc ICollateralRegistry
     function classParams(uint256 classId) external view returns (ClassParams memory) {
@@ -507,22 +631,22 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
 
     /// @inheritdoc ICollateralRegistry
     function classExposure(uint256 classId) external view returns (uint256) {
-        return _storage().classExp[classId];
+        return _classExposure(_storage(), classId);
     }
 
     /// @inheritdoc ICollateralRegistry
     function borrowerExposure(bytes32 borrowerId) external view returns (uint256) {
-        return _storage().borrowerExp[borrowerId];
+        return _borrowerExposure(_storage(), borrowerId);
     }
 
     /// @inheritdoc ICollateralRegistry
     function stateExposure(bytes32 stateId) external view returns (uint256) {
-        return _storage().stateExp[stateId];
+        return _stateExposure(_storage(), stateId);
     }
 
     /// @inheritdoc ICollateralRegistry
     function totalBookExposure() external view returns (uint256) {
-        return _storage().totalExp;
+        return _totalExposure(_storage());
     }
 
     /// @notice Current borrower/state limits (bps of total book) and bootstrap floor.
@@ -534,16 +658,16 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     /// @inheritdoc ICollateralRegistry
     function classConcentrationBps(uint256 classId) external view returns (uint256) {
         RegistryStorage storage $ = _storage();
-        uint256 total = $.totalExp;
+        uint256 total = _totalExposure($);
         if (total == 0) return 0;
-        return Math.mulDiv($.classExp[classId], Config.BPS, total);
+        return Math.mulDiv(_classExposure($, classId), Config.BPS, total);
     }
 
     /// @inheritdoc ICollateralRegistry
     /// @dev Floor-independent on purpose: this is the DISCLOSURE fact ("is the book
     ///      actually above the cap right now"), not the admission test. A young book
     ///      below the bootstrap floor can read over-concentrated here and still admit
-    ///      exposure — `concentrationHeadroom` is the authority on what is admissible.
+    ///      exposure - `concentrationHeadroom` is the authority on what is admissible.
     ///      `stateOver` is false when `stateId` is zero (classes carrying no state tag).
     function isOverConcentrated(uint256 classId, bytes32 borrowerId, bytes32 stateId)
         external
@@ -551,10 +675,10 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         returns (bool classOver, bool borrowerOver, bool stateOver)
     {
         RegistryStorage storage $ = _storage();
-        uint256 total = $.totalExp;
-        classOver = _breaches($.classExp[classId], $.classes[classId].concentrationLimitBps, total);
-        borrowerOver = _breaches($.borrowerExp[borrowerId], _borrowerLimit($, borrowerId), total);
-        stateOver = stateId != bytes32(0) && _breaches($.stateExp[stateId], $.stateLimitBps, total);
+        uint256 total = _totalExposure($);
+        classOver = _breaches(_classExposure($, classId), $.classes[classId].concentrationLimitBps, total);
+        borrowerOver = _breaches(_borrowerExposure($, borrowerId), _borrowerLimit($, borrowerId), total);
+        stateOver = stateId != bytes32(0) && _breaches(_stateExposure($, stateId), $.stateLimitBps, total);
     }
 
     /// @inheritdoc ICollateralRegistry
@@ -565,9 +689,9 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     ///      fix exists to remove, so the view does the 5-class sweep itself.
     function overConcentratedClasses() external view returns (uint256 bitmap) {
         RegistryStorage storage $ = _storage();
-        uint256 total = $.totalExp;
+        uint256 total = _totalExposure($);
         for (uint256 c = 1; c <= Config.NUM_CLASSES; ++c) {
-            if (_breaches($.classExp[c], $.classes[c].concentrationLimitBps, total)) bitmap |= 1 << (c - 1);
+            if (_breaches(_classExposure($, c), $.classes[c].concentrationLimitBps, total)) bitmap |= 1 << (c - 1);
         }
     }
 
@@ -580,23 +704,23 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     /// @inheritdoc ICollateralRegistry
     function overConcentratedBorrowers(bytes32[] calldata borrowerIds) external view returns (bool[] memory over) {
         RegistryStorage storage $ = _storage();
-        uint256 total = $.totalExp;
+        uint256 total = _totalExposure($);
         over = new bool[](borrowerIds.length);
         for (uint256 i = 0; i < borrowerIds.length; ++i) {
             // per-borrower: the limit is resolved INSIDE the loop, because an override
             // applies to one id and hoisting a single limit would misreport the others.
-            over[i] = _breaches($.borrowerExp[borrowerIds[i]], _borrowerLimit($, borrowerIds[i]), total);
+            over[i] = _breaches(_borrowerExposure($, borrowerIds[i]), _borrowerLimit($, borrowerIds[i]), total);
         }
     }
 
     /// @inheritdoc ICollateralRegistry
     function overConcentratedStates(bytes32[] calldata stateIds) external view returns (bool[] memory over) {
         RegistryStorage storage $ = _storage();
-        uint256 total = $.totalExp;
+        uint256 total = _totalExposure($);
         uint16 limitBps = $.stateLimitBps;
         over = new bool[](stateIds.length);
         for (uint256 i = 0; i < stateIds.length; ++i) {
-            over[i] = stateIds[i] != bytes32(0) && _breaches($.stateExp[stateIds[i]], limitBps, total);
+            over[i] = stateIds[i] != bytes32(0) && _breaches(_stateExposure($, stateIds[i]), limitBps, total);
         }
     }
 
@@ -605,7 +729,7 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     ///      `headroom + 1` reverts (fuzzed in the M-02 regression suite). Returns 0 for an
     ///      unknown or inactive class, for which no principal at all is admissible. The
     ///      result is always clamped to a value the admission path can actually accept, so
-    ///      a "max" button wired to this view can never produce an undecodable panic — a
+    ///      a "max" button wired to this view can never produce an undecodable panic - a
     ///      dimension that can never bind reports that clamp rather than `type(uint256).max`.
     function concentrationHeadroom(uint256 classId, bytes32 borrowerId, bytes32 stateId)
         external
@@ -613,26 +737,27 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         returns (uint256)
     {
         RegistryStorage storage $ = _storage();
-        if (!$.known[classId] || !$.classes[classId].active) return 0;
-        uint256 total = $.totalExp;
+        if (!$.known[classId] || !$.classes[classId].active || !_accrualAvailable()) return 0;
+        uint256 total = _totalExposure($);
         uint256 floor = $.concentrationFloor;
 
-        uint256 room = _dimHeadroom($.classExp[classId], $.classes[classId].concentrationLimitBps, total, floor);
-        uint256 bRoom = _dimHeadroom($.borrowerExp[borrowerId], _borrowerLimit($, borrowerId), total, floor);
+        uint256 room = _dimHeadroom(_classExposure($, classId), $.classes[classId].concentrationLimitBps, total, floor);
+        uint256 bRoom = _dimHeadroom(_borrowerExposure($, borrowerId), _borrowerLimit($, borrowerId), total, floor);
         if (bRoom < room) room = bRoom;
         if (stateId != bytes32(0)) {
-            uint256 sRoom = _dimHeadroom($.stateExp[stateId], $.stateLimitBps, total, floor);
+            uint256 sRoom = _dimHeadroom(_stateExposure($, stateId), $.stateLimitBps, total, floor);
             if (sRoom < room) room = sRoom;
         }
-        return room;
+        uint256 numericRoom = _numericHeadroom($, total);
+        return room < numericRoom ? room : numericRoom;
     }
 
-    // ── internals ────────────────────────────────────────────────────────
+    // -- internals --------------------------------------------------------
 
     /// @dev AUDIT FIX M-02. Every dimension is measured against `max(newTotal, floor)`:
     ///      above the floor that is the plain relative limit, below it an absolute
     ///      allowance of `limitBps * floor / BPS`. Keying the exemption on the BOOK rather
-    ///      than on the bucket is what closes both halves of the finding — an origination
+    ///      than on the bucket is what closes both halves of the finding - an origination
     ///      can neither CREATE a fresh breach on a mature book by staying under an absolute
     ///      floor, nor DEEPEN a standing one on a book of any size, at any floor setting.
     ///      A zero principal is always admitted: it moves nothing, so it can neither create
@@ -652,34 +777,35 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         private
         view
     {
+        _requireAccrualFresh();
         RegistryStorage storage $ = _storage();
         if (!$.known[classId]) revert Registry_UnknownClass(classId);
         ClassParams storage p = $.classes[classId];
         if (!p.active) revert Registry_ClassInactive(classId);
         if (principal == 0) return;
 
-        uint256 total = $.totalExp;
+        uint256 total = _totalExposure($);
         // Keeps the book (and therefore every dimension) inside the range where the
         // concentration arithmetic cannot overflow, and fails with a decodable error rather
         // than a panic if a caller ever feeds an absurd principal.
-        if (principal > MAX_SAFE_EXPOSURE - total) revert Registry_PrincipalTooLarge();
+        if (principal > _numericHeadroom($, total)) revert Registry_PrincipalTooLarge();
         uint256 floor = $.concentrationFloor;
         uint256 newTotal = total + principal;
         uint256 base = newTotal > floor ? newTotal : floor;
 
-        uint256 wouldBe = $.classExp[classId] + principal;
+        uint256 wouldBe = _classExposure($, classId) + principal;
         if (_breaches(wouldBe, p.concentrationLimitBps, base)) {
             revert Registry_ConcentrationExceeded(classId, wouldBe, p.concentrationLimitBps);
         }
 
-        wouldBe = $.borrowerExp[borrowerId] + principal;
+        wouldBe = _borrowerExposure($, borrowerId) + principal;
         uint16 bLimit = _borrowerLimit($, borrowerId);
         if (_breaches(wouldBe, bLimit, base)) {
             revert Registry_BorrowerConcentrationExceeded(borrowerId, wouldBe, bLimit);
         }
 
         if (stateId != bytes32(0)) {
-            wouldBe = $.stateExp[stateId] + principal;
+            wouldBe = _stateExposure($, stateId) + principal;
             if (_breaches(wouldBe, $.stateLimitBps, base)) {
                 revert Registry_StateConcentrationExceeded(stateId, wouldBe, $.stateLimitBps);
             }
@@ -687,7 +813,7 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     }
 
     /// @dev Raw share test: does `exp` exceed `limitBps` of a book of `base`? Uses
-    ///      `Math.mulDiv` (512-bit intermediate) so it CANNOT overflow for any inputs —
+    ///      `Math.mulDiv` (512-bit intermediate) so it CANNOT overflow for any inputs -
     ///      the decrease path calls this and must never be able to revert. Exact for
     ///      integers: `exp * BPS > limitBps * base` iff `exp > floor(limitBps * base / BPS)`.
     ///      An empty book reads false rather than dividing by zero.
@@ -695,16 +821,16 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         return exp > Math.mulDiv(uint256(limitBps), base, Config.BPS);
     }
 
-    /// @dev Largest principal admissible on one dimension — the exact inverse of the
+    /// @dev Largest principal admissible on one dimension - the exact inverse of the
     ///      `_checkConcentration` rule, which is monotone in the amount added (the added
     ///      amount enters the left side with coefficient 1 and the right side with
     ///      coefficient `limitBps/BPS < 1`, or 0 below the floor), so the admissible set is
     ///      downward closed and the maximum is well defined.
     ///
     ///      Two regimes, whose union is taken:
-    ///        A. `total + p <= floor` — measured against the floor, so `p <= limitBps *
+    ///        A. `total + p <= floor` - measured against the floor, so `p <= limitBps *
     ///           floor / BPS - cur`, capped at `floor - total`;
-    ///        B. `total + p > floor` — measured against the post-trade book, so
+    ///        B. `total + p > floor` - measured against the post-trade book, so
     ///           `p * (BPS - limitBps) <= limitBps * total - cur * BPS`.
     ///      The result is clamped to `MAX_SAFE_EXPOSURE - total` so the number handed back
     ///      is always one `checkConcentration` will accept rather than panic on.
@@ -714,7 +840,7 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         if (floor > MAX_SAFE_EXPOSURE) floor = MAX_SAFE_EXPOSURE; // defensive: pre-bound state
         uint256 room = 0; // explicit: "nothing admissible" is the default answer
 
-        // regime A — the bootstrap allowance, an ABSOLUTE cap of limitBps of the floor
+        // regime A - the bootstrap allowance, an ABSOLUTE cap of limitBps of the floor
         if (total <= floor) {
             uint256 allowance = Math.mulDiv(uint256(limitBps), floor, Config.BPS);
             if (allowance > cur) {
@@ -724,7 +850,7 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
             }
         }
 
-        // regime B — the relative limit on the post-trade book
+        // regime B - the relative limit on the post-trade book
         uint256 ratioRoom;
         if (limitBps >= Config.BPS) {
             ratioRoom = clamp; // a dimension capped at the whole book can never bind
@@ -740,18 +866,16 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         return room > clamp ? clamp : room;
     }
 
-    /// @dev Recomputes which classes stand above their limit and events every transition
-    ///      (AUDIT FIX M-02). Bounded to `Config.NUM_CLASSES`, read-only on exposure, and
-    ///      incapable of reverting — it is called from the decrease path, which carries
-    ///      repayments, default write-downs and cancellations and must never be blocked.
+    /// @dev Recomputes and events transitions for the fixed class set. Source reads are constant
+    ///      time and impose no concentration veto on repayments, write-downs or cancellations.
     function _syncClassBreaches(RegistryStorage storage $) private {
-        uint256 total = $.totalExp;
+        uint256 total = _totalExposure($);
         uint256 prev = $.overLimitBits;
         bool aboveFloor = total > $.concentrationFloor;
         uint256 next = 0; // explicit: the recomputed breach set, bit classId-1
         for (uint256 c = 1; c <= Config.NUM_CLASSES; ++c) {
             uint16 limitBps = $.classes[c].concentrationLimitBps;
-            uint256 exp = $.classExp[c];
+            uint256 exp = _classExposure($, c);
             uint256 bit = 1 << (c - 1);
             if (_breaches(exp, limitBps, total)) {
                 next |= bit;
@@ -766,11 +890,11 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
     /// @dev Per-borrower edge-detected disclosure. The borrower key set is unbounded and
     ///      not enumerable on-chain, so this fires for the borrower a write touches;
     ///      `syncConcentrationBreaches` covers any other id, and the full key set is
-    ///      recoverable from the `ExposureRecorded` event stream. Cannot revert.
+    ///      recoverable from the `ExposureRecorded` event stream. No concentration veto applies.
     function _syncBorrowerBreach(RegistryStorage storage $, bytes32 borrowerId) private {
-        uint256 total = $.totalExp;
+        uint256 total = _totalExposure($);
         uint16 limitBps = _borrowerLimit($, borrowerId);
-        uint256 exp = $.borrowerExp[borrowerId];
+        uint256 exp = _borrowerExposure($, borrowerId);
         bool over = _breaches(exp, limitBps, total);
         if (over == $.borrowerOverLimit[borrowerId]) return;
         $.borrowerOverLimit[borrowerId] = over;
@@ -779,12 +903,12 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         else emit BorrowerConcentrationHealed(borrowerId, exp, total, limitBps, aboveFloor);
     }
 
-    /// @dev Per-state counterpart of `_syncBorrowerBreach`. Cannot revert.
+    /// @dev Per-state counterpart of `_syncBorrowerBreach`, using the same effective source.
     function _syncStateBreach(RegistryStorage storage $, bytes32 stateId) private {
         if (stateId == bytes32(0)) return;
-        uint256 total = $.totalExp;
+        uint256 total = _totalExposure($);
         uint16 limitBps = $.stateLimitBps;
-        uint256 exp = $.stateExp[stateId];
+        uint256 exp = _stateExposure($, stateId);
         bool over = _breaches(exp, limitBps, total);
         if (over == $.stateOverLimit[stateId]) return;
         $.stateOverLimit[stateId] = over;
@@ -793,7 +917,97 @@ contract CollateralRegistry is Initializable, AccessControlUpgradeable, UUPSUpgr
         else emit StateConcentrationHealed(stateId, exp, total, limitBps, aboveFloor);
     }
 
-    function _authorizeUpgrade(address) internal override onlyRole(Roles.UPGRADER_ROLE) {}
+    /// @dev Total unposted interest is backed by the same reserve-local Book as every grouping.
+    function _totalExposure(RegistryStorage storage $) private view returns (uint256) {
+        return _effectiveExposure($, 0, bytes32(0), $.totalExp);
+    }
+
+    /// @dev Class identities use the source's explicit class-kind namespace.
+    function _classExposure(RegistryStorage storage $, uint256 classId) private view returns (uint256) {
+        return _effectiveExposure($, 1, bytes32(classId), $.classExp[classId]);
+    }
+
+    /// @dev Borrower identity zero retains its existing registry meaning.
+    function _borrowerExposure(RegistryStorage storage $, bytes32 borrowerId) private view returns (uint256) {
+        return _effectiveExposure($, 2, borrowerId, $.borrowerExp[borrowerId]);
+    }
+
+    /// @dev A zero state means no tagged state and is never charged a state exposure.
+    function _stateExposure(RegistryStorage storage $, bytes32 stateId) private view returns (uint256) {
+        if (stateId == bytes32(0)) return 0;
+        return _effectiveExposure($, 3, stateId, $.stateExp[stateId]);
+    }
+
+    /// @dev Bound every effective dimension before multiplication in exact headroom arithmetic.
+    function _effectiveExposure(RegistryStorage storage $, uint8 kind, bytes32 identity, uint256 stored)
+        private
+        view
+        returns (uint256)
+    {
+        if ($.accrualReserve == address(0)) return stored;
+        uint256 earned = IAccrualExposure($.accrualReserve).accrualExposure(kind, identity);
+        if (stored > MAX_SAFE_EXPOSURE || earned > MAX_SAFE_EXPOSURE - stored) revert Registry_PrincipalTooLarge();
+        return stored + earned;
+    }
+
+    /// @dev Future funded face is a numeric reservation, not a currently earned concentration.
+    function _numericHeadroom(RegistryStorage storage $, uint256 total) private view returns (uint256) {
+        uint256 remaining = MAX_SAFE_EXPOSURE - total;
+        if ($.accrualReserve == address(0)) return remaining;
+        uint256 reserved = IAccrualExposure($.accrualReserve).accrualReservedExposure();
+        return reserved >= remaining ? 0 : remaining - reserved;
+    }
+
+    /// @dev Stale clocks block new admission, while the disclosure views retain their capped state.
+    function _requireAccrualFresh() private view {
+        address reserve = _storage().accrualReserve;
+        if (reserve != address(0)) IContinuousAccrual(reserve).requireAccrualFresh();
+    }
+
+    /// @dev Price-independent decreases and governed changes require only a non-overlapping source.
+    function _requireAccrualIdle() private view {
+        address reserve = _storage().accrualReserve;
+        if (reserve != address(0)) IAccrualExposure(reserve).requireAccrualIdle();
+    }
+
+    /// @dev Executable headroom is zero when the authoritative admission gate is unavailable.
+    function _accrualAvailable() private view returns (bool) {
+        address reserve = _storage().accrualReserve;
+        if (reserve == address(0)) return true;
+        try IContinuousAccrual(reserve).requireAccrualFresh() {
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /// @dev A malformed fixed-ABI governance probe cannot partially establish permanent binding.
+    function _bindingReply(address target, bytes memory request, uint256 size, address reserve)
+        private
+        view
+        returns (bytes memory data)
+    {
+        bool ok;
+        (ok, data) = target.staticcall(request);
+        if (!ok || data.length != size) revert Registry_InvalidAccrualReserve(reserve);
+    }
+
+    /// @dev Role membership is immutable during a source accounting or delivery callback.
+    function _grantRole(bytes32 role, address account) internal override returns (bool) {
+        _requireAccrualIdle();
+        return super._grantRole(role, account);
+    }
+
+    /// @dev Includes governed revocation and a holder's own renunciation.
+    function _revokeRole(bytes32 role, address account) internal override returns (bool) {
+        _requireAccrualIdle();
+        return super._revokeRole(role, account);
+    }
+
+    /// @dev An upgrade cannot replace source-facing accounting during a protected operation.
+    function _authorizeUpgrade(address) internal view override onlyRole(Roles.UPGRADER_ROLE) {
+        _requireAccrualIdle();
+    }
 
     function _storage() private pure returns (RegistryStorage storage $) {
         assembly {

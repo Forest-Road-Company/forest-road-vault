@@ -1,0 +1,3343 @@
+{
+  "address": "3ZPRvNDUDRZuZ8Hug873JtSDJueA8D7PEVE21uLLAvwh",
+  "metadata": {
+    "name": "forestroad_curator_vault",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "accept_admin",
+      "discriminator": [
+        112,
+        42,
+        45,
+        90,
+        116,
+        181,
+        13,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "pending_admin",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "allowlist",
+      "discriminator": [
+        0,
+        51,
+        50,
+        227,
+        108,
+        194,
+        231,
+        209
+      ],
+      "accounts": [
+        {
+          "name": "allowlist_authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "docs": [
+            "later close. Only its key is used, as a PDA seed and as the position owner."
+          ]
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "agreement_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "cancel_withdrawal",
+      "discriminator": [
+        183,
+        104,
+        181,
+        250,
+        28,
+        128,
+        210,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_position",
+      "discriminator": [
+        123,
+        134,
+        81,
+        0,
+        49,
+        68,
+        98,
+        98
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "deposit",
+      "discriminator": [
+        242,
+        35,
+        198,
+        137,
+        82,
+        225,
+        242,
+        182
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_ata",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "draw_to_treasury",
+      "discriminator": [
+        135,
+        85,
+        40,
+        75,
+        247,
+        254,
+        207,
+        13
+      ],
+      "accounts": [
+        {
+          "name": "treasury_authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.owner",
+                "account": "Position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_ata",
+          "docs": [
+            "The pinned destination. Not caller-chosen: rotating it is an admin act with its own event."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "emergency_halt",
+      "discriminator": [
+        182,
+        75,
+        142,
+        253,
+        96,
+        137,
+        255,
+        67
+      ],
+      "accounts": [
+        {
+          "name": "emergency_authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.owner",
+                "account": "Position"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "emergency_pause",
+      "discriminator": [
+        21,
+        143,
+        27,
+        142,
+        200,
+        181,
+        210,
+        255
+      ],
+      "accounts": [
+        {
+          "name": "emergency_authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "fund_coupons",
+      "discriminator": [
+        201,
+        41,
+        168,
+        153,
+        44,
+        86,
+        182,
+        249
+      ],
+      "accounts": [
+        {
+          "name": "treasury_authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "source",
+          "docs": [
+            "Any token account of the right mint that the treasury authority controls."
+          ],
+          "writable": true
+        },
+        {
+          "name": "destination",
+          "docs": [
+            "The vault (for a principal return) or the coupon pool (for funding), checked per handler."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "The admin funds the accounts and holds the admin authority afterwards. It must be the",
+            "program's upgrade authority: the singleton config would otherwise belong to whoever",
+            "landed `initialize` first in the window between deployment and the ceremony. On mainnet",
+            "the upgrade authority is the Squads multisig, which signs through its vault."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program",
+          "address": "3ZPRvNDUDRZuZ8Hug873JtSDJueA8D7PEVE21uLLAvwh"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "vault_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "coupon_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  117,
+                  112,
+                  111,
+                  110
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_ata",
+          "docs": [
+            "The draw destination: a token account of the right mint owned by the treasury authority,",
+            "so a draw can only ever land with the party that signs draws. The admin rotates it later",
+            "under the same rule."
+          ]
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "InitializeParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "pay_coupon",
+      "discriminator": [
+        235,
+        226,
+        45,
+        115,
+        95,
+        34,
+        46,
+        110
+      ],
+      "accounts": [
+        {
+          "name": "cranker",
+          "docs": [
+            "Anyone. The keeper in practice; the curator or a bystander can crank their own row."
+          ],
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.owner",
+                "account": "Position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "coupon_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  117,
+                  112,
+                  111,
+                  110
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_ata",
+          "docs": [
+            "The owner's own token account for the mint; the payout goes nowhere else."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "propose_admin",
+      "discriminator": [
+        121,
+        214,
+        199,
+        212,
+        87,
+        39,
+        117,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_admin",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "record_loss",
+      "discriminator": [
+        112,
+        182,
+        48,
+        145,
+        171,
+        216,
+        247,
+        43
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.owner",
+                "account": "Position"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "evidence_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "request_withdrawal",
+      "discriminator": [
+        251,
+        85,
+        121,
+        205,
+        56,
+        201,
+        12,
+        177
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "return_principal",
+      "discriminator": [
+        27,
+        177,
+        124,
+        34,
+        3,
+        16,
+        96,
+        76
+      ],
+      "accounts": [
+        {
+          "name": "treasury_authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.owner",
+                "account": "Position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "source",
+          "writable": true
+        },
+        {
+          "name": "vault_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "revoke_allowlist",
+      "discriminator": [
+        61,
+        22,
+        179,
+        242,
+        68,
+        105,
+        221,
+        18
+      ],
+      "accounts": [
+        {
+          "name": "allowlist_authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.owner",
+                "account": "Position"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "set_authorities",
+      "discriminator": [
+        124,
+        254,
+        44,
+        240,
+        197,
+        70,
+        190,
+        107
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_ata",
+          "docs": [
+            "Must be owned by the treasury authority being set and must not be one of the vault's own",
+            "accounts, so principal can never be drawn into the coupon pool or back into the vault."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "allowlist_authority",
+          "type": "pubkey"
+        },
+        {
+          "name": "treasury_authority",
+          "type": "pubkey"
+        },
+        {
+          "name": "emergency_authority",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "set_paused",
+      "discriminator": [
+        91,
+        60,
+        125,
+        192,
+        176,
+        225,
+        166,
+        218
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "paused",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "set_payout_halt",
+      "discriminator": [
+        171,
+        26,
+        40,
+        193,
+        153,
+        104,
+        95,
+        137
+      ],
+      "accounts": [
+        {
+          "name": "allowlist_authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.owner",
+                "account": "Position"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "halted",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "set_rate",
+      "discriminator": [
+        99,
+        58,
+        170,
+        238,
+        160,
+        120,
+        74,
+        11
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "bps",
+          "type": "u16"
+        },
+        {
+          "name": "start_ts",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "set_terms",
+      "discriminator": [
+        198,
+        18,
+        197,
+        226,
+        220,
+        230,
+        87,
+        173
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "lock_seconds",
+          "type": "u64"
+        },
+        {
+          "name": "notice_seconds",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "sweep_coupons",
+      "discriminator": [
+        78,
+        40,
+        60,
+        250,
+        164,
+        56,
+        38,
+        32
+      ],
+      "accounts": [
+        {
+          "name": "treasury_authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "coupon_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  117,
+                  112,
+                  111,
+                  110
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_ata",
+          "docs": [
+            "The pinned destination, as for draws."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "sweep_principal_surplus",
+      "discriminator": [
+        237,
+        121,
+        232,
+        210,
+        162,
+        187,
+        74,
+        100
+      ],
+      "accounts": [
+        {
+          "name": "treasury_authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_ata",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "withdraw",
+      "discriminator": [
+        183,
+        18,
+        70,
+        156,
+        148,
+        109,
+        161,
+        34
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_ata",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "withdraw_unused_coupon_funding",
+      "discriminator": [
+        103,
+        11,
+        85,
+        190,
+        153,
+        159,
+        208,
+        109
+      ],
+      "accounts": [
+        {
+          "name": "treasury_authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "coupon_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  117,
+                  112,
+                  111,
+                  110
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_ata",
+          "docs": [
+            "The pinned destination, as for draws."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "Position",
+      "discriminator": [
+        170,
+        188,
+        143,
+        228,
+        122,
+        64,
+        247,
+        208
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "AdminTransferAccepted",
+      "discriminator": [
+        79,
+        229,
+        204,
+        202,
+        134,
+        43,
+        177,
+        26
+      ]
+    },
+    {
+      "name": "AdminTransferProposed",
+      "discriminator": [
+        203,
+        168,
+        175,
+        51,
+        239,
+        104,
+        20,
+        85
+      ]
+    },
+    {
+      "name": "AllowlistRevoked",
+      "discriminator": [
+        40,
+        24,
+        198,
+        94,
+        74,
+        18,
+        235,
+        95
+      ]
+    },
+    {
+      "name": "Allowlisted",
+      "discriminator": [
+        141,
+        198,
+        9,
+        101,
+        232,
+        45,
+        76,
+        217
+      ]
+    },
+    {
+      "name": "AuthoritiesChanged",
+      "discriminator": [
+        231,
+        198,
+        56,
+        181,
+        18,
+        67,
+        45,
+        176
+      ]
+    },
+    {
+      "name": "CouponFundingWithdrawn",
+      "discriminator": [
+        60,
+        168,
+        189,
+        98,
+        148,
+        246,
+        191,
+        212
+      ]
+    },
+    {
+      "name": "CouponPaid",
+      "discriminator": [
+        11,
+        228,
+        86,
+        67,
+        111,
+        22,
+        107,
+        226
+      ]
+    },
+    {
+      "name": "CouponsFunded",
+      "discriminator": [
+        9,
+        97,
+        65,
+        128,
+        238,
+        36,
+        83,
+        44
+      ]
+    },
+    {
+      "name": "CouponsSwept",
+      "discriminator": [
+        229,
+        98,
+        89,
+        168,
+        9,
+        240,
+        118,
+        201
+      ]
+    },
+    {
+      "name": "Deposited",
+      "discriminator": [
+        111,
+        141,
+        26,
+        45,
+        161,
+        35,
+        100,
+        57
+      ]
+    },
+    {
+      "name": "Initialized",
+      "discriminator": [
+        208,
+        213,
+        115,
+        98,
+        115,
+        82,
+        201,
+        209
+      ]
+    },
+    {
+      "name": "LossRecorded",
+      "discriminator": [
+        206,
+        157,
+        36,
+        201,
+        68,
+        101,
+        194,
+        248
+      ]
+    },
+    {
+      "name": "PauseChanged",
+      "discriminator": [
+        238,
+        188,
+        213,
+        78,
+        134,
+        209,
+        178,
+        218
+      ]
+    },
+    {
+      "name": "PayoutHaltChanged",
+      "discriminator": [
+        254,
+        83,
+        76,
+        186,
+        74,
+        55,
+        71,
+        69
+      ]
+    },
+    {
+      "name": "PositionClosed",
+      "discriminator": [
+        157,
+        163,
+        227,
+        228,
+        13,
+        97,
+        138,
+        121
+      ]
+    },
+    {
+      "name": "PrincipalReturned",
+      "discriminator": [
+        107,
+        100,
+        128,
+        186,
+        79,
+        136,
+        167,
+        182
+      ]
+    },
+    {
+      "name": "PrincipalSurplusSwept",
+      "discriminator": [
+        212,
+        123,
+        98,
+        232,
+        130,
+        133,
+        31,
+        82
+      ]
+    },
+    {
+      "name": "RateEpochAdded",
+      "discriminator": [
+        207,
+        130,
+        161,
+        34,
+        225,
+        1,
+        194,
+        225
+      ]
+    },
+    {
+      "name": "TermsChanged",
+      "discriminator": [
+        95,
+        25,
+        171,
+        199,
+        209,
+        114,
+        42,
+        97
+      ]
+    },
+    {
+      "name": "TreasuryDraw",
+      "discriminator": [
+        210,
+        5,
+        79,
+        162,
+        95,
+        8,
+        8,
+        56
+      ]
+    },
+    {
+      "name": "WithdrawalCancelled",
+      "discriminator": [
+        119,
+        175,
+        207,
+        80,
+        186,
+        237,
+        229,
+        9
+      ]
+    },
+    {
+      "name": "WithdrawalRequested",
+      "discriminator": [
+        75,
+        207,
+        21,
+        12,
+        160,
+        102,
+        150,
+        55
+      ]
+    },
+    {
+      "name": "Withdrawn",
+      "discriminator": [
+        20,
+        89,
+        223,
+        198,
+        194,
+        124,
+        219,
+        13
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "NotAllowlisted",
+      "msg": "Wallet is not allowlisted for this vault"
+    },
+    {
+      "code": 6001,
+      "name": "Paused",
+      "msg": "Deposits and treasury draws are paused"
+    },
+    {
+      "code": 6002,
+      "name": "ZeroAmount",
+      "msg": "Amount must be greater than zero"
+    },
+    {
+      "code": 6003,
+      "name": "NoticePending",
+      "msg": "A withdrawal notice is pending; cancel it before changing exposure"
+    },
+    {
+      "code": 6004,
+      "name": "NoNotice",
+      "msg": "No withdrawal notice is pending"
+    },
+    {
+      "code": 6005,
+      "name": "Locked",
+      "msg": "Withdrawal is not yet eligible; wait for the lock and notice to elapse"
+    },
+    {
+      "code": 6006,
+      "name": "InsufficientVaultLiquidity",
+      "msg": "Vault liquidity is below the requested amount; principal must be returned first"
+    },
+    {
+      "code": 6007,
+      "name": "DrawExceedsPrincipal",
+      "msg": "Draw would exceed outstanding principal"
+    },
+    {
+      "code": 6008,
+      "name": "ReturnExceedsDrawn",
+      "msg": "Return would exceed the amount drawn"
+    },
+    {
+      "code": 6009,
+      "name": "NothingDue",
+      "msg": "Nothing is due for this position at this boundary"
+    },
+    {
+      "code": 6010,
+      "name": "InsufficientCouponPool",
+      "msg": "Coupon pool is below the amount due"
+    },
+    {
+      "code": 6011,
+      "name": "RateEpochsFull",
+      "msg": "Rate epoch history is full"
+    },
+    {
+      "code": 6012,
+      "name": "RateNotForward",
+      "msg": "A rate epoch must start after the previous one and not in the past"
+    },
+    {
+      "code": 6013,
+      "name": "BadRate",
+      "msg": "Rate must be between 1 and 10,000 basis points"
+    },
+    {
+      "code": 6014,
+      "name": "BadTerms",
+      "msg": "Terms must be between one day and two years"
+    },
+    {
+      "code": 6015,
+      "name": "WrongMint",
+      "msg": "Token account has the wrong mint"
+    },
+    {
+      "code": 6016,
+      "name": "WrongTokenAccount",
+      "msg": "Token account is not owned by the expected authority"
+    },
+    {
+      "code": 6017,
+      "name": "PrincipalNotAtRisk",
+      "msg": "Principal is not at risk under this vault's agreements"
+    },
+    {
+      "code": 6018,
+      "name": "LossExceedsPrincipal",
+      "msg": "Loss exceeds the position's principal"
+    },
+    {
+      "code": 6019,
+      "name": "LossExceedsDrawn",
+      "msg": "Loss exceeds the drawn amount; undrawn capital cannot be lost"
+    },
+    {
+      "code": 6020,
+      "name": "ZeroHash",
+      "msg": "Hash must be non-zero"
+    },
+    {
+      "code": 6021,
+      "name": "PositionNotEmpty",
+      "msg": "Position still holds principal, owed coupon or a notice"
+    },
+    {
+      "code": 6022,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6023,
+      "name": "AlreadyAllowlisted",
+      "msg": "Position already allowlisted"
+    },
+    {
+      "code": 6024,
+      "name": "AmountExceedsPrincipal",
+      "msg": "Amount exceeds the position's principal"
+    },
+    {
+      "code": 6025,
+      "name": "Unauthorized",
+      "msg": "Only the program's upgrade authority may initialise the vault"
+    },
+    {
+      "code": 6026,
+      "name": "RateTooFar",
+      "msg": "A rate epoch may not start more than two years ahead"
+    },
+    {
+      "code": 6027,
+      "name": "ZeroAuthority",
+      "msg": "An authority cannot be the zero address"
+    },
+    {
+      "code": 6028,
+      "name": "PayoutHalted",
+      "msg": "Coupon payouts to this position are halted pending review"
+    },
+    {
+      "code": 6029,
+      "name": "SweepExceedsPool",
+      "msg": "Sweep exceeds the recoverable token surplus"
+    },
+    {
+      "code": 6030,
+      "name": "WrongAssociatedTokenAccount",
+      "msg": "Token account is not the owner's associated token account"
+    },
+    {
+      "code": 6031,
+      "name": "CouponLiabilityReserved",
+      "msg": "Coupon funds are reserved for accrued obligations"
+    },
+    {
+      "code": 6032,
+      "name": "AccountingMismatch",
+      "msg": "Token balances are below the program's accounted balance"
+    },
+    {
+      "code": 6033,
+      "name": "AgreementChangeWithBalance",
+      "msg": "An agreement hash cannot change while the position has live obligations"
+    },
+    {
+      "code": 6034,
+      "name": "PositionCapitalDrawn",
+      "msg": "The requested principal is deployed for this position and must be returned first"
+    },
+    {
+      "code": 6035,
+      "name": "UnsupportedVersion",
+      "msg": "Account layout version is not supported by this program"
+    },
+    {
+      "code": 6036,
+      "name": "NotPendingAdmin",
+      "msg": "Only the pending admin may accept the admin role"
+    },
+    {
+      "code": 6037,
+      "name": "VaultNotEmpty",
+      "msg": "Unused coupon funding can be withdrawn only after every position is closed"
+    }
+  ],
+  "types": [
+    {
+      "name": "AdminTransferAccepted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "previous_admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdminTransferProposed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AllowlistRevoked",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Allowlisted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "agreement_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuthoritiesChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "allowlist_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "emergency_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury_ata",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Config",
+      "docs": [
+        "Vault configuration and running totals. One per program deployment."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "allowlist_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "emergency_authority",
+            "docs": [
+              "A hot key with one-way powers only: it may pause or halt, never clear either flag."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_ata",
+            "docs": [
+              "Principal, a program-owned token account at seeds [\"vault\"]."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "coupon_ata",
+            "docs": [
+              "Coupon pool, a program-owned token account at seeds [\"coupon\"]."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury_ata",
+            "docs": [
+              "Destination of treasury draws; a Forest Road token account, rotated by the admin only."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "lock_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "notice_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "day_count",
+            "type": "u8"
+          },
+          {
+            "name": "principal_at_risk",
+            "type": "bool"
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "name": "rate_epochs",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "RateEpoch"
+                  }
+                },
+                16
+              ]
+            }
+          },
+          {
+            "name": "rate_epoch_count",
+            "type": "u8"
+          },
+          {
+            "name": "total_principal",
+            "type": "u64"
+          },
+          {
+            "name": "drawn",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_funded",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_paid",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_owed_total",
+            "docs": [
+              "Sum of every position's accrued but unpaid whole coupon units."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "positions",
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "CouponFundingWithdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_funded",
+            "type": "u64"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CouponPaid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "period_end",
+            "type": "i64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_paid",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_owed_after",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_payable_after",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_accrued_through",
+            "type": "i64"
+          },
+          {
+            "name": "surplus_recognized",
+            "type": "u64"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CouponsFunded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_funded",
+            "type": "u64"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CouponsSwept",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_funded",
+            "type": "u64"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Deposited",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "principal_after",
+            "type": "u64"
+          },
+          {
+            "name": "lock_end",
+            "type": "i64"
+          },
+          {
+            "name": "total_principal",
+            "type": "u64"
+          },
+          {
+            "name": "position_drawn",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_owed",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_payable",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_accrued_through",
+            "type": "i64"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializeParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "allowlist_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "emergency_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "lock_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "notice_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "principal_at_risk",
+            "type": "bool"
+          },
+          {
+            "name": "initial_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Initialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "allowlist_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "emergency_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_ata",
+            "type": "pubkey"
+          },
+          {
+            "name": "coupon_ata",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury_ata",
+            "type": "pubkey"
+          },
+          {
+            "name": "lock_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "notice_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "principal_at_risk",
+            "type": "bool"
+          },
+          {
+            "name": "initial_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LossRecorded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "principal_after",
+            "type": "u64"
+          },
+          {
+            "name": "position_drawn_after",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_owed",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_payable",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_accrued_through",
+            "type": "i64"
+          },
+          {
+            "name": "evidence_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PauseChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "name": "actor",
+            "type": "pubkey"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PayoutHaltChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "halted",
+            "type": "bool"
+          },
+          {
+            "name": "actor",
+            "type": "pubkey"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Position",
+      "docs": [
+        "One curator's subscription. Non-transferable by construction: there is no instruction that",
+        "changes `owner`, and no token represents it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "agreement_hash",
+            "docs": [
+              "Hash of the executed agreement, set when the wallet is allowlisted."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "allowlisted",
+            "type": "bool"
+          },
+          {
+            "name": "lock_seconds",
+            "docs": [
+              "Terms snapshotted when a zero-principal position receives new principal."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "notice_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "principal",
+            "docs": [
+              "Live principal in USDC base units."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "drawn",
+            "docs": [
+              "Principal from this position currently deployed to the treasury."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "deposited_at",
+            "type": "i64"
+          },
+          {
+            "name": "lock_end",
+            "type": "i64"
+          },
+          {
+            "name": "notice_requested_at",
+            "type": "i64"
+          },
+          {
+            "name": "withdrawal_eligible_at",
+            "type": "i64"
+          },
+          {
+            "name": "coupon_accrued_through",
+            "type": "i64"
+          },
+          {
+            "name": "coupon_paid_through",
+            "type": "i64"
+          },
+          {
+            "name": "coupon_owed",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_payable",
+            "docs": [
+              "Portion of `coupon_owed` earned through a completed month and payable now."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "coupon_remainder",
+            "type": "u128"
+          },
+          {
+            "name": "losses_recorded",
+            "type": "u64"
+          },
+          {
+            "name": "payout_halted",
+            "docs": [
+              "Set by the allowlist authority on a screening hit: the crank refuses this position while",
+              "accrual continues and the amount stays owed. Withdrawals are not affected by this flag;",
+              "whether they should be is counsel's question (spec section 3.4)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PositionClosed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PrincipalReturned",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "drawn_after",
+            "type": "u64"
+          },
+          {
+            "name": "position_drawn_after",
+            "type": "u64"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PrincipalSurplusSwept",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RateEpoch",
+      "docs": [
+        "One rate epoch: `bps` applies from `start_ts` until the next epoch's start."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "start_ts",
+            "type": "i64"
+          },
+          {
+            "name": "bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RateEpochAdded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "u8"
+          },
+          {
+            "name": "start_ts",
+            "type": "i64"
+          },
+          {
+            "name": "bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TermsChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lock_seconds",
+            "type": "u64"
+          },
+          {
+            "name": "notice_seconds",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TreasuryDraw",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "drawn_after",
+            "type": "u64"
+          },
+          {
+            "name": "position_drawn_after",
+            "type": "u64"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WithdrawalCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WithdrawalRequested",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "eligible_at",
+            "type": "i64"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Withdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "principal_after",
+            "type": "u64"
+          },
+          {
+            "name": "total_principal",
+            "type": "u64"
+          },
+          {
+            "name": "position_drawn",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_owed",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_payable",
+            "type": "u64"
+          },
+          {
+            "name": "coupon_accrued_through",
+            "type": "i64"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "ACCOUNT_VERSION",
+      "docs": [
+        "Account layout understood by this program. Reserved bytes let later versions add fields",
+        "without forcing every curator to exit into a replacement program first."
+      ],
+      "type": "u8",
+      "value": "1"
+    },
+    {
+      "name": "CONFIG_SEED",
+      "type": "bytes",
+      "value": "[99, 111, 110, 102, 105, 103]"
+    },
+    {
+      "name": "COUPON_SEED",
+      "type": "bytes",
+      "value": "[99, 111, 117, 112, 111, 110]"
+    },
+    {
+      "name": "DAY_COUNT_ACTUAL_360",
+      "docs": [
+        "Day-count code for Actual/360, the only convention this version implements."
+      ],
+      "type": "u8",
+      "value": "0"
+    },
+    {
+      "name": "MAX_RATE_BPS",
+      "docs": [
+        "Rates are basis points on Actual/360; 100% is the ceiling, not a target."
+      ],
+      "type": "u16",
+      "value": "10000"
+    },
+    {
+      "name": "MAX_TERM_SECONDS",
+      "type": "u64",
+      "value": "63072000"
+    },
+    {
+      "name": "MIN_TERM_SECONDS",
+      "docs": [
+        "Terms bounds: one day to two years, for both the lock and the notice."
+      ],
+      "type": "u64",
+      "value": "86400"
+    },
+    {
+      "name": "POSITION_SEED",
+      "type": "bytes",
+      "value": "[112, 111, 115, 105, 116, 105, 111, 110]"
+    },
+    {
+      "name": "VAULT_SEED",
+      "type": "bytes",
+      "value": "[118, 97, 117, 108, 116]"
+    }
+  ]
+}

@@ -46,6 +46,8 @@ contract OracleHandler is Test {
     ///      cannot degrade into decoration: if a future refactor pre-filters the replay actions so
     ///      they never actually reach the illegal region, the suite goes RED rather than green-and
     ///      -vacuous. (Campaign 5's lesson, applied here deliberately.)
+    uint256 public openingAdmissions;
+    uint256 public blockedPendingActions;
     uint256 public ghostBlockedFactReplays; // one-shot kinds: Oracle_FactAlreadyRealised
     uint256 public ghostBlockedRevokedReplays; // specifically from the Revoked tombstone (C4-02)
     uint256 public ghostBlockedStaleValuations; // the 9th kind, blocked by the H-02 watermark
@@ -80,11 +82,28 @@ contract OracleHandler is Test {
             expiry: uint64(block.timestamp + 1 hours),
             nonce: ++nonce
         });
+        _completePendingActionForSetup(facilityId, kind);
         oracle.attest(a, _bundle(a));
         ghostSatisfied[facilityId][kind] = true;
         ghostPayload[facilityId][kind] = payload;
         ghostAsOf[facilityId][kind] = a.asOf;
         _recordFact(facilityId, kind, payload, IAttestationOracle.FactStatus.Recorded);
+    }
+
+    function _actionKind(IAttestationOracle.AttestationKind kind) private pure returns (bool) {
+        return kind == IAttestationOracle.AttestationKind.PaymentReceived
+            || kind == IAttestationOracle.AttestationKind.DefaultDeclared
+            || kind == IAttestationOracle.AttestationKind.LossRealized
+            || kind == IAttestationOracle.AttestationKind.PastDueCured
+            || kind == IAttestationOracle.AttestationKind.TermsAmended
+            || kind == IAttestationOracle.AttestationKind.AccrualOpening;
+    }
+
+    function _completePendingActionForSetup(uint256 facilityId, IAttestationOracle.AttestationKind kind) private {
+        if (!_actionKind(kind) || !ghostSatisfied[facilityId][kind]) return;
+        oracle.consume(facilityId, kind);
+        ghostSatisfied[facilityId][kind] = false;
+        _recordFact(facilityId, kind, ghostPayload[facilityId][kind], IAttestationOracle.FactStatus.Consumed);
     }
 
     function _factKey(uint256 facilityId, IAttestationOracle.AttestationKind kind, bytes32 payload)
@@ -103,6 +122,11 @@ contract OracleHandler is Test {
     ) internal {
         if (kind == IAttestationOracle.AttestationKind.Valuation) return;
         bytes32 key = _factKey(facilityId, kind, payload);
+        if (
+            kind == IAttestationOracle.AttestationKind.AccrualOpening
+                && status == IAttestationOracle.FactStatus.Recorded
+                && ghostFactStatus[key] == IAttestationOracle.FactStatus.None
+        ) ++openingAdmissions;
         if (ghostFactStatus[key] == IAttestationOracle.FactStatus.None) {
             facts.push(Fact({facilityId: facilityId, kind: kind, payload: payload}));
         }
@@ -141,7 +165,7 @@ contract OracleHandler is Test {
 
     function attestFact(uint256 facSeed, uint8 kindSeed, bytes32 payloadSeed) external {
         uint256 facilityId = facSeed % 3;
-        IAttestationOracle.AttestationKind kind = IAttestationOracle.AttestationKind(kindSeed % 9);
+        IAttestationOracle.AttestationKind kind = _kind(kindSeed);
 
         bytes32 payload = payloadSeed;
         uint64 asOf = uint64(block.timestamp);
@@ -194,6 +218,16 @@ contract OracleHandler is Test {
             }
         }
 
+        if (_actionKind(kind) && ghostSatisfied[facilityId][kind]) {
+            vm.expectRevert(abi.encodeWithSelector(
+                IAttestationOracle.Oracle_UnconsumedFact.selector, facilityId, kind, ghostPayload[facilityId][kind]
+            ));
+            oracle.attest(a, sigs);
+            assertFalse(oracle.digestUsed(digest), "refused action consumed its digest");
+            ++blockedPendingActions;
+            ++callCount;
+            return;
+        }
         oracle.attest(a, sigs);
         assertTrue(oracle.digestUsed(digest), "NO-REPLAY: digest not consumed");
 
@@ -251,8 +285,7 @@ contract OracleHandler is Test {
         uint256 facilityId = facSeed % 3;
         // one-shot kinds only: Valuation's durability comes from the watermark, and
         // `replayStaleValuation` covers that path.
-        uint8 k = kindSeed % 8;
-        IAttestationOracle.AttestationKind kind = IAttestationOracle.AttestationKind(k < 5 ? k : k + 1);
+        IAttestationOracle.AttestationKind kind = _oneShotKind(kindSeed);
 
         // ESTABLISH a fresh, never-seen fact for this slot (salted with the call counter so it is
         // always new — this is setup, not a skip of the illegal input that follows).
@@ -265,6 +298,7 @@ contract OracleHandler is Test {
             expiry: uint64(block.timestamp + 1 hours),
             nonce: ++nonce
         });
+        _completePendingActionForSetup(facilityId, kind);
         oracle.attest(a, _bundle(a));
         ghostSatisfied[facilityId][kind] = true;
         ghostPayload[facilityId][kind] = payload;
@@ -324,8 +358,7 @@ contract OracleHandler is Test {
     /// @param payloadSeed Fuzzes the two payloads.
     function replaySupersededFact(uint256 facSeed, uint8 kindSeed, bytes32 payloadSeed) external {
         uint256 facilityId = facSeed % 3;
-        uint8 k = kindSeed % 8;
-        IAttestationOracle.AttestationKind kind = IAttestationOracle.AttestationKind(k < 5 ? k : k + 1);
+        IAttestationOracle.AttestationKind kind = _oneShotKind(kindSeed);
 
         // ── A: establish, then SPEND. The ledger holds `Consumed`; the record still holds A. ──
         bytes32 payloadA = keccak256(abi.encode("r17-01-A", payloadSeed, ++nonce));
@@ -337,6 +370,7 @@ contract OracleHandler is Test {
             expiry: uint64(block.timestamp + 1 hours),
             nonce: ++nonce
         });
+        _completePendingActionForSetup(facilityId, kind);
         oracle.attest(a, _bundle(a));
         _recordFact(facilityId, kind, payloadA, IAttestationOracle.FactStatus.Recorded);
         oracle.consume(facilityId, kind); // handler holds CREDIT_ROLE
@@ -438,7 +472,7 @@ contract OracleHandler is Test {
 
     function consumeFact(uint256 facSeed, uint8 kindSeed) external {
         uint256 facilityId = facSeed % 3;
-        IAttestationOracle.AttestationKind kind = IAttestationOracle.AttestationKind(kindSeed % 9);
+        IAttestationOracle.AttestationKind kind = _kind(kindSeed);
         if (!ghostSatisfied[facilityId][kind]) return;
         bytes32 payload = ghostPayload[facilityId][kind];
         oracle.consume(facilityId, kind); // handler holds CREDIT_ROLE
@@ -450,7 +484,7 @@ contract OracleHandler is Test {
 
     function revokeFact(uint256 facSeed, uint8 kindSeed) external {
         uint256 facilityId = facSeed % 3;
-        IAttestationOracle.AttestationKind kind = IAttestationOracle.AttestationKind(kindSeed % 9);
+        IAttestationOracle.AttestationKind kind = _kind(kindSeed);
         if (!ghostSatisfied[facilityId][kind] && ghostPayload[facilityId][kind] == bytes32(0)) return;
         bytes32 payload = ghostPayload[facilityId][kind];
         vm.prank(admin);
@@ -471,7 +505,7 @@ contract OracleHandler is Test {
     }
 
     function setThreshold(uint8 kindSeed, uint8 m) external {
-        IAttestationOracle.AttestationKind kind = IAttestationOracle.AttestationKind(kindSeed % 9);
+        IAttestationOracle.AttestationKind kind = _kind(kindSeed);
         // the high-value kinds are floored at 2-of-n (audit fix) — bound accordingly so
         // this bounded handler never trips Oracle_BadThreshold
         bool highValue = kind == IAttestationOracle.AttestationKind.CreditIssued
@@ -480,7 +514,8 @@ contract OracleHandler is Test {
             || kind == IAttestationOracle.AttestationKind.DefaultDeclared
             || kind == IAttestationOracle.AttestationKind.LossRealized
             || kind == IAttestationOracle.AttestationKind.PastDueCured
-            || kind == IAttestationOracle.AttestationKind.TermsAmended;
+            || kind == IAttestationOracle.AttestationKind.TermsAmended
+            || kind == IAttestationOracle.AttestationKind.AccrualOpening;
         m = uint8(bound(m, highValue ? 2 : 1, 3));
         vm.prank(admin);
         oracle.setThreshold(kind, m);
@@ -491,5 +526,19 @@ contract OracleHandler is Test {
         secs = bound(secs, 1 minutes, 7 days);
         vm.warp(block.timestamp + secs);
         callCount++;
+    }
+    // BSC's reserve-price observations are excluded from this facility-fact model.
+    // These ten choices cover the nine original facility kinds and opening facts.
+
+    function _kind(uint8 seed) private pure returns (IAttestationOracle.AttestationKind) {
+        uint8 k = seed % 10;
+        return k == 9 ? IAttestationOracle.AttestationKind.AccrualOpening : IAttestationOracle.AttestationKind(k);
+    }
+
+    function _oneShotKind(uint8 seed) private pure returns (IAttestationOracle.AttestationKind) {
+        uint8 k = seed % 9;
+        return k == 8
+            ? IAttestationOracle.AttestationKind.AccrualOpening
+            : IAttestationOracle.AttestationKind(k < 5 ? k : k + 1);
     }
 }

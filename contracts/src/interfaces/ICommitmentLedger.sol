@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.30;
 
-/// @title ICommitmentLedger — live-event layer-2 deliverability accounting
-/// @notice Tracks each live event's class, draw state and remaining principal. ADR-0035 removes
-///         event-owned coverage rooms; the cascade walk applies one shared live reserve.
+/// @title ICommitmentLedger — recorded default rows and shared backstop deliverability.
+/// @notice Keeps live row metadata and per-class principal aggregates. Conservative residuals
+///         use the five class curator pools followed by the shared sGROVE reserve in constant time.
 interface ICommitmentLedger {
     function coverDelegate(address backstop, address asset, uint256 eventId, uint256 residual)
         external
@@ -19,10 +19,8 @@ interface ICommitmentLedger {
     event CommitmentRegistered(uint256 indexed eventId, uint256 indexed classId, uint256 remainingPrincipal);
     event CommitmentPrincipalUpdated(uint256 indexed eventId, uint256 remainingPrincipal);
     event CommitmentReleased(uint256 indexed eventId, uint256 releasedDeliverable, uint256 aggregateDeliverable);
-
-    /// @notice Registers a declared default before its first layer-2 draw.
-    /// @dev Enumeration remains necessary for class-specific curator allocation and independent
-    ///      forward/reverse checks; it no longer creates a backstop snapshot.
+    /// @notice Register a declared default and increase its class aggregate by the recorded face.
+    /// @dev Rows retain their declaration order for servicing and independent reference checks.
     function register(uint256 eventId, uint256 classId, uint256 remainingPrincipal) external;
 
     /// @notice Re-anchors a live event's residual principal after a recovery or realization.
@@ -35,12 +33,9 @@ interface ICommitmentLedger {
     function release(uint256 eventId) external;
 
     function deliverableAggregate() external view returns (uint256);
-
-    /// @notice Computes the conservative senior residual and its past-due component by walking
-    ///         every live declared event in forward and reverse declaration order.
-    /// @return residual Gross declared-plus-past-due principal less the minimum junior delivery
-    ///         executable in the two enumerated full-realization orders.
-    /// @return pastDueSenior Past-due principal left after its policy-prioritized junior credit.
+    /// @notice Compute the conservative residual from a fixed number of class aggregates.
+    /// @return residual Declared and past-due risk remaining after available junior capital.
+    /// @return pastDueSenior The past-due portion after its policy-prioritized junior allocation.
     function conservativeResiduals() external view returns (uint256 residual, uint256 pastDueSenior);
 
     function remainingAggregate() external view returns (uint256);

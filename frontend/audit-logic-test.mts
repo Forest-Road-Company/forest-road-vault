@@ -548,6 +548,10 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
   const ciWorkflow = readOptional("../.github/workflows/ci.yml");
   const manifestExporter = readOptional("../tools/frontend-env-from-manifest.mjs");
   const bytecodeReconciler = readOptional("../tools/compare-sepolia-implementations.mjs");
+  const reownOriginPolicy = readFileSync(
+    new URL("./src/lib/reownOriginPolicy.mjs", import.meta.url),
+    "utf8",
+  );
   const landingPage = readFileSync(new URL("./src/app/page.tsx", import.meta.url), "utf8");
   const termsPage = readFileSync(new URL("./src/app/terms/page.tsx", import.meta.url), "utf8");
   const legalPage = readFileSync(new URL("./src/app/legal/page.tsx", import.meta.url), "utf8");
@@ -651,6 +655,15 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
       nextConfig.includes("https://api.web3modal.org") &&
       nextConfig.includes("https://fonts.reown.com") &&
       nextConfig.includes("https://verify.walletconnect.org"),
+  );
+  check(
+    "wallet config: release builds verify every stable origin against Reown",
+    manifestExporter !== null &&
+      manifestExporter.includes("verifyReownOriginPolicy") &&
+      reownOriginPolicy.includes("https://api.web3modal.org/projects/v1/origins") &&
+      reownOriginPolicy.includes("https://forest-road-vault.vercel.app") &&
+      reownOriginPolicy.includes("NEXT_PUBLIC_WALLETCONNECT_REQUIRED_ORIGINS") &&
+      reownOriginPolicy.includes("dashboard.reown.com before releasing this build"),
   );
   check(
     "writes: wallet initialization races surface an actionable status",

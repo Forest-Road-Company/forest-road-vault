@@ -583,7 +583,8 @@ contract SolvencyHandler is Test {
             paymentScheduleHash: keccak256("solvency-schedule"),
             rateIndexRef: bytes32(0),
             renewalTermsHash: bytes32(0),
-            offchainRef: keccak256("solvency-ucc-ref")
+            offchainRef: keccak256("solvency-ucc-ref"),
+            pik: false
         });
     }
 

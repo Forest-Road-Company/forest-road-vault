@@ -1,0 +1,8 @@
+{
+  "note": "Known low-severity documentation drift in the exactly deployed Solidity source. New stale references fail CI. Remove entries when the next deployment can safely correct the source comments.",
+  "findings": {
+    "contracts/src/ConservativeImpairmentMath.sol | ReserveManager._absorbRecognizedReserveLoss | member-missing": 1,
+    "contracts/src/DefaultManager.sol | ReserveManager._recognizeReserveLoss | member-missing": 1,
+    "contracts/src/interfaces/IReserveLossAbsorber.sol | ReserveManager._absorbRecognizedReserveLoss | member-missing": 1
+  }
+}

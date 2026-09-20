@@ -8,31 +8,17 @@ import {ForkLifecycleFixture} from "./ForkLifecycleFixture.sol";
 import {ClaimBridge} from "../../src/ClaimBridge.sol";
 import {IWaterfallEngine} from "../../src/interfaces/IWaterfallEngine.sol";
 import {IAttestationOracle} from "../../src/interfaces/IAttestationOracle.sol";
+import {AccrualLoans} from "../../src/libraries/AccrualLoans.sol";
+import {IContinuousAccrual} from "../../src/interfaces/IContinuousAccrual.sol";
 import {Config} from "../../src/libraries/Config.sol";
+import {ReserveCreditLib} from "../../src/libraries/ReserveCreditLib.sol";
 import {Roles} from "../../src/libraries/Roles.sol";
 
-/// @title ATK_WaterfallEngineFork — adversarial attacks on WaterfallEngine against the FULL
-///        protocol on a pinned mainnet fork with REAL USDC.
-///
-/// @notice This suite does not document the engine, it tries to BREAK the three invariants it must
-///         hold (CLAUDE.md §1.3):
-///           I1. every repayment is fully and correctly allocated (no double-claim, no leak);
-///           I2. the senior claim is never subordinated to junior / out-of-cascade capital;
-///           I3. a facility is funded ONLY at its exact principal.
-///
-///         Attacks attempted (each outcome is made unambiguous — a successful exploit asserts the
-///         violated state, a correct block asserts the specific custom error / withholding state):
-///           A1. `fund` at any amount other than the exact principal (under and over) — I3.
-///           A2. reach `fund`/`distribute`/governance from unprivileged / hostile actors.
-///           A3. double-fund an already-Active facility (deploy principal twice) — I3.
-///           A4. distribute interest while a declared default leaves a senior residual, trying to
-///               pay the out-of-cascade protocol-fee recipient ahead of the senior layer — I2.
-///           A5. replay one attested receipt twice to double-claim yield — I1.
+/// @notice Waterfall correctness checks on a pinned fork with real USDC and local current modules.
+/// @dev Verifies exact funding, access checks, earned-fee delivery and single-use receipts.
+///      Continuous fees crystallise as interest is earned; the legacy receipt-only withholding
+///      rule is covered separately in the legacy unit tests.
 contract ATK_WaterfallEngineForkTest is ForkLifecycleFixture {
-    /// @dev Declared locally so `vm.expectEmit` matches the real emission by signature (topic0);
-    ///      identical canonical signature to `IWaterfallEngine.ProtocolFeeWithheldForSeniorImpairment`.
-    event ProtocolFeeWithheldForSeniorImpairment(uint256 withheld, uint256 seniorImpairment);
-
     // ─────────────────────────────────────────────────────────────────────
     // A1 — I3: a facility can only be funded at its EXACT principal
     // ─────────────────────────────────────────────────────────────────────
@@ -154,77 +140,166 @@ contract ATK_WaterfallEngineForkTest is ForkLifecycleFixture {
         assertEq(reserves.deployedTo(tokenId), principal, "the second fund added no exposure");
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // A4 — I2: the out-of-cascade protocol fee cannot jump ahead of a standing
-    //          senior residual (ADR-0034 / ADV-1)
-    // ─────────────────────────────────────────────────────────────────────
-    function test_atk_protocolFeeCannotOutrankSeniorResidual() public onFork {
+    /// @notice Earned fees remain payable through default, and receiving the coupon charges no second fee.
+    function test_earnedFeeSurvivesDefaultWithoutChargingTheReceiptAgain() public onFork {
         uint256 principal = 1_000_000e18;
         _mintFromUSDC(alice, 5_000_000e6);
-        _stake(alice, 4_000_000e18); // the senior vault must be non-empty to receive yield
+        _stake(alice, 4_000_000e18);
         uint256 tokenId = _originateAndFund(principal);
+        address recipient = waterfall.feeRecipient();
+        uint256 feesBefore = usdfr.balanceOf(recipient);
+        _warp(30 days);
+        _declareDefault(tokenId, keccak256("earned-fee-default"));
 
-        // Declare a default with NO curator first-loss and NO sGROVE coverage: the whole
-        // outstanding principal lands on the senior (sUSDfr) layer as an unabsorbed residual.
-        _declareDefault(tokenId, keccak256("atk-default"));
-        uint256 residual = defaultManager.pendingSeniorImpairment();
-        assertGt(residual, 0, "precondition: a senior residual stands unabsorbed");
+        // Independent fixed-note arithmetic: 14% Actual/360, first segment ends at tenor - 1.
+        uint256 duration = 365 days - 1;
+        uint256 endpoint = (principal * 1400 * duration / (Config.BPS * 360 days)) / 1e12 * 1e12;
+        uint256 recognized = endpoint * 30 days / duration;
+        uint256 fee = recognized * uint256(waterfall.protocolFeeBps()) / Config.BPS;
+        uint256 coupon = (principal * 1400 * 30 days / (Config.BPS * 360 days)) / 1e12 * 1e12;
+        assertEq(reserves.accruedDebt(tokenId).interest, coupon, "signed coupon at default");
+        assertEq(defaultManager.pendingSeniorImpairment(), principal + coupon, "uncovered full-face default");
+        assertGt(fee, 0, "nonzero earned-fee case");
+        assertEq(reserves.accrualSnapshot().feeUnissued, fee, "earned fee is preserved");
+        assertEq(usdfr.balanceOf(recipient), feesBefore, "claim not yet delivered");
+        _assertEarnedFeeDelivery(fee);
+        assertEq(usdfr.balanceOf(recipient), feesBefore + fee);
 
-        uint256 interest = 10_000e18;
-        uint256 feeGross = interest * uint256(waterfall.protocolFeeBps()) / Config.BPS;
-        assertGt(feeGross, 0, "precondition: a nonzero protocol fee would otherwise be taken");
-        uint256 withheld = feeGross < residual ? feeGross : residual;
-        uint256 toVault = interest - feeGross;
-
-        IWaterfallEngine.Payment memory p = _prepInterestPayment(tokenId, interest);
-
-        address feeSink = waterfall.feeRecipient();
-        uint256 feeSinkBefore = usdfr.balanceOf(feeSink);
-        uint256 vaultBefore = usdfr.balanceOf(address(vault));
         uint256 supplyBefore = usdfr.totalSupply();
-
-        // The engine must WITHHOLD the fee rather than mint it to the out-of-cascade recipient.
-        vm.expectEmit(true, true, true, true, address(waterfall));
-        emit ProtocolFeeWithheldForSeniorImpairment(withheld, residual);
+        uint256 reserveCashBefore = IERC20(USDC).balanceOf(address(reserves));
+        IWaterfallEngine.Payment memory payment = _prepInterestPayment(tokenId, coupon);
         vm.prank(ops);
-        waterfall.distribute(p);
+        waterfall.distribute(payment);
+        assertEq(usdfr.balanceOf(recipient), feesBefore + fee, "receipt charged a second protocol fee");
+        assertEq(usdfr.totalSupply(), supplyBefore, "receipt issued already recognized income again");
+        assertEq(reserves.accrualSnapshot().unissued, 0, "receipt created another claim");
+        assertEq(reserves.accruedDebt(tokenId).interest, 0, "cash discharged the entire coupon");
+        assertEq(reserves.deployedTo(tokenId), principal);
+        assertEq(defaultManager.pendingSeniorImpairment(), principal, "receipt reduced the risk mark");
+        assertEq(IERC20(USDC).balanceOf(address(reserves)), reserveCashBefore + coupon / 1e12);
+        assertTrue(controller.backingInvariantHolds(), "receipt conserved recognized backing");
+    }
 
-        // The out-of-cascade fee recipient is paid NOTHING while the senior residual stands.
-        assertEq(
-            usdfr.balanceOf(feeSink) - feeSinkBefore,
-            feeGross - withheld,
-            "protocol fee withheld, never paid ahead of the senior residual"
+    /// @notice The old zero-elapsed default fixture owes no interest, so its interest receipt is refused.
+    function test_defaultRecoveryCannotPayInterestThatWasNeverEarned() public onFork {
+        _mintFromUSDC(alice, 5_000_000e6);
+        _stake(alice, 4_000_000e18);
+        uint256 tokenId = _originateAndFund(1_000_000e18);
+        _declareDefault(tokenId, keccak256("unearned-recovery-interest"));
+        assertEq(reserves.accruedDebt(tokenId).interest, 0);
+        uint256 supplyBefore = usdfr.totalSupply();
+        IWaterfallEngine.Payment memory payment = _prepInterestPayment(tokenId, 10_000e18);
+        vm.expectRevert(AccrualLoans.AccrualLoans_PaymentAboveDebt.selector);
+        vm.prank(ops);
+        waterfall.distribute(payment);
+        assertEq(usdfr.totalSupply(), supplyBefore);
+        assertEq(reserves.accruedDebt(tokenId).interest, 0);
+        assertEq(reserves.deployedTo(tokenId), 1_000_000e18);
+        assertEq(defaultManager.pendingSeniorImpairment(), 1_000_000e18);
+        bytes32 payload = keccak256(
+            abi.encode(
+                payment.paymentId,
+                tokenId,
+                USDC,
+                borrower,
+                uint256(10_000e6),
+                uint256(10_000e18),
+                uint256(0),
+                payment.nextPaymentDue
+            )
         );
-        assertEq(feeGross - withheld, 0, "with residual >= feeGross the whole fee is withheld");
+        assertEq(
+            uint256(oracle.factStatus(tokenId, IAttestationOracle.AttestationKind.PaymentReceived, payload)),
+            uint256(IAttestationOracle.FactStatus.Recorded),
+            "refused receipt consumed the attestation"
+        );
+    }
 
-        // Senior yield still flows to the layer that bears the loss; only the withheld fee is
-        // retained as backing, and NOTHING beyond the vault leg was minted.
-        assertEq(
-            usdfr.balanceOf(address(vault)) - vaultBefore, toVault, "senior vault receives the interest net of the fee"
-        );
-        assertEq(usdfr.totalSupply() - supplyBefore, toVault, "exactly the vault leg was minted; the fee never existed");
+    function _assertEarnedFeeDelivery(uint256 expectedFee) private {
+        IContinuousAccrual.Snapshot memory beforeBook = reserves.accrualSnapshot();
+        uint256 effectiveSupply = controller.totalUSDfr();
+        uint256 backing = reserves.totalBackingValue();
+        uint256 vaultAssets = vault.totalAssets();
+        uint256 residual = defaultManager.pendingSeniorImpairment();
+        uint256 rawSupply = usdfr.totalSupply();
+        (, uint256 deliveredFee) = reserves.materializeAccrued(3);
+        assertEq(deliveredFee, expectedFee, "senior residual withheld an already earned fee");
+        assertEq(usdfr.totalSupply(), rawSupply + beforeBook.unissued);
+        assertEq(controller.totalUSDfr(), effectiveSupply, "delivery changed effective supply");
+        assertEq(reserves.totalBackingValue(), backing, "delivery changed backing");
+        assertEq(vault.totalAssets(), vaultAssets, "delivery changed senior assets");
+        assertEq(defaultManager.pendingSeniorImpairment(), residual, "delivery changed risk");
+        assertEq(reserves.accrualSnapshot().unissued, 0);
     }
 
     // ─────────────────────────────────────────────────────────────────────
     // A5 — I1: one attested receipt authorizes exactly one distribution
     // ─────────────────────────────────────────────────────────────────────
+    /// @notice ADR-0038 continuous accrual (`ADR/0038-continuous-interest-accrual-to-susdfr.md`,
+    ///         "Decision" item 4 and "Loss-bearing cash and PIK without changing the contractual
+    ///         basis"): a cash interest leg discharges already-recognised contractual interest and
+    ///         is refused above it with `AccrualLoans_PaymentAboveDebt` (`AccrualLoans.sol`, "Cash
+    ///         legs discharge their own separate balances"). The receipt is therefore spent one
+    ///         earned month after funding, where the 10,000 USDfr leg is a partial coupon inside
+    ///         the 11,666.666666 USDfr accrued (1,000,000 x 1400 bps x 30/360, Actual/360, floored
+    ///         to USDC's 1e12 grid; the closed form `FullLifecycleFork.t.sol` pins). The attack is
+    ///         unchanged: the first spend consumes the single PaymentReceived fact and discharges
+    ///         exactly the attested leg, leaving 1,666.666666 USDfr accrued; the identical receipt
+    ///         is then refused by `Waterfall_PaymentNotAttested` and discharges nothing.
     function test_atk_oneAttestationCannotBeSpentTwice() public onFork {
         uint256 principal = 1_000_000e18;
         _mintFromUSDC(alice, 5_000_000e6);
         _stake(alice, 4_000_000e18);
         uint256 tokenId = _originateAndFund(principal);
 
-        uint256 interest = 10_000e18;
-        IWaterfallEngine.Payment memory p = _prepInterestPayment(tokenId, interest);
+        // ADR-0038: interest accrues to the second and a cash interest leg may not exceed it.
+        // One earned monthly coupon on the fixture note (fixed 14%, Actual/360) on USDC's grid.
+        _warp(30 days);
+        uint256 accrued = (principal * 1400 * 30 days / (10_000 * 360 days)) / 1e12 * 1e12;
+        assertEq(accrued, 11_666_666_666e12, "1,000,000 x 1400 bps x 30/360 floored to 1e12 = 11,666.666666");
+        assertEq(reserves.accruedDebt(tokenId).interest, accrued, "engine accrued interest matches the signed note");
 
-        // First distribution consumes the single attested PaymentReceived fact.
+        uint256 interest = 10_000e18; // a partial coupon, strictly inside the accrued interest
+        assertLt(interest, accrued, "precondition: the leg is representable under ADR-0038");
+        IWaterfallEngine.Payment memory p = _prepInterestPayment(tokenId, interest);
+        bytes32 payload = keccak256(
+            abi.encode(p.paymentId, p.tokenId, USDC, p.payer, interest / 1e12, interest, uint256(0), p.nextPaymentDue)
+        );
+        assertEq(
+            uint256(oracle.factStatus(tokenId, IAttestationOracle.AttestationKind.PaymentReceived, payload)),
+            uint256(IAttestationOracle.FactStatus.Recorded),
+            "precondition: the fact stands Recorded before the first spend"
+        );
+
+        // First distribution consumes the single attested PaymentReceived fact (the oracle emits
+        // the spend before the engine takes the receipt) and discharges EXACTLY the attested
+        // interest leg: 10,000 USDC native units, zero principal, 10,000 USDfr of interest.
+        vm.expectEmit(true, true, true, false, address(oracle));
+        emit IAttestationOracle.AttestationConsumed(
+            tokenId, IAttestationOracle.AttestationKind.PaymentReceived, address(waterfall)
+        );
+        vm.expectEmit(true, true, true, true, address(reserves));
+        emit ReserveCreditLib.AccruedPaymentReceived(tokenId, USDC, borrower, interest / 1e12, 0, interest);
         vm.prank(ops);
         waterfall.distribute(p);
+
+        // The remaining accrued interest is the coupon less the leg discharged, to the wei.
+        uint256 remaining = accrued - interest;
+        assertEq(remaining, 1_666_666_666e12, "11,666.666666 less 10,000 = 1,666.666666");
+        assertEq(reserves.accruedDebt(tokenId).interest, remaining, "first spend discharged exactly the attested leg");
+        assertEq(
+            uint256(oracle.factStatus(tokenId, IAttestationOracle.AttestationKind.PaymentReceived, payload)),
+            uint256(IAttestationOracle.FactStatus.Consumed),
+            "the fact is terminally Consumed by the first spend"
+        );
 
         // ATTACK: replay the identical receipt to double-claim the same yield.
         vm.prank(ops);
         vm.expectRevert(abi.encodeWithSelector(IWaterfallEngine.Waterfall_PaymentNotAttested.selector, tokenId));
         waterfall.distribute(p);
+
+        // The refused replay discharged nothing: the accrued interest is untouched.
+        assertEq(reserves.accruedDebt(tokenId).interest, remaining, "the replay discharged no interest");
     }
 
     // ── helpers ───────────────────────────────────────────────────────────

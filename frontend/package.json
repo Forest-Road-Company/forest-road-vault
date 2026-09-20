@@ -13,14 +13,22 @@
     "test:sync": "node contract-ui-sync-test.mts",
     "test": "npm run test:logic && npm run test:sync && npm run test:render",
     "test:render": "vitest run",
+    "test:mutations": "node scripts/mutation-controls.mjs",
     "build:e2e:fork": "NEXT_PUBLIC_CHAIN_ID=31337 NEXT_PUBLIC_RPC_URL=${SEPOLIA_FORK_RPC_URL:-http://127.0.0.1:8547} NEXT_PUBLIC_PROTOCOL_DEPLOYMENT_BLOCK=${E2E_DEPLOYMENT_BLOCK:-11489206} NEXT_PUBLIC_SUSDFR_FEE_ABI_VERSION=1 npm run build",
     "test:e2e:fork": "playwright test --config playwright.config.ts"
   },
   "dependencies": {
+    "@anchor-lang/core": "^1.2.0",
     "@base-org/account": "2.5.8",
+    "@solana/wallet-adapter-base": "^0.9.28",
+    "@solana/wallet-adapter-react": "^0.15.40",
+    "@solana/wallet-adapter-react-ui": "^0.9.40",
+    "@solana/wallet-adapter-walletconnect": "^0.1.22",
+    "@solana/web3.js": "^1.99.0",
     "@tanstack/react-query": "^5.101.2",
+    "@vercel/blob": "^2.8.0",
     "@walletconnect/ethereum-provider": "2.23.10",
-    "next": "16.2.11",
+    "next": "16.3.5",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "10.1.0",
@@ -28,7 +36,7 @@
     "wagmi": "^3.7.1"
   },
   "devDependencies": {
-    "@next/eslint-plugin-next": "16.2.11",
+    "@next/eslint-plugin-next": "16.3.5",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^7.0.0",
@@ -46,14 +54,18 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "typescript-eslint": "^8.63.0",
-    "vitest": "^4.1.10"
+    "vitest": "4.1.11"
   },
   "overrides": {
     "@emnapi/core": "1.11.3",
     "@emnapi/wasi-threads": "1.2.3",
+    "@walletconnect/solana-adapter": "0.0.9",
     "axios": "1.19.0",
     "brace-expansion": "5.0.9",
     "postcss": "8.5.25",
-    "sharp": "^0.35.0"
+    "sharp": "^0.35.0",
+    "stream-json": "3.5.0",
+    "toml": "4.2.0",
+    "uuid": "11.1.1"
   }
 }

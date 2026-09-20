@@ -312,11 +312,12 @@ One row per `(module, external function, guard)`. Selector is the compiled selec
 | `ClaimBridge` | `amendTerms(uint256,bytes32,(uint16,uint64,uint64,uint64,uint8,uint8,bool,bytes32,bytes32,bytes32))` | `0x67e38793` | `ORIGINATOR_ROLE` | onlyRole modifier | yes |
 | `ClaimBridge` | `cancelPending(uint256)` | `0x5588fdf1` | `ORIGINATOR_ROLE` | onlyRole modifier | no |
 | `ClaimBridge` | `grantRole(bytes32,address)` | `0x2f2ff15d` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
-| `ClaimBridge` | `originate(address,(uint256,bytes32,bytes32,uint256,uint16,uint16,uint64,address,uint64,uint64,uint8,uint8,bool,bytes32,bytes32,bytes32,bytes32))` | `0xe603932c` | `ORIGINATOR_ROLE` | onlyRole modifier | yes |
+| `ClaimBridge` | `originate(address,(uint256,bytes32,bytes32,uint256,uint16,uint16,uint64,address,uint64,uint64,uint8,uint8,bool,bytes32,bytes32,bytes32,bytes32,bool))` | `0xe6307e0e` | `ORIGINATOR_ROLE` | onlyRole modifier | yes |
 | `ClaimBridge` | `pause()` | `0x8456cb59` | `GUARDIAN_ROLE` | onlyRole modifier | no |
 | `ClaimBridge` | `revokeRole(bytes32,address)` | `0xd547741f` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
 | `ClaimBridge` | `safeTransferFrom(address,address,uint256,bytes)` | `0xb88d4fde` | `DEFAULT_ADMIN_ROLE` | inline hasRole in ClaimBridge._update *(indirect)* | no |
 | `ClaimBridge` | `safeTransferFrom(address,address,uint256)` | `0x42842e0e` | `DEFAULT_ADMIN_ROLE` | inline hasRole in ClaimBridge._update *(indirect)* | no |
+| `ClaimBridge` | `setAccrualReserve(address)` | `0xbe745ef0` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ClaimBridge` | `setNextPaymentDue(uint256,uint64)` | `0x716d5bf8` | `CREDIT_ROLE` | onlyRole modifier | no |
 | `ClaimBridge` | `setRequiredMintAttestations(uint256,uint256)` | `0x33ed51c9` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ClaimBridge` | `transferFrom(address,address,uint256)` | `0x23b872dd` | `DEFAULT_ADMIN_ROLE` | inline hasRole in ClaimBridge._update *(indirect)* | no |
@@ -325,9 +326,11 @@ One row per `(module, external function, guard)`. Selector is the compiled selec
 | `ClaimBridge` | `upgradeToAndCall(address,bytes)` | `0x4f1ef286` | `UPGRADER_ROLE` | onlyRole modifier in ClaimBridge._authorizeUpgrade *(indirect)* | no |
 | `CollateralRegistry` | `clearBorrowerLimitOverride(bytes32)` | `0x5a88773e` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `CollateralRegistry` | `grantRole(bytes32,address)` | `0x2f2ff15d` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
+| `CollateralRegistry` | `recordCapitalizedExposure(uint256,bytes32,bytes32,uint256)` | `0x08aeb72f` | `CREDIT_ROLE` | onlyRole modifier | no |
 | `CollateralRegistry` | `recordExposureDecrease(uint256,bytes32,bytes32,uint256)` | `0x68b48233` | `CREDIT_ROLE` | onlyRole modifier | no |
 | `CollateralRegistry` | `recordExposureIncrease(uint256,bytes32,bytes32,uint256)` | `0xc7dbcab3` | `CREDIT_ROLE` | onlyRole modifier | no |
 | `CollateralRegistry` | `revokeRole(bytes32,address)` | `0xd547741f` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
+| `CollateralRegistry` | `setAccrualReserve(address)` | `0xbe745ef0` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `CollateralRegistry` | `setBorrowerLimit(uint16)` | `0x2a3abef5` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `CollateralRegistry` | `setBorrowerLimitOverride(bytes32,uint16)` | `0x87cc8ee5` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `CollateralRegistry` | `setClass(uint256,(string,uint8,bool,uint16,uint64,uint16,uint16,uint16,uint64))` | `0x35de1f97` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
@@ -370,19 +373,27 @@ One row per `(module, external function, guard)`. Selector is the compiled selec
 | `DefaultManager` | `onPerformingRepayment(uint256)` | `0x3898cdfe` | `CREDIT_ROLE` | onlyRole modifier | no |
 | `DefaultManager` | `pause()` | `0x8456cb59` | `GUARDIAN_ROLE` | onlyRole modifier | no |
 | `DefaultManager` | `realizeLoss(uint256,uint256,bytes32)` | `0xc40b9521` | `SERVICER_ROLE` | onlyRole modifier | no |
+| `DefaultManager` | `replaceCommitmentLedger()` | `0xd1d3a686` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `DefaultManager` | `revokeRole(bytes32,address)` | `0xd547741f` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
+| `DefaultManager` | `setAccrualReserve(address)` | `0xbe745ef0` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `DefaultManager` | `setBackstop(address)` | `0x916c2b87` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `DefaultManager` | `setCureWindow(uint256,uint64)` | `0x9a9528eb` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `DefaultManager` | `setGraceWindow(uint256,uint64)` | `0x985a1740` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `DefaultManager` | `setRemedyRef(uint256,bytes32)` | `0x7316018c` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
+| `DefaultManager` | `settleLegacyPikForDefault(uint256,bytes32,uint256)` | `0xa05e849b` | `SERVICER_ROLE` | onlyRole modifier | no |
+| `DefaultManager` | `setWaterfall(address)` | `0x933541d0` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `DefaultManager` | `unpause()` | `0x3f4ba83a` | `GUARDIAN_ROLE` | onlyRole modifier | no |
 | `DefaultManager` | `upgradeToAndCall(address,bytes)` | `0x4f1ef286` | `UPGRADER_ROLE` | onlyRole modifier in DefaultManager._authorizeUpgrade *(indirect)* | no |
 | `GroveToken` | `grantRole(bytes32,address)` | `0x2f2ff15d` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
 | `GroveToken` | `revokeRole(bytes32,address)` | `0xd547741f` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
 | `GroveToken` | `upgradeToAndCall(address,bytes)` | `0x4f1ef286` | `UPGRADER_ROLE` | onlyRole modifier in GroveToken._authorizeUpgrade *(indirect)* | no |
+| `MintRedeemController` | `beginPairedYield()` | `0x66cede7a` | `CREDIT_ROLE` | onlyRole modifier | yes |
 | `MintRedeemController` | `burnLoss(address,uint256)` | `0xc3b0dba1` | `LOSS_BURNER_ROLE` | onlyRole modifier | no |
+| `MintRedeemController` | `clearStalePairedYield()` | `0xa83bcb9e` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
+| `MintRedeemController` | `enableContinuousAccrual()` | `0x9655804e` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `MintRedeemController` | `grantRole(bytes32,address)` | `0x2f2ff15d` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
 | `MintRedeemController` | `mintYield(address,uint256)` | `0x06ddf8b9` | `CREDIT_ROLE` | onlyRole modifier | yes |
+| `MintRedeemController` | `mintYieldSplit(address,uint256,address,uint256)` | `0xa17a3510` | `CREDIT_ROLE` | onlyRole modifier | yes |
 | `MintRedeemController` | `pause()` | `0x8456cb59` | `GUARDIAN_ROLE` | onlyRole modifier | no |
 | `MintRedeemController` | `revokeRole(bytes32,address)` | `0xd547741f` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
 | `MintRedeemController` | `setLossSource(address,bool)` | `0xaa469c3d` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
@@ -415,19 +426,24 @@ One row per `(module, external function, guard)`. Selector is the compiled selec
 | `RedemptionQueue` | `upgradeToAndCall(address,bytes)` | `0x4f1ef286` | `UPGRADER_ROLE` | onlyRole modifier in RedemptionQueue._authorizeUpgrade *(indirect)* | no |
 | `ReserveManager` | `armReserveLossFreeze(bytes32)` | `0xbace10d1` | `GUARDIAN_ROLE` | onlyRole modifier | no |
 | `ReserveManager` | `cancelAndDisable(uint256,bytes32)` | `0x76cfbb62` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
+| `ReserveManager` | `cancelUnratifiedArm(uint256,bytes32)` | `0xf646f35f` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ReserveManager` | `closeReserveLossIncident(uint256)` | `0x31bb795c` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
+| `ReserveManager` | `configureContinuousAccrual((address,address,address,address,address,address,address))` | `0x00d91f4a` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ReserveManager` | `creditRecoveredIdleUSDC(uint256,bytes32)` | `0x724f3d69` | `RESERVE_ADMIN_ROLE` | inline hasRole in ReserveManager._requireReserveLossAdmin *(indirect)* | no |
 | `ReserveManager` | `depositUSDC(address,uint256)` | `0x56b22bf2` | `CONTROLLER_ROLE` | inline hasRole | yes |
 | `ReserveManager` | `depositUSDC(address,uint256)` | `0x56b22bf2` | `CREDIT_ROLE` | inline hasRole | yes |
+| `ReserveManager` | `enableContinuousAccrual()` | `0x9655804e` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ReserveManager` | `finalizeAndDisable(uint256,bytes32)` | `0x0adc4b6c` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ReserveManager` | `grantRole(bytes32,address)` | `0x2f2ff15d` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
 | `ReserveManager` | `openReserveLossIncident(uint256,bytes32)` | `0xd8b080c0` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ReserveManager` | `pause()` | `0x8456cb59` | `GUARDIAN_ROLE` | onlyRole modifier | no |
+| `ReserveManager` | `prepareContinuousAccrualMigration(bytes)` | `0x02a24329` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ReserveManager` | `ratifyAndOpen(uint256,bytes32,uint256)` | `0x9ead8944` | `RESERVE_ADMIN_ROLE` | inline hasRole in ReserveManager._requireReserveLossAdmin *(indirect)* | no |
 | `ReserveManager` | `recognizePrincipalImpairment(uint256,uint256,bytes32)` | `0x63874b58` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ReserveManager` | `recordDeployment(uint256,address,uint256)` | `0x334b7433` | `CREDIT_ROLE` | onlyRole modifier | yes |
 | `ReserveManager` | `recordFeeCapitalization(uint256,uint256)` | `0x2fc3aadd` | `CREDIT_ROLE` | onlyRole modifier | yes |
 | `ReserveManager` | `recordPayment(uint256,address,uint256,uint256)` | `0x67d2cd3d` | `CREDIT_ROLE` | onlyRole modifier | yes |
+| `ReserveManager` | `recordPikCapitalization(uint256,uint256)` | `0xa8951320` | `CREDIT_ROLE` | onlyRole modifier | yes |
 | `ReserveManager` | `recordPrincipalWritedown(uint256,uint256)` | `0x69249e56` | `CREDIT_ROLE` | onlyRole modifier | no |
 | `ReserveManager` | `releasePrincipalImpairment(uint256,uint256,bytes32)` | `0x97e1594e` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ReserveManager` | `releaseUSDC(address,uint256)` | `0xca258c9f` | `CONTROLLER_ROLE` | onlyRole modifier | yes |
@@ -456,6 +472,7 @@ One row per `(module, external function, guard)`. Selector is the compiled selec
 | `SUSDfr` | `notifyYield(uint256)` | `0x3ded15b5` | `CREDIT_ROLE` | onlyRole modifier | no |
 | `SUSDfr` | `pause()` | `0x8456cb59` | `GUARDIAN_ROLE` | onlyRole modifier | no |
 | `SUSDfr` | `revokeRole(bytes32,address)` | `0xd547741f` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
+| `SUSDfr` | `setAccrualReserve(address)` | `0xbe745ef0` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `SUSDfr` | `setFeeRecipient(address)` | `0xe74b981b` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `SUSDfr` | `setImpairmentSource(address)` | `0x07727c41` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `SUSDfr` | `setManagementFee(uint16)` | `0x8dd09af3` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
@@ -475,8 +492,10 @@ One row per `(module, external function, guard)`. Selector is the compiled selec
 | `USDfr` | `burn(address,uint256)` | `0x9dc29fac` | `MINTER_ROLE` | inline _checkRole | no |
 | `USDfr` | `grantRole(bytes32,address)` | `0x2f2ff15d` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
 | `USDfr` | `mint(address,uint256)` | `0x40c10f19` | `MINTER_ROLE` | onlyRole modifier | no |
+| `USDfr` | `mintAccrued(uint256)` | `0xd1e18356` | `MINTER_ROLE` | onlyRole modifier | no |
 | `USDfr` | `pause()` | `0x8456cb59` | `GUARDIAN_ROLE` | onlyRole modifier | no |
 | `USDfr` | `revokeRole(bytes32,address)` | `0xd547741f` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
+| `USDfr` | `setAccrualReserve(address)` | `0xbe745ef0` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `USDfr` | `setComplianceModule(address)` | `0x423db9c7` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `USDfr` | `setPointsModule(address)` | `0xe8bf3999` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `USDfr` | `unpause()` | `0x3f4ba83a` | `GUARDIAN_ROLE` | onlyRole modifier | no |
@@ -486,6 +505,7 @@ One row per `(module, external function, guard)`. Selector is the compiled selec
 | `WaterfallEngine` | `grantRole(bytes32,address)` | `0x2f2ff15d` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
 | `WaterfallEngine` | `pause()` | `0x8456cb59` | `GUARDIAN_ROLE` | onlyRole modifier | no |
 | `WaterfallEngine` | `revokeRole(bytes32,address)` | `0xd547741f` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
+| `WaterfallEngine` | `setAccrualReserve(address)` | `0xbe745ef0` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `WaterfallEngine` | `setDefaultManager(address)` | `0x50474f3a` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `WaterfallEngine` | `setFeeRecipient(address)` | `0xe74b981b` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `WaterfallEngine` | `setOriginationFee(uint256,uint16)` | `0x40caee7d` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
@@ -499,6 +519,9 @@ These non-role surfaces would be invisible to a scan that only looked for `onlyR
 
 | Module | Function | Selector | Guard | How | Pausable |
 |---|---|---|---|---|---|
+| `ClaimBridge` | `setAccruedPaymentDue(uint256,uint64)` | `0xc7915bc1` | address-gated | msg.sender != $.accrualReserve | no |
+| `CollateralRegistry` | `recordAccruedExposure(uint256,bytes32,bytes32,uint256)` | `0x8df250a8` | address-gated | msg.sender != $.accrualReserve | no |
+| `CollateralRegistry` | `recordAccruedWriteDown(uint256,bytes32,bytes32,uint256)` | `0x7ef52e5e` | address-gated | msg.sender != reserve | no |
 | `CommitmentLedger` | `register(uint256,uint256,uint256)` | `0xfaa5c564` | address-gated | { if (msg.sender != manager) revert CommitmentLedger_NotManager(msg.sender); _; } | no |
 | `CommitmentLedger` | `release(uint256)` | `0x37bdc99b` | address-gated | { if (msg.sender != manager) revert CommitmentLedger_NotManager(msg.sender); _; } | no |
 | `CommitmentLedger` | `sync(uint256,uint256,uint256,uint256)` | `0xa29aba88` | address-gated | { if (msg.sender != manager) revert CommitmentLedger_NotManager(msg.sender); _; } | no |
@@ -521,6 +544,8 @@ These non-role surfaces would be invisible to a scan that only looked for `onlyR
 | `ReserveManager` | `recordExitPrepayment(uint256)` | `0x1e5ca889` | address-gated | msg.sender != address($.lossAbsorber) | no |
 | `SUSDfr` | `prepareRedemptionPricing(uint256)` | `0xb0845d9f` | address-gated | msg.sender != $.redemptionQueue | no |
 | `TimelockControllerUpgradeable` | `updateDelay(uint256)` | `0x64d62353` | address-gated | sender != address(this) | no |
+| `USDfr` | `transfer(address,uint256)` | `0xa9059cbb` | address-gated | msg.sender != $.accrualController *(indirect)* | no |
+| `USDfr` | `transferFrom(address,address,uint256)` | `0x23b872dd` | address-gated | msg.sender != $.accrualController *(indirect)* | no |
 
 ### Permissionless or self-scoped state-changing entrypoints (no privileged guard)
 
@@ -546,6 +571,9 @@ Derived, not asserted: every non-`view`/`pure` external function with no role, g
 | `DefaultManager` | `liquidate(uint256)` | `0x415f1240` | yes |  |
 | `DefaultManager` | `marginCall(uint256)` | `0xdedeaae6` | yes |  |
 | `DefaultManager` | `markPastDue(uint256)` | `0x34615eec` | no |  |
+| `DefaultManager` | `onAccrualOpening(uint256,uint256)` | `0x8cf3340a` | no |  |
+| `DefaultManager` | `onAccrualPosted(uint256,uint256)` | `0x914f673a` | no |  |
+| `DefaultManager` | `onAccrualRounding(uint256,uint256)` | `0xe9266651` | no |  |
 | `DefaultManager` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `FRGovernor` | `cancel(address[],uint256[],bytes[],bytes32)` | `0x452115d6` | no | self-scoped: proposer-scoped; Pending state only |
 | `FRGovernor` | `castVote(uint256,uint8)` | `0x56781388` | no |  |
@@ -567,6 +595,7 @@ Derived, not asserted: every non-`view`/`pure` external function with no role, g
 | `GroveToken` | `transfer(address,uint256)` | `0xa9059cbb` | no |  |
 | `GroveToken` | `transferFrom(address,address,uint256)` | `0x23b872dd` | no |  |
 | `MintRedeemController` | `mint(uint256)` | `0xa0712d68` | yes |  |
+| `MintRedeemController` | `mintAccrued(uint256)` | `0xd1e18356` | no |  |
 | `MintRedeemController` | `redeem(uint256,uint256,uint256)` | `0xb8192205` | yes |  |
 | `MintRedeemController` | `redeem(uint256,uint256)` | `0x7cbc2373` | yes |  |
 | `MintRedeemController` | `redeem(uint256)` | `0xdb006a75` | yes |  |
@@ -580,9 +609,21 @@ Derived, not asserted: every non-`view`/`pure` external function with no role, g
 | `RedemptionQueue` | `claim(uint256)` | `0x379607f5` | no | self-scoped: r.owner != msg.sender |
 | `RedemptionQueue` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `RedemptionQueue` | `requestRedeem(uint256)` | `0xaa2f892d` | yes |  |
+| `ReserveManager` | `amendAccruingLoan(uint256,(uint16,uint32,uint64,uint64,uint64))` | `0x366f124e` | no |  |
+| `ReserveManager` | `checkpointAccrual(uint256)` | `0x2ab23cf3` | no |  |
+| `ReserveManager` | `consumeAccrualLossBurn(address,address,uint256)` | `0x08d6b124` | no |  |
+| `ReserveManager` | `materializeAccrued(uint8)` | `0x6777079e` | no |  |
+| `ReserveManager` | `postAccruedLoan(uint256)` | `0xeed8f72e` | no |  |
 | `ReserveManager` | `recapitalize(uint256)` | `0x0c47d267` | no |  |
 | `ReserveManager` | `reconcileIdleUSDC()` | `0x87f0f89a` | no |  |
+| `ReserveManager` | `registerAccruingLoan(uint256)` | `0x39d4bc94` | no |  |
 | `ReserveManager` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
+| `ReserveManager` | `repayAccruingLoan(uint256,address,uint256,uint256)` | `0x31e7a70f` | yes |  |
+| `ReserveManager` | `retireAccruedLoan(uint256)` | `0xa5b6e526` | no |  |
+| `ReserveManager` | `serviceAccruedLoan(uint256)` | `0x0efec40c` | no |  |
+| `ReserveManager` | `setAccrualFee(uint16,address)` | `0xb1a8255a` | no |  |
+| `ReserveManager` | `setAccrualPastDue(uint256,bool)` | `0xe84b51b9` | no |  |
+| `ReserveManager` | `stopAccruingLoan(uint256)` | `0x99f39ee1` | no |  |
 | `SGrove` | `claimRewards()` | `0x372500ab` | yes |  |
 | `SGrove` | `claimUnstake(uint256)` | `0xc5dd6fee` | yes |  |
 | `SGrove` | `delegate(address)` | `0x5c19a95c` | no |  |
@@ -608,8 +649,7 @@ Derived, not asserted: every non-`view`/`pure` external function with no role, g
 | `USDfr` | `approve(address,uint256)` | `0x095ea7b3` | no |  |
 | `USDfr` | `permit(address,address,uint256,uint256,uint8,bytes32,bytes32)` | `0xd505accf` | no |  |
 | `USDfr` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
-| `USDfr` | `transfer(address,uint256)` | `0xa9059cbb` | no |  |
-| `USDfr` | `transferFrom(address,address,uint256)` | `0x23b872dd` | no |  |
+| `WaterfallEngine` | `capitalizePik(uint256)` | `0x41a3f095` | yes |  |
 | `WaterfallEngine` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 
 ### One-shot initialisers (`initializer` / `reinitializer`, no role)

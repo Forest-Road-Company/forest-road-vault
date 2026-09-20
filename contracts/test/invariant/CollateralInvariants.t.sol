@@ -11,7 +11,7 @@ import {CollateralHandler} from "./handlers/CollateralHandler.sol";
 ///                        all satisfied at mint time (synchronized-mint invariant)
 ///      - CONCENTRATION:  limits are an ADMISSION control (AUDIT FIX M-02): a dimension
 ///                        standing above its limit is always disclosed, and once the book
-///                        clears the bootstrap floor it can never be grown further
+///                        clears the bootstrap floor, a new origination cannot deepen it
 ///      - ADMISSION:      every origination attempt is admitted or rejected exactly as an
 ///                        INDEPENDENT reference model of the gate + the three concentration
 ///                        dimensions says it must be, and for the same reason
@@ -87,23 +87,10 @@ contract CollateralInvariants is CollateralFixture {
         assertEq(handler.ghostWrongReason(), 0, "REFUSED FOR THE WRONG REASON");
     }
 
-    /// @dev AUDIT FIX M-02 — restated to the property that ACTUALLY holds. The previous
-    ///      formulation ("above the bootstrap floor, no dimension ever exceeds its limit")
-    ///      is not a reachable-state property of any amortising book: a repayment, a
-    ///      default write-down or a cancellation shrinks the book and mechanically raises
-    ///      the share held by whatever did not shrink, and none of those may ever be
-    ///      blocked — a concentration check able to revert `realizeLoss` would put a risk
-    ///      limit ahead of the loss cascade. Limits are an ADMISSION control. What holds
-    ///      in every reachable state is:
-    ///        - DISCLOSURE: a dimension standing above its limit is reported as such; and
-    ///        - NO DEEPENING: a dimension already above its limit measured against
-    ///          `max(book, bootstrapFloor)` — the rule the contract actually enforces — has
-    ///          zero admission headroom, at ANY book size and ANY floor setting. It can
-    ///          stand in breach, it can never be moved further into one.
-    ///      Round-2 note: the "no deepening" half is deliberately NOT gated on
-    ///      `total > floor` any more. Gating it there made the assertion vacuous at the
-    ///      shipped 25,000,000e18 floor, which is exactly where a reviewer proved the
-    ///      enforcement was inert.
+    /// @dev This cash-only campaign checks origination admission, disclosure and the independent
+    ///      handler book. It does not capitalize PIK. PikConcentrationInvariants drives actual
+    ///      native PIK capitalization beyond a limit and verifies that contractual growth keeps
+    ///      accruing while a new, fully attested origination is refused on concentration.
     function invariant_concentration_limitsHold() public view {
         uint256 total = registry.totalBookExposure();
         (uint16 bLimit, uint16 sLimit, uint256 floor) = registry.limits();

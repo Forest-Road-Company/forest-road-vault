@@ -437,7 +437,6 @@ contract ADR0034Y_AtomicJuniorExitDraw is CreditLayerFixture {
     ///         REVERT, never an overpayment out of junior capital. The controller measures the
     ///         source's balance delta itself rather than trusting the return value.
     function test_Y_G06_aLyingDrawSourceCanOnlyRevertTheExitNeverOverpayIt() public {
-        _recognise(MARK);
         for (uint8 mode = 0; mode < 2; ++mode) {
             uint256 snap = vm.snapshotState();
             LyingExitDrawSource liar = new LyingExitDrawSource(IERC20(address(usdfr)), mode);
@@ -445,6 +444,9 @@ contract ADR0034Y_AtomicJuniorExitDraw is CreditLayerFixture {
             reserves.setLossAbsorber(address(liar));
             controller.setLossSource(address(liar), true);
             vm.stopPrank();
+
+            // Configure while healthy; the production guard forbids replacing a source after a loss.
+            _recognise(MARK);
 
             vm.prank(alice);
             vm.expectPartialRevert(IMintRedeemController.Controller_ExitDrawNotDelivered.selector);
@@ -557,5 +559,106 @@ contract ADR0034Y_AtomicJuniorExitDraw is CreditLayerFixture {
 
     function Math_mulDivCeil(uint256 a, uint256 b, uint256 d) internal pure returns (uint256) {
         return (a * b + d - 1) / d;
+    }
+
+    /// @notice WITH A DEFICIT THE Y-bis DRAW RESTORES PAR, SO THE ARM GUARD STILL FIRES.
+    /// @dev THIS IS THE MEASUREMENT THAT KILLED TWO EARLIER PREDICATES, and it is the reason the
+    ///      guard is keyed on the settled PRICE rather than on `backing < supply`.
+    ///
+    ///      A state test `backing >= supply` was meant to confine the guard to the par escape. It
+    ///      voided it instead: one wei of conservative mark flips `backing < supply`, and the exit
+    ///      there is NOT penalised, because ADR-0034 Y-bis brings absorption forward and pays the
+    ///      holder back up to par out of the very curator first-loss the arm has frozen. Measured
+    ///      below at marks from 400,000e18 to 499,000e18 and exits from 1,000e18 to 900,000e18: the
+    ///      settled price is par in every one.
+    ///
+    ///      Dropping that limb then over-corrected into a permanent freeze, so the predicate now
+    ///      measures the price. Sub-par exits are permitted by construction (`usdcOut * SCALE !=
+    ///      usdfrIn` returns before any reserve read); this fixture's junior layer is deep enough
+    ///      to keep every reachable exit at par, so that branch is NOT exercised here and is
+    ///      recorded as such in STATE.md rather than faked with a contrived assertion.
+    function test_FIXED_theArmFreezeHoldsWhereTheDrawRestoresPar() public {
+        _mintUSDfrTo(alice, 1_000_000e18);
+        _recognise(400_000e18);
+        (uint256 supply, uint256 backing) = _book();
+        assertLt(backing, supply, "fixture must actually stand in deficit");
+
+        vm.prank(guardian);
+        reserves.armReserveLossFreeze(keccak256("cantina-3.1.4-deficit-half"));
+
+        // The draw restores par, so this IS the escape and is refused.
+        vm.prank(alice);
+        vm.expectPartialRevert(IMintRedeemController.Controller_ReserveLossArmFreeze.selector);
+        controller.redeem(900_000e18, 0);
+    }
+
+    /// @notice AND THE PAR EXIT, WHICH IS THE ESCAPE CANTINA DESCRIBED, IS REFUSED.
+    function test_FIXED_theArmFreezeRefusesAParExit() public {
+        _mintUSDfrTo(alice, 1_000_000e18);
+        (uint256 supply, uint256 backing) = _book();
+        assertGe(backing, supply, "fixture must stand at or above par");
+
+        vm.prank(guardian);
+        reserves.armReserveLossFreeze(keccak256("cantina-3.1.4-par"));
+
+        vm.prank(alice);
+        vm.expectPartialRevert(IMintRedeemController.Controller_ReserveLossArmFreeze.selector);
+        controller.redeem(1_000e18, 0);
+    }
+
+    /// @notice A pending arm freezes discounted exits too. This owner-approved policy
+    ///         is independent of junior capacity; cancellation retains the credit mark.
+    function test_pendingArmDefersDiscountedExitUntilResolution() public {
+        _rebootWithFirstLoss(0);
+        _recognise(MARK);
+        (uint256 supply, uint256 backing) = _book();
+        assertLt(backing, supply);
+        vm.prank(guardian);
+        (uint256 armId,) = reserves.armReserveLossFreeze(keccak256("sub-par-branch"));
+        uint256 before = usdc.balanceOf(alice);
+        vm.expectPartialRevert(IMintRedeemController.Controller_ReserveLossArmFreeze.selector);
+        vm.prank(alice);
+        controller.redeem(EXIT, 0, block.timestamp);
+        assertEq(usdc.balanceOf(alice), before);
+        vm.prank(admin);
+        reserves.cancelUnratifiedArm(armId, keccak256("reconciled custody"));
+        vm.prank(alice);
+        uint256 out = controller.redeem(EXIT, 0, block.timestamp);
+        assertGt(out, 0);
+        assertEq(usdc.balanceOf(alice) - before, out);
+        assertLt(out * 1e12, EXIT);
+    }
+
+    /// @notice Legacy incident opening cannot alter the identity or admission of a standing arm.
+    function test_FIXED_anUnrelatedIncidentDoesNotUnlockTheArmedParExit() public {
+        _mintUSDfrTo(alice, 1_000_000e18);
+        (uint256 supply, uint256 backing) = _book();
+        assertGe(backing, supply, "fixture must stand at or above par");
+
+        vm.prank(guardian);
+        (uint256 armId,) = reserves.armReserveLossFreeze(keccak256("arm-under-test"));
+        vm.expectRevert(abi.encodeWithSelector(IReserveManager.ReserveManager_ArmAlreadyActive.selector, armId));
+        vm.prank(admin);
+        reserves.openReserveLossIncident(armId + 1, keccak256("unrelated-incident"));
+        (uint256 openId,) = reserves.activeReserveLossIncident();
+        assertEq(openId, 0);
+
+        vm.prank(alice);
+        vm.expectPartialRevert(IMintRedeemController.Controller_ReserveLossArmFreeze.selector);
+        controller.redeem(1_000e18, 0);
+    }
+
+    /// @notice Actual loss ratification releases admission; legacy bookkeeping cannot substitute for it.
+    function test_FIXED_theArmFreezeIsReleasedByItsOwnIncident() public {
+        _mintUSDfrTo(alice, 1_000_000e18);
+
+        _armReserveLoss(904);
+        _createReserveShortfall(1e18);
+        _ratifyCurrentReserveLoss(1e18);
+
+        uint256 before = usdc.balanceOf(alice);
+        vm.prank(alice);
+        controller.redeem(1_000e18, 0);
+        assertGt(usdc.balanceOf(alice), before, "the arm's own open incident must release the exit");
     }
 }

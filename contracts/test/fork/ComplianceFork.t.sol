@@ -531,11 +531,25 @@ contract ComplianceForkTest is ForkLifecycleFixture {
     // 5. THE EXEMPTION MUST MAKE THE PROTOCOL UN-FREEZABLE
     // ─────────────────────────────────────────────────────────────────────────────────
 
-    /// @notice THE HEADLINE OF THIS FILE. A COMPLIANCE_ADMIN sanctions EVERY protocol module —
+    /// @notice THE HEADLINE OF THIS FILE. A COMPLIANCE_ADMIN sanctions EVERY protocol module:
     ///         the worst-case list error, or a captured/compromised list admin. Because every
     ///         module is `protocolExempt`, the whole protocol must still run: mint, stake,
     ///         originate, fund, repay+waterfall, default, the three-layer cascade, epoch
     ///         settlement and claim. Nothing here may revert.
+    /// @dev    The repayment step drives the ADR-0038 continuous-accrual engine the way a real
+    ///         servicer must. `ADR/0038-continuous-interest-accrual-to-susdfr.md` ("Decision",
+    ///         item 4: recognition must not double-count; a cash receipt converts the accrued
+    ///         amount to realised) and `docs/remediation/accrual-panel/
+    ///         LIFECYCLE_ACCOUNTING_2026-09-11.md` ("Repayment, amendments and cap
+    ///         replenishment": a cash interest leg is matched against unpaid contractual
+    ///         interest `U`; unsupported excess is rejected through a specific path) bound the
+    ///         interest leg of a receipt by the interest accrued to the distribute block, so an
+    ///         arbitrary coupon in the funding block is refused with
+    ///         `AccrualLoans_PaymentAboveDebt`. The test lets one 30-day period elapse and pays
+    ///         exactly the earned coupon, pinned to the Actual/360 closed form floored to USDC's
+    ///         1e12 grid (the pattern `FullLifecycleFork` adopted on 2026-09-14). That coupon
+    ///         still has to be minted into the blocked-but-exempt vault, which is the property
+    ///         under test.
     function test_fork_blockingEveryModuleCannotFreezeTheProtocol() public onFork {
         // Pre-position capital while the lists are clean.
         _mintFromUSDC(alice, 2_000_000e6);
@@ -577,8 +591,17 @@ contract ComplianceForkTest is ForkLifecycleFixture {
         assertEq(bridge.ownerOf(tokenId), ops, "facility minted");
 
         // REPAY -> waterfall (yield mint into the blocked-but-exempt vault) still works.
+        // ADR-0038 bounds the interest leg by the interest accrued to the distribute block, so
+        // let one 30-day period elapse and pay exactly the earned coupon. The fixture note is
+        // 400,000e18 at 1400 bps, Actual/360, floored to USDC's 1e12 grid:
+        //   400_000e18 * 1400 * 30 days / (10_000 * 360 days) = 4,666,666,666,666,666,666,666
+        //   floored to 1e12                                     = 4,666,666,666,000,000,000,000
+        _warp(30 days);
+        uint256 coupon = (uint256(400_000e18) * 1400 * 30 days / (10_000 * 360 days)) / 1e12 * 1e12;
+        assertEq(coupon, 4_666_666_666_000_000_000_000, "closed-form coupon on the USDC grid");
+        assertEq(reserves.accruedDebt(tokenId).interest, coupon, "engine accrued exactly the contractual coupon");
         uint256 vaultHeldBefore = usdfr.balanceOf(address(vault));
-        _repay(tokenId, 20_000e18, 50_000e18);
+        _repay(tokenId, coupon, 50_000e18);
         assertGt(usdfr.balanceOf(address(vault)) - vaultHeldBefore, 0, "interest reached the vault");
         assertEq(vault.unvestedYield(), 0, "launch recognizes the senior yield immediately");
 

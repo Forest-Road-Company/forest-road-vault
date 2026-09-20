@@ -4,7 +4,7 @@ import {defineConfig} from "@playwright/test";
 // against a pinned anvil fork, so the run reads a real deployment rather than a fixture.
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: /mainnet-fork-(reconciliation|writes)\.spec\.ts/,
+  testMatch: /mainnet-fork-(reconciliation|writes|curator)\.spec\.ts/,
   timeout: 300_000,
   expect: {timeout: 20_000},
   fullyParallel: false,

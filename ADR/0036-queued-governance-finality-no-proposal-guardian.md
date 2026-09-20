@@ -86,8 +86,16 @@ Verified on the candidate against the deployed configuration:
   only in `Pending` state.
 - The operational `GUARDIAN_ROLE` pause does **not** brake a queued `grantRole` or upgrade — both
   execute while `USDfr` is paused.
-- The fastest counter-governance response is a fresh proposal cycle completing **691,200 s (8 days)
+- The fastest counter-governance response is a fresh proposal cycle completing **432,000 s (5 days)
   after** the original action is already executable.
+
+  **UPDATED 2026-09-08.** This read 691,200 s (8 days) when written, on a 7-day voting period.
+  FRV-002 shortened the voting period to 2 days (executed at block 25,931,786), so the cycle is now
+  votingDelay 86,400 + votingPeriod 172,800 + timelock 172,800 = 432,000 s. The change moves this
+  figure in the DEFENDER'S favour: counter-governance now completes three days sooner. It does not
+  repair the underlying gap below, because a 5-day response is still outside the 21-day redemption
+  queue. Read the three values from chain rather than from this line if the numbers matter; they are
+  governed parameters and can move again.
 
 A senior `sUSDfr` holder who reacts the instant a hostile operation is queued is still inside the
 21-day redemption queue when it executes. This is a real reduction in defence-in-depth and is

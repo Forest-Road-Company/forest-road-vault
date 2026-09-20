@@ -1,0 +1,235 @@
+{
+  "purpose": "Human review record of a local fork rehearsal; implementation, factory and replacement-ledger addresses below were created only inside the test VM.",
+  "broadcast": false,
+  "chain_id": 1,
+  "fork_block": {
+    "number": 25963259,
+    "hash": "0x51e28452fba2de9c0d8200f5d16547a42db4419a744f0cb1e71fbadc08a9f17f"
+  },
+  "preconditions_at_fork_block": {
+    "checked_at_utc": "2026-09-12T18:54:58.360784+00:00",
+    "chain_id": 1,
+    "block_number": 25963259,
+    "block_hash": "0x51e28452fba2de9c0d8200f5d16547a42db4419a744f0cb1e71fbadc08a9f17f",
+    "block_timestamp": 1789239287,
+    "manager": "0xc939B6c988649253509050Da7FF7144644FdAE83",
+    "ledger": "0xbfd49f9988125e67297be0ff619f82d60c438322",
+    "implementation": "0x2a9b32bdaa2a63545dab6676652dc55cfb465bb2",
+    "expected_ledger_unchanged": true,
+    "manager_modules": [
+      "0x46fe513a20a1d4fe77ececb763c6843d7abbf32a",
+      "0x8c81397c6433fe2d65e5938516c62e644b1e3b03",
+      "0x35683472e609249a6750ecdb850effde8a88cff1",
+      "0xbd2e71c8cf6d989e746116d5d0d622c44d498da5",
+      "0x30652de57a40448e22ee62c36f327656eaee94fe",
+      "0x5e01d55b4b6c361dd8b9b889f21a731e22281167",
+      "0x4761995f4f6daddf7886acd9d16e119ef2fb4132",
+      "0xbfd49f9988125e67297be0ff619f82d60c438322"
+    ],
+    "event_count": 0,
+    "remaining_aggregate": 0,
+    "live_default_coverage_consumed": 0,
+    "pending_senior_impairment": 0,
+    "declared_defaulted_principal": {
+      "1": 0,
+      "2": 0,
+      "3": 0,
+      "4": 0,
+      "5": 0
+    },
+    "manager_codehash": "0xc935d7fce89600f808e1ee0728689f34cf1b9aa6d7163bdf56db81bd6350cf32",
+    "ledger_codehash": "0xf1bfb8bae92bb9ebff42888a9d142ae5fbd617301af88bc2ae0af42255a5212c",
+    "implementation_codehash": "0xd409fe08764052fa00a5cdebf57d607b72bb1f72b455f846bf214ea3af8dbc24",
+    "empty_book_preconditions_hold": true
+  },
+  "preconditions_refreshed_before_this_record": {
+    "checked_at_utc": "2026-09-13T03:37:48.521397+00:00",
+    "chain_id": 1,
+    "block_number": 25965865,
+    "block_hash": "0x0e6ed3005cb48c79981095e02babc0f5462334b4ae1e8984823da5090a1fef84",
+    "block_timestamp": 1789270655,
+    "manager": "0xc939B6c988649253509050Da7FF7144644FdAE83",
+    "ledger": "0xbfd49f9988125e67297be0ff619f82d60c438322",
+    "implementation": "0x2a9b32bdaa2a63545dab6676652dc55cfb465bb2",
+    "expected_ledger_unchanged": true,
+    "manager_modules": [
+      "0x46fe513a20a1d4fe77ececb763c6843d7abbf32a",
+      "0x8c81397c6433fe2d65e5938516c62e644b1e3b03",
+      "0x35683472e609249a6750ecdb850effde8a88cff1",
+      "0xbd2e71c8cf6d989e746116d5d0d622c44d498da5",
+      "0x30652de57a40448e22ee62c36f327656eaee94fe",
+      "0x5e01d55b4b6c361dd8b9b889f21a731e22281167",
+      "0x4761995f4f6daddf7886acd9d16e119ef2fb4132",
+      "0xbfd49f9988125e67297be0ff619f82d60c438322"
+    ],
+    "event_count": 0,
+    "remaining_aggregate": 0,
+    "live_default_coverage_consumed": 0,
+    "pending_senior_impairment": 0,
+    "declared_defaulted_principal": {
+      "1": 0,
+      "2": 0,
+      "3": 0,
+      "4": 0,
+      "5": 0
+    },
+    "manager_codehash": "0xc935d7fce89600f808e1ee0728689f34cf1b9aa6d7163bdf56db81bd6350cf32",
+    "ledger_codehash": "0xf1bfb8bae92bb9ebff42888a9d142ae5fbd617301af88bc2ae0af42255a5212c",
+    "implementation_codehash": "0xd409fe08764052fa00a5cdebf57d607b72bb1f72b455f846bf214ea3af8dbc24",
+    "empty_book_preconditions_hold": true
+  },
+  "authority_verified_at_fork_block": "0x263289d62352f9326456d1430466337484c806Dc",
+  "toolchain": {
+    "forge": "1.3.2",
+    "solc": "0.8.30",
+    "optimizer_runs": 100,
+    "evm_version": "cancun",
+    "via_ir": false,
+    "deny_warnings": true
+  },
+  "ledger_core_commit": "b65e1191b81e7cc02707b98378096abd795d4bd9",
+  "source_sha256": {
+    "contracts/src/CommitmentLedger.sol": "3319554e9b33ae5a8bb09a5c189c9bf887a88b37e3b94cd95e0338be56e1651f",
+    "contracts/src/DefaultManager.sol": "6c89774f4a0ccbcad539e8f7fd76a0e067cec3b3fbcca0e5ef722390c3b8ade0",
+    "contracts/src/interfaces/IDefaultManager.sol": "ac441f91bbc9943a2666f7e95843f8cf67b1b847667946b0cfadb784ceb442c5",
+    "contracts/src/libraries/DefaultAccrualLib.sol": "f0404c46709ac9e296bd16aae61b5d6dcd8b0f00228315bfb5f325908ea393ca",
+    "contracts/test/fork/CommitmentLedgerReplacementFork.t.sol": "7d8f9d9f719779d00add5a32d8574631ab2c8f00abe485a4caf37982ed80968b"
+  },
+  "local_contracts": {
+    "implementation": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+    "factory": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+    "replacement_ledger": "0x671ceF55a1373E85D4522dacE6eea7Cf52B573c8",
+    "implementation_codehash": "0xbabbc505ba3bd4367975ad1dd84aa52aa9c01e3b3eafa4ace472ba74a7fc423e",
+    "ledger_codehash": "0x4386c653d55260bdb5b3f8a1123d8b7aec8452178356d908ff610e786b0d53d4"
+  },
+  "review_calldata": {
+    "to": "0xc939B6c988649253509050Da7FF7144644FdAE83",
+    "value_wei": "0",
+    "data": "0x4f1ef2860000000000000000000000005615deb798bb3e4dfa0139dfa1b3d433cc23b72f00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000004d1d3a68600000000000000000000000000000000000000000000000000000000",
+    "decoded": {
+      "function": "upgradeToAndCall(address,bytes)",
+      "implementation": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "data": "0xd1d3a686",
+      "nested_function": "replaceCommitmentLedger()"
+    }
+  },
+  "replacement_payload": "0xd1d3a686",
+  "result": {
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "tests_skipped": 0,
+    "implementation_slot_writes": 1,
+    "ledger_slot_writes": 1,
+    "other_storage_writes": 0,
+    "old_ledger_preserved": true,
+    "new_ledger_manager": "0xc939B6c988649253509050Da7FF7144644FdAE83"
+  },
+  "gas_scope": "Cold DefaultManager.pendingSeniorImpairment() calls on otherwise pinned mainnet state with synthetic declared rows of 1,000,000 USDfr each; seeding and restoration are outside the measured interval. This is not the separate assessed-recovery path.",
+  "gas": [
+    {
+      "rows": 0,
+      "original": 27128,
+      "replacement": 31251
+    },
+    {
+      "rows": 50,
+      "original": 201838,
+      "replacement": 40629
+    },
+    {
+      "rows": 200,
+      "original": 690538,
+      "replacement": 40629
+    }
+  ],
+  "verification": "The test compares residual values before and after, distinguishes an implementation-only upgrade, and checks every recorded storage write. Two compiled production defects and one incorrect-calldata control fail for their intended reasons; all three tests pass after restoration.",
+  "deployment_prerequisite": "A human-owned deployment requires its own actual implementation and linked-library addresses, code hashes, fresh state/role checks and newly encoded calldata. This record contains local test addresses and does not authorize or execute deployment.",
+  "record_refreshed_at_utc": "2026-09-13 03:58 UTC",
+  "implementation_source_commit": "845ef861e2c47cd0f1108033189dd394299cb279",
+  "engineering_head_at_record": "0eafbecc4719834e288b34066c31ff4017312a48",
+  "final_rehearsal_evidence": {
+    "run": {
+      "log": "ethereum-ledger-replacement-final-fork-r1.log",
+      "sha256": "d514ec885dfabc556b16e87390cac69bdfa6d3afc8da519194a7f88fe73e7160"
+    },
+    "controls": {
+      "block": 25963259,
+      "cases": 3,
+      "test_functions_detected": [
+        "test_fork_atomicUpgradeAndRepointPreserveAllOtherStorage",
+        "test_fork_implementationUpgradeAlonePreservesTheOldLedger",
+        "test_fork_managerReadGasAtZeroFiftyAndTwoHundredRows"
+      ],
+      "calldata_controls": 1,
+      "production_defects": 2,
+      "reference_sha256": "c45847c880226104bbd85ed765478ad8e1c304ad76f68bb90e2c36026b49bec4",
+      "restored": {
+        "exit_code": 0,
+        "failed_tests": []
+      }
+    },
+    "control_results": [
+      {
+        "exit_code": 1,
+        "failed_tests": [
+          "[FAIL: implementation upgrade unexpectedly replaced the plain ledger: 0x671ceF55a1373E85D4522dacE6eea7Cf52B573c8 != 0xBfD49F9988125e67297BE0fF619F82d60c438322] test_fork_implementationUpgradeAlonePreservesTheOldLedger() (gas: 7511766)"
+        ],
+        "name": "upgrade-calldata-unexpectedly-repoints",
+        "path": "test/fork/CommitmentLedgerReplacementFork.t.sol",
+        "matches": 1,
+        "target_test": "test_fork_implementationUpgradeAlonePreservesTheOldLedger",
+        "source_before_sha256": "7d8f9d9f719779d00add5a32d8574631ab2c8f00abe485a4caf37982ed80968b",
+        "source_after_sha256": "39d68f80d9432018ead134c8a34c8f234d97b00cc621ca81407b43d8380717ef"
+      },
+      {
+        "exit_code": 1,
+        "failed_tests": [
+          "[FAIL: replacement wrote an unrelated proxy slot] test_fork_atomicUpgradeAndRepointPreserveAllOtherStorage() (gas: 7555320)"
+        ],
+        "name": "replacement-writes-an-unrelated-slot",
+        "path": "src/libraries/DefaultAccrualLib.sol",
+        "matches": 1,
+        "target_test": "test_fork_atomicUpgradeAndRepointPreserveAllOtherStorage",
+        "source_before_sha256": "f0404c46709ac9e296bd16aae61b5d6dcd8b0f00228315bfb5f325908ea393ca",
+        "source_after_sha256": "a24a9de145abae4ca98cbceb8c5d584d946175c65bd7c8ce1e4b03ac5b2b649a"
+      },
+      {
+        "exit_code": 1,
+        "failed_tests": [
+          "[FAIL: populated manager read grows with declared row count: 835854 != 239304] test_fork_managerReadGasAtZeroFiftyAndTwoHundredRows() (gas: 118329926)"
+        ],
+        "name": "row-walk-restored",
+        "path": "src/CommitmentLedger.sol",
+        "matches": 1,
+        "target_test": "test_fork_managerReadGasAtZeroFiftyAndTwoHundredRows",
+        "source_before_sha256": "3319554e9b33ae5a8bb09a5c189c9bf887a88b37e3b94cd95e0338be56e1651f",
+        "source_after_sha256": "ca989400928457ed3e1a8a99612c13023544b8a620eb3b752fdbd3049cf4955e"
+      }
+    ],
+    "control_log": {
+      "log": "ethereum-ledger-replacement-final-fork-controls-r1.log",
+      "sha256": "725302c08a61b6d0b017593c47ba3385cdedba162d5451c487f0d2eed050cc88"
+    },
+    "no_broadcast": true
+  },
+  "final_contract_sizes": {
+    "DefaultManager": {
+      "runtime_bytes": 24138,
+      "creation_bytes": 31389,
+      "runtime_margin": 438,
+      "creation_margin": 17763
+    },
+    "CommitmentLedger": {
+      "runtime_bytes": 5394,
+      "creation_bytes": 5607,
+      "runtime_margin": 19182,
+      "creation_margin": 43545
+    },
+    "CommitmentLedgerFactory": {
+      "runtime_bytes": 5861,
+      "creation_bytes": 5889,
+      "runtime_margin": 18715,
+      "creation_margin": 43263
+    }
+  }
+}

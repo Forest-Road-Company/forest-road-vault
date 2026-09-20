@@ -9,6 +9,7 @@ import {ReserveManager} from "../../../src/ReserveManager.sol";
 import {SUSDfr} from "../../../src/sUSDfr.sol";
 import {USDfr} from "../../../src/USDfr.sol";
 import {Config} from "../../../src/libraries/Config.sol";
+import {IMintRedeemController} from "../../../src/interfaces/IMintRedeemController.sol";
 import {MockCascadeBackstop} from "../../helpers/MockCascadeBackstop.sol";
 
 /// @title CascadeOrderedExitHandler — ADR-0034 decision Z, the DRAWN exit path
@@ -48,6 +49,11 @@ contract CascadeOrderedExitHandler is Test {
     SUSDfr internal vault;
 
     address internal admin;
+    address internal guardian;
+    uint256 public gArms;
+    uint256 public gArmResolutions;
+    uint256 public gArmedRefusals;
+    uint256 public gForbiddenArmedExits;
     address[2] public actors;
     uint256 internal facility;
 
@@ -113,7 +119,8 @@ contract CascadeOrderedExitHandler is Test {
         address admin_,
         uint256 facility_,
         address[2] memory actors_,
-        address vault_
+        address vault_,
+        address guardian_
     ) {
         usdfr = USDfr(usdfr_);
         reserves = ReserveManager(reserves_);
@@ -121,6 +128,7 @@ contract CascadeOrderedExitHandler is Test {
         curator = CuratorModule(curator_);
         backstop = MockCascadeBackstop(backstop_);
         admin = admin_;
+        guardian = guardian_;
         facility = facility_;
         actors = actors_;
         vault = SUSDfr(vault_);
@@ -197,6 +205,38 @@ contract CascadeOrderedExitHandler is Test {
     }
 
     /// @notice THE DRAWN EXIT. Everything this campaign asserts is measured across this call.
+    /// @notice Drives the emergency state independently of the book's credit valuation.
+    function arm() external {
+        ++callCount;
+        (uint256 existing,,,) = reserves.reserveLossArm();
+        if (existing != 0) return;
+        vm.prank(admin);
+        reserves.setGuardianReserveLossArmsEnabled(true);
+        vm.prank(guardian);
+        reserves.armReserveLossFreeze(keccak256(abi.encode("custody warning", callCount)));
+        ++gArms;
+    }
+
+    /// @notice A sound-custody false alarm can end while credit marks remain.
+    function cancelArm() external {
+        ++callCount;
+        (uint256 armId,,,) = reserves.reserveLossArm();
+        if (armId == 0) return;
+        uint256 mark = reserves.principalImpairmentOf(facility);
+        uint256 prepaid = reserves.exitPrepaidAbsorption();
+        vm.prank(admin);
+        reserves.cancelUnratifiedArm(armId, keccak256(abi.encode("custody resolution", armId)));
+        assertEq(reserves.principalImpairmentOf(facility), mark, "arm resolution changed credit impairment");
+        assertEq(reserves.exitPrepaidAbsorption(), prepaid, "arm resolution changed prepayments");
+        ++gArmResolutions;
+    }
+
+    function _pendingArm() private view returns (bool) {
+        (uint256 armId, uint256 armIncident,,) = reserves.reserveLossArm();
+        (uint256 incident,) = reserves.activeReserveLossIncident();
+        return armId != 0 && armIncident != incident;
+    }
+
     function exit(uint256 seed) external {
         ++callCount;
         address actor = actors[seed % 2];
@@ -234,6 +274,7 @@ contract CascadeOrderedExitHandler is Test {
 
             // ── Z clause 1: no exit absorbs loss while unexhausted junior capital remains ─────
             uint256 valuePaid = usdcOut * UNIT;
+            if (_pendingArm() && (drawn != 0 || valuePaid == usdfrIn)) ++gForbiddenArmedExits;
             if (valuePaid < usdfrIn) {
                 ++gSubParExits;
                 // The exiter took a haircut. Layer 1 must be EXHAUSTED — a non-empty curator pool
@@ -266,7 +307,11 @@ contract CascadeOrderedExitHandler is Test {
 
             uint256 deficitAfter = supplyAfter > backingAfter ? supplyAfter - backingAfter : 0;
             if (deficitAfter > deficitBefore) ++gDeficitWorsened;
-        } catch {
+        } catch (bytes memory reason) {
+            if (reason.length >= 4 && bytes4(reason) == IMintRedeemController.Controller_ReserveLossArmFreeze.selector)
+            {
+                ++gArmedRefusals;
+            }
             // Dust below the whole-USDC grid, an exhausted idle leg, or a zero-backing book. None
             // of these move value, and the campaign asserts that below.
             if (reserves.exitPrepaidAbsorption() != prepaidBefore) ++gDrawExceededDeficit;

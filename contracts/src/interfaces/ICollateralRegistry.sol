@@ -28,6 +28,15 @@ interface ICollateralRegistry {
 
     event ClassSet(uint256 indexed classId);
     event ExposureRecorded(uint256 indexed classId, bytes32 indexed borrowerId, bytes32 indexed stateId, int256 delta);
+
+    /// @notice Emitted alongside `ExposureRecorded` when the increase came from PIK capitalisation
+    ///         rather than from an origination, so the two are distinguishable in the event stream.
+    /// @dev Origination exposure is a decision somebody made and an admission check passed.
+    ///      Capitalised exposure is arithmetic on a term already agreed. A reader reconciling the
+    ///      book needs to tell them apart, and `ExposureRecorded` alone cannot.
+    event CapitalizedExposureRecorded(
+        uint256 indexed classId, bytes32 indexed borrowerId, bytes32 indexed stateId, uint256 principal
+    );
     event BorrowerLimitSet(uint16 limitBps);
     /// @notice Governance set a per-borrower concentration limit overriding the global one.
     /// @param borrowerId The borrower key.
@@ -144,6 +153,49 @@ interface ICollateralRegistry {
     /// @notice Records an exposure increase (origination). Only CREDIT_ROLE (the
     ///         collateral/credit layer). Enforces all concentration limits.
     function recordExposureIncrease(uint256 classId, bytes32 borrowerId, bytes32 stateId, uint256 principal) external;
+
+    /// @notice Records an exposure increase that came from PIK interest CAPITALISATION rather than
+    ///         from an origination. Only CREDIT_ROLE. Books the exposure and reports every
+    ///         concentration breach exactly as the origination path does, but does NOT revert on
+    ///         one.
+    ///
+    /// @dev WHY THIS IS NOT A HOLE IN THE CONCENTRATION LIMIT, and why it is not optional.
+    ///      A concentration limit governs ADMISSION: it decides whether the book takes on a new
+    ///      risk somebody chose to take. Compounding interest is not that. Nobody elects it, the
+    ///      borrower cannot decline it, no capital moves, and the obligation was priced at
+    ///      origination when the limit was checked. Routing it through `recordExposureIncrease`
+    ///      meant a PIK book grew into its own limit with no adversary and then FROZE, and because
+    ///      `ClaimBridge.nextPaymentDue` only advances inside `WaterfallEngine.capitalizePik`, the
+    ///      freeze turned a borrower performing exactly as contracted into a permissionlessly
+    ///      markable past-due facility, and through `DefaultManager.pastDueExposure` into pending
+    ///      senior impairment. The protocol's own refusal became the credit event.
+    ///
+    ///      WHAT IS PRESERVED. The class must be known; the overflow bound that keeps the
+    ///      concentration arithmetic safe still applies; the exposure is booked in full, which is
+    ///      what keeps the facility WRITEABLE OFF (`realizeLoss` pairs its write-down with
+    ///      `recordExposureDecrease`, which reverts `Registry_ExposureUnderflow` if exposure lags);
+    ///      and every breach flag and drift event fires. Governance sees the limit crossed. The
+    ///      limit keeps its whole observation function and loses only its ability to brick a
+    ///      performing borrower.
+    ///
+    ///      `recordExposureDecrease` already carries this exact reasoning for the same reason:
+    ///      "Reporting only - never a revert path."
+    ///
+    ///      WHAT THIS ADDS TO `CREDIT_ROLE`, stated because an auditor will ask. The role could
+    ///      already move exposure in both directions: `recordExposureIncrease` upward subject to
+    ///      the limits, and `recordExposureDecrease` downward with no check at all. This adds an
+    ///      upward path that skips the limit, so a CREDIT_ROLE holder can now inflate a class past
+    ///      its concentration ceiling. That moves NO VALUE - exposure is a reporting and
+    ///      write-off-accounting quantity, not a balance - and it moves the book in the
+    ///      CONSERVATIVE direction, making it read as more concentrated than it is. The role
+    ///      remains a protocol-modules-only grant for the reasons recorded on
+    ///      `recordExposureDecrease`, and this function does not change that requirement.
+    ///
+    ///      IF FOREST ROAD WANTS CAPITALISATION TO HARD-STOP AT THE LIMIT INSTEAD, that is a
+    ///      one-line change back to `recordExposureIncrease` in `WaterfallEngine.capitalizePik`,
+    ///      and it reinstates the denial of service knowingly rather than by accident.
+    function recordCapitalizedExposure(uint256 classId, bytes32 borrowerId, bytes32 stateId, uint256 principal)
+        external;
 
     /// @notice Records an exposure decrease (repayment/writedown). Only CREDIT_ROLE.
     function recordExposureDecrease(uint256 classId, bytes32 borrowerId, bytes32 stateId, uint256 principal) external;

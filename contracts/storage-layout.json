@@ -37,6 +37,18 @@
       {
         "type": "bool",
         "name": "performanceFeeImpairmentSnapshotted"
+      },
+      {
+        "type": "bytes32",
+        "name": "assessedAccrualRiskStateHash"
+      },
+      {
+        "type": "uint256",
+        "name": "assessedPastDueExposure"
+      },
+      {
+        "type": "bool",
+        "name": "accrualStateSnapshotted"
       }
     ],
     "namespace": "forestroad.storage.AssessedImpairmentSource",
@@ -108,6 +120,10 @@
       {
         "type": "mapping(uint256 classId => uint256)",
         "name": "requiredMintAttestations"
+      },
+      {
+        "type": "address",
+        "name": "accrualReserve"
       }
     ],
     "namespace": "forestroad.storage.ClaimBridge",
@@ -187,6 +203,10 @@
       {
         "type": "LoanState",
         "name": "state"
+      },
+      {
+        "type": "bool",
+        "name": "pik"
       }
     ]
   },
@@ -252,6 +272,10 @@
       {
         "type": "uint256",
         "name": "pastDueWeightBps"
+      },
+      {
+        "type": "address",
+        "name": "accrualReserve"
       }
     ],
     "namespace": "forestroad.storage.CollateralRegistry",
@@ -287,6 +311,10 @@
       {
         "type": "mapping(uint256 eventId => uint8)",
         "name": "eventMetadata"
+      },
+      {
+        "type": "mapping(uint256 classId => uint256)",
+        "name": "remainingPrincipalByClass"
       }
     ],
     "namespace": "forestroad.storage.CommitmentLedger",
@@ -564,6 +592,14 @@
       {
         "type": "ICommitmentLedger",
         "name": "commitmentLedger"
+      },
+      {
+        "type": "IPausableModule",
+        "name": "waterfall"
+      },
+      {
+        "type": "IContinuousAccrual",
+        "name": "accrualReserve"
       }
     ],
     "namespace": "forestroad.storage.DefaultManager",
@@ -623,6 +659,656 @@
       }
     ]
   },
+  "contracts/src/interfaces/IContinuousAccrual.sol:Delivery": {
+    "kind": "array-element",
+    "fields": [
+      {
+        "type": "uint256",
+        "name": "nonce"
+      },
+      {
+        "type": "uint256",
+        "name": "senior"
+      },
+      {
+        "type": "uint256",
+        "name": "fee"
+      },
+      {
+        "type": "uint256",
+        "name": "effectiveSupply"
+      },
+      {
+        "type": "uint256",
+        "name": "backing"
+      },
+      {
+        "type": "uint256",
+        "name": "recognizedBacking"
+      },
+      {
+        "type": "PricingState",
+        "name": "pricing"
+      },
+      {
+        "type": "address",
+        "name": "controller"
+      },
+      {
+        "type": "address",
+        "name": "vault"
+      },
+      {
+        "type": "address",
+        "name": "feeRecipient"
+      },
+      {
+        "type": "uint64",
+        "name": "accruedThrough"
+      },
+      {
+        "type": "uint8",
+        "name": "legs"
+      },
+      {
+        "type": "bool",
+        "name": "active"
+      }
+    ]
+  },
+  "contracts/src/interfaces/IContinuousAccrual.sol:Modules": {
+    "kind": "array-element",
+    "fields": [
+      {
+        "type": "address",
+        "name": "token"
+      },
+      {
+        "type": "address",
+        "name": "controller"
+      },
+      {
+        "type": "address",
+        "name": "vault"
+      },
+      {
+        "type": "address",
+        "name": "waterfall"
+      },
+      {
+        "type": "address",
+        "name": "bridge"
+      },
+      {
+        "type": "address",
+        "name": "registry"
+      },
+      {
+        "type": "address",
+        "name": "defaultManager"
+      }
+    ]
+  },
+  "contracts/src/interfaces/IContinuousAccrual.sol:PricingState": {
+    "kind": "array-element",
+    "fields": [
+      {
+        "type": "uint256",
+        "name": "assets"
+      },
+      {
+        "type": "uint256",
+        "name": "entryAssets"
+      },
+      {
+        "type": "uint256",
+        "name": "redemptionAssets"
+      },
+      {
+        "type": "uint256",
+        "name": "performanceAssets"
+      },
+      {
+        "type": "uint256",
+        "name": "feeAdjustedShares"
+      },
+      {
+        "type": "bool",
+        "name": "materializationAllowed"
+      }
+    ]
+  },
+  "contracts/src/interfaces/IContinuousAccrual.sol:Snapshot": {
+    "kind": "array-element",
+    "fields": [
+      {
+        "type": "uint256",
+        "name": "gross"
+      },
+      {
+        "type": "uint256",
+        "name": "unposted"
+      },
+      {
+        "type": "uint256",
+        "name": "unissued"
+      },
+      {
+        "type": "uint256",
+        "name": "seniorUnissued"
+      },
+      {
+        "type": "uint256",
+        "name": "feeUnissued"
+      },
+      {
+        "type": "address",
+        "name": "feeRecipient"
+      },
+      {
+        "type": "uint64",
+        "name": "accruedThrough"
+      },
+      {
+        "type": "bool",
+        "name": "enabled"
+      },
+      {
+        "type": "bool",
+        "name": "fresh"
+      }
+    ]
+  },
+  "contracts/src/libraries/AccrualBook.sol:Book": {
+    "kind": "array-element",
+    "fields": [
+      {
+        "type": "Clock",
+        "name": "total"
+      },
+      {
+        "type": "mapping(uint256 facilityId => Entry)",
+        "name": "entries"
+      },
+      {
+        "type": "mapping(bytes32 key => Group)",
+        "name": "groups"
+      },
+      {
+        "type": "mapping(bytes32 classKey => Clock)",
+        "name": "pastDueUnposted"
+      },
+      {
+        "type": "AccrualSchedule.Heap",
+        "name": "schedule"
+      },
+      {
+        "type": "uint256",
+        "name": "posted"
+      },
+      {
+        "type": "uint256",
+        "name": "seniorIssued"
+      },
+      {
+        "type": "uint256",
+        "name": "feeIssued"
+      },
+      {
+        "type": "uint256",
+        "name": "feeBaseGross"
+      },
+      {
+        "type": "uint256",
+        "name": "feeBaseAmount"
+      },
+      {
+        "type": "uint32",
+        "name": "registered"
+      },
+      {
+        "type": "uint16",
+        "name": "feeBps"
+      },
+      {
+        "type": "bool",
+        "name": "initialized"
+      },
+      {
+        "type": "uint256",
+        "name": "unearned"
+      }
+    ]
+  },
+  "contracts/src/libraries/AccrualBook.sol:Clock": {
+    "kind": "array-element",
+    "fields": [
+      {
+        "type": "uint256",
+        "name": "value"
+      },
+      {
+        "type": "uint256",
+        "name": "rate"
+      },
+      {
+        "type": "uint64",
+        "name": "at"
+      }
+    ]
+  },
+  "contracts/src/libraries/AccrualBook.sol:Entry": {
+    "kind": "mapping-value",
+    "fields": [
+      {
+        "type": "Clock",
+        "name": "clock"
+      },
+      {
+        "type": "uint256",
+        "name": "posted"
+      },
+      {
+        "type": "uint256",
+        "name": "segmentAmount"
+      },
+      {
+        "type": "uint256",
+        "name": "roundingCredited"
+      },
+      {
+        "type": "uint64",
+        "name": "start"
+      },
+      {
+        "type": "uint64",
+        "name": "end"
+      },
+      {
+        "type": "bytes32[3]",
+        "name": "keys"
+      },
+      {
+        "type": "bool",
+        "name": "known"
+      },
+      {
+        "type": "bool",
+        "name": "registered"
+      },
+      {
+        "type": "bool",
+        "name": "scheduled"
+      },
+      {
+        "type": "bool",
+        "name": "pastDue"
+      }
+    ]
+  },
+  "contracts/src/libraries/AccrualBook.sol:Group": {
+    "kind": "mapping-value",
+    "fields": [
+      {
+        "type": "Clock",
+        "name": "clock"
+      },
+      {
+        "type": "uint256",
+        "name": "posted"
+      }
+    ]
+  },
+  "contracts/src/libraries/AccrualLoans.sol:Loan": {
+    "kind": "mapping-value",
+    "fields": [
+      {
+        "type": "AccrualSegments.Terms",
+        "name": "terms"
+      },
+      {
+        "type": "uint256",
+        "name": "principal"
+      },
+      {
+        "type": "uint256",
+        "name": "unpaidInterest"
+      },
+      {
+        "type": "uint256",
+        "name": "balanceCeiling"
+      },
+      {
+        "type": "uint256",
+        "name": "frozenPikBasis"
+      },
+      {
+        "type": "uint256",
+        "name": "segmentBookBase"
+      },
+      {
+        "type": "uint256",
+        "name": "segmentCumulativeStart"
+      },
+      {
+        "type": "uint256",
+        "name": "workWeight"
+      },
+      {
+        "type": "uint64",
+        "name": "nextCapitalization"
+      },
+      {
+        "type": "uint64",
+        "name": "paymentInterval"
+      },
+      {
+        "type": "uint64",
+        "name": "legalMaturity"
+      },
+      {
+        "type": "uint64",
+        "name": "lastSettlement"
+      },
+      {
+        "type": "uint64",
+        "name": "closureNonce"
+      },
+      {
+        "type": "bool",
+        "name": "pik"
+      },
+      {
+        "type": "bool",
+        "name": "active"
+      },
+      {
+        "type": "bool",
+        "name": "configured"
+      },
+      {
+        "type": "bool",
+        "name": "permanentlyStopped"
+      }
+    ]
+  },
+  "contracts/src/libraries/AccrualLoans.sol:State": {
+    "kind": "array-element",
+    "fields": [
+      {
+        "type": "AccrualBook.Book",
+        "name": "book"
+      },
+      {
+        "type": "mapping(uint256 facilityId => Loan)",
+        "name": "loans"
+      },
+      {
+        "type": "uint256",
+        "name": "annualWork"
+      }
+    ]
+  },
+  "contracts/src/libraries/AccrualSchedule.sol:Event": {
+    "kind": "array-element",
+    "fields": [
+      {
+        "type": "uint256",
+        "name": "facilityId"
+      },
+      {
+        "type": "uint64",
+        "name": "deadline"
+      }
+    ]
+  },
+  "contracts/src/libraries/AccrualSchedule.sol:Heap": {
+    "kind": "array-element",
+    "fields": [
+      {
+        "type": "Event[]",
+        "name": "entries"
+      },
+      {
+        "type": "mapping(uint256 facilityId => uint256 position)",
+        "name": "positions"
+      }
+    ]
+  },
+  "contracts/src/libraries/AccrualSegments.sol:Terms": {
+    "kind": "array-element",
+    "fields": [
+      {
+        "type": "uint256",
+        "name": "basis"
+      },
+      {
+        "type": "uint256",
+        "name": "yearSeconds"
+      },
+      {
+        "type": "uint256",
+        "name": "scale"
+      },
+      {
+        "type": "uint256",
+        "name": "cap"
+      },
+      {
+        "type": "uint64",
+        "name": "periodStart"
+      },
+      {
+        "type": "uint64",
+        "name": "periodEnd"
+      },
+      {
+        "type": "uint64",
+        "name": "maturity"
+      },
+      {
+        "type": "uint16",
+        "name": "rateBps"
+      }
+    ]
+  },
+  "contracts/src/libraries/ReserveAccrualStorageLib.sol:Identity": {
+    "kind": "mapping-value",
+    "fields": [
+      {
+        "type": "address",
+        "name": "asset"
+      },
+      {
+        "type": "uint256",
+        "name": "classId"
+      },
+      {
+        "type": "bytes32",
+        "name": "borrowerId"
+      },
+      {
+        "type": "bytes32",
+        "name": "stateId"
+      },
+      {
+        "type": "uint256",
+        "name": "reservedCeiling"
+      },
+      {
+        "type": "bool",
+        "name": "known"
+      }
+    ]
+  },
+  "contracts/src/libraries/ReserveAccrualStorageLib.sol:Migration": {
+    "kind": "array-element",
+    "fields": [
+      {
+        "type": "uint64",
+        "name": "cutoff"
+      },
+      {
+        "type": "uint32",
+        "name": "expected"
+      },
+      {
+        "type": "uint32",
+        "name": "imported"
+      },
+      {
+        "type": "uint16",
+        "name": "feeBps"
+      },
+      {
+        "type": "bool",
+        "name": "active"
+      },
+      {
+        "type": "uint256",
+        "name": "nonce"
+      },
+      {
+        "type": "uint256",
+        "name": "originalFace"
+      },
+      {
+        "type": "uint256",
+        "name": "importedOriginalFace"
+      },
+      {
+        "type": "bytes32",
+        "name": "sessionKey"
+      },
+      {
+        "type": "uint256[]",
+        "name": "facilityIds"
+      },
+      {
+        "type": "mapping(uint256 facilityId => bytes32)",
+        "name": "frozenRecords"
+      }
+    ]
+  },
+  "contracts/src/libraries/ReserveAccrualStorageLib.sol:Rounding": {
+    "kind": "array-element",
+    "fields": [
+      {
+        "type": "uint256",
+        "name": "facilityId"
+      },
+      {
+        "type": "uint64",
+        "name": "closureNonce"
+      },
+      {
+        "type": "address",
+        "name": "from"
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      },
+      {
+        "type": "bool",
+        "name": "active"
+      },
+      {
+        "type": "bool",
+        "name": "ready"
+      }
+    ]
+  },
+  "contracts/src/libraries/ReserveAccrualStorageLib.sol:State": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "AccrualLoans.State",
+        "name": "loans"
+      },
+      {
+        "type": "IContinuousAccrual.Modules",
+        "name": "modules"
+      },
+      {
+        "type": "mapping(uint256 facilityId => Identity)",
+        "name": "identities"
+      },
+      {
+        "type": "address",
+        "name": "feeRecipient"
+      },
+      {
+        "type": "uint256",
+        "name": "reservedCeilings"
+      },
+      {
+        "type": "uint256",
+        "name": "nonce"
+      },
+      {
+        "type": "IContinuousAccrual.Delivery",
+        "name": "delivery"
+      },
+      {
+        "type": "IContinuousAccrual.Snapshot",
+        "name": "deliverySnapshot"
+      },
+      {
+        "type": "bool",
+        "name": "enabled"
+      },
+      {
+        "type": "bool",
+        "name": "busy"
+      },
+      {
+        "type": "uint256",
+        "name": "recordedFace"
+      },
+      {
+        "type": "Rounding",
+        "name": "rounding"
+      },
+      {
+        "type": "uint256",
+        "name": "roundingUnabsorbed"
+      },
+      {
+        "type": "Migration",
+        "name": "migration"
+      }
+    ],
+    "namespace": "forestroad.storage.ContinuousAccrual",
+    "slot": "0x2420c1d967401a6739c551e175fd4dfa8e9cd5ee804155e89721bed004930b00"
+  },
+  "contracts/src/libraries/VaultAccrualLib.sol:State": {
+    "kind": "namespaced",
+    "fields": [
+      {
+        "type": "IContinuousAccrual",
+        "name": "reserve"
+      },
+      {
+        "type": "IContinuousAccrual.PricingState",
+        "name": "pricing"
+      },
+      {
+        "type": "bool",
+        "name": "cached"
+      },
+      {
+        "type": "bool",
+        "name": "materializationRequested"
+      },
+      {
+        "type": "uint256",
+        "name": "grossShares"
+      }
+    ],
+    "namespace": "forestroad.storage.VaultAccrual",
+    "slot": "0x0a3fe45ec0c706c92dec0dc11a11f80ca1f2f84db6d7d4d4986a86500415b200"
+  },
   "contracts/src/MintRedeemController.sol:ControllerStorage": {
     "kind": "namespaced",
     "fields": [
@@ -649,6 +1335,30 @@
       {
         "type": "uint256",
         "name": "subParShortfall"
+      },
+      {
+        "type": "address",
+        "name": "pairedYieldCaller"
+      },
+      {
+        "type": "uint256",
+        "name": "pairedSupplyBefore"
+      },
+      {
+        "type": "uint256",
+        "name": "pairedBackingBefore"
+      },
+      {
+        "type": "uint256",
+        "name": "pairedRecognizedBefore"
+      },
+      {
+        "type": "IContinuousAccrual",
+        "name": "accrual"
+      },
+      {
+        "type": "uint256",
+        "name": "pairedRetentionBefore"
       }
     ],
     "namespace": "forestroad.storage.MintRedeemController",
@@ -1259,10 +1969,71 @@
       {
         "type": "IPointsModule",
         "name": "pointsModule"
+      },
+      {
+        "type": "address",
+        "name": "accrualReserve"
+      },
+      {
+        "type": "address",
+        "name": "accrualController"
+      },
+      {
+        "type": "address",
+        "name": "accrualVault"
+      },
+      {
+        "type": "uint256",
+        "name": "lastAccrualNonce"
+      },
+      {
+        "type": "address",
+        "name": "accrualLegTo"
+      },
+      {
+        "type": "bool",
+        "name": "accrualBatch"
+      },
+      {
+        "type": "bool",
+        "name": "accrualLegReady"
+      },
+      {
+        "type": "bool",
+        "name": "accrualSecondLegPending"
+      },
+      {
+        "type": "uint256",
+        "name": "accrualLegAmount"
       }
     ],
     "namespace": "forestroad.storage.USDfr",
     "slot": "0xc3fcf06498ffe1eac01a14cc645fb1e6aacc447c7b2a7d46a005df569b521500"
+  },
+  "contracts/src/WaterfallEngine.sol:PikCursor": {
+    "kind": "mapping-value",
+    "fields": [
+      {
+        "type": "uint64",
+        "name": "lastAt"
+      },
+      {
+        "type": "uint16",
+        "name": "rateBps"
+      },
+      {
+        "type": "uint176",
+        "name": "basis"
+      },
+      {
+        "type": "uint64",
+        "name": "interval"
+      },
+      {
+        "type": "uint64",
+        "name": "fundedAt"
+      }
+    ]
   },
   "contracts/src/WaterfallEngine.sol:WaterfallStorage": {
     "kind": "namespaced",
@@ -1306,6 +2077,18 @@
       {
         "type": "IDefaultManager",
         "name": "defaultManager"
+      },
+      {
+        "type": "mapping(uint256 tokenId => PikCursor)",
+        "name": "pikCursor"
+      },
+      {
+        "type": "mapping(uint256 tokenId => uint256)",
+        "name": "pikCapitalisedTotal"
+      },
+      {
+        "type": "address",
+        "name": "accrualReserve"
       }
     ],
     "namespace": "forestroad.storage.WaterfallEngine",

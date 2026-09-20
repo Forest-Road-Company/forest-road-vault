@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {ForkLifecycleFixture} from "./ForkLifecycleFixture.sol";
 import {PointsModule} from "../../src/PointsModule.sol";
 import {Config} from "../../src/libraries/Config.sol";
+import {IAttestationOracle} from "../../src/interfaces/IAttestationOracle.sol";
 
 /// @title ATK_PointsModuleFork — adversarial assault on the participation-points ledger
 /// @notice Every test here ATTEMPTS a real exploit against `PointsModule` on the FULL deployed
@@ -28,6 +29,91 @@ import {Config} from "../../src/libraries/Config.sol";
 contract ATK_PointsModuleForkTest is ForkLifecycleFixture {
     // A pure outsider: not KYC'd, holds no role, is not the vault / USDfr / CuratorModule.
     address internal attacker = makeAddr("atkPointsAttacker");
+
+    /// @dev Mirror of `ReserveRoundingLib.AccrualRoundingAllocated` for `vm.expectEmit`: the
+    ///      reserve's per-layer record of one sub-native-unit closure correction (ADR-0038).
+    event AccrualRoundingAllocated(
+        uint256 indexed facilityId,
+        uint64 indexed closureNonce,
+        uint256 amount,
+        uint256 prepaid,
+        uint256 curator,
+        uint256 backstop,
+        uint256 senior,
+        uint256 unabsorbed,
+        uint256 markConsumed
+    );
+
+    // ── ADR-0038 closure figures for the fixture's facility shape ─────────
+    // The fixture note is fixed 1400 bps, Actual/360 (31,104,000 s per year), USDC grid 1e12,
+    // maturity funded + 365 days, no PIK. ADR/0038-continuous-interest-accrual-to-susdfr.md,
+    // "Implementation mechanism and checkpoint, 2026-09-11": "Maturity or earlier default
+    // declaration stops earning." The declaration closes the streamed segment and reconciles the
+    // interpolated recognition E against the grid-floored canonical interest C
+    // (docs/remediation/accrual-panel/LIFECYCLE_ACCOUNTING_2026-09-11.md, lines 51-57); an excess
+    // E - C is a rounding shortfall charged through Ethereum's native order, curator then sGROVE
+    // then senior (CONTINUOUS_ACCRUAL_OWNER_DIRECTIONS_2026-09-11.md, lines 48-49;
+    // ACCRUAL_BUILD_LOG_2026-09-12.md, "WP3f/WP4: rounding continuation and ordered correction";
+    // LIFECYCLE_ACCOUNTING_2026-09-11.md, lines 182-189). `_adr0038Closure` below is the
+    // closed-form derivation; every constant here is asserted equal to it by the test that uses it.
+    //   4e23 facility, day 30:  recognized 4,666,666,666,636,563,503,188
+    //                           canonical  4,666,666,666,000,000,000,000
+    //                           dust               636,563,503,188   (below 1e12, one USDC unit)
+    uint256 internal constant DUST_4E23_30D = 636_563_503_188;
+    // PointsModule `_recordCuratorLoss` folds WAD * after / before into the class survival factor,
+    // compounded: WAD * (2e23 - dust) / 2e23 = 999,999,999,996,817,182 at the dust epoch, then
+    // times (1e23 - dust) / (2e23 - dust) at the real loss.
+    uint256 internal constant SURV_2E23_DUST_1E23 = 499_999_999_996_817_182;
+    // `_applyCuratorDilution` writes a checkpointed cache to bal * survival / WAD, truncated to the
+    // wei: 2e23 * SURV / WAD, which sits 96,812 wei under the live pool of 99,999,999,999,363,436,496,812.
+    uint256 internal constant CACHE_2E23_DUST_1E23 = 99_999_999_999_363_436_400_000;
+    uint256 internal constant WAD = 1e18;
+    uint256 internal constant NOTE_RATE_BPS = 1400;
+    uint256 internal constant NOTE_YEAR_SECONDS = 31_104_000; // Actual/360
+    uint256 internal constant NOTE_GRID = 1e12; // one USDC unit in 18-decimal USDfr
+    uint256 internal constant NOTE_TENOR = 365 days;
+
+    /// @dev Grid-floored simple interest on the fixture note (AccrualMath.periodAmount with the
+    ///      full-year grid cap, which is not binding before maturity).
+    function _noteGrid(uint256 principal, uint256 elapsed) internal pure returns (uint256 x) {
+        x = (principal * NOTE_RATE_BPS * elapsed) / (10_000 * NOTE_YEAR_SECONDS);
+        x -= x % NOTE_GRID;
+    }
+
+    /// @dev Closed-form ADR-0038 closure `elapsed` seconds after funding, mirroring the engine
+    ///      independently. AccrualSegments.plan ends the first technical segment one second before
+    ///      the instant the whole-grid cap is attained (capHit - 1); AccrualBook.open streams that
+    ///      segment at the integer slope amount / duration; AccrualBook.reconcile credits the
+    ///      mulDiv remainder at the closure instant; AccrualLoans._close compares the recognized
+    ///      total with cumulative(terms, at) and reports E - C as `roundingLoss` when positive.
+    function _adr0038Closure(uint256 principal, uint256 elapsed)
+        internal
+        pure
+        returns (uint256 recognized, uint256 canonical)
+    {
+        uint256 gridCap = _noteGrid(principal, NOTE_TENOR);
+        uint256 den = principal * NOTE_RATE_BPS;
+        uint256 capHit = (gridCap * 10_000 * NOTE_YEAR_SECONDS + den - 1) / den; // Rounding.Ceil
+        uint256 end = NOTE_TENOR;
+        if (capHit > 1) --capHit;
+        if (capHit < end) end = capHit;
+        uint256 segment = _noteGrid(principal, end);
+        recognized = (segment / end) * elapsed + ((segment % end) * elapsed) / end;
+        canonical = _noteGrid(principal, elapsed);
+    }
+
+    /// @dev The fixture's evidence-bound declaration with the ADR-0038 closure pinned inside the
+    ///      same call: the reserve must emit `AccrualRoundingAllocated` for closure nonce 1 with
+    ///      the whole `dust` charged to layer 1 (curator) and nothing to the prepaid mark, sGROVE,
+    ///      senior or the unabsorbed remainder. `vm.expectEmit` sits immediately before the
+    ///      declaration because the fixture's attest call would otherwise be the call under watch.
+    function _declareDefaultPinningDust(uint256 tokenId, uint256 dust) internal {
+        _attest(tokenId, IAttestationOracle.AttestationKind.DefaultDeclared, keccak256(abi.encode(tokenId, bytes32(0))));
+        vm.expectEmit(true, true, false, true, address(reserves));
+        emit AccrualRoundingAllocated(tokenId, 1, dust, 0, dust, 0, 0, 0, 0);
+        vm.prank(ops);
+        defaultManager.declareDefault(tokenId, bytes32(0));
+    }
 
     function setUp() public override {
         super.setUp();
@@ -140,6 +226,21 @@ contract ATK_PointsModuleForkTest is ForkLifecycleFixture {
     //       cascade absorption, then try to lift the freeze with checkpoint spam.
     // ─────────────────────────────────────────────────────────────────────
 
+    /// @notice (I2b) A permissionless `checkpoint` cannot lift a curator loss freeze (H-03), driven
+    ///         through a REAL attested default and the production cascade.
+    /// @dev ADR-0038 makes the declaration itself the first curator loss. Thirty days of streamed
+    ///      recognition exceed the grid-floored canonical coupon by `DUST_4E23_30D`, and the reserve
+    ///      charges that excess through the native order, curator first: ADR/0038, "Implementation
+    ///      mechanism and checkpoint, 2026-09-11" ("Maturity or earlier default declaration stops
+    ///      earning"); CONTINUOUS_ACCRUAL_OWNER_DIRECTIONS_2026-09-11.md lines 48-49 ("Ethereum
+    ///      uses curator, sGROVE, then senior"); ACCRUAL_BUILD_LOG_2026-09-12.md, "WP3f/WP4:
+    ///      rounding continuation and ordered correction"; accrual-panel/
+    ///      LIFECYCLE_ACCOUNTING_2026-09-11.md lines 51-57 and 182-189. The test pins that closure
+    ///      exactly (the per-layer event, the pool, epoch 0, the compounded survival factor) and
+    ///      then the 1e23 loss on the already-diluted pool. Before ADR-0038 nothing accrued between
+    ///      funding and declaration, so the old `poolBalance == 1e23` figure was the stale design.
+    ///      That the sub-unit correction registers as a curator loss epoch is current behaviour,
+    ///      recorded as an open owner question in the 2026-09-15 fork triage (C4, RC-C4-2).
     function test_atk_permissionlessCheckpointCannotLiftCuratorLossFreeze() public onFork {
         uint256 classId = Config.CLASS_FILM_TAX_CREDITS;
         curator.setCuratorApproved(classId, alice, true);
@@ -155,16 +256,53 @@ contract ATK_PointsModuleForkTest is ForkLifecycleFixture {
         uint256 earned = points.curatorPointsInClass(alice, classId);
         assertGt(earned, 0, "30 clean days accrued at the 5x curator multiple");
 
-        // A real, attested default + a cascade loss of exactly half the first-loss pool.
-        _declareDefault(tokenId, bytes32(0));
+        // ADR-0038: the closure figure, derived in closed form here and pinned to the constant.
+        uint256 dust;
+        {
+            (uint256 recognized, uint256 canonical) = _adr0038Closure(4e23, 30 days);
+            dust = recognized - canonical;
+            assertEq(dust, DUST_4E23_30D, "closed-form ADR-0038 closure dust for 4e23 at day 30");
+            assertLt(dust, NOTE_GRID, "a closure correction is strictly below one native unit (AccrualLoans._close)");
+            assertEq(
+                reserves.accruedDebt(tokenId).interest, canonical, "the contractual coupon is the canonical figure"
+            );
+        }
+
+        // A real, attested default. The declaration stops the segment and charges the dust to
+        // layer 1; the helper pins the per-layer event (curator = dust, backstop 0, senior 0,
+        // unabsorbed 0, prepaid 0).
+        _declareDefaultPinningDust(tokenId, dust);
+        assertEq(
+            curator.poolBalance(classId),
+            2e23 - dust,
+            "ADR-0038: sub-unit closure correction charged to layer 1 at declaration"
+        );
+        assertEq(reserves.roundingLossUnabsorbed(), 0, "nothing fell through the cascade");
+        assertEq(points.curatorLossEpochCount(classId), 1, "the dust correction is curator loss epoch 0");
+
+        // Then a cascade loss of half the ORIGINAL first-loss pool, on the already-diluted pool.
         _realizeLoss(tokenId, 1e23, bytes32(0));
-        assertEq(curator.poolBalance(classId), 1e23, "layer 1 absorbed exactly the loss");
-        assertEq(points.curatorLossEpochCount(classId), 1, "one real loss epoch logged");
+        assertEq(
+            curator.poolBalance(classId), 2e23 - dust - 1e23, "layer 1 absorbed exactly the loss on top of the dust"
+        );
+        assertEq(points.curatorLossEpochCount(classId), 2, "dust epoch 0 plus the real loss epoch 1");
         uint64 lossAt = points.curatorLossAt(classId, 0);
+        assertEq(lossAt, uint64(block.timestamp), "epoch 0 is the declaration instant");
+        assertEq(points.curatorLossAt(classId, 1), lossAt, "the real loss shares the declaration instant");
+        uint256 survival;
+        {
+            // PointsModule._recordCuratorLoss: WAD * after / before, compounded over both epochs.
+            uint256 survivalDust = WAD * (2e23 - dust) / 2e23;
+            survival = survivalDust * (2e23 - dust - 1e23) / (2e23 - dust);
+            assertEq(survival, SURV_2E23_DUST_1E23, "closed-form compounded survival factor");
+            (uint64 round, uint256 survivalWad) = points.curatorDilutionState(classId);
+            assertEq(round, 0, "both ratios were usable: no distrust round");
+            assertEq(survivalWad, survival, "survival compounds the dust epoch and the real loss");
+        }
 
         (bool frozen, uint64 frozenAt) = points.curatorFreezeStatus(alice, classId);
         assertTrue(frozen, "position is frozen by the un-reconciled loss");
-        assertEq(frozenAt, lossAt, "pinned at the loss instant");
+        assertEq(frozenAt, lossAt, "pinned at the first unseen epoch: the declaration instant");
         assertEq(points.curatorPointsInClass(alice, classId), earned, "the loss banks the pre-loss window, no more");
 
         // ── ATTACK: warp forward and hammer checkpoint from the outsider to resume accrual ──
@@ -181,7 +319,19 @@ contract ATK_PointsModuleForkTest is ForkLifecycleFixture {
         (frozen,) = points.curatorFreezeStatus(alice, classId);
         assertTrue(frozen, "still frozen after 60 days of checkpoint spam");
         // The checkpoint IS allowed to write the stale-high cache DOWN (monotone, never up).
-        assertEq(points.curatorTracked(alice, classId), 1e23, "cache written down to the diluted stake, not up");
+        // `_applyCuratorDilution` writes bal * survival / WAD, truncated to the wei, so the cache
+        // lands 96,812 wei under the live pool and never above it.
+        assertEq(2e23 * survival / WAD, CACHE_2E23_DUST_1E23, "closed-form WAD-truncated cache");
+        assertEq(
+            points.curatorTracked(alice, classId),
+            CACHE_2E23_DUST_1E23,
+            "cache written down by the compounded survival factor, not up"
+        );
+        assertLe(
+            points.curatorTracked(alice, classId),
+            curator.postedOf(classId, alice),
+            "never above the live posted amount"
+        );
 
         // Only `reconcile` may thaw, and it FORFEITS the frozen window rather than back-paying it.
         vm.prank(attacker);
@@ -197,6 +347,7 @@ contract ATK_PointsModuleForkTest is ForkLifecycleFixture {
             curator.postedOf(classId, alice),
             "reconcile snapped the cache to the LIVE posted amount"
         );
+        assertEq(curator.postedOf(classId, alice), 2e23 - dust - 1e23, "alice is the only curator: posted == pool");
 
         // Accrual resumes on the surviving capital only.
         _warp(30 days);
@@ -209,9 +360,18 @@ contract ATK_PointsModuleForkTest is ForkLifecycleFixture {
     // (I3) Loss-then-top-up: a curator absorbs a loss, then RE-POSTS to their
     //      pre-loss notional, attempting to (a) escape the freeze on the fresh
     //      capital and (b) have the replacement capital inherit the destroyed
-    //      capital's matured ramp — the two H-03 harms. Both must be refused.
+    //      capital's matured ramp: the two H-03 harms. Both must be refused.
     // ─────────────────────────────────────────────────────────────────────
 
+    /// @notice (I3) A curator who absorbs a loss and tops back up can neither escape the freeze on
+    ///         the fresh capital nor have it inherit the destroyed capital's maturity ramp (H-03).
+    /// @dev Under ADR-0038 the declaration charges `DUST_4E23_30D` to the curator pool before the
+    ///      1e23 loss (citations on the sibling test above), so a 1e23 top-up restores the notional
+    ///      to 2e23 - dust, not 2e23: the pool was diluted twice (2e23 -> 2e23 - dust -> 1e23 - dust)
+    ///      and the re-post adds exactly 1e23 to the diluted position. Epoch 0 is the dust epoch at
+    ///      the declaration instant; the real loss is epoch 1 at the same timestamp, so the freeze
+    ///      ceiling is unchanged. Before ADR-0038 nothing accrued between funding and declaration
+    ///      and the old `postedOf == 2e23` figure held; it is the stale design.
     function test_atk_lossThenTopUpCannotEscapeFreezeNorInheritRamp() public onFork {
         uint256 classId = Config.CLASS_FILM_TAX_CREDITS;
         curator.setCuratorApproved(classId, alice, true);
@@ -227,19 +387,40 @@ contract ATK_PointsModuleForkTest is ForkLifecycleFixture {
         uint256 earned = points.curatorPointsInClass(alice, classId);
         assertGt(earned, 0, "30 clean days of matured, aged first-loss");
 
-        _declareDefault(tokenId, bytes32(0));
-        _realizeLoss(tokenId, 1e23, bytes32(0)); // dilute 2e23 -> 1e23, survival 0.5
+        // ADR-0038: the closure figure, derived in closed form here and pinned to the constant.
+        uint256 dust;
+        {
+            (uint256 recognized, uint256 canonical) = _adr0038Closure(4e23, 30 days);
+            dust = recognized - canonical;
+            assertEq(dust, DUST_4E23_30D, "closed-form ADR-0038 closure dust for 4e23 at day 30");
+        }
+        // The declaration charges the dust to layer 1 (per-layer event pinned inside the helper).
+        _declareDefaultPinningDust(tokenId, dust);
+        assertEq(curator.poolBalance(classId), 2e23 - dust, "ADR-0038: dust charged to layer 1 at declaration");
+        _realizeLoss(tokenId, 1e23, bytes32(0)); // dilute (2e23 - dust) -> (1e23 - dust)
+        assertEq(
+            curator.poolBalance(classId), 2e23 - dust - 1e23, "layer 1 absorbed exactly the loss on top of the dust"
+        );
+        assertEq(points.curatorLossEpochCount(classId), 2, "dust epoch 0 plus the real loss epoch 1");
+        assertEq(
+            points.curatorLossAt(classId, 1), points.curatorLossAt(classId, 0), "both epochs at the declaration instant"
+        );
         (bool frozen, uint64 frozenAt) = points.curatorFreezeStatus(alice, classId);
         assertTrue(frozen, "frozen by the loss");
         assertEq(points.curatorPointsInClass(alice, classId), earned, "pre-loss window banked");
 
-        // ── ATTACK: top back up to the pre-loss notional (posting is NOT freeze-gated) ──
+        // ── ATTACK: top back up by the lost 1e23 (posting is NOT freeze-gated) ──
         vm.startPrank(alice);
         usdfr.approve(address(curator), 1e23);
         curator.postFirstLoss(classId, 1e23);
         vm.stopPrank();
-        assertEq(curator.postedOf(classId, alice), 2e23, "notional restored to the pre-loss 2e23");
-        // The cache was diluted to 1e23 then topped by 1e23, landing on the live posted amount.
+        assertEq(
+            curator.postedOf(classId, alice),
+            2e23 - dust,
+            "notional restored to the pre-loss 2e23 less the ADR-0038 dust charged at declaration"
+        );
+        // The cache was diluted to the WAD-truncated 2e23 * survival / WAD, then topped by the
+        // difference to the live posted amount (`onCuratorStakeChange` tracks newPosted - old).
         assertEq(
             points.curatorTracked(alice, classId),
             curator.postedOf(classId, alice),
@@ -247,10 +428,10 @@ contract ATK_PointsModuleForkTest is ForkLifecycleFixture {
         );
 
         // (a) The top-up came off a NON-zero (merely diluted) cache, so it does NOT clear the
-        //     freeze — the fresh capital is frozen too, and earns nothing.
+        //     freeze: the fresh capital is frozen too, and earns nothing.
         (frozen, frozenAt) = points.curatorFreezeStatus(alice, classId);
         assertTrue(frozen, "ATTACK BLOCKED: topping up from a diluted position does NOT clear the freeze");
-        assertEq(frozenAt, points.curatorLossAt(classId, 0), "ceiling still pinned at the original loss");
+        assertEq(frozenAt, points.curatorLossAt(classId, 0), "ceiling still pinned at the first unseen epoch");
         assertEq(
             points.curatorPointsInClass(alice, classId), earned, "the topped-up capital earns nothing while frozen"
         );
@@ -265,8 +446,9 @@ contract ATK_PointsModuleForkTest is ForkLifecycleFixture {
             "restored notional still frozen: no free ride on a loss"
         );
 
-        // (b) Thaw, then measure: the restored 2e23 must NOT accrue as if it had been posted at
-        //     t0. Compare it against a control curator (bob) who posts a FRESH 2e23 right now.
+        // (b) Thaw, then measure: the restored 2e23 - dust must NOT accrue as if it had been
+        //     posted at t0. Compare it against a control curator (bob) who posts a FRESH 2e23
+        //     right now (dust more than alice, so the comparison is not tilted in her favour).
         curator.setCuratorApproved(classId, bob, true);
         assertEq(_mintFromUSDC(bob, 2_000_000e6), 2e24, "control curator funds");
         vm.startPrank(bob);
@@ -283,18 +465,18 @@ contract ATK_PointsModuleForkTest is ForkLifecycleFixture {
         uint256 aliceThaw = points.curatorPointsInClass(alice, classId);
         uint256 bobStart = points.curatorPointsInClass(bob, classId);
 
-        // Let identical live notionals (alice 2e23 restored, bob 2e23 fresh) run the same window.
+        // Let the two live notionals (alice 2e23 - dust restored, bob 2e23 fresh) run the same window.
         _warp(30 days);
         uint256 aliceGain = points.curatorPointsInClass(alice, classId) - aliceThaw;
         uint256 bobGain = points.curatorPointsInClass(bob, classId) - bobStart;
         assertGt(aliceGain, 0, "alice's surviving+restored capital accrues after thaw");
         assertGt(bobGain, 0, "the fresh control accrues too");
-        // The surviving half of alice's stake keeps its ORIGINAL (older) maturity anchor, so on
-        // equal notional over an equal window alice earns at least as much as a brand-new post —
-        // never LESS. The exploit would be the reverse: replacement capital riding the old ramp to
-        // out-earn while ALSO having escaped the loss. That is refused above (it earned zero while
-        // frozen); here we simply confirm the post-thaw accrual is well-defined and bounded, with
-        // both positions live and neither inheriting phantom points.
+        // The surviving part of alice's stake keeps its ORIGINAL (older) maturity anchor, so on
+        // (dust short of) equal notional over an equal window alice earns at least as much as a
+        // brand-new post, never LESS. The exploit would be the reverse: replacement capital riding
+        // the old ramp to out-earn while ALSO having escaped the loss. That is refused above (it
+        // earned zero while frozen); here we simply confirm the post-thaw accrual is well-defined
+        // and bounded, with both positions live and neither inheriting phantom points.
         assertGe(aliceGain, bobGain, "aged surviving capital accrues >= a fresh post of equal notional (ramp honored)");
         assertLt(aliceGain, 3 * bobGain, "but NOT unboundedly: no phantom ramp inheritance inflates it");
     }

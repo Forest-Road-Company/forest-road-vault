@@ -7,6 +7,12 @@ questions resolved here. Two sub-decisions (settlement-heartbeat/liquidity calib
 marking of a declared-but-unquantified default) are flagged **economic-review** and
 **counsel-review** respectively and must clear before mainnet.
 
+> **§Y.2 REOPENED 2026-09-10.** The refusal below of pre-crediting a forward return was put to
+> Forest Road and reversed in principle: see [ADR-0038](0038-continuous-interest-accrual-to-susdfr.md),
+> which decides that earned-but-unreceived interest (PIK and cash) accrues continuously into the
+> senior exchange rate. ADR-0038 is Draft and binds nothing yet; the text below is the record of
+> what was decided in 2026-07 and why, and it is deliberately left standing.
+
 ## Context
 
 A pre-mainnet red-team established (PoC on a Sepolia fork) that the epoch redemption queue does

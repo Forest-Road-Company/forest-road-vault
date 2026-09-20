@@ -3,7 +3,9 @@
 One file per material design decision: the decision, the alternatives considered, the
 rationale, and the status. Statuses: **Locked** (Forest Road direction — do not reopen
 without their input), **Resolved** (settled; challengeable on technical grounds),
-**Accepted** (made during implementation).
+**Accepted** (made during implementation), **Draft** (put to Forest Road for decision; not
+accepted; binds nothing). References to "CLAUDE.md", "the operating rules" and "brief Part n"
+point at internal governing documents that are not published.
 
 | ADR | Title | Status |
 |---|---|---|
@@ -42,3 +44,5 @@ without their input), **Resolved** (settled; challengeable on technical grounds)
 | [0034](0034-exit-pricing-in-cascade-order.md) | All capital at risk but losses borne in cascade order at all times; sub-par exit prices off the post-cascade residual, ordering encoded as an invariant, slippage protection on `redeem` | Accepted (Forest Road direction); disclosure surfaces counsel-review |
 | [0035](0035-sgrove-absorbs-without-a-per-event-cap.md) | sGROVE absorbs from the whole live reserve; no per-event ceiling or snapshot | Accepted (Forest Road, 2026-08-11); Part 11 gate 5 review pending |
 | [0036](0036-queued-governance-finality-no-proposal-guardian.md) | Queued governance is final: no proposal guardian and no post-queue veto; `updateTimelock` disabled. Amends ADR-0013 | Accepted (Forest Road, 2026-08-14, G1c); testnet governance rehearsal outstanding |
+| [0037](0037-bnb-smart-chain-instance-and-reserve-asset-admission.md) | A second, separately backed protocol instance on BNB Smart Chain, and how a reserve asset is admitted (would supersede ADR-0009 and ADR-0030 §1 in part) | Draft (for Forest Road decision, 2026-09-07); not accepted |
+| [0038](0038-continuous-interest-accrual-to-susdfr.md) | Continuous per-second accrual of earned-but-unreceived interest (PIK **and** cash) into the senior exchange rate, independent of payment interval. Reopens ADR-0002 in part; would supersede ADR-0022 §Y.2 | Draft, decided in principle (Forest Road, 2026-09-10); counsel and economic review owed; not accepted |

@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.30;
 
+import {IContinuousAccrual} from "./interfaces/IContinuousAccrual.sol";
+import {IAccrualRisk, IAccrualRoundingRisk} from "./interfaces/IAccrualLifecycle.sol";
+import {DefaultBackstopLib} from "./libraries/DefaultBackstopLib.sol";
+import {DefaultAccrualLib} from "./libraries/DefaultAccrualLib.sol";
+
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {IPausableModule} from "./interfaces/IMintRedeemController.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
@@ -24,6 +30,8 @@ import {IReserveLossAbsorber} from "./interfaces/IReserveLossAbsorber.sol";
 import {IReserveManager} from "./interfaces/IReserveManager.sol";
 import {IsUSDfr} from "./interfaces/IsUSDfr.sol";
 import {Config} from "./libraries/Config.sol";
+import {DefaultInitLib} from "./libraries/DefaultInitLib.sol";
+import {DefaultLossLib} from "./libraries/DefaultLossLib.sol";
 import {LossEventIds} from "./libraries/LossEventIds.sol";
 import {Roles} from "./libraries/Roles.sol";
 
@@ -46,8 +54,9 @@ import {Roles} from "./libraries/Roles.sol";
 ///         and the backstop before any depositor impairment.
 /// @dev Pause policy: only the PERMISSIONLESS triggers (marginCall/clearMarginCall/
 ///      liquidate) are pausable — the guardian's lever if the oracle misbehaves. The
-///      role-gated paths (declareDefault/accelerate/realizeLoss) are deliberately NOT
-///      pausable: suppressing loss recognition is never an emergency remedy.
+///      manager pause does not gate declareDefault/accelerate/realizeLoss. Owner policy
+///      requires completed legacy PIK posting before default; paused posting dependencies
+///      therefore block that declaration until servicing resumes.
 contract DefaultManager is
     Initializable,
     AccessControlUpgradeable,
@@ -55,11 +64,11 @@ contract DefaultManager is
     ReentrancyGuardUpgradeable,
     UUPSUpgradeable,
     IDefaultManager,
-    ICommitmentPrincipalSource
+    ICommitmentPrincipalSource,
+    IAccrualRisk,
+    IAccrualRoundingRisk
 {
-    uint256 private constant BACKSTOP_PROBE_GAS = 200_000;
-    uint256 private constant COVER_DELEGATE_SELECTOR =
-        0xc4e35fac00000000000000000000000000000000000000000000000000000000;
+    // Native backstop capability probes live in DefaultBackstopLib.
 
     /// @custom:storage-location erc7201:forestroad.storage.DefaultManager
     struct DefaultStorage {
@@ -75,22 +84,9 @@ contract DefaultManager is
         mapping(uint256 tokenId => uint64) cureDeadlines; // 0 = no active margin call
         mapping(uint256 classId => bytes32) remedyRefs;
         mapping(uint256 classId => uint64) cureWindows;
-        // ── ADR-0022 conservative-redemption-NAV impairment tracking (append-only tail) ──
-        // Per-class outstanding principal of loans in Defaulted/Accelerated state whose loss
-        // is NOT yet realized. `pendingSeniorImpairment()` nets this against junior capacity
-        // (curator pool per class, then sGROVE) to mark redemptions. It moves on exactly four
-        // paths, and this list is exhaustive:
-        //   += deployedTo                     at declare/liquidate (`_recordDefaulted`);
-        //   -= the realized loss              at `realizeLoss` (`_reduceDefaulted`);
-        //   -= the whole remainder            at a clean resolve (`onDefaultResolved`);
-        //   -= principal RECOVERED IN CASH    at a partial recovery (`onDefaultRecovery`), and
-        //                                     again as a backstop clamp inside
-        //                                     `_reduceDefaulted` (AUDIT FIX H-2).
-        // The last path is the H-2 fix: a recovery on a still-defaulted facility lowers
-        // `deployedTo` in the ReserveManager, and without it the contribution stayed pinned at
-        // the pre-recovery snapshot — an over-mark that nothing on-chain could ever clear.
-        // Every decrement is mirrored one-for-one into `defaultedContribution[tokenId]` below,
-        // so the class pool is always exactly the sum of its live per-token contributions.
+        // Recorded face of declared facilities, including their recognized income. Declaration,
+        // opening migration, cash recoveries, realized losses and resolution keep these class
+        // totals equal to the sum of live per-facility contributions and ledger rows.
         mapping(uint256 classId => uint256) declaredDefaultedPrincipal;
         mapping(uint256 tokenId => uint256) defaultedContribution;
         // ── Historical PM-R-11 per-event observability (append-only layout) ──
@@ -114,34 +110,9 @@ contract DefaultManager is
         // those gates exist to refuse. It reads as whatever the last pre-fix write left behind
         // (zero on a fresh deployment) and no code path may read it again.
         uint256 liveDefaultCapacityFloor;
-        // ── AUDIT FIX H-5: permissionless past-due accounting trigger (append-only TAIL) ──
-        // (REDESIGNED 2026-07-22 — final-audit findings #1/#2.) Receivable classes store `maturity`
-        // but never read it after funding, so between a missed payment and a servicer's discretionary
-        // `declareDefault` a past-due facility was priced at PAR and seniors exited at par.
-        //
-        // The FIRST H-5 fix drove `markPastDue` into `LoanState.Defaulted` — the SAME slot
-        // `declareDefault` uses — which (a) permanently foreclosed a later `declareDefault`/
-        // `RemedyInitiated` (no ClaimBridge edge back from Defaulted), (b) de-gated `realizeLoss`
-        // from the `DefaultDeclared` attestation, and (c) let anyone freeze a curing facility.
-        //
-        // THE REDESIGN. `markPastDue` no longer touches `LoanState` or the curator: it sets a
-        // REVERSIBLE per-facility `pastDueMarked` flag and records the facility's at-risk principal
-        // into a SEPARATE past-due pool (`pastDueContribution` per token, `pastDuePrincipal` per
-        // class, `pastDueExposure` the global aggregate). `pendingSeniorImpairment` adds
-        // `pastDuePrincipal[classId]` alongside `declaredDefaultedPrincipal[classId]` when it nets
-        // against junior capacity, so a past-due facility depresses the conservative senior NAV — the
-        // honest mark — WITHOUT foreclosing the legal path or being able to trigger a loss (a merely
-        // past-due facility stays `Active`/`Amortizing`, and `realizeLoss` requires
-        // `Defaulted`/`Accelerated`, reachable only via the attested `declareDefault`). The mark is
-        // removed/reduced by four paths: `clearPastDue` (servicer cure); `declareDefault` (converts
-        // to the declared pool, releasing before recording so the facility counts exactly once,
-        // never both); and `onPerformingRepayment` (called by the waterfall on the ordinary
-        // performing repayment path — re-anchors the mark DOWN to live `deployedTo` as the facility
-        // amortizes, and fully clears it on a full repayment, so a facility that cures through the
-        // normal path stops depressing the NAV without a manual clear — the H-2 re-anchor, applied
-        // to the past-due pool). Any residual over-mark is the safe direction (NAV lower, exits
-        // cheaper, seniors protected) and is always clearable on-chain, so unlike H-2 it can never
-        // strand.
+        // Reversible risk marks for performing receivables past their governed grace window.
+        // Posted and virtual accrued income remain in the risk view. Cure, repayment and native
+        // rounding corrections reduce the mark; declaration transfers it to declared risk once.
         mapping(uint256 classId => uint64) graceWindows;
         mapping(uint256 tokenId => bool) pastDueMarked;
         uint256 pastDueExposure;
@@ -212,6 +183,11 @@ contract DefaultManager is
         // shared-reserve cascade walk outside this implementation preserves the EIP-170 margin
         // while the address tail leaves every pre-existing ERC-7201 field in place.
         ICommitmentLedger commitmentLedger;
+        // Optional legacy PIK settlement route, also checked when the native source is bound.
+        // A zero address bypasses the legacy settlement call before marking a late facility.
+        IPausableModule waterfall;
+        // Permanent native accrual source, tail appended for the live proxy.
+        IContinuousAccrual accrualReserve;
     }
 
     /// @dev AUDIT FIX (SWEEP-3 S3-F3). One delinquent payment episode's relief clock. Stored only
@@ -264,6 +240,12 @@ contract DefaultManager is
     ConservativeImpairmentMath public immutable impairmentMath;
     CommitmentLedgerFactory internal immutable commitmentLedgerFactory;
 
+    /// @dev Source accounting and host governance cannot overlap.
+    modifier accrualIdle() {
+        DefaultAccrualLib.requireIdle(_storage(), _reentrancyGuardEntered());
+        _;
+    }
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         impairmentMath = new ConservativeImpairmentMath();
@@ -292,11 +274,9 @@ contract DefaultManager is
         external
         initializer
     {
-        if (
-            admin == address(0) || guardian == address(0) || upgrader == address(0) || m.bridge == address(0)
-                || m.registry == address(0) || m.reserves == address(0) || m.controller == address(0)
-                || m.curator == address(0) || m.oracle == address(0) || m.usdfr == address(0) || m.vault == address(0)
-        ) revert DefaultManager_ZeroAddress();
+        if (admin == address(0) || guardian == address(0) || upgrader == address(0)) {
+            revert DefaultManager_ZeroAddress();
+        }
         __AccessControl_init();
         __Pausable_init();
         __ReentrancyGuard_init();
@@ -304,51 +284,85 @@ contract DefaultManager is
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(Roles.GUARDIAN_ROLE, guardian);
         _grantRole(Roles.UPGRADER_ROLE, upgrader);
+        // THE MODULE WIRING AND THE PER-CLASS WINDOW SEED LIVE IN `DefaultInitLib`, EXTRACTED
+        // 2026-09-10 FOR EIP-170. See that library's header for why this function and not a cascade
+        // function was chosen. The `initializer` modifier, the four `__X_init` calls and the three
+        // role grants stay HERE deliberately: they are internal members of the inherited
+        // OpenZeppelin contracts, which a delegatecall library cannot reach, and keeping them in
+        // view is what lets an auditor read the initialisation guard and the role grants together.
+        //
+        // The ledger is created HERE and passed in because `commitmentLedgerFactory` is an
+        // `immutable` on the implementation, and a delegatecall library runs in the proxy's context
+        // where the caller's immutables are not readable. The comment it replaces still applies:
+        // the implementation constructor deployed the factory; it now deploys one ledger owned by
+        // this proxy, keeping the child creation code out of this runtime.
+        //
+        // The H-5 grace-window reasoning moved with the loop; it is in `DefaultInitLib.wire`.
+        DefaultInitLib.wire(_storage(), m, address(commitmentLedgerFactory.create(address(this))));
+    }
+
+    /// @notice The configured engine called for bounded PIK servicing before past-due marking.
+    /// @return The engine address, or zero before wiring.
+    function waterfallEngine() external view returns (address) {
+        return address(_storage().waterfall);
+    }
+
+    /// @notice Permanently binds the native risk book to the token's verified accrual reserve.
+    function setAccrualReserve(address reserve) external onlyRole(DEFAULT_ADMIN_ROLE) accrualIdle nonReentrant {
+        DefaultAccrualLib.bind(_storage(), reserve);
+    }
+
+    /// @notice The permanent continuous-interest source, or zero before activation binding.
+    function accrualReserve() external view returns (address) {
+        return address(_storage().accrualReserve);
+    }
+
+    /// @inheritdoc IAccrualRisk
+    /// @dev Narrow reserve continuation, including within guarded default preparation. No public
+    ///      pricing gate or second reentrancy guard may block this authenticated reclassification.
+    function onAccrualPosted(uint256 tokenId, uint256 amount) external {
+        DefaultAccrualLib.onPosted(_storage(), tokenId, amount);
+    }
+
+    /// @notice Reconciles an attested opening after the bound reserve has posted its native face.
+    /// @dev A narrow reserve-only continuation; returns the existing past-due flag even at zero contribution.
+    function onAccrualOpening(uint256 tokenId, uint256 income) external returns (bool marked) {
+        return DefaultAccrualLib.onOpening(_storage(), tokenId, income);
+    }
+
+    /// @inheritdoc IAccrualRoundingRisk
+    /// @dev Reserve-only risk continuation after native posting and a proved rounding write-down.
+    function onAccrualRounding(uint256 tokenId, uint256 amount) external {
+        DefaultAccrualLib.onRounding(_storage(), tokenId, amount);
+    }
+
+    function setWaterfall(address engine) external onlyRole(DEFAULT_ADMIN_ROLE) accrualIdle {
         DefaultStorage storage $ = _storage();
-        $.bridge = ClaimBridge(m.bridge);
-        $.registry = ICollateralRegistry(m.registry);
-        $.reserves = IReserveManager(m.reserves);
-        $.controller = IMintRedeemController(m.controller);
-        $.curator = ICuratorModule(m.curator);
-        $.oracle = IAttestationOracle(m.oracle);
-        $.usdfr = IERC20(m.usdfr);
-        $.vault = m.vault;
-        // The implementation constructor deployed the factory; it now deploys one ledger owned
-        // by this proxy, keeping the child creation code out of this runtime.
-        $.commitmentLedger = ICommitmentLedger(address(commitmentLedgerFactory.create(address(this))));
-        for (uint256 classId = 1; classId <= Config.NUM_CLASSES; ++classId) {
-            $.cureWindows[classId] = Config.DEFAULT_MARGIN_CURE_WINDOW;
-            emit CureWindowSet(classId, Config.DEFAULT_MARGIN_CURE_WINDOW);
-            // AUDIT FIX (H-5): the past-due grace window defaults to (and is capped at) the
-            // redemption cooldown. Governance may only ever lower it (see `setGraceWindow`'s cap).
-            // The cap bounds the maturity-anchored marking lag; it does NOT fully cover the
-            // request-anchored redemption cooldown (a partial par-exit window survives — documented).
-            $.graceWindows[classId] = Config.DEFAULT_REDEEM_COOLDOWN;
-            emit GraceWindowSet(classId, Config.DEFAULT_REDEEM_COOLDOWN);
+        if (address($.accrualReserve) != address(0) && engine != address($.waterfall)) {
+            revert DefaultAccrualLib.DefaultAccrual_WrongModules();
         }
+        if (engine != address(0)) {
+            // Must at least answer the one call this contract will ever make on it.
+            IPausableModule(engine).paused();
+        }
+        $.waterfall = IPausableModule(engine);
+        emit WaterfallSet(engine);
     }
 
     /// @inheritdoc IDefaultManager
     /// @dev W6-B3/W7 migration path for a proxy upgraded from an implementation that predates the
     ///      append-only ledger address. W7 registers rows at DECLARATION, not first draw, so a
     ///      fresh child is safe only while there is no live declared principal at all.
-    function initializeCommitmentLedger() external onlyRole(DEFAULT_ADMIN_ROLE) {
-        DefaultStorage storage $ = _storage();
-        address current = address($.commitmentLedger);
-        if (current != address(0)) revert DefaultManager_CommitmentLedgerAlreadySet(current);
-        uint256 consumed = $.liveDefaultCoverageConsumed;
-        if (consumed != 0) revert DefaultManager_CommitmentLedgerMigrationUnsafe(consumed);
-        uint256 declared;
-        for (uint256 classId = 1; classId <= Config.NUM_CLASSES; ++classId) {
-            declared += $.declaredDefaultedPrincipal[classId];
-        }
-        if (declared != 0) revert DefaultManager_CommitmentLedgerMigrationUnsafe(declared);
-        address ledger = address(commitmentLedgerFactory.create(address(this)));
-        $.commitmentLedger = ICommitmentLedger(ledger);
-        emit CommitmentLedgerSet(ledger);
+    function initializeCommitmentLedger() external onlyRole(DEFAULT_ADMIN_ROLE) accrualIdle {
+        DefaultAccrualLib.installEmptyLedger(_storage(), address(commitmentLedgerFactory), false);
     }
 
-    // ── Receivable remedy path (SERVICER_ROLE; never pausable) ───────────
+    /// @inheritdoc IDefaultManager
+    function replaceCommitmentLedger() external onlyRole(DEFAULT_ADMIN_ROLE) accrualIdle {
+        DefaultAccrualLib.installEmptyLedger(_storage(), address(commitmentLedgerFactory), true);
+    }
+
+    // ── Receivable remedy path (SERVICER_ROLE; posting prerequisites apply) ───────────
 
     /// @inheritdoc IDefaultManager
     /// @dev Phase G (ADR-0020): declaring default requires the attested off-chain fact
@@ -365,7 +379,7 @@ contract DefaultManager is
         if (f.state != ClaimBridge.LoanState.Active && f.state != ClaimBridge.LoanState.Amortizing) {
             revert DefaultManager_NotDefaultable(tokenId);
         }
-        _consumeExact(
+        DefaultLossLib.consumeExact(
             $,
             tokenId,
             IAttestationOracle.AttestationKind.DefaultDeclared,
@@ -374,6 +388,7 @@ contract DefaultManager is
         );
         // Pin all pre-default management/performance economics before the conservative
         // marked NAV changes. The new impairment then lowers NAV against the old HWM.
+        DefaultAccrualLib.prepare($, tokenId, true);
         IsUSDfr($.vault).accrueFees();
         delete $.cureDeadlines[tokenId]; // a margin path in flight is superseded
         $.bridge.transitionState(tokenId, ClaimBridge.LoanState.Defaulted);
@@ -387,14 +402,24 @@ contract DefaultManager is
         // apply. A no-op when the facility was not flagged.
         _releasePastDue($, tokenId, f.classId);
         _recordDefaulted($, tokenId, f.classId); // ADR-0022: enter the impairment pool
-        _advanceImpairmentRevision($);
+        DefaultLossLib.advanceImpairmentRevision($);
         bytes32 ref = $.remedyRefs[f.classId];
         emit DefaultDeclared(tokenId, f.classId, ref);
         emit RemedyInitiated(tokenId, f.classId, ref);
     }
 
     /// @inheritdoc IDefaultManager
-    function accelerate(uint256 tokenId) external onlyRole(Roles.SERVICER_ROLE) nonReentrant {
+    function settleLegacyPikForDefault(uint256 tokenId, bytes32 evidenceHash, uint256 maxPeriods)
+        external
+        onlyRole(Roles.SERVICER_ROLE)
+        nonReentrant
+        returns (uint256 processed, uint64 pendingDue)
+    {
+        return DefaultAccrualLib.settleLegacyPikForDefault(_storage(), tokenId, evidenceHash, maxPeriods);
+    }
+
+    /// @inheritdoc IDefaultManager
+    function accelerate(uint256 tokenId) external onlyRole(Roles.SERVICER_ROLE) accrualIdle nonReentrant {
         DefaultStorage storage $ = _storage();
         ClaimBridge.Facility memory f = $.bridge.facility(tokenId);
         if (f.state != ClaimBridge.LoanState.Defaulted) revert DefaultManager_NotInDefault(tokenId);
@@ -403,115 +428,17 @@ contract DefaultManager is
     }
 
     /// @inheritdoc IDefaultManager
-    /// @dev Order matters for ADR-0012: all burns execute BEFORE the write-down, so the
-    ///      backing invariant asserted inside each `burnLoss` sees supply falling while
-    ///      backing is still whole; the write-down then drops backing by exactly the
-    ///      amount supply already fell. Nothing in between can observe a violation.
+    /// @dev THE BODY LIVES IN `DefaultLossLib`, EXTRACTED 2026-09-10 FOR EIP-170. The modifiers
+    ///      stay HERE, because a delegatecall library cannot see the caller's modifiers: this
+    ///      function is the only authorised way in, and `onlyRole(SERVICER_ROLE)` plus
+    ///      `nonReentrant` are what make it so. See the library header for the ADR-0012 ordering
+    ///      rule that the moved body depends on.
     function realizeLoss(uint256 tokenId, uint256 loss, bytes32 evidenceHash)
         external
         onlyRole(Roles.SERVICER_ROLE)
         nonReentrant
     {
-        if (loss == 0) revert DefaultManager_ZeroAmount();
-        DefaultStorage storage $ = _storage();
-        ClaimBridge.Facility memory f = $.bridge.facility(tokenId);
-        if (f.state != ClaimBridge.LoanState.Defaulted && f.state != ClaimBridge.LoanState.Accelerated) {
-            revert DefaultManager_NotInDefault(tokenId);
-        }
-        // Block-scoped so `outstanding` does not survive into the cascade body: ADR-0034 Y-bis's
-        // layer-0 local (`allocatable`) pushed this function over the stack limit otherwise.
-        {
-            uint256 outstanding = $.reserves.deployedTo(tokenId);
-            if (loss > outstanding) revert DefaultManager_LossExceedsOutstanding(tokenId, loss, outstanding);
-        }
-        // C4-01: the durable oracle fact key uses the economic evidence identity, not
-        // signature salt; a zero evidence id would collapse distinct equal-sized events.
-        if (evidenceHash == bytes32(0)) revert DefaultManager_ZeroEvidenceHash();
-        _consumeExact(
-            $,
-            tokenId,
-            IAttestationOracle.AttestationKind.LossRealized,
-            keccak256(abi.encode(tokenId, loss, evidenceHash)),
-            true
-        );
-
-        // Crystallize all pre-loss fees before any cascade leg moves value. The HWM then
-        // remains at the pre-loss post-fee peak, so recovery from this loss is never charged
-        // again as performance. A later revert rolls this checkpoint back atomically.
-        IsUSDfr($.vault).accrueFees();
-
-        // ── layer 0: junior absorption ALREADY PAID FORWARD by senior exits ───
-        // ADR-0034 Y-bis — LOAD-BEARING, DO NOT DELETE. See `exitPrepaidAbsorption`'s field
-        // NatSpec for the full derivation. Without this the junior tranche pays TWICE for one
-        // loss: once at the exit draw, again here.
-        uint256 allocatable = loss - $.reserves.consumeExitPrepayment(tokenId, loss);
-
-        // ── layer 1: curator first-loss (always consulted first) ──────────
-        uint256 absorbed;
-        uint256 residual;
-        if (allocatable != 0) (absorbed, residual) = $.curator.absorbLoss(f.classId, allocatable);
-
-        // ── layer 2: sGROVE backstop (only for the residual) ──────────────
-        // ADR-0035 draws from the shared live reserve. The event row is synchronized inside the
-        // helper so its post-draw principal state never has to live in this frame.
-        uint256 covered = _drawLayer2ForLiveDefault($, tokenId, f.classId, residual);
-
-        // ── burn junior layers' absorption from this contract ─────────────
-        uint256 selfBurn = absorbed + covered;
-        if (selfBurn != 0) $.controller.burnLoss(address(this), selfBurn);
-
-        // ── layer 3: depositor principal (only past BOTH junior layers) ───
-        // NOTE (ADR-0034 Y-bis): `allocatable`, not `loss`. The layer-0 prepayment has already
-        // been burned out of junior capital by the exit that drew it, so charging the vault for
-        // it here would burn the same dollar of supply twice.
-        uint256 depositorLoss = allocatable - selfBurn;
-        if (depositorLoss != 0) {
-            // ADR-0023: bound by the vault's VESTED assets, not its raw USDfr balance. The
-            // balance also contains realized yield still streaming in, which is not yet
-            // credited to any share. Burning into it would leave `unvestedYield()` above the
-            // balance, collapsing `totalAssets()` to zero for the rest of the stream — a
-            // §1.3 exchange-rate monotonicity break far larger than the loss itself, and
-            // fatal to the TWAP rate oracle. Bounding here keeps `balance >= unvested` true
-            // by construction; the vault's own clamp is then unreachable defence-in-depth.
-            // Strictly the CONSERVATIVE direction: it can only make `realizeLoss` revert
-            // earlier into the existing governance-intervention path, never absorb more.
-            uint256 vaultAssets = IsUSDfr($.vault).totalAssets();
-            if (vaultAssets < depositorLoss) {
-                // beyond total absorption capacity: unstaked USDfr would be impaired —
-                // fail loudly; governance must intervene (CLAUDE.md prime directive 4).
-                //
-                // AUDIT FIX (G3) — WHAT "INTERVENE" NOW MEANS ON-CHAIN. This revert rolls back
-                // the whole call INCLUDING `reserves.recordPrincipalWritedown` below, so before
-                // G3 there was no way to state that the unabsorbable portion had become
-                // worthless: backing stayed at face, `backingInvariantHolds()` reported true
-                // against that fiction, and 1:1 minting continued. The intervention is
-                // `ReserveManager.recognizePrincipalImpairment(tokenId, residual, evidence)` —
-                // a governance valuation act that lowers backing without burning supply, leaving
-                // this cascade to allocate whatever capital does exist. DO NOT relax this bound
-                // to "make the loss go through": that would impair unstaked USDfr holders, who
-                // sit outside the §1.3 cascade entirely.
-                revert DefaultManager_LossExceedsAbsorptionCapacity(tokenId, depositorLoss, vaultAssets);
-            }
-            $.controller.burnLoss($.vault, depositorLoss);
-        }
-
-        // ── pair the write-down with the burns, atomically (ADR-0012) ─────
-        $.reserves.recordPrincipalWritedown(tokenId, loss);
-        $.registry.recordExposureDecrease(f.classId, f.borrowerId, f.stateId, loss);
-        // ADR-0022: the realized portion leaves the at-risk (unrealized-impairment) pool —
-        // it is now reflected in the vault's balance via the layer-3 burn above.
-        _reduceDefaulted($, tokenId, f.classId, loss);
-        // A write-down can be the final act of a workout (including a zero-recovery
-        // resolution, or cash recovered before the residual is written off). Previously
-        // only WaterfallEngine's final cash repayment could enter `Resolved`, so a full
-        // write-off left a zero-outstanding NFT permanently `Defaulted`/`Accelerated`.
-        // Transition here once the atomic write-down has exhausted the outstanding.
-        if ($.reserves.deployedTo(tokenId) == 0) {
-            $.bridge.transitionState(tokenId, ClaimBridge.LoanState.Resolved);
-        }
-        _advanceImpairmentRevision($);
-
-        emit LossRealized(tokenId, f.classId, loss, absorbed, covered, depositorLoss);
+        DefaultLossLib.realizeLoss(_storage(), tokenId, loss, evidenceHash);
     }
 
     /// @notice Retained-but-unreachable ABI for allocating an idle-reserve backing reduction.
@@ -541,10 +468,10 @@ contract DefaultManager is
 
         // ── layer 2: SGrove's shared live reserve, keyed only for observability ──
         // NO LAYER-0 PREPAYMENT CONSUMPTION HERE, DELIBERATELY. See `exitPrepaidAbsorption`:
-        // `ReserveManager._allocateReserveLoss` sizes `requiredSupplyReduction` off LIVE supply and
+        // `ReserveManager._recognizeReserveLoss` sizes `requiredSupplyReduction` off LIVE supply and
         // backing, so an earlier exit draw has already shrunk it. Consuming the ledger here would
         // credit the same draw a second time.
-        allocation.backstopCovered = _coverFromBackstop($, incidentId, residual);
+        allocation.backstopCovered = DefaultLossLib.coverFromBackstop($, incidentId, residual);
         residual -= allocation.backstopCovered;
 
         // Both junior layers transferred their USDfr here. Burn every received unit before
@@ -591,15 +518,29 @@ contract DefaultManager is
     ///      about the dataflow, not an assertion in it. Inverting it requires rewriting the
     ///      function, not deleting a guard.
     ///
-    ///      LAYER 1 IS CLASS-LESS, AND THAT IS A DELIBERATE DEVIATION FROM THE LETTER OF Y-bis.
-    ///      Y-bis says "curator first-loss PER CLASS". A redemption has no collateral class, and
-    ///      the deficit it prices against (`totalUSDfr() - backingValue()`) is not class-attributed
-    ///      on-chain — it can be produced by a class-less idle write-down with no facility
-    ///      involved at all. So this uses `absorbGlobalLoss`, pro-rata by the five pools'
-    ///      SNAPSHOTTED balances, exactly as the live ReserveManager custody cascade's
-    ///      `_drawJuniorReserveLoss` does: "the capital actually standing at risk". A curator may
-    ///      reasonably object to funding another class's exit price. THIS NEEDS FOREST ROAD
-    ///      SIGN-OFF AND MUST NOT BE GLOSSED.
+    ///      LAYER 1 IS CLASS-LESS, AND FOREST ROAD SIGNED THAT OFF ON 2026-09-09. This block used
+    ///      to end "THIS NEEDS FOREST ROAD SIGN-OFF AND MUST NOT BE GLOSSED"; ADR-0034 Y-bis is
+    ///      amended and now says pooled rather than per class, with the reasoning recorded there.
+    ///
+    ///      A redemption has no collateral class, and the deficit it prices against
+    ///      (`totalUSDfr() - backingValue()`) is a BLEND: part class-attributable credit
+    ///      impairment, part class-LESS custody shortfall that an idle write-down can produce with
+    ///      no facility involved at all. Splitting one blended number into class shares is
+    ///      arbitrary in exactly the custody part. Pooling is also not new here: ADR-0033 already
+    ///      mandates pro rata across all five pools for an adjudicated custody loss, so this uses
+    ///      `absorbGlobalLoss` pro-rata by the five pools' SNAPSHOTTED balances, exactly as
+    ///      `_drawJuniorReserveLoss` does — "the capital actually standing at risk".
+    ///
+    ///      THE BOUNDARY IS LOAD-BEARING AND THIS AMENDMENT DOES NOT CROSS IT. A REALISED credit
+    ///      loss is still charged to the class that caused it, at `absorbLoss(f.classId, ...)`
+    ///      above. That must not be pooled: first-loss is POSTED per class, curators are APPROVED
+    ///      per class, and ADR-0004 computes subordination headroom per class against posted
+    ///      capital. Pooling realised losses would let one class's default consume another class's
+    ///      curator stake and would break that model.
+    ///
+    ///      DISCLOSURE, per the ADR: a curator's posted first-loss CAN be drawn to price a
+    ///      redemption whose deficit arose in another class. That is a commercial term of posting
+    ///      first-loss and belongs wherever curator terms are published.
     ///
     ///      LAYER 3 IS NOT REACHED HERE, AND THAT TOO IS AN OPEN QUESTION. ADR-0034 X places
     ///      unstaked USDfr holders LAST — behind the `sUSDfr` vault — so the honest full order for
@@ -639,7 +580,7 @@ contract DefaultManager is
         // ── layer 1: curator first-loss, pro-rata over the standing pools ──
         (uint256 absorbed, uint256 residual) = $.curator.absorbGlobalLoss(required);
         // ── layer 2: the sGROVE backstop, and ONLY for what layer 1 declined ──
-        uint256 covered = _coverFromBackstop($, SENIOR_EXIT_EVENT_ID, residual);
+        uint256 covered = DefaultLossLib.coverFromBackstop($, SENIOR_EXIT_EVENT_ID, residual);
 
         drawn = absorbed + covered;
         if (drawn != 0) {
@@ -648,167 +589,53 @@ contract DefaultManager is
             $.reserves.recordExitPrepayment(drawn);
             // ADR-0027: junior pool balances just moved, so any assessment taken against the old
             // balances is stale. Same reason `realizeLoss` advances it.
-            _advanceImpairmentRevision($);
+            DefaultLossLib.advanceImpairmentRevision($);
         }
         emit SeniorExitDrawn(required, absorbed, covered);
     }
 
     // ── Past-due accounting trigger (permissionless; NOT pausable) ───────
-
     /// @inheritdoc IDefaultManager
-    /// @dev AUDIT FIX (H-5, REDESIGNED 2026-07-22 — final-audit findings #1/#2). Receivable classes
-    ///      (1-4) store `maturity` but never read it after funding, so a facility that had defaulted
-    ///      on payment was priced at PAR — and seniors exited at par — for the whole window between
-    ///      the missed payment and a SERVICER's discretionary `declareDefault`. This closes that gap
-    ///      by giving the maturity clock an on-chain, permissionless, REVERSIBLE consequence.
-    ///
-    ///      REVERSIBLE MARK, NOT A DEFAULT. The first H-5 fix drove the facility to
-    ///      `LoanState.Defaulted` — the same slot `declareDefault` uses — which foreclosed a later
-    ///      `declareDefault`/`RemedyInitiated` (the on-chain legal-remedy trigger) forever and
-    ///      de-gated `realizeLoss` from the `DefaultDeclared` attestation. This redesign instead sets
-    ///      a REVERSIBLE per-facility flag and records the facility's at-risk principal into a
-    ///      SEPARATE past-due pool that `pendingSeniorImpairment` nets against junior capacity
-    ///      exactly like the declared pool. The facility stays `Active`/`Amortizing`, so:
-    ///        - `declareDefault`/`RemedyInitiated` stay reachable (it only reverts on
-    ///          non-Active/Amortizing), and it CONVERTS the mark (releases past-due, records
-    ///          declared) — no double count; and
-    ///        - `realizeLoss` (state ∈ {Defaulted, Accelerated}) is UNREACHABLE from a merely
-    ///          past-due facility, so the `DefaultDeclared` gate on loss realization is preserved by
-    ///          construction — the cascade cannot run without the attested `declareDefault`.
-    ///
-    ///      NO CURATOR FREEZE. Unlike `declareDefault`/`liquidate`, this does NOT
-    ///      `curator.freezeOnDefault`: a reversible past-due mark must not freeze first-loss (that
-    ///      was the permissionless-griefing sting). The curator freeze stays on the attested
-    ///      `declareDefault` only, where a `realizeLoss` it could front-run actually exists.
-    ///
-    ///      PERMISSIONLESS IS SAFE HERE. With the redesign a bystander call can only depress the
-    ///      conservative NAV reversibly — it can neither foreclose the legal path nor trigger a loss
-    ///      — so anyone may assert the maturity clock elapsed (senior-protective) with no griefing
-    ///      surface: a curing workout is not blocked (state and curator untouched) and the mark
-    ///      clears (`clearPastDue`) or converts (`declareDefault`).
-    ///
-    ///      NO UNDER-MARK. `outstanding` is `reserves.deployedTo` at mark time — the full at-risk
-    ///      principal and the largest loss the facility can produce (`realizeLoss` reverts above it,
-    ///      and `deployedTo` never rises for a facility past funding) — so the mark is an upper
-    ///      bound: over-mark direction only. A partial repayment after the mark (facility still
-    ///      Active) lets the snapshot exceed live `deployedTo` — a safe OVER-mark that the servicer
-    ///      clears via `clearPastDue`, and that `declareDefault` re-anchors to fresh `deployedTo` on
-    ///      conversion. It can never STRAND: `clearPastDue` is callable in any state.
-    ///
-    ///      ACCOUNTING, NOT LEGAL (ADR-0007 legal-sync; CLAUDE.md prime directive 6). It starts the
-    ///      accounting clock ONLY: no `DefaultDeclared` attestation is required and no
-    ///      `RemedyInitiated` is emitted. The servicer's legal declaration remains separate.
-    ///
-    ///      NOT PAUSABLE. It reads no oracle mark — only `maturity` (immutable) and `block.timestamp`
-    ///      — so there is no oracle-misbehaviour vector to suppress.
+    /// @dev A permissionless accounting mark leaves the facility's legal state unchanged.
+    ///      Accrued debt is checkpointed first. Cash and PIK income can increase the mark;
+    ///      repayment, cure and realized corrections reconcile it through their native callbacks.
+    ///      Legacy PIK settlement is attempted before a bounded extension of the grace window.
     function markPastDue(uint256 tokenId) external nonReentrant {
         DefaultStorage storage $ = _storage();
-        ClaimBridge.Facility memory f = $.bridge.facility(tokenId);
-        // Receivable classes only: marked-to-market facilities are priced by their attested mark
-        // and handled by the permissionless margin path, not the maturity clock.
+        // Bring native debt current before deciding whether its payment is overdue.
+        bool tracked;
+        ClaimBridge.Facility memory f;
+        {
+            uint64 paymentDue;
+            (tracked, paymentDue) = DefaultAccrualLib.prepare($, tokenId, false);
+            f = $.bridge.facility(tokenId);
+            if (paymentDue != 0) f.nextPaymentDue = paymentDue;
+        }
         if ($.registry.classParams(f.classId).model != ICollateralRegistry.CollateralModel.Receivable) {
             revert DefaultManager_NotReceivable(tokenId);
         }
-        // Only a live, performing facility can be marked.
         if (f.state != ClaimBridge.LoanState.Active && f.state != ClaimBridge.LoanState.Amortizing) {
             revert DefaultManager_NotDefaultable(tokenId);
         }
-        // Idempotent: the facility stays Active/Amortizing, so the state check no longer bars a
-        // second call — guard on the flag so the past-due pool cannot double-count.
         if ($.pastDueMarked[tokenId]) revert DefaultManager_AlreadyPastDue(tokenId);
         uint64 graceEnd = f.nextPaymentDue + $.graceWindows[f.classId];
         if (block.timestamp <= graceEnd) revert DefaultManager_NotPastDue(tokenId, f.nextPaymentDue, graceEnd);
-
-        // Marking is permissionless, so checkpoint deterministically inside the transition:
-        // transaction ordering cannot choose whether elapsed pre-mark economics are charged.
+        // Legacy PIK tries the real settlement call. A failed call grants one extra class
+        // grace window; native facilities already passed their own maintenance check above.
+        if (!tracked && f.pik && address($.waterfall) != address(0)) {
+            if (DefaultAccrualLib.settlePikPeriod($, tokenId)) {
+                emit PikPeriodSettledInsteadOfMark(tokenId, f.classId, f.nextPaymentDue);
+                return;
+            }
+            if (block.timestamp <= _pikExtendedGraceEnd($, graceEnd, f)) {
+                revert DefaultManager_PikCrankBlocked(tokenId);
+            }
+        }
+        // Close the fee epoch before the new risk mark affects senior redemption value.
         IsUSDfr($.vault).accrueFees();
         uint256 outstanding = $.reserves.deployedTo(tokenId);
-        // OWNER DECISION 2026-08-07 (G2W) — START THE COHORT RELIEF CLOCK, AND ONLY ON
-        // EMPTY -> NON-EMPTY. LOAD-BEARING, DO NOT DELETE and DO NOT MAKE UNCONDITIONAL.
-        //   - Deleting the write leaves the anchor at zero forever, which fails SAFE (full weight)
-        //     but silently discards the owner decision — falsified by
-        //     `test_g2w_ramp_theAnchorIsWrittenSoAFreshMarkGetsTheGovernedRelief`.
-        //   - Making it unconditional lets a SECOND `markPastDue` re-anchor the clock to now and
-        //     hand the whole standing cohort its relief back, indefinitely: mark a dust facility
-        //     every 20 days and the 21-day expiry never fires. That is the attack the ramp exists
-        //     to close — falsified by
-        //     `test_g2w_ramp_aSecondMarkCannotRewindTheCohortClock`.
-        // The test is on `pastDueExposure` BEFORE it is incremented below, so "empty" means "this
-        // is the mark that creates the cohort".
-        //
-        // ── AUDIT FIX (SWEEP-3 S3-F3) — THE CLOCK IS KEYED TO THE PAYMENT EPISODE ──────────────
-        //
-        // LOAD-BEARING. DO NOT COLLAPSE THIS BACK TO AN UNCONDITIONAL
-        // `if ($.pastDueExposure == 0) $.pastDueReliefAnchor = block.timestamp;`.
-        //
-        // WHAT WAS WRONG. The guard above closed the case its own comment names (a SECOND mark
-        // while the cohort stands). It did NOT close the case where the cohort is EMPTIED and the
-        // SAME, still-past-due facility is re-marked. `clearPastDue` (SERVICER_ROLE plus a
-        // `PastDueCured` quorum — and finding A-02 records that the attester IS the servicer)
-        // empties the cohort, and then the very next PERMISSIONLESS `markPastDue` — the protocol's
-        // own self-healing act, which the H-5 design expects any bystander to perform — re-anchored
-        // the clock to NOW and handed the whole cohort its 50% relief back.
-        //
-        // MEASURED: the same facility, uncured, unattested, still `Active`, past due for 120 days,
-        // held at `pendingSeniorImpairment == 200,000e18` at EVERY 20-day cycle while the honest
-        // full-weight mark is 400,000e18. The control — the identical facility left alone — holds
-        // 400,000e18 throughout. THE REWIND, NOT THE PASSAGE OF TIME, SUPPRESSED THE MARK.
-        // That defeats the owner decision's own stated bound: "the loud stop returns on its own
-        // with nobody having to act ... This is what bounds the D5-03 under-mark to a window
-        // instead of leaving it permanent." Seniors exiting inside the perpetual window take value
-        // from seniors who stay.
-        //
-        // WHY A "STOOD CLEAR FOR A FULL RAMP" QUARANTINE WAS NOT ENOUGH, AND WAS REPLACED. The
-        // first attempt at this fix refused a fresh window to any empty->non-empty transition that
-        // happened within one ramp of the emptying. It closed the immediate clear-and-re-mark and
-        // left the SAME attack at half duty cycle: clear, WAIT ONE RAMP with the book quiet, and
-        // re-mark the same never-cured facility. The quarantine does not fire, the anchor is set to
-        // NOW, and the identical facility is back at maximum relief — for ever, on a 42-day cycle.
-        // It is also blind by construction: a single global cohort timestamp cannot tell "this
-        // facility's episode" from "the book was quiet", so it can only ever guess.
-        //
-        // WHAT THE CLOCK IS ACTUALLY KEYED TO NOW. An OBJECTIVE DELINQUENT PAYMENT EPISODE:
-        // the pair (`tokenId`, `ClaimBridge.Facility.nextPaymentDue`). `$.reliefEpisode[tokenId]`
-        // stores that episode's due-date HIGH-WATER MARK and the timestamp of its FIRST mark, and
-        // it is PERSISTENT — `clearPastDue`, `declareDefault` and `onPerformingRepayment` do not
-        // touch it. So:
-        //   - re-marking the SAME `nextPaymentDue` REUSES the original `startedAt`, whatever
-        //     bookkeeping happened in between and however long the book stood clear. The relief
-        //     keeps decaying and expires exactly one ramp after the episode's first mark, once;
-        //   - a partial repayment that does NOT advance the due date is not a new episode either
-        //     (`onPerformingRepayment` re-anchors the AMOUNT, never the clock);
-        //   - only an authenticated servicing transition that ADVANCES `nextPaymentDue` — the
-        //     attested performing payment through `WaterfallEngine.distribute` ->
-        //     `ClaimBridge.setNextPaymentDue`, or a `TermsAmended`-quorum `amendTerms` — opens a
-        //     new episode and re-arms the relief. That is RAMP-5, now tied to the servicing fact
-        //     rather than to whether the book happened to be quiet.
-        // The high-water comparison is `>`, not `!=`, so a due date moved BACKWARD can never buy a
-        // fresh window; it reuses the older, more-elapsed timestamp, which is the safe direction.
-        //
-        // THE COHORT ANCHOR IS DERIVED, AND THE VIEW STAYS O(1). `ConservativeImpairmentMath` and
-        // `CollateralRegistry.conservativeSeniorMark` still read ONE scalar
-        // (`pastDueReliefAnchor`) — there is no enumeration on the pricing path, which is a hard
-        // requirement for a view the redemption price is computed from. That scalar is maintained
-        // here as the MINIMUM over the live cohort's episode starts, i.e. the OLDEST episode, i.e.
-        // the MOST elapsed, i.e. the HIGHEST weight and the LARGEST mark:
-        //   - joining a LIVE cohort takes `min(anchor, startedAt)`, so a fresh mark can never lift
-        //     the cohort off an older episode's spent clock (RAMP-4), and the order in which two
-        //     facilities are marked cannot change the answer;
-        //   - on an EMPTY cohort the standing value is stale and unobservable (there is no past-due
-        //     principal to weight), so it is REPLACED by this episode's `startedAt` — which, for a
-        //     re-mark, is the ORIGINAL timestamp, not `block.timestamp`. That is what makes the
-        //     rewind unreachable.
-        // A release does NOT recompute the minimum: leaving the anchor on a departed facility's
-        // older episode only ever OVER-marks the survivors, and D5-03 records under-marking as the
-        // dangerous direction. Recomputing it would need an unbounded scan.
-        //
-        // Falsified by `test_S3_F3_theReliefExpiryMustNotBeRewindableByAClearAndReMark`,
-        // `test_S3_F3_twentyDayCyclesHoldTheCohortAtMaximumReliefForever`,
-        // `test_S5_episode_aFullRampOfQuietDoesNotBuyTheSameEpisodeAFreshWindow`,
-        // `test_S5_episode_alternatingTwoFacilitiesCannotRewindEitherClock`,
-        // `test_S5_episode_aPartialRepaymentThatDoesNotAdvanceTheDueDateDoesNotRestartRelief` and
-        // `test_S5_episode_aGenuineNewPaymentEpisodeDoesRestartRelief`; RAMP-5
-        // (`test_g2w_ramp_theCohortClockRestartsOnceThePoolEmpties`) pins the other direction.
+        // A new authenticated payment date opens an episode; clearing and remarking the
+        // same date preserves its original relief clock.
         ReliefEpisode memory episode = $.reliefEpisode[tokenId];
         if (f.nextPaymentDue > episode.due) {
             episode = ReliefEpisode({due: f.nextPaymentDue, startedAt: uint64(block.timestamp)});
@@ -821,7 +648,8 @@ contract DefaultManager is
         $.pastDueContribution[tokenId] = outstanding;
         $.pastDuePrincipal[f.classId] += outstanding;
         $.pastDueExposure += outstanding;
-        _advanceImpairmentRevision($);
+        DefaultAccrualLib.setPastDue($, tokenId, true);
+        DefaultLossLib.advanceImpairmentRevision($);
         emit PastDueMarked(tokenId, f.classId, f.nextPaymentDue, outstanding);
     }
 
@@ -839,17 +667,18 @@ contract DefaultManager is
         if (evidenceHash == bytes32(0)) revert DefaultManager_ZeroEvidenceHash();
         DefaultStorage storage $ = _storage();
         if (!$.pastDueMarked[tokenId]) revert DefaultManager_NotPastDueMarked(tokenId);
-        _consumeExact(
+        DefaultLossLib.consumeExact(
             $,
             tokenId,
             IAttestationOracle.AttestationKind.PastDueCured,
             keccak256(abi.encode(tokenId, evidenceHash)),
             true
         );
+        DefaultAccrualLib.prepare($, tokenId, false);
         IsUSDfr($.vault).accrueFees();
         uint256 classId = $.bridge.facility(tokenId).classId;
         _releasePastDue($, tokenId, classId);
-        _advanceImpairmentRevision($);
+        DefaultLossLib.advanceImpairmentRevision($);
     }
 
     // ── Marked-to-market fast path (permissionless; pausable) ────────────
@@ -858,6 +687,7 @@ contract DefaultManager is
     function marginCall(uint256 tokenId) external nonReentrant whenNotPaused {
         DefaultStorage storage $ = _storage();
         (ClaimBridge.Facility memory f, ICollateralRegistry.ClassParams memory p) = _mtmFacility($, tokenId);
+        DefaultAccrualLib.prepare($, tokenId, false);
         if ($.cureDeadlines[tokenId] != 0) revert DefaultManager_AlreadyMarginCalled(tokenId);
 
         (uint256 ltv, uint64 asOf) = _ltv($, tokenId);
@@ -873,11 +703,11 @@ contract DefaultManager is
     }
 
     /// @inheritdoc IDefaultManager
-    /// @dev Curing demands FRESH evidence: the mark must be within the class's
-    ///      `maxMarkAge`. (Protective triggers accept any-age marks; see contract note.)
+    /// @dev Margin calls, liquidation and curing all require a mark within the class's maxMarkAge.
     function clearMarginCall(uint256 tokenId) external nonReentrant whenNotPaused {
         DefaultStorage storage $ = _storage();
         (, ICollateralRegistry.ClassParams memory p) = _mtmFacility($, tokenId);
+        DefaultAccrualLib.prepare($, tokenId, false);
         if ($.cureDeadlines[tokenId] == 0) revert DefaultManager_NoMarginCall(tokenId);
 
         (uint256 ltv, uint64 asOf) = _ltv($, tokenId);
@@ -895,6 +725,7 @@ contract DefaultManager is
     function liquidate(uint256 tokenId) external nonReentrant whenNotPaused {
         DefaultStorage storage $ = _storage();
         (ClaimBridge.Facility memory f, ICollateralRegistry.ClassParams memory p) = _mtmFacility($, tokenId);
+        DefaultAccrualLib.prepare($, tokenId, true);
 
         (uint256 ltv, uint64 asOf) = _ltv($, tokenId);
         if (asOf == 0 || block.timestamp - asOf > p.maxMarkAge) {
@@ -915,7 +746,7 @@ contract DefaultManager is
         // AUDIT FIX (R4-EC2): freeze curator withdrawals for the class (see declareDefault).
         $.curator.freezeOnDefault(f.classId);
         _recordDefaulted($, tokenId, f.classId); // ADR-0022: enter the impairment pool
-        _advanceImpairmentRevision($);
+        DefaultLossLib.advanceImpairmentRevision($);
         bytes32 ref = $.remedyRefs[f.classId];
         emit LiquidationInitiated(tokenId, ltv);
         emit RemedyInitiated(tokenId, f.classId, ref);
@@ -931,19 +762,8 @@ contract DefaultManager is
     ///      CREDIT_ROLE AND a defensive check that the loan really is Resolved, so a
     ///      CREDIT_ROLE caller cannot prematurely zero a still-defaulted loan's contribution
     ///      (which would UNDER-mark impairment — the unsafe direction).
-    function onDefaultResolved(uint256 tokenId) external nonReentrant onlyRole(Roles.CREDIT_ROLE) {
-        DefaultStorage storage $ = _storage();
-        ClaimBridge.Facility memory f = $.bridge.facility(tokenId);
-        if (f.state != ClaimBridge.LoanState.Resolved) revert DefaultManager_NotResolved(tokenId);
-        uint256 c = $.defaultedContribution[tokenId];
-        if (c != 0) {
-            if ($.coverageConsumedByDefault[tokenId] != 0) $.drawnDefaultPrincipal[f.classId] -= c;
-            $.defaultedContribution[tokenId] = 0;
-            $.declaredDefaultedPrincipal[f.classId] -= c;
-            emit DefaultImpairmentCleared(tokenId, f.classId, c);
-        }
-        _releaseCoverageConsumption($, tokenId); // PM-R-11: no longer a live default
-        _advanceImpairmentRevision($);
+    function onDefaultResolved(uint256 tokenId) external accrualIdle nonReentrant onlyRole(Roles.CREDIT_ROLE) {
+        DefaultLossLib.onDefaultResolved(_storage(), tokenId);
     }
 
     /// @inheritdoc IDefaultManager
@@ -974,34 +794,11 @@ contract DefaultManager is
     ///      THREAT MODEL. Both this hook and the `_reduceDefaulted` clamp trust `deployedTo` to
     ///      fall only against real cash or a real write-down. That holds only while CREDIT_ROLE
     ///      is held by protocol modules alone: a CREDIT_ROLE grant to an EOA could call
-    ///      `ReserveManager.recordPrincipalReturn`/`recordPrincipalWritedown` directly, lowering
+    ///      `ReserveManager.recordPayment`/`recordPrincipalWritedown` directly, lowering
     ///      `deployedTo` without cash arriving or the cascade running, after which this
     ///      de-recognises a genuine loss. CREDIT_ROLE must never leave the module set.
-    function onDefaultRecovery(uint256 tokenId) external nonReentrant onlyRole(Roles.CREDIT_ROLE) {
-        DefaultStorage storage $ = _storage();
-        ClaimBridge.Facility memory f = $.bridge.facility(tokenId);
-        // Defensive, mirroring `onDefaultResolved`: a CREDIT_ROLE caller must not be able to
-        // re-anchor a facility that is not actually in default (its contribution is zero in
-        // every other state anyway, so this is belt-and-braces, not load-bearing arithmetic).
-        if (f.state != ClaimBridge.LoanState.Defaulted && f.state != ClaimBridge.LoanState.Accelerated) {
-            revert DefaultManager_NotInDefault(tokenId);
-        }
-        uint256 c = $.defaultedContribution[tokenId];
-        uint256 stillAtRisk = $.reserves.deployedTo(tokenId);
-        if (stillAtRisk >= c) return; // idempotent: nothing recovered since the last anchor
-        uint256 derecognized = c - stillAtRisk;
-        if ($.coverageConsumedByDefault[tokenId] != 0) {
-            $.drawnDefaultPrincipal[f.classId] -= derecognized;
-        }
-        $.defaultedContribution[tokenId] = stillAtRisk;
-        $.declaredDefaultedPrincipal[f.classId] -= derecognized;
-        emit DefaultImpairmentCleared(tokenId, f.classId, derecognized);
-        // If recovery emptied the mark, release its historical consumption and live ledger row.
-        // Unreachable from `WaterfallEngine.distribute` (a zero outstanding routes to
-        // `onDefaultResolved` instead), kept so the two hooks cannot diverge.
-        if (stillAtRisk == 0) _releaseCoverageConsumption($, tokenId);
-        else $.commitmentLedger.updatePrincipal(tokenId, stillAtRisk);
-        _advanceImpairmentRevision($);
+    function onDefaultRecovery(uint256 tokenId) external accrualIdle nonReentrant onlyRole(Roles.CREDIT_ROLE) {
+        DefaultLossLib.onDefaultRecovery(_storage(), tokenId);
     }
 
     /// @inheritdoc IDefaultManager
@@ -1022,14 +819,14 @@ contract DefaultManager is
     ///      EVERY performing repayment. Same threat model: it trusts `deployedTo` to fall only
     ///      against real cash or a real write-down, which holds only while CREDIT_ROLE stays inside
     ///      the module set.
-    function onPerformingRepayment(uint256 tokenId) external onlyRole(Roles.CREDIT_ROLE) {
+    function onPerformingRepayment(uint256 tokenId) external onlyRole(Roles.CREDIT_ROLE) accrualIdle {
         DefaultStorage storage $ = _storage();
         if (!$.pastDueMarked[tokenId]) return; // no-op: the facility was never past-due
         uint256 classId = $.bridge.facility(tokenId).classId;
         uint256 stillAtRisk = $.reserves.deployedTo(tokenId);
         if (stillAtRisk == 0) {
             _releasePastDue($, tokenId, classId); // repaid in full: clear the mark entirely
-            _advanceImpairmentRevision($);
+            DefaultLossLib.advanceImpairmentRevision($);
             return;
         }
         uint256 c = $.pastDueContribution[tokenId];
@@ -1038,21 +835,21 @@ contract DefaultManager is
         $.pastDueContribution[tokenId] = stillAtRisk;
         $.pastDuePrincipal[classId] -= derecognized;
         $.pastDueExposure -= derecognized;
-        _advanceImpairmentRevision($);
+        DefaultLossLib.advanceImpairmentRevision($);
         emit PastDueReanchored(tokenId, classId, derecognized);
     }
 
     // ── Governance ───────────────────────────────────────────────────────
 
     /// @inheritdoc IDefaultManager
-    function setRemedyRef(uint256 classId, bytes32 remedyRef_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setRemedyRef(uint256 classId, bytes32 remedyRef_) external onlyRole(DEFAULT_ADMIN_ROLE) accrualIdle {
         _requireKnownClass(classId);
         _storage().remedyRefs[classId] = remedyRef_;
         emit RemedyRefSet(classId, remedyRef_);
     }
 
     /// @inheritdoc IDefaultManager
-    function setCureWindow(uint256 classId, uint64 window) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setCureWindow(uint256 classId, uint64 window) external onlyRole(DEFAULT_ADMIN_ROLE) accrualIdle {
         _requireKnownClass(classId);
         if (window == 0) revert DefaultManager_ZeroAmount();
         _storage().cureWindows[classId] = window;
@@ -1070,7 +867,7 @@ contract DefaultManager is
     ///      a partial par-exit window (a redeemer who queued before maturity) survives. Closing it
     ///      fully is a deeper economic-design item, deliberately NOT done here; the residual is
     ///      documented rather than hidden.
-    function setGraceWindow(uint256 classId, uint64 window) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setGraceWindow(uint256 classId, uint64 window) external onlyRole(DEFAULT_ADMIN_ROLE) accrualIdle {
         _requireKnownClass(classId);
         if (window > Config.DEFAULT_REDEEM_COOLDOWN) {
             revert DefaultManager_GraceWindowTooLong(window, Config.DEFAULT_REDEEM_COOLDOWN);
@@ -1080,34 +877,20 @@ contract DefaultManager is
     }
 
     /// @inheritdoc IDefaultManager
-    function setBackstop(address backstop_) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
-        _validateBackstop(backstop_);
-        DefaultStorage storage $ = _storage();
-        address oldBackstop = address($.backstop);
-        if (oldBackstop != backstop_) {
-            // Bill elapsed management fees against the outgoing NAV whenever it remains
-            // readable. If it is broken, install the already-validated replacement first so
-            // governance retains a one-transaction repair path.
-            bool oldReadable = oldBackstop == address(0) || _isBackstopReadable(oldBackstop);
-            if (oldReadable) IsUSDfr($.vault).beginFeeNeutralMarkedNavChange();
-            $.backstop = ICascadeBackstop(backstop_);
-            _advanceImpairmentRevision($);
-            if (!oldReadable) IsUSDfr($.vault).beginFeeNeutralMarkedNavChange();
-            IsUSDfr($.vault).endFeeNeutralMarkedNavChange();
-        }
-        emit BackstopSet(backstop_);
+    function setBackstop(address backstop_) external onlyRole(DEFAULT_ADMIN_ROLE) accrualIdle nonReentrant {
+        DefaultBackstopLib.set(_storage(), backstop_);
     }
 
     // ── Guardian (permissionless triggers only) ──────────────────────────
 
     /// @notice Pauses the permissionless margin-path triggers. Emergency use only
-    ///         (e.g. suspect marks); role-gated remedy paths are never pausable.
-    function pause() external onlyRole(Roles.GUARDIAN_ROLE) {
+    ///         (e.g. suspect marks); the manager pause does not gate role-based remedies; required PIK posting may still block default.
+    function pause() external onlyRole(Roles.GUARDIAN_ROLE) accrualIdle {
         _pause();
     }
 
     /// @notice Unpauses the permissionless triggers.
-    function unpause() external onlyRole(Roles.GUARDIAN_ROLE) {
+    function unpause() external onlyRole(Roles.GUARDIAN_ROLE) accrualIdle {
         _unpause();
     }
 
@@ -1140,12 +923,12 @@ contract DefaultManager is
 
     /// @inheritdoc IDefaultManager
     function pastDueExposure() external view returns (uint256) {
-        return _storage().pastDueExposure;
+        return DefaultAccrualLib.pastDueExposure(_storage());
     }
 
     /// @inheritdoc IDefaultManager
     function pastDueContribution(uint256 tokenId) external view returns (uint256) {
-        return _storage().pastDueContribution[tokenId];
+        return DefaultAccrualLib.contribution(_storage(), tokenId);
     }
 
     /// @inheritdoc IDefaultManager
@@ -1166,8 +949,7 @@ contract DefaultManager is
     /// @inheritdoc IDefaultManager
     /// @dev Exact operational fingerprint, including live backstop capacity.
     function impairmentStateHash() external view returns (bytes32 stateHash) {
-        DefaultStorage storage $ = _storage();
-        return keccak256(abi.encode(_impairmentRiskStateHash($), _impairmentBackstopCapacity($)));
+        return DefaultAccrualLib.exactStateHash(_storage());
     }
 
     /// @inheritdoc IDefaultManager
@@ -1184,35 +966,20 @@ contract DefaultManager is
         return _impairmentBackstopCapacity(_storage());
     }
 
-    function _impairmentRiskStateHash(DefaultStorage storage $) private view returns (bytes32 stateHash) {
-        stateHash = keccak256(
-            abi.encode(
-                block.chainid,
-                address(this),
-                $.impairmentRevision,
-                address($.curator),
-                address($.backstop),
-                $.liveDefaultCoverageConsumed,
-                // F-S3-01: the reachable-coverage ledger replaces the deprecated capacity floor
-                // here too. An ADR-0027 assessment must invalidate when the layer-2 credit the NAV
-                // can net MOVES, and after this fix that quantity is this one; hashing the frozen
-                // deprecated slot would make the identity blind to every draw and release.
-                $.commitmentLedger.deliverableAggregate(),
-                $.pastDueExposure
-            )
-        );
-        for (uint256 classId = 1; classId <= Config.NUM_CLASSES; ++classId) {
-            stateHash = keccak256(
-                abi.encode(
-                    stateHash,
-                    classId,
-                    $.declaredDefaultedPrincipal[classId],
-                    $.pastDuePrincipal[classId],
-                    $.curator.poolBalance(classId),
-                    $.drawnDefaultPrincipal[classId]
-                )
-            );
-        }
+    /// @notice Revision-bound assessment identity and separately measured overdue face.
+    /// @return riskStateHash Risk identity unchanged by elapsed income or neutral posting.
+    /// @return pastDueExposure_ Recorded plus unposted overdue face in USDfr.
+    /// @return backstopCapacity Effective global junior capacity; zero on BSC.
+    function impairmentAssessmentState()
+        external
+        view
+        returns (bytes32 riskStateHash, uint256 pastDueExposure_, uint256 backstopCapacity)
+    {
+        return DefaultAccrualLib.assessmentState(_storage());
+    }
+
+    function _impairmentRiskStateHash(DefaultStorage storage $) private view returns (bytes32) {
+        return DefaultAccrualLib.riskStateHash($);
     }
 
     function _impairmentBackstopCapacity(DefaultStorage storage $) private view returns (uint256) {
@@ -1220,26 +987,16 @@ contract DefaultManager is
     }
 
     /// @inheritdoc IDefaultManager
-    /// @dev ADR-0022 conservative-redemption NAV. The senior (sUSDfr) principal that
-    ///      declared-but-unrealized defaults would impair AFTER the junior layers absorb, in
-    ///      strict cascade order: curator first-loss per CLASS, then the global sGROVE backstop.
-    ///
-    ///      **THE ARITHMETIC LIVES IN `ConservativeImpairmentMath`, NOT HERE (EIP-170).** This
-    ///      manager had 215 bytes of runtime margin, so the drawn/undrawn split, the per-class
-    ///      curator netting, the PM-R-11 / F-18-01 backstop netting and the OWNER DECISION
-    ///      2026-08-07 (G2W) unattested-past-due clamp-and-ramp were extracted verbatim behind the
-    ///      `IImpairmentSource` seam. Read that contract for the algorithm and the reasoning it
-    ///      carries; the answer here is bit-identical to the pre-extraction body and
-    ///      `ConservativeImpairmentMathEquivalence.t.sol` fuzzes that claim rather than asserting
-    ///      it. DO NOT re-inline: the margin recovered by this extraction is what unblocks further
-    ///      remediation in this contract. Concretely, the G2W synthesis costs 204 bytes and this
-    ///      contract had 215 — without the extraction the two changes could not both ship.
-    ///
-    ///      The forwarder passes `address(this)`, which under a proxy is the PROXY — the account
-    ///      whose ERC-7201 storage holds the impairment pool. The calculator reads it back through
-    ///      the narrow read-only `IConservativeImpairmentBook`, so it can observe this manager but
-    ///      never act on it.
+    /// @dev Conservative senior impairment follows curator first-loss and the shared sGROVE
+    ///      backstop. An enabled native-accrual reserve uses DefaultAccrualLib so unreceived
+    ///      earned interest participates. The legacy route retains the immutable
+    ///      ConservativeImpairmentMath calculator. Both routes use constant-class aggregates
+    ///      rather than a walk over historical default events.
     function pendingSeniorImpairment() external view returns (uint256) {
+        DefaultStorage storage $ = _storage();
+        if (address($.accrualReserve) != address(0) && $.accrualReserve.accrualSnapshot().enabled) {
+            return DefaultAccrualLib.nativeSeniorImpairment($);
+        }
         return impairmentMath.pendingSeniorImpairment(address(this));
     }
 
@@ -1251,10 +1008,7 @@ contract DefaultManager is
     ///      or explicit release path is required.
     /// @return impairment Gross declared/past-due principal, in 18-decimal USDfr units.
     function performanceFeeImpairment() external view returns (uint256 impairment) {
-        DefaultStorage storage $ = _storage();
-        for (uint256 classId = 1; classId <= Config.NUM_CLASSES; ++classId) {
-            impairment += $.declaredDefaultedPrincipal[classId] + $.pastDuePrincipal[classId];
-        }
+        return DefaultAccrualLib.performanceImpairment(_storage());
     }
 
     /// @notice A facility's remaining declared-but-unrealized contribution to the impairment pool.
@@ -1280,7 +1034,7 @@ contract DefaultManager is
     ///      principles. DO NOT REMOVE — `ConservativeImpairmentMath` reads it, and without it the
     ///      mark silently loses the whole H-5 past-due pool.
     function pastDuePrincipal(uint256 classId) external view returns (uint256 principal) {
-        return _storage().pastDuePrincipal[classId];
+        return DefaultAccrualLib.pastDuePrincipal(_storage(), classId);
     }
 
     /// @inheritdoc IDefaultManager
@@ -1360,83 +1114,12 @@ contract DefaultManager is
 
     // ── Internals ────────────────────────────────────────────────────────
 
-    function _consumeExact(
-        DefaultStorage storage $,
-        uint256 tokenId,
-        IAttestationOracle.AttestationKind kind,
-        bytes32 expected,
-        bool consume
-    ) private {
-        (bytes32 payload,, bool ok) = $.oracle.latestPayload(tokenId, kind);
-        if (!ok || payload != expected) revert DefaultManager_DefaultNotAttested(tokenId);
-        if (consume) $.oracle.consume(tokenId, kind);
-    }
-
-    /// @dev Attested LTV in bps: outstanding principal over the latest mark. A facility
-    ///      with no mark at all cannot use the margin path (reverts NoValuation).
-    /// @dev LAYER 2 helper shared by facility `realizeLoss` and `drawForSeniorExit`. The retained
-    ///      `absorbReserveLoss` compatibility entry also calls it, but no production source calls
-    ///      that entry; live custody losses use `ReserveManager._drawJuniorReserveLoss` and its own
-    ///      equivalent balance-delta check. This helper takes `residual` — layer 1's leftover — and
-    ///      NOTHING ELSE, which makes "never before layer 1, never for more than layer 1 declined"
-    ///      a property of the dataflow rather than a comment.
-    ///
-    ///      THE STRICT EQUALITY IS THE `ICascadeBackstop` CONTRACT (AUDIT FIX L) — DO NOT RELAX IT
-    ///      TO `received >= covered`. Over-delivery would strand USDfr at this contract AND make
-    ///      the senior layer over-absorb, because every caller computes its layer-3 charge from
-    ///      `covered`. Falsified in both directions by the existing backstop-double suites.
-    /// @dev Layer 2 for a facility default: draw the shared reserve, then mark this row drawn.
-    ///      ADR-0035 gives a drawn row no frozen room; its claim bound is only its remaining
-    ///      principal, and the ledger applies the live shared reserve during every mark-time walk.
-    function _drawLayer2ForLiveDefault(DefaultStorage storage $, uint256 tokenId, uint256 classId, uint256 residual)
-        private
-        returns (uint256 covered)
-    {
-        bool firstDraw;
-        covered = _coverFromBackstop($, tokenId, residual);
-        if (covered == 0) return 0;
-        uint256 remainingPrincipal = $.defaultedContribution[tokenId];
-        firstDraw = $.commitmentLedger.sync(tokenId, remainingPrincipal, remainingPrincipal, covered);
-        if (firstDraw) {
-            // Historical drawn-cohort observability; no distinct cap arithmetic survives.
-            $.drawnDefaultPrincipal[classId] += $.defaultedContribution[tokenId];
-        }
-        $.coverageConsumedByDefault[tokenId] += covered;
-        $.liveDefaultCoverageConsumed += covered;
-    }
-
-    function _coverFromBackstop(DefaultStorage storage $, uint256 eventId, uint256 residual)
-        private
-        returns (uint256 covered)
-    {
-        address backstopAddress = address($.backstop);
-        address asset = address($.usdfr);
-        address ledger = address($.commitmentLedger);
-        assembly ("memory-safe") {
-            let ptr := mload(0x40)
-            mstore(ptr, COVER_DELEGATE_SELECTOR)
-            mstore(add(ptr, 0x04), backstopAddress)
-            mstore(add(ptr, 0x24), asset)
-            mstore(add(ptr, 0x44), eventId)
-            mstore(add(ptr, 0x64), residual)
-            let ok := delegatecall(gas(), ledger, ptr, 0x84, ptr, 0x20)
-            if iszero(ok) {
-                returndatacopy(0, 0, returndatasize())
-                revert(0, returndatasize())
-            }
-            if lt(returndatasize(), 0x20) { revert(0, 0) }
-            covered := mload(ptr)
-        }
-    }
-
     function _ltv(DefaultStorage storage $, uint256 tokenId) private view returns (uint256 ltvBps, uint64 asOf) {
-        uint256 value;
-        (value, asOf) = $.oracle.latestValuation(tokenId);
-        if (value == 0) revert DefaultManager_NoValuation(tokenId);
-        ltvBps = $.reserves.deployedTo(tokenId) * Config.BPS / value;
+        return DefaultAccrualLib.loanToValue($, tokenId);
     }
 
     /// @dev The margin path exists only for live marked-to-market facilities.
+    ///      Every margin entry validates this before touching continuous-interest state.
     function _mtmFacility(DefaultStorage storage $, uint256 tokenId)
         private
         view
@@ -1459,83 +1142,7 @@ contract DefaultManager is
     /// @dev ADR-0022: capture the loan's current outstanding as its at-risk contribution to the
     ///      class's unrealized-impairment pool. Called once, when the loan enters default.
     function _recordDefaulted(DefaultStorage storage $, uint256 tokenId, uint256 classId) private {
-        uint256 outstanding = $.reserves.deployedTo(tokenId);
-        $.defaultedContribution[tokenId] = outstanding;
-        $.declaredDefaultedPrincipal[classId] += outstanding;
-        // The event must exist before its first draw so the conservative walk can allocate its
-        // class curator capital and the one shared ADR-0035 reserve.
-        $.commitmentLedger.register(tokenId, classId, outstanding);
-    }
-
-    /// @dev ADR-0022: reduce a loan's impairment contribution (and its class pool) by up to
-    ///      `amount` (clamped so a partial/over realizeLoss can never underflow the pool), then
-    ///      re-anchor what is left to the principal that is actually still at risk.
-    ///
-    ///      AUDIT FIX (H-2). The contribution was snapshotted from `deployedTo` at declare and
-    ///      only ever decremented by realized loss, but a principal RECOVERY on a defaulted
-    ///      facility (`WaterfallEngine.distribute` on a Defaulted/Accelerated loan) reduces
-    ///      `deployedTo` without telling this contract. Recover part, write off the rest, and the
-    ///      loan lands at `deployedTo == 0` with a contribution equal to the CASH RECOVERED —
-    ///      stranded forever, because `Resolved` is only reachable through `distribute`'s
-    ///      `outstanding == 0` branch and `distribute` reverts once outstanding is zero. The
-    ///      On the pre-ADR-0035 tree the stranded mark also pinned
-    ///      `liveDefaultCoverageConsumed` and its capacity floor, under-netting the backstop for
-    ///      every FUTURE default. Those fields are now historical, but the stuck mark itself is
-    ///      still the defect this re-anchor prevents.
-    ///
-    ///      The re-anchor is `min(remaining, deployedTo(tokenId))`, taken AFTER
-    ///      `recordPrincipalWritedown` so `deployedTo` is already net of this loss. It cannot
-    ///      UNDER-mark: `realizeLoss` reverts when `loss > deployedTo(tokenId)`, so the largest
-    ///      senior loss this facility can ever still produce is exactly its current
-    ///      `deployedTo`, and `deployedTo` never rises for a defaulted loan (it only grows in
-    ///      `recordDeployment`/`recordFeeCapitalization`, both reachable only from a Pending
-    ///      facility). Everything the clamp removes is principal that is provably no longer
-    ///      losable — either repaid in cash or already written down.
-    ///
-    ///      BELT AND BRACES ONLY, since the H-2 remediation. `onDefaultRecovery` now re-anchors
-    ///      at RECOVERY time, so on the wired path this clamp finds `derecognized == 0` and is a
-    ///      no-op. It still fires — and must be kept — when the engine's `defaultManager` wiring
-    ///      is zero (the optional-wiring configuration `WaterfallEngine.distribute` explicitly
-    ///      supports), which is the only remaining way `deployedTo` can fall behind the mark.
-    ///
-    ///      THREAT MODEL: the no-under-mark argument depends on CREDIT_ROLE being held by
-    ///      protocol modules only. A CREDIT_ROLE grant to an EOA could call
-    ///      `ReserveManager.recordPrincipalReturn`/`recordPrincipalWritedown` directly, dropping
-    ///      `deployedTo` with no cash arriving and no cascade run, after which this clamp would
-    ///      de-recognise a genuine loss.
-    function _reduceDefaulted(DefaultStorage storage $, uint256 tokenId, uint256 classId, uint256 amount) private {
-        uint256 c = $.defaultedContribution[tokenId];
-        uint256 dec = amount < c ? amount : c;
-        uint256 remaining = c - dec;
-        // H-2: principal recovered in cash since the declare is no longer at risk.
-        uint256 stillAtRisk = $.reserves.deployedTo(tokenId);
-        uint256 derecognized = stillAtRisk < remaining ? remaining - stillAtRisk : 0;
-        dec += derecognized;
-        if (dec != 0) {
-            if ($.coverageConsumedByDefault[tokenId] != 0) $.drawnDefaultPrincipal[classId] -= dec;
-            $.defaultedContribution[tokenId] = c - dec;
-            $.declaredDefaultedPrincipal[classId] -= dec;
-        }
-        // The realized part is already reported by `LossRealized`; the clamped part is
-        // impairment de-recognised WITHOUT a loss, so it emits the same event the clean-resolve
-        // path uses — the impairment pool stays reconstructable from events alone.
-        if (derecognized != 0) emit DefaultImpairmentCleared(tokenId, classId, derecognized);
-        // Once nothing of this default is left unrealized, release its row and historical
-        // consumption counters. The live reserve already reflects every actual draw.
-        uint256 updated = $.defaultedContribution[tokenId];
-        if (updated == 0) _releaseCoverageConsumption($, tokenId);
-        else $.commitmentLedger.updatePrincipal(tokenId, updated);
-    }
-
-    /// @dev Drop `tokenId`'s historical sGROVE consumption and live principal row. Idempotent: a
-    ///      second call is a no-op, so the two terminal callers cannot double-release.
-    function _releaseCoverageConsumption(DefaultStorage storage $, uint256 tokenId) private {
-        uint256 consumed = $.coverageConsumedByDefault[tokenId];
-        if (consumed != 0) {
-            $.coverageConsumedByDefault[tokenId] = 0;
-            $.liveDefaultCoverageConsumed -= consumed;
-        }
-        $.commitmentLedger.release(tokenId);
+        DefaultAccrualLib.recordDefaulted($, tokenId, classId);
     }
 
     /// @dev AUDIT FIX (H-5, REDESIGN): remove a facility's reversible past-due mark from the
@@ -1548,84 +1155,110 @@ contract DefaultManager is
     ///      directly), these are the ONLY ways the past-due pool shrinks, so it always equals the
     ///      sum of the live per-facility contributions.
     function _releasePastDue(DefaultStorage storage $, uint256 tokenId, uint256 classId) private {
-        if (!$.pastDueMarked[tokenId]) return;
-        uint256 c = $.pastDueContribution[tokenId];
-        $.pastDueMarked[tokenId] = false;
-        $.pastDueContribution[tokenId] = 0;
-        $.pastDuePrincipal[classId] -= c;
-        $.pastDueExposure -= c;
-        // AUDIT FIX (SWEEP-3 S3-F3) — THE EPISODE RECORD IS DELIBERATELY NOT TOUCHED HERE.
-        // `$.reliefEpisode[tokenId]` must SURVIVE a release: that persistence is the entire fix.
-        // Clearing it (or clearing `pastDueReliefAnchor`) would hand the very next `markPastDue`
-        // of the same, still-delinquent, still-unattested payment episode a fresh benefit of the
-        // doubt, which is the rewind this finding is about. Only an ADVANCE of the facility's
-        // `nextPaymentDue` — an authenticated servicing transition — may open a new episode.
-        emit PastDueCleared(tokenId, classId, c);
-    }
-
-    /// @dev One bump per externally observable risk transition. Checked arithmetic deliberately
-    ///      fails loudly at the theoretical uint256 limit rather than wrapping and reviving a
-    ///      centuries-old assessment.
-    function _advanceImpairmentRevision(DefaultStorage storage $) private {
-        $.impairmentRevision += 1;
-        emit ImpairmentRevisionAdvanced($.impairmentRevision);
+        DefaultAccrualLib.releasePastDue($, tokenId, classId);
     }
 
     /// @dev An incoming backstop must declare the full delivery interface and expose every read
     ///      surface the conservative-NAV path uses. A capacity-only or read-only stand-in must
     ///      never be installed: the realization path calls `coverShortfall` to deliver value.
-    function _validateBackstop(address backstop_) private view {
-        if (backstop_ == address(0)) return; // unsetting the backstop stays permitted
-        if (!_declaresBackstopInterface(backstop_)) revert DefaultManager_InvalidBackstop(backstop_);
-        if (!_isBackstopReadable(backstop_)) revert DefaultManager_InvalidBackstop(backstop_);
-    }
 
     /// @dev ERC-165 identity probe, bounded so a hostile candidate cannot burn the caller's gas.
     ///      This is an installation check; outgoing readability remains independent so a legacy
     ///      incumbent can still be replaced when its capacity view has become unreadable.
-    function _declaresBackstopInterface(address backstop_) private view returns (bool declares) {
-        bytes memory interfaceCall = abi.encodeCall(IERC165.supportsInterface, (type(ICascadeBackstop).interfaceId));
-        assembly ("memory-safe") {
-            mstore(0x00, 0)
-            let success :=
-                staticcall(BACKSTOP_PROBE_GAS, backstop_, add(interfaceCall, 0x20), mload(interfaceCall), 0x00, 0x20)
-            declares := and(and(success, iszero(lt(returndatasize(), 0x20))), eq(mload(0x00), 1))
-        }
-    }
 
     /// @dev Capability probe for every read the conservative-NAV path requires. ERC-165 identity
     ///      is deliberately not used: an already-deployed SGrove may implement the complete
     ///      surface while advertising an interface id from before `coverageReserve()` and
     ///      `remainingCoverage()` were added. Bounded staticcalls keep malformed or hostile
     ///      candidates from consuming unbounded validation gas.
-    function _isBackstopReadable(address backstop_) private view returns (bool readable) {
-        return _probeBackstopWords(backstop_, ICascadeBackstop.coverageCapacity.selector, false, 1)
-            && _probeBackstopWords(backstop_, ICascadeBackstop.coverageCapacityAt.selector, true, 1)
-            && _probeBackstopWords(backstop_, ICascadeBackstop.coverageCapParameters.selector, false, 2)
-            && _probeBackstopWords(backstop_, ICascadeBackstop.coverageReserve.selector, false, 1)
-            && _probeBackstopWords(backstop_, ICascadeBackstop.remainingCoverage.selector, true, 1);
-    }
-
-    function _probeBackstopWords(address target, bytes4 selector, bool withArgument, uint256 returnWords)
-        private
-        view
-        returns (bool ok)
-    {
-        assembly ("memory-safe") {
-            // `bytes4` values are ABI-left-aligned in a stack word.
-            mstore(0x00, selector)
-            if withArgument { mstore(0x04, 0) }
-            let size := add(4, mul(32, withArgument))
-            let success := staticcall(BACKSTOP_PROBE_GAS, target, 0x00, size, 0x00, 0x20)
-            ok := and(success, iszero(lt(returndatasize(), mul(returnWords, 0x20))))
-        }
-    }
 
     /// @dev Upgrade authorization is role-only. A UUPS upgrade executes this hook in the
     ///      incumbent implementation, so it cannot truthfully enforce an ordering dependency on
     ///      APIs introduced by the candidate. Backstop capability is enforced when the dependency
     ///      is installed through `setBackstop`; no false in-place ordering guarantee is claimed.
-    function _authorizeUpgrade(address) internal view override onlyRole(Roles.UPGRADER_ROLE) {}
+    function _grantRole(bytes32 role, address account) internal override returns (bool) {
+        DefaultAccrualLib.requireIdle(_storage(), _reentrancyGuardEntered());
+        return super._grantRole(role, account);
+    }
+
+    function _revokeRole(bytes32 role, address account) internal override returns (bool) {
+        DefaultAccrualLib.requireIdle(_storage(), _reentrancyGuardEntered());
+        return super._revokeRole(role, account);
+    }
+
+    function _authorizeUpgrade(address) internal view override onlyRole(Roles.UPGRADER_ROLE) {
+        DefaultAccrualLib.requireIdle(_storage(), _reentrancyGuardEntered());
+    }
+
+    /// @dev The one bound on how long a protocol-side blocker may delay a PIK mark: ONE extra class
+    ///      grace window past the ordinary `graceEnd`, and not a second more.
+    ///
+    ///      COMPUTED IN uint256 ON PURPOSE. `graceEnd` is a `uint64` sum that 0.8.x would revert on
+    ///      overflow, and a revert here would brick `markPastDue` for a facility whose due date sits
+    ///      near the end of the `uint64` range - the same denial of service the bounded probes exist
+    ///      to prevent. Widening makes the extension saturate harmlessly instead: a comparison
+    ///      against `block.timestamp` can never be satisfied past that horizon anyway.
+    ///
+    ///      A ZERO GRACE WINDOW MEANS NO EXTENSION. A class whose risk owner granted no cure period
+    ///      does not acquire one because the crank stalled; the facility is markable on the ordinary
+    ///      clock. That is deliberate and is the conservative direction.
+    function _pikExtendedGraceEnd(DefaultStorage storage $, uint64 graceEnd, ClaimBridge.Facility memory f)
+        private
+        view
+        returns (uint256)
+    {
+        uint256 window = uint256($.graceWindows[f.classId]);
+        uint256 bound = uint256(graceEnd) + window;
+
+        // THE BOUND MAY NOT EXPIRE BEFORE THE OBLIGATION IT WOULD MARK EXISTS. ROUND EIGHT, and this
+        // is the one defect it found that two independent verifiers both reproduced with their own
+        // fixtures and both rated medium.
+        //
+        // `capitalizePik` advances the schedule only while the NEXT period still ends on or before
+        // maturity (`WaterfallEngine.sol`: `if (nextDue > plan.previousDue && nextDue <= plan.maturity)`).
+        // On a facility whose maturity is not a whole number of intervals away, the final crank
+        // therefore capitalises and then SKIPS `setNextPaymentDue`, which freezes `f.nextPaymentDue`
+        // at the second-to-last date for the rest of the facility's life. The engine reports the
+        // resulting clock desync as protocol-blocked for ever, correctly.
+        //
+        // The extension was anchored on that frozen date, so it expired `2 x window` after it - and
+        // when `paymentInterval > 2 x window` that instant falls BEFORE MATURITY. A PIK facility was
+        // then marked past due while the protocol was refusing its crank AND the borrower owed
+        // nothing at all: under PIK there is no cash obligation before maturity, because `distribute`
+        // reverts `Waterfall_PikCashInterestNotPermitted` on any PIK interest leg. A credit event
+        // manufactured out of the protocol's own schedule arithmetic, with no pause, no amendment and
+        // no privileged action anywhere in the path.
+        //
+        // IT IS ORDINARY CONFIGURATION, NOT A CONTRIVANCE, and it cannot be configured away. A
+        // quarterly PIK facility (90-day interval) against the 21-day class grace default satisfies
+        // `paymentInterval > 2 x window`, and `setGraceWindow` is hard-capped at
+        // `Config.DEFAULT_REDEEM_COOLDOWN` (21 days) while `paymentInterval` is bounded only by
+        // `<= nextPaymentDue`. MEASURED by the verifiers on a 90-day/410-day facility: marked SEVEN
+        // DAYS BEFORE MATURITY, 1,147,523.000625e18 of exposure, senior impairment
+        // 73,761.5003125e18 immediately and 147,523.000625e18 at full ramp.
+        //
+        // SO THE TERMINAL PERIOD GETS ITS WINDOW FROM MATURITY. The test below is the engine's own
+        // skip condition, recomputed from fields this contract already reads: once
+        // `nextPaymentDue + paymentInterval > maturity` the schedule can never advance again, so the
+        // frozen date is not an obligation and the only one left is the balloon at maturity.
+        //
+        // THIS IS NOT THE MATURITY TEST ROUND SEVEN REMOVED, and the difference is the whole point.
+        // That one used maturity to decide WHETHER to shelter, which is what made it reachable
+        // through every predicate nobody had enumerated. This one uses maturity to decide WHEN THE
+        // OBLIGATION EXISTS, and the bound is still a single capped elapsed-time window measured from
+        // it. A matured non-payer is markable one window after the balloon falls due, which is round
+        // six's requirement, and nothing mid-term is sheltered one second longer than before: for any
+        // facility whose schedule can still advance the test is false and `bound` is untouched.
+        //
+        // It also answers what the 2026-09-10 handover recorded as an open Forest Road question -
+        // "should a PIK balloon get its cure window from maturity rather than from a stale
+        // `nextPaymentDue`" - in the only direction that does not manufacture a credit event.
+        if (uint256(f.nextPaymentDue) + uint256(f.paymentInterval) > uint256(f.maturity)) {
+            uint256 terminal = uint256(f.maturity) + window;
+            if (terminal > bound) bound = terminal;
+        }
+        return bound;
+    }
 
     function _storage() private pure returns (DefaultStorage storage $) {
         assembly {

@@ -52,6 +52,16 @@ contract OracleInvariants is Test {
         handler.replayStaleValuation(2, 1);
         handler.replayStaleValuation(2, 1);
         handler.replaySupersededFact(2, 2, bytes32(uint256(0x171)));
+        // Exercise each opening-specific transition in every campaign's starting snapshot.
+        handler.setThreshold(9, 2);
+        handler.attestFact(0, 9, bytes32(uint256(0xA001)));
+        handler.attestFact(0, 9, bytes32(uint256(0xA005))); // Must refuse to replace the pending opening.
+        handler.consumeFact(0, 9);
+        handler.attestFact(0, 9, bytes32(uint256(0xA004)));
+        handler.revokeFact(0, 9);
+        handler.revokeThenReplayFact(1, 8, bytes32(uint256(0xA002)));
+        handler.replaySupersededFact(2, 8, bytes32(uint256(0xA003)));
+        assertEq(handler.openingAdmissions(), 5, "opening routes were not exercised");
         seededCallCount = handler.callCount();
     }
 
@@ -93,6 +103,8 @@ contract OracleInvariants is Test {
 
     /// @notice The setup snapshot itself executes every specialised illegal-region witness.
     function test_seedExercisesEveryOracleIllegalRegion() public view {
+        assertEq(handler.openingAdmissions(), 5);
+        assertGt(handler.blockedPendingActions(), 0, "pending action refusal was not exercised");
         assertGt(handler.ghostBlockedFactReplays(), 0);
         assertGt(handler.ghostBlockedRevokedReplays(), 0);
         assertGt(handler.ghostBlockedStaleValuations(), 0);
@@ -105,8 +117,9 @@ contract OracleInvariants is Test {
     ///         signatures and vanish only via consume/revoke.
     function invariant_oracle_ghostParity() public view {
         for (uint256 f = 0; f < 3; ++f) {
-            for (uint8 k = 0; k < 8; ++k) {
-                IAttestationOracle.AttestationKind kind = IAttestationOracle.AttestationKind(k);
+            for (uint8 k = 0; k < 10; ++k) {
+                IAttestationOracle.AttestationKind kind =
+                    k == 9 ? IAttestationOracle.AttestationKind.AccrualOpening : IAttestationOracle.AttestationKind(k);
                 assertEq(oracle.isSatisfied(f, kind), handler.ghostSatisfied(f, kind), "SATISFIED DIVERGED FROM MODEL");
                 (bytes32 payload, uint64 asOf,) = oracle.latestPayload(f, kind);
                 assertEq(payload, handler.ghostPayload(f, kind), "PAYLOAD DIVERGED");
@@ -160,6 +173,13 @@ contract OracleInvariants is Test {
                 onChain != IAttestationOracle.FactStatus.None,
                 "C4-01: a realised fact returned to None -- it is re-attestable again"
             );
+            if (onChain == IAttestationOracle.FactStatus.Recorded
+                && kind >= IAttestationOracle.AttestationKind.PaymentReceived
+                && kind != IAttestationOracle.AttestationKind.Valuation) {
+                (bytes32 current,, bool satisfied) = oracle.latestPayload(facilityId, kind);
+                assertTrue(satisfied, "recorded action is not available for processing");
+                assertEq(current, payload, "recorded action was displaced by another payload");
+            }
         }
     }
 
@@ -167,6 +187,7 @@ contract OracleInvariants is Test {
     ///         region, not merely avoid it. Six vacuous suites have been caught in this
     ///         engagement; a pre-filtered handler would make the invariant above decoration.
     function afterInvariant() public view {
+        assertGt(handler.blockedPendingActions(), 0, "pending action refusal was not exercised");
         assertGt(handler.callCount(), seededCallCount, "VACUOUS: oracle handler executed no fuzz action");
         assertGt(
             handler.ghostBlockedFactReplays(),

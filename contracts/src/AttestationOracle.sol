@@ -89,9 +89,8 @@ contract AttestationOracle is
         _disableInitializers();
     }
 
-    /// @notice Initializes the oracle. Every kind defaults to a 1-of-n threshold
-    ///         except the high-value kinds `CreditIssued` and `Valuation`, which
-    ///         start at 2-of-n (ADR-0007).
+    /// @notice Initializes documentary kinds at one signer and every kind authorizing
+    ///         financial or risk changes, including accrual openings, at two signers.
     /// @param admin Governance timelock (attester set, thresholds, revocation).
     /// @param guardian Emergency pauser (submissions only — reads never pause).
     /// @param upgrader Upgrade authority (timelock).
@@ -105,7 +104,7 @@ contract AttestationOracle is
         _grantRole(Roles.GUARDIAN_ROLE, guardian);
         _grantRole(Roles.UPGRADER_ROLE, upgrader);
         OracleStorage storage $ = _storage();
-        for (uint8 k = 0; k < 9; ++k) {
+        for (uint8 k = 0; k <= uint8(AttestationKind.AccrualOpening); ++k) {
             AttestationKind kind = AttestationKind(k);
             // AUDIT FIX (M): every kind that authorizes a VALUE-MOVING or state-freezing
             // action defaults to 2-of-n so no single compromised attester key can act
@@ -116,7 +115,7 @@ contract AttestationOracle is
                 kind == AttestationKind.CreditIssued || kind == AttestationKind.Valuation
                     || kind == AttestationKind.PaymentReceived || kind == AttestationKind.DefaultDeclared
                     || kind == AttestationKind.LossRealized || kind == AttestationKind.PastDueCured
-                    || kind == AttestationKind.TermsAmended
+                    || kind == AttestationKind.TermsAmended || kind == AttestationKind.AccrualOpening
             ) ? 2 : 1;
             $.thresholds[kind] = m;
             emit ThresholdSet(kind, m);
@@ -233,6 +232,11 @@ contract AttestationOracle is
         }
 
         Record storage r = $.records[a.facilityId][a.kind];
+        // A second action must not strand an accepted payment, loss or servicing approval.
+        // Documentary records and observation series retain their existing replacement policy.
+        if (oneShot && a.kind >= AttestationKind.PaymentReceived && r.satisfied) {
+            revert Oracle_UnconsumedFact(a.facilityId, a.kind, r.payload);
+        }
         if (a.kind == AttestationKind.Valuation) {
             if (uint256(a.payload) == 0) revert Oracle_ZeroValuation();
             // AUDIT FIX (H-02). Strictly newer marks only, measured against the per-facility
@@ -372,7 +376,7 @@ contract AttestationOracle is
                     kind == AttestationKind.CreditIssued || kind == AttestationKind.Valuation
                         || kind == AttestationKind.PaymentReceived || kind == AttestationKind.DefaultDeclared
                         || kind == AttestationKind.LossRealized || kind == AttestationKind.PastDueCured
-                        || kind == AttestationKind.TermsAmended
+                        || kind == AttestationKind.TermsAmended || kind == AttestationKind.AccrualOpening
                 )
         ) revert Oracle_BadThreshold();
         _storage().thresholds[kind] = threshold_;

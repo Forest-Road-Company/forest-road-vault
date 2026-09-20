@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 2,
+  "cluster": "devnet",
+  "programId": "3ZPRvNDUDRZuZ8Hug873JtSDJueA8D7PEVE21uLLAvwh",
+  "programData": "D7zfEuNnVS3Xv7rjTFhPYPxynYxyWx3BJKfcJycZknM2",
+  "checkedAt": "2026-09-20T17:40:23.857Z",
+  "checkedAtSlot": 501493649,
+  "build": {
+    "schemaVersion": 2,
+    "gitCommit": "7c4b9589f80fcaf88a9a0393ecc096dfe1f46bd8",
+    "dirty": false,
+    "programId": "3ZPRvNDUDRZuZ8Hug873JtSDJueA8D7PEVE21uLLAvwh",
+    "elfSha256": "4cf28ebf3b911a59d7807a852fb81a03fe6680af5ddc94bad74a981efdf3a605",
+    "elfBytes": 475640,
+    "idlSha256": "0f3c9bab4669da0f45a804bf97419c7957c836b9d384fe585a4ad0d61b9661e5",
+    "idlBytes": 67114,
+    "hostToolchain": {
+      "anchor": "anchor-cli 1.2.0",
+      "solana": "solana-cli 4.1.2 (src:182084b8; feat:c763ae0a, client:Agave)",
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "sbfArch": "v3",
+      "platformTools": "v1.57"
+    },
+    "releaseBuilder": {
+      "solanaVerify": "0.5.0",
+      "solanaCli": "4.0.3",
+      "sbfArch": "v3",
+      "platformTools": "v1.57",
+      "baseImage": "solanafoundation/solana-verifiable-build@sha256:588d0c6f45c2faa4456c7b8279897d8af8c6cd17e9613bb8ddf622a820039eb2"
+    }
+  },
+  "canonicalBuildActivation": {
+    "signature": "5mhRFiBZHPpP5dyRUTzLRkMD4DM4DrW7ZE7PTd1qrSXn9NomLEZwa2q42VYJ5c9DUpFbt4EuJ7jYB5GrxKJxed1a",
+    "slot": 501488463
+  },
+  "accounts": {
+    "config": "DHSrDZwwFeWKqHvKvvcoe9KUxJ8djdfkb4SqpPPFu35s",
+    "configBytes": 650,
+    "position": "BZsjRA1MiwEUa34MTU9nskSgNsa7gNNJjGzrGAMQiP2P",
+    "positionBytes": 260,
+    "vault": "4XYLj6XSjrrqF2wuZGrBsnKzgcUY5thPZBmaTfrKqhkM",
+    "coupon": "3AeRDDPZC9vd95xqNrcx2ZRXJMrTiiEqmRVMTopp5pyG",
+    "idlMetadata": "Crpp5qA7HpD3NWJFfuoEGA7Xqy1j1GybXZLHQiTHu6ZT",
+    "idlMetadataBytes": 6833
+  },
+  "state": {
+    "totalPrincipal": "9900000000",
+    "drawn": "0",
+    "couponFunded": "500000000",
+    "couponPaid": "0",
+    "couponOwed": "442",
+    "lossesRecorded": "100000000",
+    "vaultBalance": "9900000000",
+    "couponBalance": "500000000"
+  },
+  "finalizedSignatures": 27,
+  "idlPublication": {
+    "tool": "@solana-program/program-metadata@0.9.3",
+    "publishedAtSlot": 501489397,
+    "exactIdlSha256": "0f3c9bab4669da0f45a804bf97419c7957c836b9d384fe585a4ad0d61b9661e5"
+  }
+}

@@ -216,11 +216,12 @@ contract ReserveCascadeGuardCoverageTest is TokenLayerFixture {
     }
 
     function test_setLossAbsorber_rejectsEOA() public {
+        address codeless = makeAddr("ethereum-cascade-setLossAbsorber-codeless");
         // An EOA has no code, so `reserveLossSource()` would succeed vacuously on a raw call.
-        assertEq(bob.code.length, 0, "fixture actor must be an EOA for this branch to mean anything");
-        vm.expectRevert(abi.encodeWithSelector(IReserveManager.ReserveManager_InvalidLossAbsorber.selector, bob));
+        assertEq(codeless.code.length, 0, "fixture actor must be an EOA for this branch to mean anything");
+        vm.expectRevert(abi.encodeWithSelector(IReserveManager.ReserveManager_InvalidLossAbsorber.selector, codeless));
         vm.prank(admin);
-        reserves.setLossAbsorber(bob);
+        reserves.setLossAbsorber(codeless);
     }
 
     function test_setLossAbsorber_rejectsRevertingSourceProbe() public {
@@ -264,10 +265,11 @@ contract ReserveCascadeGuardCoverageTest is TokenLayerFixture {
     }
 
     function test_setLossController_rejectsEOA() public {
-        assertEq(bob.code.length, 0, "fixture actor must be an EOA for this branch to mean anything");
-        vm.expectRevert(abi.encodeWithSelector(IReserveManager.ReserveManager_InvalidLossController.selector, bob));
+        address codeless = makeAddr("ethereum-cascade-setLossController-codeless");
+        assertEq(codeless.code.length, 0, "fixture actor must be an EOA for this branch to mean anything");
+        vm.expectRevert(abi.encodeWithSelector(IReserveManager.ReserveManager_InvalidLossController.selector, codeless));
         vm.prank(admin);
-        reserves.setLossController(bob);
+        reserves.setLossController(codeless);
     }
 
     function test_setLossController_rejectsRevertingModulesProbe() public {

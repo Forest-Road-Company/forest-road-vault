@@ -73,6 +73,8 @@ abstract contract CreditLayerFixture is TokenLayerFixture {
     bytes32 internal constant DIGITAL_REF = keccak256("custody-control-ref");
 
     function setUp() public virtual override {
+        // Initialize every fee clock at the fixture time, including on a later pinned fork.
+        vm.warp(1_750_000_000);
         super.setUp();
         // Some discriminator tests deliberately rebuild the whole fixture by calling
         // `super.setUp()` inside a test. Facility ids restart at one on the new bridge, while
@@ -81,7 +83,6 @@ abstract contract CreditLayerFixture is TokenLayerFixture {
         unchecked {
             ++_dealFixtureEpoch;
         }
-        vm.warp(1_750_000_000);
 
         // ── collateral layer ─────────────────────────────────────────────
         registry = CollateralRegistry(
@@ -262,6 +263,7 @@ abstract contract CreditLayerFixture is TokenLayerFixture {
         // when a defaulted loan recovers in full, and the vault prices exits on what remains.
         defaultManager.grantRole(Roles.CREDIT_ROLE, address(waterfall)); // onDefaultResolved
         waterfall.setDefaultManager(address(defaultManager));
+        defaultManager.setWaterfall(address(waterfall)); // exercise PIK settlement before a past-due mark
         vault.grantRole(Roles.CREDIT_ROLE, address(waterfall)); // ADR-0023: notifyYield
         // Production wiring consumes the governed assessment wrapper, whose conservative
         // base remains DefaultManager. Tests must not bypass this mandatory valuation layer.
@@ -425,7 +427,7 @@ abstract contract CreditLayerFixture is TokenLayerFixture {
 
     /// @dev Satisfies the film mint gate for the NEXT id and originates a facility.
     function _originateFilm(bytes32 borrowerId, bytes32 stateId, uint256 principal) internal returns (uint256 id) {
-        uint64 maturity = uint64(block.timestamp + 365 days);
+        uint64 maturity = uint64(block.timestamp) + _fixtureFilmTenor();
         uint256 nextId = bridge.totalOriginated() + 1;
         _attestFilmGate(nextId, borrowerId, stateId, principal, FILM_LTV_BPS, FILM_RATE_BPS, maturity, FILM_REF);
         ClaimBridge.OriginationTerms memory terms = _facilityTerms(
@@ -650,16 +652,43 @@ abstract contract CreditLayerFixture is TokenLayerFixture {
             interestRateBps: rateBps,
             maturity: maturity,
             fundingRecipient: borrower,
-            paymentInterval: 30 days,
-            nextPaymentDue: uint64(block.timestamp + 30 days),
+            paymentInterval: _fixturePaymentInterval(),
+            nextPaymentDue: uint64(block.timestamp) + _fixturePaymentInterval(),
             rateType: ClaimBridge.RateType.Fixed,
             dayCountConvention: ClaimBridge.DayCountConvention.Actual360,
             renewable: false,
             paymentScheduleHash: keccak256("fixture-amortization-schedule"),
             rateIndexRef: bytes32(0),
             renewalTermsHash: bytes32(0),
-            offchainRef: offchainRef
+            offchainRef: offchainRef,
+            pik: _pikFacilities()
         });
+    }
+
+    /// @dev Whether facilities this fixture originates are PIK. FALSE by default, deliberately: the
+    ///      whole credit suite must keep exercising the ordinary cash-pay book, and a PIK facility
+    ///      is a different instrument. `PikCapitalizationTest` overrides it to true.
+    /// @dev The Film facility's tenor. Overridable for the same reason as the interval: what matters
+    ///      to the PIK schedule is whether the tenor is a whole number of intervals, and at the
+    ///      default 365 days / 30 days it is not quite, but the leftover is far smaller than two
+    ///      grace windows so nothing reaches the defective region. Default unchanged.
+    function _fixtureFilmTenor() internal view virtual returns (uint64) {
+        return 365 days;
+    }
+
+    /// @dev The schedule interval every fixture facility is originated with. Overridable because a
+    ///      facility whose maturity is NOT a whole number of intervals away behaves differently in a
+    ///      way that mattered: `WaterfallEngine.capitalizePik` skips `setNextPaymentDue` once the next
+    ///      period would end past maturity, which freezes `nextPaymentDue` for the rest of the
+    ///      facility's life. At 30 days nothing in this fixture reaches that state; round eight
+    ///      reproduced a real over-marking defect in it at 90 days. Default unchanged, so every
+    ///      existing suite originates exactly the facility it did before.
+    function _fixturePaymentInterval() internal view virtual returns (uint64) {
+        return 30 days;
+    }
+
+    function _pikFacilities() internal view virtual returns (bool) {
+        return false;
     }
 
     function _paymentId(uint256 tokenId, uint256 interest, uint256 principal) internal pure returns (bytes32) {

@@ -51,3 +51,16 @@ $10M × 5 ≈ **$50M** anchor first-loss at full deployment (ADR-0004 amended).
 - Concentration-limit and cascade invariants now span five classes.
 - The attestation layer's `Valuation` kind carries real load for this class; its m-of-n
   threshold and freshness rules are load-bearing, not decorative.
+
+## Amendment, 2026-09-16: the LTV numerator under continuous accrual
+
+Under ADR-0038 the numerator of every LTV read and action on this class is the deployed
+receivable face including earned but unreceived interest, not principal alone. The three
+thresholds above were calibrated on principal and are to be reconfirmed in the economic review on
+the full-face basis; the facility documents must define the ratio the same way. Decision record:
+ADR-0038, "Owner decisions, 2026-09-16", item 1.
+
+Actioned 2026-09-17: the definition the facility documents must carry (numerator, denominator,
+thresholds, cure window, staleness rule) is written into `docs/legal-wrapper.md` section 6.1, and
+conforming the executed instruments is counsel item 9 of that document. No facility in this class
+has been originated, so no executed instrument needs amending yet.

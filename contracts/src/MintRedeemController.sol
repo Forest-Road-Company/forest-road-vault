@@ -11,10 +11,12 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IComplianceRegistry} from "./interfaces/IComplianceRegistry.sol";
-import {IMintRedeemController} from "./interfaces/IMintRedeemController.sol";
+import {IMintRedeemController, IPausableModule} from "./interfaces/IMintRedeemController.sol";
 import {IReserveManager} from "./interfaces/IReserveManager.sol";
 import {ISeniorExitDrawSource} from "./interfaces/ISeniorExitDrawSource.sol";
 import {IUSDfr} from "./interfaces/IUSDfr.sol";
+import {IContinuousAccrual} from "./interfaces/IContinuousAccrual.sol";
+import {ControllerAccrualLib} from "./libraries/ControllerAccrualLib.sol";
 import {Roles} from "./libraries/Roles.sol";
 
 /// @title MintRedeemController
@@ -220,7 +222,51 @@ contract MintRedeemController is
         ///      exits, in 18-decimal USD. Monotonically non-decreasing. See
         ///      `seniorSubParShortfall`.
         uint256 subParShortfall;
+        // ── PAIRED-YIELD BASELINE (2026-09-09) ───────────────────────────
+        /// @dev The CREDIT_ROLE caller that opened a paired-yield operation, or zero.
+        ///
+        ///      THIS IS NOT A SAME-TRANSACTION LOCK, and an earlier version of this note wrongly
+        ///      called it one. Nothing in the EVM clears persistent storage at transaction end, so a
+        ///      baseline opened and not consumed OUTLIVES its transaction, and because the deficit is
+        ///      not monotone a baseline taken while a mark stood is a strictly LOOSER baseline for a
+        ///      later mint. An adversarial review demonstrated one surviving 5,000 blocks and 30 days.
+        ///
+        ///      WHAT MAKES IT SAFE TODAY is the wiring, not the storage: `WaterfallEngine` is the
+        ///      only CREDIT_ROLE holder on this contract, `capitalizePik` is the only opener, and it
+        ///      contains no try/catch and reaches `mintYield` unconditionally, so no baseline can
+        ///      survive its transaction. That is an argument about the CALLER, so it must be
+        ///      re-made if CREDIT_ROLE is ever granted to anything else.
+        ///
+        ///      AND NOTHING ENFORCES EXCLUSIVITY. An earlier version of this note said
+        ///      "`Validate.s.sol` asserts the holder set", which is not true and cannot be: no
+        ///      contract in `src/` inherits `AccessControlEnumerable`, so role membership is not
+        ///      enumerable on chain at all. `Validate.s.sol` asserts one positive (the engine holds
+        ///      it) and three named negatives. A single `grantRole` to a fourth address would
+        ///      restore the hazard and no gate would notice. EIP-1153 transient storage is the
+        ///      structural answer and is the right fix the day solc's 2394 composability warning
+        ///      can be triaged without blanket-suppressing it for every future `tstore`; suppressing
+        ///      it now would stop `deny_warnings` catching any future misuse.
+        address pairedYieldCaller;
+        /// @dev Supply, recorded backing and recognised backing as at the START of the paired
+        ///      operation, BEFORE the caller moved backing.
+        uint256 pairedSupplyBefore;
+        uint256 pairedBackingBefore;
+        uint256 pairedRecognizedBefore;
+        /// @dev Explicit, one-time opt-in to the bound reserve's continuous accounting.
+        IContinuousAccrual accrual;
+        /// @dev Retention requirement when the current paired operation opened; append-only.
+        uint256 pairedRetentionBefore;
     }
+
+    /// @notice Continuous accounting can be bound only once.
+    error Controller_AccrualAlreadyBound();
+    /// @notice Delivery cannot overlap a legacy paired-yield operation.
+    error Controller_AccrualDuringPairedYield();
+    /// @notice This controller has opted into its configured reserve's accrual accounting.
+
+    event ContinuousAccrualBound(address indexed reserve);
+    /// @notice A reserve-owned delivery permit was relayed to USDfr.
+    event AccruedDeliveryRelayed(uint256 indexed nonce);
 
     // keccak256(abi.encode(uint256(keccak256("forestroad.storage.MintRedeemController")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant CONTROLLER_STORAGE_LOCATION =
@@ -231,6 +277,14 @@ contract MintRedeemController is
     uint256 private constant SCALE = 1e12;
 
     error Controller_ZeroAddress();
+
+    /// @notice A module handed to `initialize` is not a contract, or does not answer its interface.
+    /// @dev CANTINA 3.1.2. `initialize` checked only that the three module addresses were non-zero,
+    ///      so a wrong or CODELESS address left the controller unusable and unrecoverable without an
+    ///      upgrade. The asymmetry was visible in this same file: `setLossSource` already refused a
+    ///      non-contract. A code-length check alone would not catch a wrong-but-CONTRACT address,
+    ///      which is the misconfiguration that actually happens, so each module is also PROBED.
+    error Controller_ModuleNotResponding(address module);
 
     /// @dev THE IMPLEMENTATION INITIALISER LOCK — LOAD-BEARING, DO NOT DELETE. Without it the
     ///      logic contract behind the proxy is initialisable by anyone, which is finding A-01's
@@ -268,6 +322,10 @@ contract MintRedeemController is
             admin == address(0) || guardian == address(0) || upgrader == address(0) || usdfr == address(0)
                 || compliance == address(0) || reserves == address(0)
         ) revert Controller_ZeroAddress();
+        // CANTINA 3.1.2. Non-zero was not enough; see `Controller_ModuleNotResponding`.
+        _requireModuleResponds(usdfr, abi.encodeWithSignature("totalSupply()"));
+        _requireModuleResponds(reserves, abi.encodeWithSignature("recognizedBackingValue()"));
+        _requireModuleResponds(compliance, abi.encodeWithSignature("isAllowed(address)", address(0)));
         __AccessControl_init();
         __Pausable_init();
         __ReentrancyGuard_init();
@@ -339,6 +397,7 @@ contract MintRedeemController is
     ///      themselves, which is not an attack.
     function mint(uint256 usdcAmount) external nonReentrant whenNotPaused returns (uint256 usdfrOut) {
         ControllerStorage storage $ = _storage();
+        _requireAccrualFresh($);
         _requireKYC($, msg.sender);
         // AUDIT FIX (R4-01). See `_requireCustodiedReserve`. 1:1 issuance into a reserve the
         // protocol can already see is short sells a new claim on a hole. Deleting this line
@@ -593,6 +652,7 @@ contract MintRedeemController is
     ///      `contracts/slither-baseline.json` against `MintRedeemController._redeem`.
     function _redeem(uint256 usdfrAmount, uint256 minUsdcOut) private returns (uint256 usdcOut) {
         ControllerStorage storage $ = _storage();
+        _requireAccrualFresh($);
         _requireKYC($, msg.sender);
         // AUDIT FIX (R4-01) — THE FINDING ITSELF. See `_requireCustodiedReserve`. Deleting this
         // line restores first-come-first-served exits out of a reserve whose USDC ledger is
@@ -602,6 +662,7 @@ contract MintRedeemController is
         if (usdfrAmount == 0) revert Controller_ZeroAmount();
 
         (uint256 supplyBefore, uint256 backingBefore) = _supplyAndBacking($);
+
         // AUDIT FIX (ADR-0034 Y-bis) — THE ATOMIC JUNIOR DRAW. It runs BEFORE the quote on purpose:
         // the ADR requires that "a quote that cannot be funded must not be issued", and striking
         // the price on the draw's MEASURED outcome makes an unfundable quote unrepresentable
@@ -609,6 +670,10 @@ contract MintRedeemController is
         uint256 drawn = _drawJuniorForExit($, (usdfrAmount / SCALE) * SCALE, supplyBefore, backingBefore);
         uint256 usdfrIn;
         (usdcOut, usdfrIn) = _quoteRedeem(usdfrAmount, supplyBefore, backingBefore, drawn);
+
+        // Every direct exit remains frozen until this arm is resolved. The result is
+        // independent of permissionless changes to junior capacity; refusal is atomic.
+        _requireNoArmedExit($, usdcOut, usdfrIn);
         if (usdcOut == 0) {
             // AUDIT FIX (R17). A protocol whose backing has fallen to zero used to answer
             // `Controller_AmountTooSmall` — an error whose plain meaning is "your amount is too
@@ -665,6 +730,65 @@ contract MintRedeemController is
     }
 
     // ── Credit-layer paths (wired in Phases E/G) ─────────────────────────
+
+    /// @notice Record the supply/backing baseline for a yield mint whose backing leg moves FIRST.
+    ///
+    /// @dev WHY THIS EXISTS. `_assertDeficitNotWorsened` and its recognised twin are NON-WORSENING
+    ///      checks, and they are correct. What was wrong was WHERE they measured from.
+    ///      `WaterfallEngine.capitalizePik` raises backing (`recordPikCapitalization`) and only then
+    ///      raises supply here, so `mintYield`'s own snapshot was taken with backing ALREADY moved.
+    ///      For a standing deficit D and a capitalisation of `a` it read deficitBefore as
+    ///      max(0, D - a) against a deficitAfter of D, called a pair that changes the deficit by
+    ///      EXACTLY ZERO a worsening, and refused. Measured: one USDC unit of conservative mark on
+    ///      an unrelated facility froze every PIK capitalisation in the book.
+    ///
+    ///      THIS DOES NOT WEAKEN THE RULE, IT MEASURES IT PROPERLY. Both assertions still run, and
+    ///      they now run against the TRUE pre-operation state, so the mint is admitted only if the
+    ///      pair really is deficit-neutral end to end. A caller that raises backing and then mints
+    ///      more than it credited still fails. A paired mint preserves recognized surplus while
+    ///      retention is active and requires the retention obligation to equal its opening value.
+    ///      Existing undercoverage can remain unchanged; an intervening retention change cannot
+    ///      use an older baseline. Ordinary yield mints still enforce the absolute retention floor.
+    ///
+    ///      The fee twin never needed this because it CLAMPS to `mintableHeadroom()` and withholds;
+    ///      PIK cannot clamp, because a partial mint leaves backing above supply by the withheld
+    ///      amount and that phantom surplus is absorbed pre-cascade.
+    function beginPairedYield() external onlyRole(Roles.CREDIT_ROLE) nonReentrant whenNotPaused {
+        ControllerStorage storage $ = _storage();
+        _requireAccrualFresh($);
+        if ($.pairedYieldCaller != address(0)) revert Controller_PairedYieldAlreadyOpen($.pairedYieldCaller);
+        (uint256 supplyBefore, uint256 backingBefore) = _supplyAndBacking($);
+        $.pairedYieldCaller = msg.sender;
+        $.pairedSupplyBefore = supplyBefore;
+        $.pairedBackingBefore = backingBefore;
+        $.pairedRecognizedBefore = $.reserves.recognizedBackingValue();
+        $.pairedRetentionBefore = $.subParShortfall + $.reserves.exitPrepaidAbsorption();
+        emit PairedYieldOpened(msg.sender, supplyBefore, backingBefore);
+    }
+
+    /// @notice Governance escape for a paired-yield baseline stranded by a reverted operation.
+    /// @dev Mirrors `sUSDfr.clearStaleFeeOperation`. THE EARLIER VERSION OF THIS NOTE CLAIMED A
+    ///      STRANDED BASELINE COULD ONLY EVER BE STRICTER. That was false: the deficit is not
+    ///      monotone, so a snapshot taken in a WORSE state would be a LOOSER baseline for a later
+    ///      mint. `beginPairedYield` therefore refuses to open a second baseline while one stands,
+    ///      `mintYield` consumes it so it can never span two mints, and this is the governance
+    ///      escape for the only way one can be stranded: an operation that opened a baseline and
+    ///      then reverted after the state had moved.
+    function clearStalePairedYield() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireAccrualFresh(_storage());
+        ControllerStorage storage $ = _storage();
+        address caller = $.pairedYieldCaller;
+        _clearPairedYield($);
+        emit PairedYieldCleared(caller);
+    }
+
+    function _clearPairedYield(ControllerStorage storage $) private {
+        $.pairedYieldCaller = address(0);
+        $.pairedSupplyBefore = 0;
+        $.pairedBackingBefore = 0;
+        $.pairedRecognizedBefore = 0;
+        $.pairedRetentionBefore = 0;
+    }
 
     /// @inheritdoc IMintRedeemController
     /// @dev THE `to` CONSTRAINT (AUDIT FIX R16-M1) — LOAD-BEARING, DO NOT DELETE. `mintYield`
@@ -736,84 +860,19 @@ contract MintRedeemController is
     ///      rather than asserted — `test_R17_B02_burnLossStaysOpenUnderARecognisedShortfall` pins
     ///      it.
     function mintYield(address to, uint256 amount) external onlyRole(Roles.CREDIT_ROLE) nonReentrant whenNotPaused {
-        if (amount == 0) revert Controller_ZeroAmount();
+        ControllerAccrualLib.mintYield(_storage(), to, amount, address(0), 0);
+    }
+
+    /// @inheritdoc IMintRedeemController
+    function mintYieldSplit(address senior, uint256 total, address feeRecipient, uint256 fee)
+        external
+        onlyRole(Roles.CREDIT_ROLE)
+        nonReentrant
+        whenNotPaused
+    {
         ControllerStorage storage $ = _storage();
-        if (!$.yieldSink[to]) revert Controller_NotYieldSink(to);
-        (uint256 supplyBefore, uint256 backingBefore) = _supplyAndBacking($);
-        uint256 recognizedBefore = $.reserves.recognizedBackingValue();
-        // Backing must ALREADY reflect the attested receipts that justify this mint. The rule is
-        // the same one every other path asserts: a yield mint may not widen the deficit — on
-        // EITHER basis. While the protocol is whole that is exactly ADR-0012; while it is short on
-        // the recorded books, or short on the recognised books because custody is missing, it
-        // refuses outright, which is correct: incoming cash repairs the hole before it is paid out
-        // as yield. `WaterfallEngine._routeInterest` reads `mintableHeadroom()` — which R17 made
-        // recognition-aware for exactly this reason — and withholds the undistributable part
-        // rather than reverting, so neither refusal costs the REPAYMENT path any liveness. AUDIT
-        // FIX (R18): `WaterfallEngine.fund`'s origination-fee mint is now clamped THE SAME WAY and
-        // therefore withholds rather than reverting. R17 left it unclamped on the stated ground
-        // that originating a new facility out of an under-backed treasury is exactly what should
-        // stop. That reasoning is sound about the FACILITY and wrong about the FEE: the fee mint is
-        // coverage-neutral by construction (`recordFeeCapitalization` raises backing by exactly the
-        // fee immediately before this raises supply by exactly the fee), so refusing it buys no
-        // coverage and only stops the origination. Withholding the fee is the same posture
-        // `_routeInterest` already documents for the interest leg: Forest Road does not collect out
-        // of a shortfall, and the withheld amount stays in the treasury as backing.
-        $.usdfr.mint(to, amount);
-        _assertDeficitNotWorsened($, supplyBefore, backingBefore);
-        _assertRecognizedDeficitNotWorsened($, supplyBefore, recognizedBefore);
-        // AUDIT FIX (R17) — LOAD-BEARING, DO NOT DELETE. The retention that `mintableHeadroom()`
-        // advertises has to be ENFORCED here as well as advertised, or it is advisory only: a
-        // caller that does not size itself off the headroom would otherwise spend it. See
-        // `seniorSubParShortfall`.
-        //
-        // WHAT STATE THIS REFUSES IN — R18 CORRECTED THIS PARAGRAPH, WHICH MIS-DESCRIBED IT. R17
-        // wrote that this is "the same judgement the paragraph above makes about originating out of
-        // an under-backed treasury". IT IS NOT. The paragraph above refuses when `supply > backing`.
-        // This refuses while `recognizedBackingValue() - totalUSDfr() < seniorSubParShortfall()`,
-        // which INCLUDES states the protocol publishes as fully backed and even OVER-backed:
-        // `backingInvariantHolds()` TRUE, `backingDeficit()` and `recognizedDeficit()` both zero,
-        // `mint` open and `redeem` paying par, and one wei of yield still refused. That is an
-        // ABSOLUTE LEVEL check, deliberately, and it is the one level check left in a file whose
-        // headline NatSpec is otherwise about replacing level checks with the non-worsening rule —
-        // because the retention is a QUANTITY OWED, not a solvency predicate, and a non-worsening
-        // form of it would let the very first yield mint after a haircut spend the haircut.
-        //
-        // WHAT UNBLOCKS IT, STATED SO AN OPERATOR CAN ACT ON IT: withheld interest from any
-        // performing facility (`_routeInterest`'s clamp leaves it in the treasury as backing),
-        // `ReserveManager.releasePrincipalImpairment` on a still-reversible mark, or governance
-        // zeroing the class origination fee (`WaterfallEngine.setOriginationFee(classId, 0)`).
-        // R18 made the first of those reachable again: before it, the retention refused
-        // `WaterfallEngine.fund` outright, and `fund` is what creates the facilities whose interest
-        // is the cure — finding M5's shape on the origination axis. `fund` now withholds its fee
-        // instead of reverting, so the cure is no longer gated on the thing it cures.
-        // ── AUDIT FIX (SWEEP-3 S3-F2) — ENFORCE **BOTH** ADVERTISED RETENTION TERMS ────────────
-        // LOAD-BEARING. DO NOT DROP `exitPrepaidAbsorption()` BACK OUT OF THIS SUM.
-        // `mintableHeadroom()` publishes `claimed = totalSupply + subParShortfall +
-        // exitPrepaidAbsorption()`. R17 taught this function to ENFORCE the first term (see the
-        // paragraph above: "the retention that `mintableHeadroom()` advertises has to be ENFORCED
-        // here as well as advertised, or it is advisory only"). ADR-0034 Y-bis then added the
-        // SECOND term to the VIEW and not to the ENFORCEMENT — two enumerations of one published
-        // quantity that did not agree.
-        // MEASURED: 4,739.336e18 of crystallised curator capital minted straight to the `sUSDfr`
-        // vault while `mintableHeadroom()` read 0, i.e. verbatim the leak the term exists to close
-        // ("the curator's crystallised loss becomes the senior's income"), reached through the
-        // enforcement gap rather than through the view. The discriminating control proved the
-        // SIBLING term refused the identical call one wei past the headroom.
-        // SEVERITY IS LOW AND STATED AS SUCH: all three `mintYield` call sites in `src/` are in
-        // `WaterfallEngine` and all three clamp to `mintableHeadroom()`, so nothing that ships can
-        // reach it. It is defence-in-depth whose sibling is already enforced — an asymmetry an
-        // upgrade or a second credit-layer module would silently inherit.
-        // Falsified by `test_S3_F2_theExitPrepaymentRetentionIsAdvertisedButNotEnforcedByMintYield`;
-        // the sibling term's own falsifier is
-        // `test_S3_F2_control_theSubParRetentionIsEnforcedOnTheSameCall`.
-        uint256 retention = $.subParShortfall + $.reserves.exitPrepaidAbsorption();
-        if (retention != 0) {
-            uint256 supplyNow = $.usdfr.totalSupply();
-            uint256 backingNow = $.reserves.recognizedBackingValue();
-            uint256 surplus = backingNow > supplyNow ? backingNow - supplyNow : 0;
-            if (surplus < retention) revert Controller_SeniorRetentionBreached(retention, surplus);
-        }
-        emit YieldMinted(to, amount);
+        if ($.pairedYieldCaller != msg.sender) revert Controller_PairedYieldRequired();
+        ControllerAccrualLib.mintYield($, senior, total, feeRecipient, fee);
     }
 
     /// @inheritdoc IMintRedeemController
@@ -865,6 +924,7 @@ contract MintRedeemController is
     function burnLoss(address from, uint256 amount) external onlyRole(Roles.LOSS_BURNER_ROLE) nonReentrant {
         if (amount == 0) revert Controller_ZeroAmount();
         ControllerStorage storage $ = _storage();
+        ControllerAccrualLib.authorizeLossBurn(address($.accrual), from, amount);
         if (!$.lossSource[from]) revert Controller_NotLossSource(from);
         $.usdfr.burn(from, amount);
         emit LossBurned(from, amount);
@@ -880,6 +940,7 @@ contract MintRedeemController is
     /// @param account The address that may receive yield mints.
     /// @param authorized True to authorize, false to revoke.
     function setYieldSink(address account, bool authorized) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireAccrualFresh(_storage());
         if (account == address(0)) revert Controller_ZeroAddress();
         _storage().yieldSink[account] = authorized;
         emit YieldSinkUpdated(account, authorized);
@@ -933,6 +994,7 @@ contract MintRedeemController is
     ///        EIP-7702 delegated EOA.
     /// @param authorized True to authorize, false to revoke.
     function setLossSource(address account, bool authorized) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _requireAccrualFresh(_storage());
         if (account == address(0)) revert Controller_ZeroAddress();
         // Only AUTHORIZATION is constrained. Revocation must never be blocked by the state of the
         // account being revoked — a governance kill-switch that a self-destructed endpoint could
@@ -1009,11 +1071,13 @@ contract MintRedeemController is
     ///          whole origination was collateral damage of the same shape as the repayment coupling
     ///          this paragraph was written to remove.
     function pause() external onlyRole(Roles.GUARDIAN_ROLE) {
+        _requireSettledState();
         _pause();
     }
 
     /// @notice Unpauses mint/redeem and the yield mint.
     function unpause() external onlyRole(Roles.GUARDIAN_ROLE) {
+        _requireSettledState();
         _unpause();
     }
 
@@ -1024,9 +1088,36 @@ contract MintRedeemController is
         return _storage().reserves.totalBackingValue();
     }
 
-    /// @inheritdoc IMintRedeemController
+    /// @notice Current economic USDfr supply, including earned claims after accrual opt-in.
+    /// @dev Uses the reserve's capped accounting and its frozen delivery snapshot. Read
+    ///      USDfr.totalSupply() when measuring only physical token issuance.
     function totalUSDfr() public view returns (uint256) {
-        return _storage().usdfr.totalSupply();
+        return _effectiveSupply(_storage());
+    }
+
+    /// @notice Binds continuous accounting after reserve identities and the token's binding are configured.
+    /// @dev Binding is permanent; enabling the reserve itself is a separate guarded ceremony step.
+    function enableContinuousAccrual() external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
+        ControllerStorage storage $ = _storage();
+        if (address($.accrual) != address(0)) revert Controller_AccrualAlreadyBound();
+        if ($.pairedYieldCaller != address(0)) revert Controller_AccrualDuringPairedYield();
+        ControllerAccrualLib.validate(address($.reserves), address($.usdfr));
+        $.accrual = IContinuousAccrual(address($.reserves));
+        emit ContinuousAccrualBound(address($.reserves));
+    }
+
+    /// @notice The configured continuous reserve, or zero before explicit binding.
+    function accrualReserve() external view returns (address) {
+        return address(_storage().accrual);
+    }
+
+    /// @notice Converts a reserve-owned, already accrued liability into physical USDfr.
+    /// @dev Remains available while paused; all ordinary supply expansion keeps its pause gates.
+    function mintAccrued(uint256 nonce) external nonReentrant {
+        ControllerStorage storage $ = _storage();
+        if ($.pairedYieldCaller != address(0)) revert Controller_AccrualDuringPairedYield();
+        ControllerAccrualLib.deliver(address($.accrual), address($.usdfr), $.yieldSink, nonce);
+        emit AccruedDeliveryRelayed(nonce);
     }
 
     /// @inheritdoc IMintRedeemController
@@ -1054,7 +1145,7 @@ contract MintRedeemController is
     ///      basis halted every performing borrower's repayment, protocol-wide, for a custody hole
     ///      elsewhere — blocking the money that repairs the balance sheet. The custody window is
     ///      closed where cash LEAVES: `_requireCustodiedReserve` (user par),
-    ///      `ReserveManager._requireIdleFullyCustodied` (both reserve out-doors, MA-1) and
+    ///      `ReserveStorageLib.requireIdleFullyCustodied` (both reserve out-doors, MA-1) and
     ///      `ReserveManager.custodyLossUnabsorbed()` (curator, R6-CF1).
     ///
     ///      DO NOT WIRE THIS INTO A USER path, dashboard, or absolute credit gate. It is
@@ -1166,7 +1257,12 @@ contract MintRedeemController is
     function mintableHeadroom() external view returns (uint256) {
         _requireSettledState();
         ControllerStorage storage $ = _storage();
-        if (paused() || $.usdfr.paused()) return 0;
+        // THE SAME THIRD SURFACE AS `previewRedeem` (Cantina 3.1.3). Advertising headroom while
+        // the reserve is paused publishes a mint that cannot execute: `mint` reaches
+        // `reserves.depositUSDC`, which is `whenNotPaused` on the reserve.
+        if (!_accrualAvailable($) || paused() || $.usdfr.paused() || IPausableModule(address($.reserves)).paused()) {
+            return 0;
+        }
         uint256 backing = $.reserves.recognizedBackingValue();
         // AUDIT FIX (ADR-0034 Y-bis) — `exitPrepaidAbsorption()` IS RETAINED ALONGSIDE
         // `subParShortfall`, AND DELETING IT REOPENS THE LEAK ON THE JUNIOR SIDE. The junior draw
@@ -1213,7 +1309,7 @@ contract MintRedeemController is
         // Bounding it by `totalPrincipalImpairment()` was evaluated and REJECTED: it releases the
         // surplus at the exact moment a mark is RELEASED, which is when the leak (a) actually
         // fires. Forest Road must choose between (a), (b) and (c); do not choose it in code.
-        uint256 claimed = $.usdfr.totalSupply() + $.subParShortfall + $.reserves.exitPrepaidAbsorption();
+        uint256 claimed = _effectiveSupply($) + $.subParShortfall + $.reserves.exitPrepaidAbsorption();
         return backing > claimed ? backing - claimed : 0;
     }
 
@@ -1361,7 +1457,17 @@ contract MintRedeemController is
         // a value defect. Falsified by
         // `test_S3_F3_previewRedeemQuotesAFullPriceWhileRedemptionIsPaused` and
         // `test_S3_F3b_previewRedeemQuotesAFullPriceWhileTheTokenPauseClosesTheBurn`.
-        if (paused() || $.usdfr.paused()) return (0, 0);
+        // CANTINA 3.1.3, CLOSED 2026-09-09 and already closed on the BSC instance. The block above
+        // reads the controller and token pauses; the RESERVE is the third sibling of that family
+        // and was missed, so this could publish a full price for a redemption whose every release
+        // is `whenNotPaused`. ADR-0034 section W deferred it to "the next controller upgrade" and
+        // told integrators to read `ReserveManager.paused()` alongside the quote meanwhile. The
+        // mechanical reason the sibling fix missed it is that `ReserveManager` inherits `paused()`
+        // from `PausableUpgradeable` and never declares it on its own interface, so nothing in the
+        // type system pointed at it; `IPausableModule` is that pointer.
+        if (!_accrualAvailable($) || paused() || $.usdfr.paused() || IPausableModule(address($.reserves)).paused()) {
+            return (0, 0);
+        }
         if ($.reserves.idleCustodyShortfall() != 0) return (0, 0);
         // IT QUOTES THE UNDRAWN FLOOR, AND THAT IS A NAMED, DELIBERATE GAP (ADR-0034 Y-bis).
         // `drawn = 0` here, so below par this view publishes the GROSS-marked price while `redeem`
@@ -1376,7 +1482,11 @@ contract MintRedeemController is
         // after this change. ADR-0034 Y names `previewRedeem` alongside `redeem`, so this is
         // recorded as OUTSTANDING rather than closed: the dashboard understates the exit price
         // whenever junior capital stands behind it.
-        return _quoteRedeem(usdfrAmount, $.usdfr.totalSupply(), $.reserves.recognizedBackingValue(), 0);
+        (usdcOut, usdfrIn) = _quoteRedeem(usdfrAmount, _effectiveSupply($), $.reserves.recognizedBackingValue(), 0);
+        // Suspend advisory quotes while an unratified arm stands. Direct exits wait
+        // for resolution regardless of the amount of available junior capital.
+        if (_unratifiedArm($) != 0) return (0, 0);
+        return (usdcOut, usdfrIn);
     }
 
     /// @inheritdoc IMintRedeemController
@@ -1469,8 +1579,22 @@ contract MintRedeemController is
     ///      measurement on the supply-affecting paths would brick the C-01 absorption cascade,
     ///      and `ReserveManager`'s MERGE NOTE for why `totalBackingValue()` must stay recorded.
     function _supplyAndBacking(ControllerStorage storage $) private view returns (uint256 supply, uint256 backing) {
-        supply = $.usdfr.totalSupply();
+        supply = _effectiveSupply($);
         backing = $.reserves.totalBackingValue();
+    }
+
+    function _effectiveSupply(ControllerStorage storage $) private view returns (uint256) {
+        return address($.accrual) == address(0)
+            ? $.usdfr.totalSupply()
+            : ControllerAccrualLib.supply(address($.accrual), address($.usdfr));
+    }
+
+    function _requireAccrualFresh(ControllerStorage storage $) private view {
+        if (address($.accrual) != address(0)) $.accrual.requireAccrualFresh();
+    }
+
+    function _accrualAvailable(ControllerStorage storage $) private view returns (bool) {
+        return address($.accrual) == address(0) || ControllerAccrualLib.available(address($.accrual));
     }
 
     /// @dev THE SINGLE SOLVENCY RULE (ADR-0012 as amended by audit round R16 — findings
@@ -1529,90 +1653,28 @@ contract MintRedeemController is
         revert Controller_DeficitWorsened(deficitBefore, deficitAfter);
     }
 
-    /// @dev THE SAME RULE ON THE RECOGNITION-AWARE BASIS (AUDIT FIX R17) — LOAD-BEARING ON
-    ///      `mintYield`, DO NOT DELETE. `recognizedBackingValue()` is backing net of the custody
-    ///      shortfall the reserve can observe right now; it is the basis `backingInvariantHolds()`
-    ///      and `WaterfallEngine.distribute` already use, and the basis on which the protocol
-    ///      publishes whether it is whole. Without this, `mintYield` could raise the PUBLISHED
-    ///      deficit by the full amount minted and still pass, because the recorded ledger the
-    ///      missing cash had falsified reported the protocol whole. Applied ONLY to `mintYield`:
-    ///      `mint` and `redeem` are already refused outright in that state by
-    ///      `_requireCustodiedReserve`, and applying it to `burnLoss` would revert the C-01
-    ///      cascade's own absorption burns, which is the opposite of the intent.
-    function _assertRecognizedDeficitNotWorsened(
-        ControllerStorage storage $,
-        uint256 supplyBefore,
-        uint256 recognizedBefore
-    ) private view {
-        uint256 supplyAfter = $.usdfr.totalSupply();
-        uint256 recognizedAfter = $.reserves.recognizedBackingValue();
-        uint256 deficitAfter = supplyAfter > recognizedAfter ? supplyAfter - recognizedAfter : 0;
-        uint256 deficitBefore = supplyBefore > recognizedBefore ? supplyBefore - recognizedBefore : 0;
-        if (deficitAfter > deficitBefore) revert Controller_RecognizedDeficitWorsened(deficitBefore, deficitAfter);
+    /// @dev An unratified custody arm blocks every direct exit, independent of price
+    ///      and junior capacity. Governed false-alarm cancellation preserves credit marks.
+    function _requireNoArmedExit(ControllerStorage storage $, uint256 usdcOut, uint256 usdfrIn)
+        private
+        view
+    {
+        uint256 armId = _unratifiedArm($);
+        if (armId != 0) revert Controller_ReserveLossArmFreeze(armId, usdcOut, usdfrIn);
     }
 
-    /// @dev THE REDEMPTION QUOTE (AUDIT FIX R16-M3) — shared by `redeem` and `previewRedeem` so
-    ///      the quoted price and the settled price cannot diverge.
-    ///
-    ///      ADR-0034 Y-bis IS IMPLEMENTED, AND `drawn` IS WHAT IMPLEMENTS IT (THIS PARAGRAPH
-    ///      REPLACES R18's "KNOWN OPEN FINDING" ENTRY). R18 recorded that this priced off the GROSS
-    ///      book mark while the `sUSDfr` path priced off `DefaultManager.pendingSeniorImpairment()`
-    ///      — two bases in one tree, the direct one un-netted, so a senior could be haircut here
-    ///      while junior capital contracted to absorb first sat intact. The cure is NOT a change of
-    ///      basis: the junior-netted price PROMISES more than gross-marked backing, and the
-    ///      difference sits in the curator pool and the backstop, not in the reserve's USDC. So
-    ///      `_drawJuniorForExit` MOVES that capital in the same transaction and hands the result in
-    ///      here as `drawn`. See `_exitDrawTarget` for the sizing and why `pendingSeniorImpairment()`
-    ///      is deliberately NOT consulted.
-    ///
-    ///      WHAT IS STILL OUTSTANDING, NAMED SO NO READER TAKES THIS AS COMPLETE. (1)
-    ///      `previewRedeem` passes `drawn = 0` and therefore publishes the UNDRAWN floor — see its
-    ///      NatSpec. (2) Layer 1 of the draw is CLASS-LESS pro-rata, not per-class as Y-bis's
-    ///      wording says; the deficit a redemption prices against is not class-attributed on-chain.
-    ///      (3) The draw stops at layer 2, so once junior capital is exhausted the exiting holder
-    ///      takes a haircut while the `sUSDfr` vault sits intact — which inverts decision X's
-    ///      layers 3 and 4. All three need Forest Road, and all three are recorded in
-    ///      `DefaultManager.drawForSeniorExit`.
-    ///
-    ///      STEP 1, THE WHOLE-UNIT GRID. `usdfrIn` is `usdfrAmount` truncated to a whole USDC
-    ///      unit. Sub-unit dust is never burned, so it stays in the holder's wallet rather than
-    ///      being silently taken — the pre-existing behaviour, preserved.
-    ///
-    ///      STEP 2, THE PRICE. At or above par the holder is paid par. Below par they are paid
-    ///      `usdfrIn * backing / supply`, FLOORED. Flooring twice (once here, once by the
-    ///      division to whole USDC units) means the payout is always at or below the exact
-    ///      pro-rata share, so `deficitAfter <= deficitBefore` holds by construction and the
-    ///      coverage ratio for the holders who did not redeem never falls. Every wei of rounding
-    ///      accrues to them, never to the redeemer.
-    ///
-    ///      OVERFLOW AND DIVISION BY ZERO. `Math.mulDiv` computes the 512-bit intermediate, so
-    ///      `usdfrIn * backing` cannot overflow regardless of supply. The division is guarded by
-    ///      the explicit `supply == 0` early return below — R16 argued instead that the
-    ///      `backing >= supply` branch covered it, which was true but ALSO meant an empty protocol
-    ///      quoted PAR against supply that does not exist (see `previewRedeem`). The explicit
-    ///      guard fixes the quote and carries the division safety, and unlike the argument it
-    ///      replaces it is falsifiable: delete it and
-    ///      `test_R17_V02_anEmptyProtocolQuotesNothingRatherThanPar` goes red.
-    ///
-    ///      TWO GUARDS REMOVED / KEPT, PER FINDING M6'S OWN RULE. The `if (usdfrIn == 0) return`
-    ///      short-circuit R16 shipped was DELETED in R17: it was provably redundant (with
-    ///      `supply != 0`, `mulDiv(0, backing, supply)` is 0 and the par branch returns 0 too), and
-    ///      a mutation campaign confirmed it could be removed with the entire deterministic AND
-    ///      invariant suite green. The `usdcOut == 0` clamp below is KEPT because it has an
-    ///      observable effect — `previewRedeem`'s documented `(0, 0)` contract, which a caller
-    ///      uses to decide whether anything will be burned — and R17 asserts BOTH components of
-    ///      that contract in `test_L3_theDustFloorIsQuotableRatherThanAHiddenRevert`, which is what
-    ///      makes it falsifiable.
-    ///
-    ///      SLITHER `divide-before-multiply` FIRES ON `(usdfrAmount / SCALE) * SCALE`, AND IS
-    ///      ACCEPTED. R16 claimed the triaged baseline "already carried" it against `redeem`; it
-    ///      did not carry it against THIS function, and the baseline checker fingerprints on the
-    ///      element name with line numbers deliberately excluded, so moving the expression created
-    ///      a NEW finding and staled the old entry. R17 re-ran the analysis, removed the stale
-    ///      `redeem` fingerprint and added `_quoteRedeem`; this paragraph is the triage and must be
-    ///      transcribed into `STATE.md` at merge, as CLAUDE.md §3.2 requires. The precision
-    ///      loss is the POINT: it snaps the burn to the whole-USDC grid so sub-unit dust is never
-    ///      taken from the holder.
+    /// @dev Only the incident belonging to this arm releases its additional restriction.
+    function _unratifiedArm(ControllerStorage storage $) private view returns (uint256 armId) {
+        uint256 armIncidentId;
+        (armId, armIncidentId,,) = $.reserves.reserveLossArm();
+        if (armId == 0) return 0;
+        (uint256 openIncidentId,) = $.reserves.activeReserveLossIncident();
+        if (openIncidentId == armIncidentId) return 0;
+    }
+
+    /// @dev The burn is rounded down to native units, then the payout is rounded down.
+    ///      Actual junior delivery improves the settled price; the preview uses zero delivery.
+    ///      Remaining holders retain any rounding difference. Empty supply quotes zero.
     function _quoteRedeem(uint256 usdfrAmount, uint256 supply, uint256 backing, uint256 drawn)
         private
         pure
@@ -1620,6 +1682,14 @@ contract MintRedeemController is
     {
         if (supply == 0) return (0, 0);
         usdfrIn = (usdfrAmount / SCALE) * SCALE;
+        // CANTINA 3.1.1, AND THE BSC INSTANCE ALREADY CARRIED THIS FIX. Bound the SUM rather than
+        // the addend: `usdfrIn + drawn` below overflowed on a max-sized input and the caller got a
+        // bare `Panic(0x11)` instead of a decodable error. `supply - drawn` is underflow-free
+        // because `drawn` was burned out of `supply`, and bounding against it makes the addition
+        // UNREPRESENTABLE rather than merely unlikely while refusing only inputs no holder can
+        // hold. It sits in the shared quote so `previewRedeem` and `_redeem` answer identically.
+        uint256 bound = supply - drawn;
+        if (usdfrIn > bound) revert Controller_RedeemExceedsSupply(usdfrIn, bound);
         uint256 valueOut;
         if (backing >= supply) {
             valueOut = usdfrIn;
@@ -1782,7 +1852,7 @@ contract MintRedeemController is
     ///      failing that first check, and if it under-reports its own over-delivery the excess is
     ///      simply never burned. A non-straddling read would still let it lie, which is why the
     ///      straddle stays.
-    ///      `DefaultManager._coverFromBackstop` keeps the same straddling measurement for facility
+    ///      `DefaultLossLib.coverFromBackstop` keeps the same straddling measurement for facility
     ///      defaults, senior exits and the retained compatibility entry. The live custody path
     ///      performs its equivalent balance-delta check inside `ReserveManager`; the extraction is
     ///      therefore a RENAME with no net new finding.
@@ -1841,7 +1911,54 @@ contract MintRedeemController is
         emit SeniorExitJuniorDrawn(msg.sender, target, drawn);
     }
 
-    function _authorizeUpgrade(address) internal override onlyRole(Roles.UPGRADER_ROLE) {}
+    /// @dev A callback cannot replace the implementation or its authorities while a guarded
+    ///      financial operation is using them. An idle controller remains governable when stale.
+    function _grantRole(bytes32 role, address account) internal override returns (bool) {
+        _requireSettledState();
+        return super._grantRole(role, account);
+    }
+
+    function _revokeRole(bytes32 role, address account) internal override returns (bool) {
+        _requireSettledState();
+        return super._revokeRole(role, account);
+    }
+
+    function _authorizeUpgrade(address) internal view override onlyRole(Roles.UPGRADER_ROLE) {
+        _requireSettledState();
+    }
+
+    /// @dev CANTINA 3.1.2. A module must be a contract, must not be a delegated EOA, and must
+    ///      answer the view the controller will call on it.
+    ///
+    ///      EXACT CALLDATA, not a bare selector with a padded argument: solc's dispatcher ignores
+    ///      trailing calldata, so a selector-plus-argument probe would silently succeed against a
+    ///      no-argument view and prove less than it appears to. `staticcall` so a probe can never
+    ///      mutate; the returned value is discarded because what is tested is that the call
+    ///      SUCCEEDS and returns a word.
+    ///
+    ///      THE EIP-7702 LIMB WAS ADDED 2026-09-10, and it closes an inconsistency rather than a
+    ///      new attack. `setLossSource` already refuses a delegated EOA through `_isDelegatedEOA`,
+    ///      for the reason recorded at length above finding (C): since Pectra an ordinary
+    ///      key-controlled EOA that has signed a `SetCode` authorization carries a 23-byte code
+    ///      field, so `code.length == 0` stopped being a test for "is a contract". This probe was
+    ///      still using the old test, so the same address the loss-source setter refuses could be
+    ///      wired in as a module here. Two guards in one contract disagreeing about what counts as
+    ///      a contract is the kind of gap an auditor is entitled to find embarrassing.
+    ///
+    ///      WHAT THIS STILL DOES NOT PROVE, stated because the previous version of this comment
+    ///      claimed more than it delivered. A probe that only asks "does a staticcall return a
+    ///      word" cannot distinguish a real module from an implementation reached instead of its
+    ///      proxy, from an unrelated ERC-20 that happens to answer, or from a fallback sink that
+    ///      returns 32 bytes for any selector. Those remain admissible and the controls for them
+    ///      are elsewhere: timelocked `DEFAULT_ADMIN_ROLE` on every setter, and `Validate.s.sol`
+    ///      asserting each wired address against the deployment manifest. Do not read this probe
+    ///      as authentication; it is a liveness check that turns a silent misconfiguration into a
+    ///      loud one.
+    function _requireModuleResponds(address module, bytes memory callData) private view {
+        if (module.code.length == 0 || _isDelegatedEOA(module)) revert Controller_ModuleNotResponding(module);
+        (bool ok, bytes memory data) = module.staticcall(callData);
+        if (!ok || data.length < 32) revert Controller_ModuleNotResponding(module);
+    }
 
     function _storage() private pure returns (ControllerStorage storage $) {
         assembly {

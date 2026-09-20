@@ -1,0 +1,117 @@
+{
+  "recorded_on": "2026-09-13",
+  "chain": "ethereum",
+  "attestation_kind_count": 10,
+  "scope": "Only the actual internal attestation validator step is called; no deployment entrypoint, nonce check or live action runs.",
+  "controls": {
+    "chain": "ethereum",
+    "baseline": {
+      "exit_code": 0,
+      "counts": [
+        2,
+        0,
+        0
+      ],
+      "log_sha256": "f46be794d0b2e2c9ad25a5129b2cd98477db1c55629aa2923988bbf7f6871caf"
+    },
+    "validator-omits-opening": {
+      "exit_code": 1,
+      "counts": [
+        1,
+        1,
+        0
+      ],
+      "log_sha256": "23453747d183bbf285c6e7b20e195628aa0eac0833c6c301dfddace99f976942",
+      "applied_matches": 1,
+      "changed_source_sha256": "994e1211ab95cd83abd3df134899aa0177a49f74725fc4a08c7842b7c6ff4dc9"
+    },
+    "receipt-omits-opening": {
+      "exit_code": 1,
+      "counts": [
+        1,
+        1,
+        0
+      ],
+      "log_sha256": "e27915d1339731b52a4158806198545020fd480976d5fa1704c95ec3aed63558",
+      "applied_matches": 1,
+      "changed_source_sha256": "a492990fc73d3534d546cf056f95cba1d8946b98c57e8ddc436804e2b092441c"
+    },
+    "enum-extension": {
+      "exit_code": 1,
+      "counts": [
+        0,
+        2,
+        0
+      ],
+      "log_sha256": "fa8ad26799e622ba584956883ad05d000f46b962df0a1f7a4f97b1efbfedfbf7",
+      "applied_matches": 1,
+      "changed_source_sha256": "9a7263bbfa0f2ea407b2beb2d54950d0365819c189bd5f7606aad390fd46a490"
+    },
+    "restored": {
+      "exit_code": 0,
+      "counts": [
+        2,
+        0,
+        0
+      ],
+      "log_sha256": "9fde706eacdb477ac43aa3f4fd3d0dee727c7f31c2a67209e39cda2c21412f92"
+    }
+  },
+  "control_summary": {
+    "path": "/var/folders/26/b7qf0kzn4bsdjl9gl7qdc7vw0000gn/T/frv-ethereum-attestation-controls-ed4vc4n5/summary.json",
+    "sha256": "abfbce04abb66657566defeeb571e700fa830ae8afc285cc8b87cbc8da4cf408"
+  },
+  "all_control_source_and_test_hashes_restored": true,
+  "comment_only_compilation": {
+    "before": {
+      "exit_code": 0,
+      "log_sha256": "440f386e429634cc82ceae14a3fe397a1696561bcce07e14b6290b7672aba2a4",
+      "source_sha256": "5cce01f4bd0e3375d62bb03bab78906ee8220d016e7b13f41cf415a6e72d13fa",
+      "bytecode": {
+        "bytes": 948,
+        "executable_sha256": "beeb4af363fb42783a89104671742b3ccbd78efc42a082549b1c8539d44b1ff7"
+      },
+      "deployedBytecode": {
+        "bytes": 920,
+        "executable_sha256": "c2fcaf72c00e5bf05baa320ba32c1fa9f57f7eeacf478f7ecccc8cd9262584fc"
+      }
+    },
+    "after": {
+      "exit_code": 0,
+      "log_sha256": "52dbec891709fa3b56f5d6f6180a1c38d464fce98962b25617ccb58210981b73",
+      "source_sha256": "0b15d1c337c9ef9c868d57dede4b6a303e41b5f6012ad63863c0c3461bce92f4",
+      "bytecode": {
+        "bytes": 948,
+        "executable_sha256": "beeb4af363fb42783a89104671742b3ccbd78efc42a082549b1c8539d44b1ff7"
+      },
+      "deployedBytecode": {
+        "bytes": 920,
+        "executable_sha256": "c2fcaf72c00e5bf05baa320ba32c1fa9f57f7eeacf478f7ecccc8cd9262584fc"
+      }
+    },
+    "unchanged_reference_sha256": "c45847c880226104bbd85ed765478ad8e1c304ad76f68bb90e2c36026b49bec4"
+  },
+  "bytecode_comparison": "Creation and runtime executable bytes are identical before/after, excluding the trailing CBOR source metadata. Both full bytecode lengths are unchanged.",
+  "source_hashes": [
+    {
+      "path": "contracts/src/ConservativeImpairmentMath.sol",
+      "sha256": "0b15d1c337c9ef9c868d57dede4b6a303e41b5f6012ad63863c0c3461bce92f4"
+    },
+    {
+      "path": "contracts/script/ValidateMainnet.s.sol",
+      "sha256": "c3a8380a2272349bd511a4370dfb7850c61c64481da15e70255d01b299b3cfab"
+    },
+    {
+      "path": "contracts/script/MainnetConfig.sol",
+      "sha256": "1f3df0e222da1ae3d3f4c7bf4b7fbbbdb8d76b144c3230b79f947b320926f932"
+    },
+    {
+      "path": "contracts/test/unit/AttestationConfigValidation.t.sol",
+      "sha256": "834c8be317c55522214af9451d6551ba4889a862352aa84512ba280c1c12076e"
+    },
+    {
+      "path": "contracts/test/tooling/AttestationConfigControls.py",
+      "sha256": "948cb83752baffc88a74e5fee51d75c4970542499a809d8ccfed7f827c2b5eef"
+    }
+  ]
+}

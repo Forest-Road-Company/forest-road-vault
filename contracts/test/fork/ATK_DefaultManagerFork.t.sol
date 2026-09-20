@@ -2,12 +2,14 @@
 pragma solidity 0.8.30;
 
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {ForkLifecycleFixture} from "./ForkLifecycleFixture.sol";
 import {ClaimBridge} from "../../src/ClaimBridge.sol";
 import {IAttestationOracle} from "../../src/interfaces/IAttestationOracle.sol";
 import {IDefaultManager} from "../../src/interfaces/IDefaultManager.sol";
 import {Config} from "../../src/libraries/Config.sol";
+import {ReserveAccrualCreditLib} from "../../src/libraries/ReserveAccrualCreditLib.sol";
 import {Roles} from "../../src/libraries/Roles.sol";
 
 /// @title ATK_DefaultManagerFork — adversarial suite against `DefaultManager` on a pinned mainnet
@@ -158,43 +160,79 @@ contract ATK_DefaultManagerForkTest is ForkLifecycleFixture {
     /// @notice THE HEADLINE ATTACK (compose ops out of order). `markPastDue` is permissionless and
     ///         starts a G2W relief ramp that lightens the conservative senior mark for one payment
     ///         episode. If a bystander could rewind that ramp by clearing and RE-marking the same
-    ///         still-delinquent facility, the cohort would sit at maximum relief forever — an
+    ///         still-delinquent facility, the cohort would sit at maximum relief forever: an
     ///         UNDER-mark, so seniors exiting inside the perpetual window would take value from
     ///         seniors who stay. The S3-F3 fix keys the clock to the payment episode, not to
     ///         whichever mark found the cohort empty. Prove the anchor reuses the ORIGINAL episode
     ///         start after a clear-and-re-mark and is not rewound to now.
+    ///
+    ///         The at-risk face this test pins is the ADR-0038 face, not the funded principal.
+    ///         `ADR/0038-continuous-interest-accrual-to-susdfr.md`, decisions table Q1 ("Full face.
+    ///         Backing grows with accrual at 100%") and Q2 (accrual stops "At default declaration.
+    ///         Not at the past-due mark. Accrual continues through the entire pre-declaration
+    ///         window"), and its heading "Loss-bearing cash and PIK without changing the contractual
+    ///         basis" ("the lifecycle posts all earned interest before a default or loss"), together
+    ///         with `docs/remediation/CONTINUOUS_ACCRUAL_DESIGN_PANEL_2026-09-10.md` lines 120 to 128
+    ///         ("Past-due cohorts continue earning and need dynamic conservative-risk accounting
+    ///         until declaration"), require the mark to post every wei the book has streamed into
+    ///         the recorded face first and the pool to carry principal PLUS that interest. The
+    ///         figures are derived in `_fixtureBookSlope` from the engine's own construction
+    ///         (`ReserveAccrualLib.loanCeiling`, `AccrualSegments.plan`, `AccrualMath.periodAmount`,
+    ///         `AccrualBook.open`), so the (I2) "counted exactly once" property is asserted against
+    ///         an independently computed face: a defect that inflates the pool and `deployedTo`
+    ///         together (refuter mutation M8, `_post` double-counting) still fails here. The posting
+    ///         and the mark are pinned as ordered events, and posting is asserted backing-neutral
+    ///         (a reclassification of earned backing, never a creation).
     function test_attack_markPastDue_reliefClockCannotBeRewoundByClearAndReMark() public onFork {
         _mintFromUSDC(alice, 3_000_000e6); // idle liquidity to fund
+        uint64 fundedAt = uint64(block.timestamp);
         uint256 id = _originateAndFund(2_000_000e18);
-        uint256 outstanding = reserves.deployedTo(id);
-        assertEq(outstanding, 2_000_000e18, "precondition: full principal at risk");
+        assertEq(reserves.deployedTo(id), 2_000_000e18, "precondition: full principal at risk, nothing streamed yet");
+        (uint256 slope, uint64 nextDue) = _pinAdr0038Slope(id, fundedAt);
 
         // Run past the first payment plus the 21-day grace window.
         _warp(60 days);
+        uint256 atRisk = _pinAdr0038FaceAt60Days(id, slope);
+        uint256 backingBefore = reserves.totalBackingValue();
+        assertEq(backingBefore, reserves.idleReserve() + atRisk, "backing = idle + the earning face");
 
-        // STEP 1: a bystander flags it past due (the protocol's own self-healing act).
+        // STEP 1: a bystander flags it past due (the protocol's own self-healing act). The mark
+        // posts the whole stream into the recorded face BEFORE recording the pool (ordered events).
         uint256 firstMarkTime = block.timestamp;
+        _expectPostThenMark(id, slope * 60 days, atRisk, nextDue);
         vm.prank(carol);
         defaultManager.markPastDue(id);
         uint256 firstAnchor = defaultManager.pastDueReliefAnchor();
         assertEq(firstAnchor, firstMarkTime, "the relief clock anchors at the first mark");
-        assertEq(defaultManager.pastDueExposure(), outstanding, "at-risk principal entered the past-due pool");
-        assertEq(defaultManager.pastDueContribution(id), outstanding, "counted once for this facility");
+        _assertPoolIsTheLiveFace(id, atRisk);
+        assertEq(
+            reserves.totalBackingValue(), backingBefore, "posting is backing-neutral: a reclassification, not a mint"
+        );
 
         // Idempotence: a second mark cannot double-count the pool.
         vm.prank(carol);
         vm.expectRevert(abi.encodeWithSelector(IDefaultManager.DefaultManager_AlreadyPastDue.selector, id));
         defaultManager.markPastDue(id);
+        assertEq(defaultManager.pastDueExposure(), atRisk, "the refused replay left the pool exactly where it was");
 
-        // The servicer cures the mark, emptying the cohort.
+        // The servicer cures the mark, emptying the cohort. Nothing streamed since the post.
         _clearPastDueOps(id, keccak256("atk-cure"));
         assertEq(defaultManager.pastDueExposure(), 0, "the cohort is empty after the cure");
+        assertEq(reserves.deployedTo(id), atRisk, "the cure does not change the recorded face");
 
-        // Time passes but the payment due date is NOT advanced (no repayment, no amendment).
+        // Time passes but the payment due date is NOT advanced (no repayment, no amendment). Under
+        // ADR-0038 Q2 the facility keeps earning at the same slope after the mark and the cure.
         _warp(5 days);
         assertGt(block.timestamp, firstAnchor, "wall-clock has moved past the original anchor");
+        uint256 atRiskRemark = atRisk + slope * 5 days;
+        assertEq(slope * 5 days, 3_888_888_888_877_501_248_000, "five more days at the integer slope");
+        assertEq(atRiskRemark, 2_050_555_555_555_407_516_224_000, "ADR-0038 at-risk face at the re-mark");
+        assertEq(reserves.deployedTo(id), atRiskRemark, "the face kept streaming after the cure");
+        assertEq(reserves.unpostedAccruedLoan(id), slope * 5 days, "exactly the five days is unposted");
 
-        // STEP 2: re-mark the SAME delinquent episode. The rewind must be unreachable.
+        // STEP 2: re-mark the SAME delinquent episode. The rewind must be unreachable, and the
+        // re-mark posts only the five days streamed since the cure (never the first 60 again).
+        _expectPostThenMark(id, slope * 5 days, atRiskRemark, nextDue);
         vm.prank(carol);
         defaultManager.markPastDue(id);
 
@@ -204,7 +242,7 @@ contract ATK_DefaultManagerForkTest is ForkLifecycleFixture {
             "S3-F3: the anchor reuses the original episode start; the clear-and-re-mark rewind is blocked"
         );
         assertTrue(defaultManager.pastDueReliefAnchor() != block.timestamp, "the relief clock was NOT rewound to now");
-        assertEq(defaultManager.pastDueExposure(), outstanding, "the pool is restored, still counted exactly once");
+        _assertPoolIsTheLiveFace(id, atRiskRemark);
     }
 
     /// @notice `markPastDue` on a performing, not-yet-past-due facility must be refused with the
@@ -275,5 +313,113 @@ contract ATK_DefaultManagerForkTest is ForkLifecycleFixture {
         _attest(tokenId, IAttestationOracle.AttestationKind.PastDueCured, keccak256(abi.encode(tokenId, evidence)));
         vm.prank(ops);
         defaultManager.clearPastDue(tokenId, evidence);
+    }
+
+    /// @dev Closed-form reconstruction of the accrual book's integer per-second slope for the
+    ///      fixture note (cash, fixed `rateBps`, Actual/360, funded at t0 with maturity t0 + T),
+    ///      following the engine's construction step by step so the figures the tests pin are
+    ///      derived rather than pasted (ADR-0038; `AccrualBook.sol` NatSpec: "Segment slopes are
+    ///      integer normalized wei per second"; `AccrualMath.sol` NatSpec: interpolating the grid
+    ///      floored endpoint "differs by strictly less than one unit" from the instantaneous curve).
+    ///        1. `ReserveAccrualLib.loanCeiling`: the cash ceiling is principal plus the full-term
+    ///           simple interest floored to the 1e12 reserve grid, so cap = floor(P*r*T / (10_000 *
+    ///           360 days * 1e12)) * 1e12.
+    ///        2. `AccrualSegments.plan`: the cap is reachable exactly at capHit = ceil(cap * 10_000 *
+    ///           360 days / (P*r)) seconds, which is T here; the planner ends the first technical
+    ///           segment one second earlier, at T - 1.
+    ///        3. `AccrualMath.periodAmount`: the segment amount is the simple interest at T - 1,
+    ///           floored to the grid.
+    ///        4. `AccrualBook.open`: the slope is the integer quotient amount / (T - 1).
+    function _fixtureBookSlope(uint256 principal, uint256 rateBps, uint64 termSeconds)
+        internal
+        pure
+        returns (uint256 slope, uint256 cap, uint64 segmentSeconds, uint256 segmentAmount)
+    {
+        uint256 denominator = 10_000 * 360 days; // bps and Actual/360 year, in seconds
+        uint256 scale = 1e12; // Ethereum USDC reserve grid, in USDfr wei
+        cap = (principal * rateBps * termSeconds / denominator) / scale * scale;
+        uint64 capHit = uint64(Math.ceilDiv(cap * denominator, principal * rateBps));
+        assertEq(capHit, termSeconds, "the cap is reachable exactly at maturity for this note");
+        segmentSeconds = capHit - 1;
+        segmentAmount = (principal * rateBps * segmentSeconds / denominator) / scale * scale;
+        slope = segmentAmount / segmentSeconds;
+    }
+
+    /// @dev Derive the fixture note's ADR-0038 slope from the facility's own signed terms and pin
+    ///      every intermediate figure to its literal, so neither side of any comparison is a magic
+    ///      number. Returns the slope and the note's first payment date (the `PastDueMarked` field).
+    function _pinAdr0038Slope(uint256 id, uint64 fundedAt) internal view returns (uint256 slope, uint64 nextDue) {
+        ClaimBridge.Facility memory f = bridge.facility(id);
+        assertEq(f.interestRateBps, 1400, "fixture note: fixed 1400 bps");
+        assertEq(f.maturity, fundedAt + 365 days, "fixture note: one 365-day term");
+        nextDue = f.nextPaymentDue;
+        uint256 principal = f.principal;
+        uint256 cap;
+        uint64 segmentSeconds;
+        uint256 segmentAmount;
+        (slope, cap, segmentSeconds, segmentAmount) =
+            _fixtureBookSlope(principal, f.interestRateBps, f.maturity - fundedAt);
+        assertEq(
+            reserves.accruedDebt(id).balanceCeiling, principal + cap, "the derived cap is the engine's reservation"
+        );
+        assertEq(cap, 283_888_888_888e12, "cap: full-term simple interest floored to the 1e12 reserve grid");
+        assertEq(segmentSeconds, 365 days - 1, "the planner ends the first technical segment one second before the cap");
+        assertEq(segmentAmount, 283_888_879_886e12, "segment amount: simple interest at T-1, floored to the grid");
+        assertEq(slope, 9_002_057_613_142_364, "integer wei-per-second slope: segmentAmount / segmentSeconds");
+        // The two floors the book applies, pinned exactly. Pro rata over 60 days they are
+        // 136,648,067,921.7 wei and 3,622,744.9 wei: together the 136,651,690,666 wei shortfall
+        // that `_pinAdr0038FaceAt60Days` asserts.
+        assertEq(
+            principal * f.interestRateBps * segmentSeconds / (10_000 * 360 days) - segmentAmount,
+            831_275_720_164,
+            "grid floor dropped at the segment endpoint"
+        );
+        assertEq(segmentAmount % segmentSeconds, 22_038_364, "integer-slope truncation across the segment");
+    }
+
+    /// @dev At 60 days the book has streamed `slope * 60 days`; pin that against the closed-form
+    ///      Actual/360 figure (the book sits exactly 136,651,690,666 wei below it, conservative for
+    ///      backing) and against what the reserve reports before the mark. Returns the ADR-0038
+    ///      at-risk face, principal plus the streamed interest.
+    function _pinAdr0038FaceAt60Days(uint256 id, uint256 slope) internal view returns (uint256 atRisk) {
+        uint256 principal = bridge.facility(id).principal;
+        uint256 streamed60 = slope * 60 days;
+        uint256 closedForm60 = principal * bridge.facility(id).interestRateBps * 60 days / (10_000 * 360 days);
+        assertEq(streamed60, 46_666_666_666_530_014_976_000, "60 days at the integer slope");
+        assertEq(closedForm60, 46_666_666_666_666_666_666_666, "closed-form Actual/360 interest for 60 days");
+        assertEq(
+            closedForm60 - streamed60, 136_651_690_666, "the book streams below closed form by exactly the two floors"
+        );
+        atRisk = principal + streamed60;
+        assertEq(
+            atRisk, 2_046_666_666_666_530_014_976_000, "ADR-0038 Q1 at-risk face: principal plus streamed interest"
+        );
+        assertEq(reserves.deployedTo(id), atRisk, "deployedTo already carries the unposted stream before the mark");
+        assertEq(reserves.unpostedAccruedLoan(id), streamed60, "and all of it is still unposted");
+    }
+
+    /// @dev The mark must first post exactly `posted` into the recorded face (`AccruedLoanPosted`
+    ///      from the reserve, ADR-0038 "posts all earned interest before a default or loss") and
+    ///      only then record `face` into the pool (`PastDueMarked`). Both events are pinned in
+    ///      that order with full data.
+    function _expectPostThenMark(uint256 id, uint256 posted, uint256 face, uint64 nextDue) internal {
+        vm.expectEmit(true, true, true, true, address(reserves));
+        emit ReserveAccrualCreditLib.AccruedLoanPosted(id, USDC, posted, face);
+        vm.expectEmit(true, true, true, true, address(defaultManager));
+        emit IDefaultManager.PastDueMarked(id, FILM, nextDue, face);
+    }
+
+    /// @dev After a mark every module must carry ONE face: nothing unposted remains, and the
+    ///      facility contribution, the class pool, the global pool and the registry all equal the
+    ///      reserve's recorded face, which is pinned by the caller to the derived figure.
+    function _assertPoolIsTheLiveFace(uint256 id, uint256 face) internal view {
+        assertEq(reserves.unpostedAccruedLoan(id), 0, "the mark posted every streamed wei");
+        assertEq(reserves.deployedTo(id), face, "the recorded face is the ADR-0038 face");
+        assertEq(
+            defaultManager.pastDueExposure(), face, "the at-risk face entered the past-due pool, counted exactly once"
+        );
+        assertEq(defaultManager.pastDueContribution(id), face, "counted once for this facility");
+        assertEq(defaultManager.pastDuePrincipal(FILM), face, "the class pool carries the same face");
+        assertEq(registry.classExposure(FILM), face, "the registry carries the same face");
     }
 }

@@ -28,6 +28,8 @@ import {USDfr} from "../src/USDfr.sol";
 import {WaterfallEngine} from "../src/WaterfallEngine.sol";
 import {IAttestationOracle} from "../src/interfaces/IAttestationOracle.sol";
 import {ICollateralRegistry} from "../src/interfaces/ICollateralRegistry.sol";
+import {ContinuousAccrualDeployment} from "./ContinuousAccrualDeployment.sol";
+import {IContinuousAccrual} from "../src/interfaces/IContinuousAccrual.sol";
 import {Config} from "../src/libraries/Config.sol";
 import {Roles} from "../src/libraries/Roles.sol";
 import {PrivilegeAudit} from "./PrivilegeAudit.sol";
@@ -246,10 +248,27 @@ contract Validate is Script {
         );
     }
 
+    /// @dev Every current deployment must bind and enable continuous recognition before use.
+    function _validateContinuousAccrual(M memory a) internal view {
+        ContinuousAccrualDeployment.validate(
+            a.reserves,
+            IContinuousAccrual.Modules({
+                token: a.usdfr,
+                controller: a.controller,
+                vault: a.vault,
+                waterfall: a.waterfall,
+                bridge: a.bridge,
+                registry: a.registry,
+                defaultManager: a.defaultManager
+            })
+        );
+    }
+
     /// @dev Module cross-wiring and the positive/negative role graph. Always true of a live
     ///      system regardless of how much it has been exercised.
     /// @param a The deployed address set and posture flags.
     function _validateWiring(M memory a) internal view {
+        _validateContinuousAccrual(a);
         // ── module cross-wiring (every modules() view) ─────────────────────
         {
             (address u, address c2, address r) = MintRedeemController(a.controller).modules();
@@ -307,6 +326,14 @@ contract Validate is Script {
             );
             require(ledger != address(0), "defaultManager commitment ledger unset");
             require(ledger.code.length != 0, "defaultManager commitment ledger has no code");
+            // The PIK crank-liveness edge. Zero is a valid on-chain state (the guard is inert),
+            // but it is NOT a valid state for a deployment this script is asserting, because a
+            // fresh deploy wires it and a live one must have had governance wire it. Checking the
+            // exact address is what stops a wrong module silently suppressing PIK marking.
+            require(
+                address(DefaultManager(a.defaultManager).waterfallEngine()) == a.waterfall,
+                "defaultManager waterfall edge unset or wrong"
+            );
             // AUDIT FIX (SWEEP-1 VAC-F10) — LOAD-BEARING, DO NOT DELETE. `ConservativeImpairmentMath`
             // is an EIP-170 extraction deployed by `DefaultManager`'s CONSTRUCTOR and held as an
             // immutable, so it lives in the IMPLEMENTATION's runtime code and is not covered by any

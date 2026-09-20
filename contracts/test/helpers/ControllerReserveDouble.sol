@@ -164,6 +164,28 @@ contract ControllerReserveDouble {
         exitPrepaidAbsorption_ += amount;
     }
 
+    /// @dev CANTINA 3.1.4. `_redeem` now consults the ADR-0033 arm interlock, so this double must
+    ///      answer the two views it reads or every redemption through it reverts with no data.
+    ///      Defaults are "no arm standing, no incident open", which is the state every test here
+    ///      is actually in; `setReserveLossArm` lets a test drive the guard deliberately.
+    uint256 public armId;
+    uint256 public openIncidentId;
+
+    function setReserveLossArm(uint256 armId_, uint256 openIncidentId_) external {
+        armId = armId_;
+        openIncidentId = openIncidentId_;
+    }
+
+    function reserveLossArm() external view returns (uint256, uint256, bytes32, bool) {
+        // Mirrors the production shape: the second value is DERIVED from the arm, not the open
+        // incident, which is exactly why the controller reads the open incident separately.
+        return (armId, armId == 0 ? 0 : armId, bytes32(0), true);
+    }
+
+    function activeReserveLossIncident() external view returns (uint256, bytes32) {
+        return (openIncidentId, bytes32(0));
+    }
+
     function recognizedBackingValue() external view returns (uint256) {
         return backing;
     }

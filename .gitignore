@@ -61,6 +61,15 @@ contracts/deployments/31337.json
 .claude/worktrees/
 # Regenerable static-analysis output
 contracts/slither-report.json
+# Project-local Slither virtualenv, created 2026-09-10. STATE.md had recorded the baseline as
+# impossible to regenerate here because `slither` was not installed; it is now installed locally at
+# the version CI pins (0.11.5, which MUST match `slitherVersion` in contracts/slither-baseline.json)
+# and the gate can be run before pushing instead of being discovered red in CI. Never committed.
+#   PATH="$PWD/.venv-slither/bin:$PATH" node tools/run-slither-analysis.mjs slither.json
+# The PATH prefix is load-bearing: the runner shells out to a bare `slither`.
+.venv-slither/
+# The RAW report is regenerable JSON and is NOT tracked; only the triaged baseline fingerprint is.
+slither.json
 
 # Internal adversarial-audit workspace and temporary Foundry links are local evidence.
 # Public audit summaries live under frontend/src/content; do not commit raw logs or PoCs.
@@ -87,3 +96,19 @@ keeper-receivers/dist/
 # true if either file is ever deleted and re-added.
 !.env.example
 !frontend/.env.example
+
+# Fork-test output. It is written by MainnetDeploymentFork during a run and, left behind, the
+# deploy script's overwrite guard then refuses to rewrite it so the next run asserts against a
+# stale manifest. It also counts toward .security-audit/CURRENT_UNAUDITED_SOURCE_HASHES.sha256,
+# which counts untracked files, so a leftover reds the source-identity gate.
+contracts/deployments/mainnet-fork-rehearsal.test.json
+# Adversarial-round scratch reproductions. Round-seven agents write here and are told to clean
+# up; a `git add -A` during a live round swept two of them into 0628c6b before this existed.
+contracts/test/scratch/
+
+# Generated root Foundry cache
+/cache/
+
+# Generated BSC Foundry output
+bsc/contracts/cache/
+bsc/contracts/out/

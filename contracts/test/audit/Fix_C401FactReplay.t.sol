@@ -72,33 +72,84 @@ contract FixC401FactReplaySurfaceTest is Test {
         return IAttestationOracle.AttestationKind(k < 5 ? k : k + 1);
     }
 
-    /// @dev This is the load-bearing primary-ledger shape: the current record contains B,
-    ///      so only the permanent ledger can remember that the older A was already realised.
+    /// @notice All nine one-shot kinds retain their terminal ledger states after replacement.
+    /// @dev A current replacement is consumed before replay, so neither the current-record
+    ///      guard nor the pending-action guard can hide a missing primary-ledger check.
     function test_supersededFactsRemainTerminalForEveryOneShotKind() public {
-        for (uint8 k = 0; k < 8; ++k) {
-            IAttestationOracle.AttestationKind kind = _eventKind(k);
-            bytes32 payloadA = keccak256(abi.encode("fact-a", k));
-            bytes32 payloadB = keccak256(abi.encode("fact-b", k));
-
-            IAttestationOracle.AttestationInput memory a = _input(kind, payloadA);
-            oracle.attest(a, _bundle(a));
-            IAttestationOracle.AttestationInput memory b = _input(kind, payloadB);
-            oracle.attest(b, _bundle(b));
-
-            (bytes32 current,,) = oracle.latestPayload(FACILITY, kind);
-            assertEq(current, payloadB, "precondition: A must be superseded");
-
-            IAttestationOracle.AttestationInput memory replay = _input(kind, payloadA);
-            bytes[] memory sigs = _bundle(replay);
-            vm.expectRevert(
-                abi.encodeWithSelector(
-                    IAttestationOracle.Oracle_FactAlreadyRealised.selector,
-                    oracle.factKey(FACILITY, kind, payloadA),
-                    IAttestationOracle.FactStatus.Recorded
-                )
-            );
-            oracle.attest(replay, sigs);
+        for (uint8 k; k < 9; ++k) {
+            IAttestationOracle.AttestationKind kind = k == 8
+                ? IAttestationOracle.AttestationKind.AccrualOpening : _eventKind(k);
+            for (uint8 state = 1; state <= 3; ++state) {
+                _assertSupersededLifecycle(kind, IAttestationOracle.FactStatus(state));
+            }
         }
+    }
+
+    function _assertSupersededLifecycle(
+        IAttestationOracle.AttestationKind kind, IAttestationOracle.FactStatus expected
+    ) private {
+        bytes32 payloadA = keccak256(abi.encode("earlier fact", kind, expected));
+        bytes32 payloadB = keccak256(abi.encode("replacement fact", kind, expected));
+        {
+            IAttestationOracle.AttestationInput memory first = _input(kind, payloadA);
+            oracle.attest(first, _bundle(first));
+        }
+        bool legacyRecordedAction = expected == IAttestationOracle.FactStatus.Recorded
+            && kind >= IAttestationOracle.AttestationKind.PaymentReceived;
+        if (expected == IAttestationOracle.FactStatus.Revoked) {
+            vm.prank(admin);
+            oracle.revoke(FACILITY, kind);
+        } else if (expected == IAttestationOracle.FactStatus.Consumed || legacyRecordedAction) {
+            vm.prank(creditModule);
+            oracle.consume(FACILITY, kind);
+        }
+        {
+            IAttestationOracle.AttestationInput memory second = _input(kind, payloadB);
+            oracle.attest(second, _bundle(second));
+        }
+        vm.prank(creditModule);
+        oracle.consume(FACILITY, kind);
+
+        if (legacyRecordedAction) {
+            // Earlier versions allowed an unconsumed action to be superseded. Reproduce that
+            // existing-proxy state explicitly; new submissions must still obey the new gate.
+            bytes32 ledgerRoot = bytes32(uint256(0xac9508c5303c175f6440d43a5e3eadcf5afa63ca3c359d94d58c5e5919cebf00) + 4);
+            bytes32 slot = keccak256(abi.encode(oracle.factKey(FACILITY, kind, payloadA), ledgerRoot));
+            assertEq(uint256(oracle.factStatus(FACILITY, kind, payloadA)), uint256(IAttestationOracle.FactStatus.Consumed));
+            vm.store(address(oracle), slot, bytes32(uint256(IAttestationOracle.FactStatus.Recorded)));
+        }
+        assertEq(uint256(oracle.factStatus(FACILITY, kind, payloadA)), uint256(expected));
+        _assertReplayRefused(kind, payloadA, payloadB, expected);
+    }
+
+    function _assertReplayRefused(
+        IAttestationOracle.AttestationKind kind, bytes32 payloadA, bytes32 payloadB,
+        IAttestationOracle.FactStatus expected
+    ) private {
+        {
+            (bytes32 current,, bool satisfied) = oracle.latestPayload(FACILITY, kind);
+            assertEq(current, payloadB, "the current-record guard must not see the earlier fact");
+            assertFalse(satisfied, "the pending-action gate must not mask the ledger check");
+        }
+        bytes32 recordBefore = _recordHash(kind);
+        IAttestationOracle.AttestationInput memory replay = _input(kind, payloadA);
+        bytes[] memory sigs = _bundle(replay);
+        bytes32 digest = oracle.attestationDigest(replay);
+        assertFalse(oracle.digestUsed(digest), "the signature digest must be fresh");
+        vm.expectRevert(abi.encodeWithSelector(
+            IAttestationOracle.Oracle_FactAlreadyRealised.selector,
+            oracle.factKey(FACILITY, kind, payloadA), expected
+        ));
+        oracle.attest(replay, sigs);
+        assertEq(_recordHash(kind), recordBefore, "replay changed the current record");
+        assertFalse(oracle.digestUsed(digest));
+        assertEq(uint256(oracle.factStatus(FACILITY, kind, payloadA)), uint256(expected));
+        assertEq(uint256(oracle.factStatus(FACILITY, kind, payloadB)), uint256(IAttestationOracle.FactStatus.Consumed));
+    }
+
+    function _recordHash(IAttestationOracle.AttestationKind kind) private view returns (bytes32) {
+        (bytes32 payload, uint64 asOf, bool satisfied) = oracle.latestPayload(FACILITY, kind);
+        return keccak256(abi.encode(payload, asOf, satisfied));
     }
 
     function test_supersededConsumedFactRemainsTerminal() public {

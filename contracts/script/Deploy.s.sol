@@ -9,6 +9,7 @@ import {TimelockControllerUpgradeable} from
     "@openzeppelin/contracts-upgradeable/governance/TimelockControllerUpgradeable.sol";
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {KnownTestnets} from "./KnownTestnets.sol";
 
 import {AttestationOracle} from "../src/AttestationOracle.sol";
 import {AssessedImpairmentSource} from "../src/AssessedImpairmentSource.sol";
@@ -31,6 +32,9 @@ import {USDfr} from "../src/USDfr.sol";
 import {WaterfallEngine} from "../src/WaterfallEngine.sol";
 import {IAttestationOracle} from "../src/interfaces/IAttestationOracle.sol";
 import {ICollateralRegistry} from "../src/interfaces/ICollateralRegistry.sol";
+import {LinkedLibraryArtifacts} from "./LinkedLibraryArtifacts.sol";
+import {ContinuousAccrualDeployment} from "./ContinuousAccrualDeployment.sol";
+import {IContinuousAccrual} from "../src/interfaces/IContinuousAccrual.sol";
 import {Config} from "../src/libraries/Config.sol";
 import {Roles} from "../src/libraries/Roles.sol";
 import {MockERC20} from "../test/helpers/MockERC20.sol";
@@ -243,7 +247,7 @@ contract Deploy is Script {
     }
 
     function run() external virtual {
-        require(block.chainid != 1, "MAINNET FORBIDDEN (CLAUDE.md prime directive 1)");
+        _requireKnownTestnet();
 
         // A deployment is one nonce-anchored ceremony. Never replay it. This must remain before
         // `_manifestPath`, every env read and `vm.startBroadcast`, so a failed resume cannot
@@ -345,7 +349,7 @@ contract Deploy is Script {
     ///      `runSeedAndHandoverPhase()` completes: bootstrap privileges are still held and the
     ///      vault is unseeded.
     function runBootstrapPhase() external virtual {
-        require(block.chainid != 1, "MAINNET FORBIDDEN (CLAUDE.md prime directive 1)");
+        _requireKnownTestnet();
         if (_isResuming()) revert("Deploy: --resume forbidden; restart from a reviewed fresh deployment plan");
 
         bool broadcasting = _isBroadcasting();
@@ -386,7 +390,7 @@ contract Deploy is Script {
     ///      overwrite `deployedAtBlock` -- which `tools/reconcile-mainnet-deployment.mjs`
     ///      requires to equal (first receipt block - 1) from the PHASE 1 broadcast.
     function runSeedAndHandoverPhase() external virtual {
-        require(block.chainid != 1, "MAINNET FORBIDDEN (CLAUDE.md prime directive 1)");
+        _requireKnownTestnet();
         if (_isResuming()) revert("Deploy: --resume forbidden; restart from a reviewed fresh deployment plan");
 
         string memory manifestPath = _manifestPath();
@@ -491,19 +495,34 @@ contract Deploy is Script {
 
     // ── posture resolution (AUDIT FIX C-01) ──────────────────────────────
 
+    /// @notice CLAUDE.md prime directive 1 as an ALLOWLIST: every entrypoint of this script
+    ///         runs only on a known testnet or the local anvil chain-id.
+    /// @dev Until 2026-09-07 the guard was `block.chainid != 1`, which refused Ethereum mainnet
+    ///      and nothing else, so BNB Smart Chain, Base, Polygon or any other value-carrying chain
+    ///      would have reached the mock-stablecoin, retained-admin path (found while scoping
+    ///      ADR-0037). Chain-id 1 keeps its historical message so the existing evidence and
+    ///      tests stay legible; every other unknown chain-id is refused with its own. This runs
+    ///      as the FIRST statement of each entrypoint, before any env read, manifest read or
+    ///      `vm.startBroadcast`.
+    function _requireKnownTestnet() internal view {
+        require(block.chainid != 1, "MAINNET FORBIDDEN (CLAUDE.md prime directive 1)");
+        require(
+            KnownTestnets.isKnownTestnet(block.chainid),
+            "UNKNOWN CHAIN FORBIDDEN: only known testnets and anvil (CLAUDE.md prime directive 1)"
+        );
+    }
+
     /// @notice Chain-ids this repo treats as a testnet, where `KEEP_OPS_ADMIN` may default.
-    /// @dev Sepolia (the live testnet per `deployments/11155111.json` and `QA.s.sol`) and the
-    ///      local anvil/forge chain-id. Nothing else. Chain-id 1 is separately hard-reverted
-    ///      in `run()` (CLAUDE.md prime directive 1) and that guard is unchanged.
+    /// @dev Delegates to the shared `KnownTestnets` allowlist so `Deploy.s.sol` and
+    ///      `Handover.s.sol` cannot drift apart. Sepolia (the live testnet per
+    ///      `deployments/11155111.json` and `QA.s.sol`), the local anvil/forge chain-id and the
+    ///      listed L2 testnets. Nothing else. Since `_requireKnownTestnet` gates every
+    ///      entrypoint on the same list, the off-testnet branch of `_resolveKeepOpsAdmin` is
+    ///      defence in depth rather than a reachable path from `run()`.
     /// @param chainId The chain-id to classify.
     /// @return isTestnet True when the permissive default is allowed to apply.
     function _isKnownTestnet(uint256 chainId) internal pure returns (bool isTestnet) {
-        return chainId == 11155111 // Ethereum Sepolia (the live testnet for this repo)
-            || chainId == 31337 // anvil / forge
-            || chainId == 17000 // Holesky
-            || chainId == 84532 // Base Sepolia
-            || chainId == 11155420 // OP Sepolia
-            || chainId == 421614; // Arbitrum Sepolia
+        return KnownTestnets.isKnownTestnet(chainId);
     }
 
     /// @notice Resolve the `keepOpsAdmin` posture, refusing to INHERIT it off a known testnet.
@@ -828,6 +847,9 @@ contract Deploy is Script {
         DefaultManager(d.defaultManager).grantRole(Roles.CREDIT_ROLE, d.waterfall); // onDefaultResolved
         SUSDfr(d.vault).grantRole(Roles.CREDIT_ROLE, d.waterfall); // notifyYield (ADR-0023)
         WaterfallEngine(d.waterfall).setDefaultManager(d.defaultManager); // ADR-0022 resolve hook
+        // The reverse edge permits PIK settlement before a past-due mark and supplies
+        // the waterfall identity checked when continuous accounting is bound.
+        DefaultManager(d.defaultManager).setWaterfall(d.waterfall);
         SUSDfr(d.vault).setImpairmentSource(d.assessedImpairmentSource); // ADR-0027 assessed recovery NAV
 
         // Attestation layer. Testnet defaults attester #1 to the deployer; the dedicated
@@ -855,6 +877,7 @@ contract Deploy is Script {
         cr.setProtocolExempt(d.defaultManager, true);
         cr.setProtocolExempt(d.waterfall, true);
         cr.setProtocolExempt(SEED_SINK, true); // nominal dead seed never earns points
+        _wireContinuousAccrual(d);
     }
 
     // ── seed (ADR-0005: blunt vault inflation attacks with a PERMANENT floor) ──
@@ -865,6 +888,22 @@ contract Deploy is Script {
     ///      deployer, which left the floor removable. The deployer's bootstrap KYC (only
     ///      needed to mint the seed) is revoked in `_handover` on the prod-shaped run.
     address internal constant SEED_SINK = 0x000000000000000000000000000000000000dEaD;
+
+    /// @dev Fresh deployment only: native loss routes and roles are configured by `_wire` first.
+    function _wireContinuousAccrual(D memory d) internal virtual {
+        ContinuousAccrualDeployment.configure(
+            d.reserves,
+            IContinuousAccrual.Modules({
+                token: d.usdfr,
+                controller: d.controller,
+                vault: d.vault,
+                waterfall: d.waterfall,
+                bridge: d.bridge,
+                registry: d.registry,
+                defaultManager: d.defaultManager
+            })
+        );
+    }
 
     function _seed(D memory d, Ctx memory c) internal {
         ComplianceRegistry cr = ComplianceRegistry(d.compliance);
@@ -877,6 +916,7 @@ contract Deploy is Script {
         cr.grantRole(Roles.COMPLIANCE_ADMIN_ROLE, c.deployer);
         cr.setAllowed(c.deployer, true); // bootstrap KYC to mint the seed
         cr.setAllowed(SEED_SINK, true); // KYC the sink so the vault accepts the deposit
+        _configureGenesisAllowlist(d);
         uint256 seedUSDCUnits = _seedUSDCUnits();
         _fundSeedUSDC(d.stable, c.deployer, seedUSDCUnits);
         IERC20(d.stable).approve(d.controller, seedUSDCUnits);
@@ -888,6 +928,10 @@ contract Deploy is Script {
         // occur. `_assertGovernanceLive` independently verifies the effective wallet/staked
         // voting power immediately before bootstrap authority is surrendered.
     }
+
+    /// @dev Versioned production entrypoints may install an owner-reviewed genesis allowlist.
+    ///      The default is intentionally empty so existing deployment profiles are unchanged.
+    function _configureGenesisAllowlist(D memory) internal virtual {}
 
     /// @dev Local deployments mint their mock USDC. Fork fixtures override this hook to fund
     ///      canonical USDC without assuming the live token implements a faucet.
@@ -1109,6 +1153,7 @@ contract Deploy is Script {
         for (uint256 i = 0; i < impls.length; ++i) {
             vm.serializeAddress(j, string.concat("impl_", impls[i].name), impls[i].addr);
         }
+        LinkedLibraryArtifacts.record(j);
         string memory out = vm.serializeAddress(j, "stable", d.stable);
         vm.writeJson(out, _manifestPath());
     }

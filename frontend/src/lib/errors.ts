@@ -39,6 +39,23 @@ export const ERROR_MESSAGES: Record<string, string> = {
     "The next settlement window has not opened yet. Settlements run on a short heartbeat; your own wait is set by the redemption cooldown on your position, not by this.",
   Queue_NotSettling: "The queue is not in a settlement window.",
   Queue_NoLiquidity: "No stable liquidity is available for settlement right now.",
+  Curator_NotApprovedCurator:
+    "This wallet is not approved as a curator for that collateral class. Approval is set by governance after the agreement is signed.",
+  Curator_ZeroAmount: "Enter an amount greater than zero.",
+  Curator_UnknownClass: "That collateral class does not exist.",
+  Curator_InsufficientStake: "The amount exceeds what this wallet has posted in that class.",
+  Curator_HeadroomExceeded:
+    "The class needs that capital: withdrawals are limited to what is posted above the required first-loss for the facilities live in the class.",
+  Curator_ClassDefaultFrozen:
+    "A facility in this class is in default. Withdrawals reopen once governance resolves the workout.",
+  Curator_CustodyLossFrozen:
+    "A reserve custody loss is being recognised. Curator withdrawals are frozen until the write-down completes.",
+  Curator_ReserveLossWithdrawalsFrozen:
+    "A reserve loss is being recognised. Curator withdrawals are frozen until it is absorbed.",
+  Curator_ReserveNotWired: "The module's reserve link is not configured, so withdrawals are refused.",
+  Curator_UnsettledClosedRound:
+    "This position belongs to a closed pool round that has not been settled yet. Settle the closed round first, then withdraw.",
+  Curator_ShareCapacityExceeded: "The pool cannot accept that amount right now; try a smaller posting.",
   EnforcedPause: "This module is paused by the guardian. Try again once it is unpaused.",
   ERC20InsufficientBalance: "Balance is too low for this amount.",
   ERC20InsufficientAllowance: "Approval is too low, approve the amount first.",

@@ -553,7 +553,7 @@ contract CuratorModuleTest is CreditLayerFixture {
 
     // ── pause semantics ──────────────────────────────────────────────────
 
-    function test_pause_blocksPostAndWithdrawButNeverAbsorb() public {
+    function test_curatorPauseBlocksUserFlowsButAllowsAbsorption() public {
         _postFirstLoss(anchorCurator, FILM, 100e18);
         vm.prank(guardian);
         curator.pause();
@@ -567,7 +567,7 @@ contract CuratorModuleTest is CreditLayerFixture {
         curator.withdrawFirstLoss(FILM, 1e18);
         vm.stopPrank();
 
-        // the cascade is NEVER pausable (contract-level design note)
+        // Curator pause does not gate this absorption hook; other dependencies remain live.
         vm.prank(address(defaultManager));
         (uint256 absorbed,) = curator.absorbLoss(FILM, 50e18);
         assertEq(absorbed, 50e18);

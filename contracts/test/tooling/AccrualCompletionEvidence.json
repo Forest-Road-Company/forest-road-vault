@@ -1,0 +1,967 @@
+{
+  "recorded_at_utc": "2026-09-13 07:32 UTC",
+  "chain": "ethereum",
+  "engineering_commit": "5018d831b6e7cdc7e1c7c4be5db2a7bf96441005",
+  "status": "Follow-up complete: all four items are implemented and verified; both final full local suites, pinned-version full-scope static analysis baseline gates and standing size gates pass.",
+  "whole_system": {
+    "log": "/private/tmp/frv-accrual-followup-20260913/ethereum-full-final.log",
+    "sha256": "e0894bb45b4b998358396684f9d6663fa394e17f6808caacb3d965a716bb568b",
+    "counts": [
+      2815,
+      0,
+      3
+    ],
+    "suites": 267,
+    "exit_code": 0,
+    "elapsed_seconds": 1437.413,
+    "command": [
+      "forge",
+      "test",
+      "--offline",
+      "--no-match-path",
+      "test/fork/*",
+      "--threads",
+      "4",
+      "-vv"
+    ],
+    "compiler_success": true,
+    "skips": [
+      "[SKIP] test_sepoliaFork_deployedControllerBlocksNonKycMint() (gas: 0)",
+      "[SKIP] test_sepoliaFork_deployedOracleRefusesOlderValuationAfterRevoke() (gas: 0)",
+      "[SKIP] test_sepoliaFork_testnetManifestKeepsBootstrapAttester() (gas: 0)"
+    ]
+  },
+  "whole_system_fuzz_runs": 1024,
+  "whole_system_invariant_runs": 256,
+  "whole_system_invariant_depth": 128,
+  "whole_system_scope": "All tracked local test sources, excluding the owner-excluded directory; test/fork is compiled but not executed in this local suite. Pinned fork results are separately recorded. No assertions are weakened for optional or signature-bound fork tests.",
+  "final_build": {
+    "exit_code": 0,
+    "log": {
+      "path": "/private/tmp/frv-accrual-followup-20260913/ethereum-final-build.log",
+      "sha256": "ebe83663236b4ed5f022b5a7ca1ab749d1980765e47d5347b77a686aa1f21c3c"
+    }
+  },
+  "sizes": {
+    "AccrualBook": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "AccrualIndex": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "AccrualLoans": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "AccrualMath": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "AccrualSchedule": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "AccrualSegments": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "Address": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "AssessedImpairmentSource": {
+      "runtime_bytes": 7789,
+      "creation_bytes": 8038,
+      "runtime_margin": 16787,
+      "creation_margin": 41114
+    },
+    "AttestationOracle": {
+      "runtime_bytes": 11463,
+      "creation_bytes": 11712,
+      "runtime_margin": 13113,
+      "creation_margin": 37440
+    },
+    "BridgeAccrualLib": {
+      "runtime_bytes": 2021,
+      "creation_bytes": 2073,
+      "runtime_margin": 22555,
+      "creation_margin": 47079
+    },
+    "Bytes": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "Checkpoints": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "ClaimBridge": {
+      "runtime_bytes": 23365,
+      "creation_bytes": 23614,
+      "runtime_margin": 1211,
+      "creation_margin": 25538
+    },
+    "CollateralRegistry": {
+      "runtime_bytes": 17750,
+      "creation_bytes": 17999,
+      "runtime_margin": 6826,
+      "creation_margin": 31153
+    },
+    "CommitmentLedger": {
+      "runtime_bytes": 5394,
+      "creation_bytes": 5607,
+      "runtime_margin": 19182,
+      "creation_margin": 43545
+    },
+    "CommitmentLedgerFactory": {
+      "runtime_bytes": 5861,
+      "creation_bytes": 5889,
+      "runtime_margin": 18715,
+      "creation_margin": 43263
+    },
+    "ComplianceRegistry": {
+      "runtime_bytes": 5317,
+      "creation_bytes": 5566,
+      "runtime_margin": 19259,
+      "creation_margin": 43586
+    },
+    "Config": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "ConservativeImpairmentMath": {
+      "runtime_bytes": 920,
+      "creation_bytes": 948,
+      "runtime_margin": 23656,
+      "creation_margin": 48204
+    },
+    "ControllerAccrualLib": {
+      "runtime_bytes": 3993,
+      "creation_bytes": 4045,
+      "runtime_margin": 20583,
+      "creation_margin": 45107
+    },
+    "CuratorModule": {
+      "runtime_bytes": 17495,
+      "creation_bytes": 17744,
+      "runtime_margin": 7081,
+      "creation_margin": 31408
+    },
+    "DefaultAccrualLib": {
+      "runtime_bytes": 11721,
+      "creation_bytes": 11773,
+      "runtime_margin": 12855,
+      "creation_margin": 37379
+    },
+    "DefaultBackstopLib": {
+      "runtime_bytes": 1267,
+      "creation_bytes": 1319,
+      "runtime_margin": 23309,
+      "creation_margin": 47833
+    },
+    "DefaultInitLib": {
+      "runtime_bytes": 1227,
+      "creation_bytes": 1279,
+      "runtime_margin": 23349,
+      "creation_margin": 47873
+    },
+    "DefaultLossLib": {
+      "runtime_bytes": 5640,
+      "creation_bytes": 5692,
+      "runtime_margin": 18936,
+      "creation_margin": 43460
+    },
+    "DefaultManager": {
+      "runtime_bytes": 24138,
+      "creation_bytes": 31389,
+      "runtime_margin": 438,
+      "creation_margin": 17763
+    },
+    "DoubleEndedQueue": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "ECDSA": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "ERC1967Utils": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "ERC721Utils": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "Errors": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "FRGovernor": {
+      "runtime_bytes": 19944,
+      "creation_bytes": 20193,
+      "runtime_margin": 4632,
+      "creation_margin": 28959
+    },
+    "FixedPointMathLib": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "GroveToken": {
+      "runtime_bytes": 11217,
+      "creation_bytes": 11466,
+      "runtime_margin": 13359,
+      "creation_margin": 37686
+    },
+    "GroveVotesAggregator": {
+      "runtime_bytes": 1940,
+      "creation_bytes": 3148,
+      "runtime_margin": 22636,
+      "creation_margin": 46004
+    },
+    "Hashes": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "LossEventIds": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "Math": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "MerkleProof": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "MessageHashUtils": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "MintRedeemController": {
+      "runtime_bytes": 17791,
+      "creation_bytes": 18040,
+      "runtime_margin": 6785,
+      "creation_margin": 31112
+    },
+    "MtmAtomicExecutor": {
+      "runtime_bytes": 2445,
+      "creation_bytes": 2837,
+      "runtime_margin": 22131,
+      "creation_margin": 46315
+    },
+    "Panic": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "PointsHookGas": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "PointsModule": {
+      "runtime_bytes": 12812,
+      "creation_bytes": 13061,
+      "runtime_margin": 11764,
+      "creation_margin": 36091
+    },
+    "RecoveryTopUpDistributor": {
+      "runtime_bytes": 7682,
+      "creation_bytes": 7931,
+      "runtime_margin": 16894,
+      "creation_margin": 41221
+    },
+    "RedemptionQueue": {
+      "runtime_bytes": 14270,
+      "creation_bytes": 14519,
+      "runtime_margin": 10306,
+      "creation_margin": 34633
+    },
+    "ReserveAccrualCreditLib": {
+      "runtime_bytes": 23835,
+      "creation_bytes": 23887,
+      "runtime_margin": 741,
+      "creation_margin": 25265
+    },
+    "ReserveAccrualLib": {
+      "runtime_bytes": 13361,
+      "creation_bytes": 13413,
+      "runtime_margin": 11215,
+      "creation_margin": 35739
+    },
+    "ReserveAccrualServiceLib": {
+      "runtime_bytes": 4335,
+      "creation_bytes": 4387,
+      "runtime_margin": 20241,
+      "creation_margin": 44765
+    },
+    "ReserveAccrualStorageLib": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "ReserveAccrualViewsLib": {
+      "runtime_bytes": 4303,
+      "creation_bytes": 4355,
+      "runtime_margin": 20273,
+      "creation_margin": 44797
+    },
+    "ReserveCascadeLib": {
+      "runtime_bytes": 3932,
+      "creation_bytes": 3984,
+      "runtime_margin": 20644,
+      "creation_margin": 45168
+    },
+    "ReserveCreditLib": {
+      "runtime_bytes": 3307,
+      "creation_bytes": 3359,
+      "runtime_margin": 21269,
+      "creation_margin": 45793
+    },
+    "ReserveIncidentLib": {
+      "runtime_bytes": 3868,
+      "creation_bytes": 3920,
+      "runtime_margin": 20708,
+      "creation_margin": 45232
+    },
+    "ReserveManager": {
+      "runtime_bytes": 22804,
+      "creation_bytes": 23053,
+      "runtime_margin": 1772,
+      "creation_margin": 26099
+    },
+    "ReserveMigrationLib": {
+      "runtime_bytes": 21920,
+      "creation_bytes": 21972,
+      "runtime_margin": 2656,
+      "creation_margin": 27180
+    },
+    "ReserveRoundingLib": {
+      "runtime_bytes": 8557,
+      "creation_bytes": 8609,
+      "runtime_margin": 16019,
+      "creation_margin": 40543
+    },
+    "ReserveStorageLib": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "ReserveWiringLib": {
+      "runtime_bytes": 3567,
+      "creation_bytes": 3619,
+      "runtime_margin": 21009,
+      "creation_margin": 45533
+    },
+    "Roles": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "SGrove": {
+      "runtime_bytes": 15422,
+      "creation_bytes": 15671,
+      "runtime_margin": 9154,
+      "creation_margin": 33481
+    },
+    "SUSDfr": {
+      "runtime_bytes": 24344,
+      "creation_bytes": 24593,
+      "runtime_margin": 232,
+      "creation_margin": 24559
+    },
+    "SafeCast": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "SafeERC20": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "SignatureChecker": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "SignedMath": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "StorageSlot": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "Strings": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "Time": {
+      "runtime_bytes": 85,
+      "creation_bytes": 135,
+      "runtime_margin": 24491,
+      "creation_margin": 49017
+    },
+    "TimelockControllerUpgradeable": {
+      "runtime_bytes": 7576,
+      "creation_bytes": 7604,
+      "runtime_margin": 17000,
+      "creation_margin": 41548
+    },
+    "USDfr": {
+      "runtime_bytes": 14064,
+      "creation_bytes": 14313,
+      "runtime_margin": 10512,
+      "creation_margin": 34839
+    },
+    "VaultAccrualLib": {
+      "runtime_bytes": 7366,
+      "creation_bytes": 7418,
+      "runtime_margin": 17210,
+      "creation_margin": 41734
+    },
+    "VaultFeeMath": {
+      "runtime_bytes": 2608,
+      "creation_bytes": 2660,
+      "runtime_margin": 21968,
+      "creation_margin": 46492
+    },
+    "WaterfallAccrualLib": {
+      "runtime_bytes": 5097,
+      "creation_bytes": 5149,
+      "runtime_margin": 19479,
+      "creation_margin": 44003
+    },
+    "WaterfallEngine": {
+      "runtime_bytes": 23950,
+      "creation_bytes": 24199,
+      "runtime_margin": 626,
+      "creation_margin": 24953
+    },
+    "ForestRoadTimelock": {
+      "runtime_bytes": 7576,
+      "creation_bytes": 7790,
+      "runtime_margin": 17000,
+      "creation_margin": 41362
+    }
+  },
+  "source_layout_gate": {
+    "exit_code": 0,
+    "log": {
+      "path": "/private/tmp/frv-accrual-followup-20260913/ethereum-final-layout-source.log",
+      "sha256": "4038329ca5116226cd759f919e19074433fd8de266364212d1742be0d3eff946"
+    }
+  },
+  "compiler_layout_gate": {
+    "exit_code": 0,
+    "log": {
+      "path": "/private/tmp/frv-accrual-followup-20260913/ethereum-final-layout-compiled.log",
+      "sha256": "1267959d1a25df90cea4510a73a67a1a7f9edf557c814151ecf1bc5a7401ec45"
+    }
+  },
+  "source_files_matched_to_whole_system_run": 80,
+  "source_hashes": [
+    {
+      "file": "contracts/src/MtmAtomicExecutor.sol",
+      "sha256": "5fad58392ae03f6b838b3c7953d4f1c478b4764a56adc2b8a0fb7a51dc83d6fe"
+    },
+    {
+      "file": "contracts/src/GroveToken.sol",
+      "sha256": "9404a6520c4e27fb4e06fffe217a5c27d9a0a5a739bff19fe98f4e7b297cc452"
+    },
+    {
+      "file": "contracts/src/sUSDfr.sol",
+      "sha256": "eef33f739193b5c0cd45cbee614e156ac390d8fc778eacd75d43b87d50cc1aa9"
+    },
+    {
+      "file": "contracts/src/PointsModule.sol",
+      "sha256": "0fcbeb1fa2a394a8a7db7ebba0734f4661b070235cad129b39ac9b2c482d5545"
+    },
+    {
+      "file": "contracts/src/WaterfallEngine.sol",
+      "sha256": "5aa60f1c09d80271371cdddebf21049d0f786d84f30f27cd2b060acd9dbd48cf"
+    },
+    {
+      "file": "contracts/src/DefaultManager.sol",
+      "sha256": "6c89774f4a0ccbcad539e8f7fd76a0e067cec3b3fbcca0e5ef722390c3b8ade0"
+    },
+    {
+      "file": "contracts/src/CollateralRegistry.sol",
+      "sha256": "ee86c089037cb5fc52f25b67dafc33b88d4229054604a200e876727d8ffb55b9"
+    },
+    {
+      "file": "contracts/src/SGrove.sol",
+      "sha256": "bf844468cc85eb097c994c8342321d0abb8ed6c2e62b81c289b3300734c9fc86"
+    },
+    {
+      "file": "contracts/src/ReserveManager.sol",
+      "sha256": "d794203e57655d5934debb6002d431923ff3fe3b798c22195601066281baecc0"
+    },
+    {
+      "file": "contracts/src/MintRedeemController.sol",
+      "sha256": "03f14c81561c906c7a1ea250530f56ef7eacfbff28cf49f978bd09459781c6fd"
+    },
+    {
+      "file": "contracts/src/GroveVotesAggregator.sol",
+      "sha256": "5a7bdc83233a4e7c0b7c4e1709ac7af467f366832c024d7e89ab5c1b554786ce"
+    },
+    {
+      "file": "contracts/src/CommitmentLedger.sol",
+      "sha256": "3319554e9b33ae5a8bb09a5c189c9bf887a88b37e3b94cd95e0338be56e1651f"
+    },
+    {
+      "file": "contracts/src/AttestationOracle.sol",
+      "sha256": "192ec097284196b56632eaebfb299067c57d73abacec724810c9c1d4b88171b9"
+    },
+    {
+      "file": "contracts/src/ConservativeImpairmentMath.sol",
+      "sha256": "0b15d1c337c9ef9c868d57dede4b6a303e41b5f6012ad63863c0c3461bce92f4"
+    },
+    {
+      "file": "contracts/src/RedemptionQueue.sol",
+      "sha256": "db0d76bf3c27d511d80b0eb341b6a3217ffea2b9253675724f92dcdfb74d9854"
+    },
+    {
+      "file": "contracts/src/USDfr.sol",
+      "sha256": "313e2a248bcbc67dc82e86957a76b8b711871ce109b5dc5466995203ce8ab0de"
+    },
+    {
+      "file": "contracts/src/CommitmentLedgerFactory.sol",
+      "sha256": "ce58a1a9bd1669528f2412281ccd4651ee9ea7a51488cd81fec9c89b08a618d5"
+    },
+    {
+      "file": "contracts/src/RecoveryTopUpDistributor.sol",
+      "sha256": "c6fbe75259d71549ba3690642acd71b3a8b0fb1feb0671e15336c1834c3b8df0"
+    },
+    {
+      "file": "contracts/src/FRGovernor.sol",
+      "sha256": "105faa27736dae27b7a5b77ff1a8240874c64d4b0cd994a62627962fe0036661"
+    },
+    {
+      "file": "contracts/src/CuratorModule.sol",
+      "sha256": "447297ec32d5f6e14039e64bf8a88a4be0be24a775bb3a96010ee29b389124ba"
+    },
+    {
+      "file": "contracts/src/ComplianceRegistry.sol",
+      "sha256": "f57d18f554186abc9ee4df78d9318212dda6edc50647d3ccc22d9527fdb83e88"
+    },
+    {
+      "file": "contracts/src/AssessedImpairmentSource.sol",
+      "sha256": "db9eef3813d7f9d723928be453e4cb77dce47b2d21e736aa799883faeb86d3d0"
+    },
+    {
+      "file": "contracts/src/ClaimBridge.sol",
+      "sha256": "04f0571a75782d17fa16a014c3158cb314566c0996b91b1d91b0d4368699c1b3"
+    },
+    {
+      "file": "contracts/src/libraries/Roles.sol",
+      "sha256": "97e3eb95b7c977f15c3c66d6d41aa9d14a87d032805b65466da68f47a259611f"
+    },
+    {
+      "file": "contracts/src/libraries/AccrualLoans.sol",
+      "sha256": "272c331a1331c7a49b496c0c9156a051c4258360c115bfdc668be270781d00c1"
+    },
+    {
+      "file": "contracts/src/libraries/DefaultAccrualLib.sol",
+      "sha256": "f0404c46709ac9e296bd16aae61b5d6dcd8b0f00228315bfb5f325908ea393ca"
+    },
+    {
+      "file": "contracts/src/libraries/ReserveCascadeLib.sol",
+      "sha256": "670e43995af93e38e6bf281aefdb706a1dc0633d119fbca274f69d127428858f"
+    },
+    {
+      "file": "contracts/src/libraries/ReserveMigrationLib.sol",
+      "sha256": "2027bbb71aaadd5522e0dc8e9ce6b17adaebbb6325eeddc6e36c19b60c5a663d"
+    },
+    {
+      "file": "contracts/src/libraries/ReserveRoundingLib.sol",
+      "sha256": "b812f0d519a46eed1f7b1364286d37edb35669437fbcc0563b7d1be0273c23c5"
+    },
+    {
+      "file": "contracts/src/libraries/VaultFeeMath.sol",
+      "sha256": "392f23d10c205255d49f7f1a1e50c26ab8e5926233c5841ba77dd41b64b406ea"
+    },
+    {
+      "file": "contracts/src/libraries/ControllerAccrualLib.sol",
+      "sha256": "8aa8af8e3ef9cd5312e0abc0d538a22eabee5f044e44d7d2d740b1894f08d84f"
+    },
+    {
+      "file": "contracts/src/libraries/ReserveWiringLib.sol",
+      "sha256": "d1a5aa4d4d20de4d1b3f6dfe5cd8bba13fa89af7c79af9beed48511952fbfb68"
+    },
+    {
+      "file": "contracts/src/libraries/AccrualMath.sol",
+      "sha256": "4e8bf91286304acbe0629a03fd89b1bf07e7bb19bc4c4c1194b489a18404ae9d"
+    },
+    {
+      "file": "contracts/src/libraries/ReserveAccrualServiceLib.sol",
+      "sha256": "869276f2372bc8dd7bfd818610de457b630c97d1348a2bb8b3ab82e831539007"
+    },
+    {
+      "file": "contracts/src/libraries/ReserveStorageLib.sol",
+      "sha256": "8cac32177b0254b0221fe3786add9557bbddf611a5da9d0d2ab8c1436279e889"
+    },
+    {
+      "file": "contracts/src/libraries/ReserveAccrualLib.sol",
+      "sha256": "257739b55c627eda5a3ce77a783dd1c7db75ee9b34d589d6abd4a2e75b196b1d"
+    },
+    {
+      "file": "contracts/src/libraries/WaterfallAccrualLib.sol",
+      "sha256": "75e3eaadfd4642b8677713b93cef75bd5aa330ce9ecefea0b8e1e6fb4c85e852"
+    },
+    {
+      "file": "contracts/src/libraries/Config.sol",
+      "sha256": "c78ee22a230c50078580009b39c2f8fc4190539c1748ef484b2f1a31ab110681"
+    },
+    {
+      "file": "contracts/src/libraries/DefaultLossLib.sol",
+      "sha256": "213b0ea8f10b440e45810a7822d9c7b817119cf22b17b7f866c1fc9e28f06b5f"
+    },
+    {
+      "file": "contracts/src/libraries/LossEventIds.sol",
+      "sha256": "73a4c84bee70c21e9710948b943914efad272c74042a0edc68594d2e42ccccf2"
+    },
+    {
+      "file": "contracts/src/libraries/ReserveAccrualViewsLib.sol",
+      "sha256": "936c4d0529f9bf7584866e1e94ec29a8e8b3e71123898b87844468fd780a9660"
+    },
+    {
+      "file": "contracts/src/libraries/ReserveCreditLib.sol",
+      "sha256": "60781724d1fbc8089d8a688f812d2650e27ec437fb293a6f6affb28b16ae7049"
+    },
+    {
+      "file": "contracts/src/libraries/ReserveIncidentLib.sol",
+      "sha256": "fd75f5c4a378bc3c6450e1395ff1a9abdf04849ffccaeead1dc56ed93318ef7a"
+    },
+    {
+      "file": "contracts/src/libraries/ReserveAccrualStorageLib.sol",
+      "sha256": "1436f58fe18e3f79468821486f60c86b586bd2854dac0cc82419625069f81ff8"
+    },
+    {
+      "file": "contracts/src/libraries/ReserveAccrualCreditLib.sol",
+      "sha256": "1a7c2d0c0335bd827226a0c5e33acb754b335b5f414c90fccf60a58cfc0f2fa6"
+    },
+    {
+      "file": "contracts/src/libraries/AccrualSchedule.sol",
+      "sha256": "e837b7f1e095190a8e2d9ad49e858228ce8fc09716715801f6d05c17605b7193"
+    },
+    {
+      "file": "contracts/src/libraries/AccrualIndex.sol",
+      "sha256": "7ec4f81f7c695fb9b6bbbee8707287e8589c0dfdc97dc143a980ac9735996387"
+    },
+    {
+      "file": "contracts/src/libraries/AccrualBook.sol",
+      "sha256": "11e3689d4fe93c0979a26ee0cf013c5d463a06c3b725a2e8c913c5dccacb8e01"
+    },
+    {
+      "file": "contracts/src/libraries/VaultAccrualLib.sol",
+      "sha256": "d7efd5a40256dea6a0b17e2672af7f314cb6aa9072b47b0465198a9a722c6ada"
+    },
+    {
+      "file": "contracts/src/libraries/DefaultInitLib.sol",
+      "sha256": "f570e12bec42e6e58a7f8ed6ff1e77639930a3af5e1fd0c6c5ed678e11651805"
+    },
+    {
+      "file": "contracts/src/libraries/PointsHookGas.sol",
+      "sha256": "0add4b664e4aea2c7e31b2b9b7b1ce5790f108a9a1f42436b0b98c2f4ddd884a"
+    },
+    {
+      "file": "contracts/src/libraries/BridgeAccrualLib.sol",
+      "sha256": "90c1b215aa875513a641612410d9bb1d6d70641cff3f1602a7017240e9dcc0bd"
+    },
+    {
+      "file": "contracts/src/libraries/AccrualSegments.sol",
+      "sha256": "25e769ae616199befa69ff0d97af5d97394dbc057ea74eeef7dfb64ed30dce96"
+    },
+    {
+      "file": "contracts/src/libraries/DefaultBackstopLib.sol",
+      "sha256": "d85954856036ee371f3a169c104afbe53dc62edb434913caa696b367da34e595"
+    },
+    {
+      "file": "contracts/src/interfaces/IMintRedeemController.sol",
+      "sha256": "f36751446c189e5c18d520a54231e77c72ec243d8e3bf64de6c065eb83fe5f61"
+    },
+    {
+      "file": "contracts/src/interfaces/IAttestationOracle.sol",
+      "sha256": "7a7365c9b8ae312e081a95efa01d7dad2c66e21f9eb56a9d6c0450623eee0758"
+    },
+    {
+      "file": "contracts/src/interfaces/IsUSDfr.sol",
+      "sha256": "984143feb8c8b10d2225e7d2f28053f8ef753ee7ca6f6a842b343ec3a630019d"
+    },
+    {
+      "file": "contracts/src/interfaces/IReserveManager.sol",
+      "sha256": "ea49bc0fc57a3bf7ab2b1eebac1ef7deca8e8d6da57ef6e939e0956361c0a6db"
+    },
+    {
+      "file": "contracts/src/interfaces/IDefaultManager.sol",
+      "sha256": "ac441f91bbc9943a2666f7e95843f8cf67b1b847667946b0cfadb784ceb442c5"
+    },
+    {
+      "file": "contracts/src/interfaces/IReserveLossAbsorber.sol",
+      "sha256": "437b027265bb9939cefc78ec4f20e927150d97643d8d0cad74c423c20e383718"
+    },
+    {
+      "file": "contracts/src/interfaces/IPointsModule.sol",
+      "sha256": "06028af41d3165aac9a64e33d887e994695d2524eb37e158beadd7ac7bed3742"
+    },
+    {
+      "file": "contracts/src/interfaces/IWaterfallEngine.sol",
+      "sha256": "d23bcd743a86e57c7f97a9d11eae4635b31a3e1d7a8f9179838a1d23d5c3ba6a"
+    },
+    {
+      "file": "contracts/src/interfaces/IConservativeImpairmentBook.sol",
+      "sha256": "f32e4a3d06e7c593ed0093111297a341202231e9d7f3dd6ffcdd587595fb7a32"
+    },
+    {
+      "file": "contracts/src/interfaces/IComplianceRegistry.sol",
+      "sha256": "dd71fb3032a054cdc82fac7bdf4617d027454f896fab327266df65e325ccfeb3"
+    },
+    {
+      "file": "contracts/src/interfaces/IReserveLossGovernance.sol",
+      "sha256": "5e44dfe78d8841d9aa79f354bde681fa18c1b80110af1b72be06a790bfd4fb85"
+    },
+    {
+      "file": "contracts/src/interfaces/ICascadeBackstop.sol",
+      "sha256": "0d383098c26768d66e96bdbc34e2a698436fcb3e07db343ce21ca9905a29a9c3"
+    },
+    {
+      "file": "contracts/src/interfaces/IRevisionedImpairmentSource.sol",
+      "sha256": "f9c4353f131366a709ea02ace974ab3f06d45c2b7d915d97d14313b6bdba9559"
+    },
+    {
+      "file": "contracts/src/interfaces/IRedemptionQueue.sol",
+      "sha256": "0f2e14c1f2a04cdcd7ea5c49f7819f0f1797f06bd99cbd3aa50eacde4e0fb3c0"
+    },
+    {
+      "file": "contracts/src/interfaces/ISeniorExitDrawSource.sol",
+      "sha256": "230c3ba5e9e448ba5de0ed0f483358032933c52f11b35c20bcb3bf1cd3bddaa4"
+    },
+    {
+      "file": "contracts/src/interfaces/IGovernanceSchedule.sol",
+      "sha256": "3fa2a7e345ade2cab6ea039a0909106c25bcd792913595739a977f2419b75f5a"
+    },
+    {
+      "file": "contracts/src/interfaces/IAccrualExposure.sol",
+      "sha256": "e33cb8573f671c85bfa420c0ef1caeb3f1b9e3087aba8e6964a54f428890eb12"
+    },
+    {
+      "file": "contracts/src/interfaces/ICuratorModule.sol",
+      "sha256": "dab32de2a804ad29607e651c2ef232e5d60ec52073f25136ebc149cecc350b1a"
+    },
+    {
+      "file": "contracts/src/interfaces/IAccrualMigration.sol",
+      "sha256": "e394470ab6b98c6ab27039673d3a70951317052e463a5796f8cf92917f0426a9"
+    },
+    {
+      "file": "contracts/src/interfaces/ICommitmentPrincipalSource.sol",
+      "sha256": "b8a4b1a0f8baa19f16ce74dc482f7e9be4ccbb8033e646a70f95a87b0c2f91ce"
+    },
+    {
+      "file": "contracts/src/interfaces/IContinuousAccrual.sol",
+      "sha256": "9bec8d516ae90397fd0a1e92dfc6985c88ccd1ab3a416609d1592531413bd0e4"
+    },
+    {
+      "file": "contracts/src/interfaces/IAccrualLifecycle.sol",
+      "sha256": "4397c4690a80322c4d6939892a216c8813e48becacbae924798f24171f74ca91"
+    },
+    {
+      "file": "contracts/src/interfaces/ICommitmentLedger.sol",
+      "sha256": "0aa7c342189e5585414573ecd6bdc7972bb34743df29a273eeb3611f68567f39"
+    },
+    {
+      "file": "contracts/src/interfaces/IImpairmentSource.sol",
+      "sha256": "08ca81bbd890db33d197e0e7974fce5b72737e345966406fdf182bf2294ac2ca"
+    },
+    {
+      "file": "contracts/src/interfaces/IUSDfr.sol",
+      "sha256": "4ac1749c4ddf35429f1383b56fe8a49c0ea610ec250a0e085ffaf13ee45e1fe8"
+    },
+    {
+      "file": "contracts/src/interfaces/ICollateralRegistry.sol",
+      "sha256": "dae928e100df8c2aa5fc9767e87dfd9f16131eb306a7bc30b15efcc6ae897907"
+    }
+  ],
+  "reference_hashes": [
+    {
+      "file": "contracts/test/helpers/AccrualDebtReference.sol",
+      "sha256": "67ee5261af46c978ddb88fe2a752109529d30fc46281c3df8ee9eb15ed34c6a9"
+    },
+    {
+      "file": "contracts/test/helpers/CommitmentLedgerReference.sol",
+      "sha256": "c45847c880226104bbd85ed765478ad8e1c304ad76f68bb90e2c36026b49bec4"
+    }
+  ],
+  "native_evidence_sha256": "804b10a88d29f53286e3a71116a5df232948e66369dfe802ce233c6926fbcb52",
+  "preparation_evidence_sha256": "bf2b648391ada051b7a30ac5721ac5e44d9ecd706461b84d4aab6397654b6482",
+  "unresolved_actionable_medium_or_high_in_completed_review": 0,
+  "known_limits": [
+    "Fixed-rate supported terms only; variable government-rate updates were deferred by the owner.",
+    "100-facility ceiling and bounded keeper work; stale financial entry fails closed.",
+    "BSC DefaultManager has 92 runtime bytes of margin.",
+    "Migration freezes financial entry and can be cancelled only before the first imported row; dry-run all rows first.",
+    "No live broadcast, deployment, value movement, governance execution or timelock operation occurred."
+  ],
+  "out_of_scope": [
+    "Mainnet expected-deployer-nonce reconciliation or ceremony.",
+    "Facility 1 re-signing and its two known failing signature-bound fork assertions.",
+    "Counsel/economic review of ADR-0038.",
+    "Whether to impose an attestation staleness cap."
+  ],
+  "qualification_correction": {
+    "recorded_on": "2026-09-13",
+    "slither_version": "0.11.5",
+    "full_scope_runner_exit": 0,
+    "baseline_gate_exit": 1,
+    "added_fingerprints": 103,
+    "added_occurrences": 117,
+    "triage_status": "Historical reproduction: review was pending then. Every added occurrence is now dispositioned in the build log and AccrualFullScopeReview.json; final gates are recorded above."
+  },
+  "previous_checkpoint": {
+    "recorded_at_utc": "2026-09-13 03:58 UTC",
+    "engineering_commit": "0eafbecc4719834e288b34066c31ff4017312a48",
+    "status": "Superseded qualification claim: the BSC handover failed its reserve margin floor and both current full-scope Slither baseline gates failed; follow-up qualification is in progress.",
+    "whole_system": {
+      "log": "ethereum-native-opening-system-r1.log",
+      "sha256": "55162e7d1ff5be85abb1eb22f43fec38a61185234ce17a417e519a45fd0985b2",
+      "counts": [
+        2813,
+        0,
+        3
+      ]
+    },
+    "final_build": {
+      "log": "ethereum-accrual-final-build-sizes.log",
+      "sha256": "2bebf3f4c5468ed2d3de1bc4367c0e74b4b50722661a954a3f793cd14db823ea"
+    },
+    "source_layout_gate": {
+      "log": "ethereum-accrual-final-storage-source-r2.log",
+      "sha256": "4038329ca5116226cd759f919e19074433fd8de266364212d1742be0d3eff946"
+    },
+    "compiler_layout_gate": {
+      "log": "ethereum-accrual-final-storage-compiled-r3.log",
+      "sha256": "1267959d1a25df90cea4510a73a67a1a7f9edf557c814151ecf1bc5a7401ec45"
+    },
+    "landed_solidity_files_matched": 26
+  },
+  "final_size_gate": {
+    "exit_code": 0,
+    "log": {
+      "path": "/private/tmp/frv-accrual-followup-20260913/ethereum-final-size.log",
+      "sha256": "29135ccf7c42e37b35b32f5d15348647a5f208fc1098817b4397d584b7ab7017"
+    }
+  },
+  "final_static_analysis": {
+    "version": "0.11.5",
+    "production_sources": 80,
+    "findings": 263,
+    "added_occurrences_reviewed": 117,
+    "runner": {
+      "exit_code": 0,
+      "log": {
+        "path": "/private/tmp/frv-accrual-followup-20260913/ethereum-final-slither-run.log",
+        "sha256": "65225ca853e0510b252f1b327c62628eb356128505786ac2cd2106bfa37bdc85"
+      }
+    },
+    "baseline": {
+      "exit_code": 0,
+      "log": {
+        "path": "/private/tmp/frv-accrual-followup-20260913/ethereum-final-slither-check.log",
+        "sha256": "3997beed310ffa65bd7f98bce1e10ac94c923be9e136a5f22f079b788dbc3c91"
+      }
+    },
+    "report": {
+      "path": "/private/tmp/frv-accrual-followup-20260913/ethereum-slither-final.json",
+      "sha256": "12142798a40bfb2610f380013bd3e2cf62048cfd31d4aaec43a63b69f6e044e9"
+    },
+    "sourceDigest": "7fefa279d80298d42a3ec4651e03d669ca386084b160cefe1eb4b09044d0f17c",
+    "review_evidence_sha256": "7f5a20775976f44d150e8865298328caf8209d6cad51d5bbf0795750c67ca0d2"
+  },
+  "followup_script_and_test_hashes": [
+    {
+      "file": "contracts/script/ValidateMainnet.s.sol",
+      "sha256": "c3a8380a2272349bd511a4370dfb7850c61c64481da15e70255d01b299b3cfab"
+    },
+    {
+      "file": "contracts/script/MainnetConfig.sol",
+      "sha256": "1f3df0e222da1ae3d3f4c7bf4b7fbbbdb8d76b144c3230b79f947b320926f932"
+    },
+    {
+      "file": "contracts/test/unit/AttestationConfigValidation.t.sol",
+      "sha256": "834c8be317c55522214af9451d6551ba4889a862352aa84512ba280c1c12076e"
+    },
+    {
+      "file": "contracts/test/tooling/AttestationConfigControls.py",
+      "sha256": "948cb83752baffc88a74e5fee51d75c4970542499a809d8ccfed7f827c2b5eef"
+    }
+  ],
+  "whole_system_solidity_files_matched": 415,
+  "followup_evidence": [
+    {
+      "path": "contracts/test/tooling/AttestationConfigEvidence.json",
+      "sha256": "be1fd3c52b55c19f98b41ea5ad1c018196185aacbf3696537ce503a7f42ac210"
+    }
+  ],
+  "followup_pinned_reserve_fork": "No Ethereum production execution changed in this follow-up; the calculator edit changes comments and source metadata only. Existing pinned fork evidence remains historical."
+}

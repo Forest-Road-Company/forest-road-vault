@@ -1,6 +1,20 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.30;
 
+/// @notice The one-bit pause surface of a wired module, declared here because `previewRedeem` must
+///         read the reserve's pause and `IReserveManager` does not declare it.
+/// @dev CANTINA 3.1.3 LIMB (a), CLOSED BY CONSTRUCTION ON THIS INSTANCE. On Ethereum the quote read
+///      the controller pause and the token pause but not the reserve's, so it could publish a full
+///      price for a redemption whose every release is `whenNotPaused`. The disposition there was
+///      "an integrator should read `ReserveManager.paused()` alongside the quote", because closing
+///      it was an upgrade. The mechanical reason the sibling fix missed the third surface is that
+///      `ReserveManager` gets `paused()` from `PausableUpgradeable` and never declares it on its own
+///      interface, so nothing in the type system pointed at it. This declaration is that pointer.
+interface IPausableModule {
+    /// @notice True while the module refuses its `whenNotPaused` entry points.
+    function paused() external view returns (bool);
+}
+
 /// @title IMintRedeemController
 /// @notice KYC-gated issuance and redemption of USDfr against canonical USDC, and the enforcement
 ///         point of the protocol's solvency rule. MINT is at par and is CLOSED while the protocol
@@ -72,6 +86,27 @@ interface IMintRedeemController {
     error Controller_BackingInvariantViolated(uint256 supply, uint256 backing);
     error Controller_ZeroAmount();
     error Controller_AmountTooSmall(uint256 usdfrAmount);
+
+    /// @notice An unratified arm refused a direct redemption.
+    /// @param armId Active custody arm.
+    /// @param usdcOut Proposed settlement in native USDC units.
+    /// @param usdfrIn USDfr claims proposed for redemption.
+    error Controller_ReserveLossArmFreeze(uint256 armId, uint256 usdcOut, uint256 usdfrIn);
+
+    /// @notice The redemption would have burned more USDfr than the post-draw supply.
+    /// @dev CANTINA 3.1.1, RE-DERIVED AT SCALE 1 AND CLOSED RATHER THAN ACKNOWLEDGED. On Ethereum
+    ///      the whole-unit grid returned `M mod 1e12` wei of headroom at the top of the range, so
+    ///      `usdfrIn + drawn` overflowed only for inputs within 1e12 of `type(uint256).max` - a
+    ///      panic window of width at most 2**40, which is why "acknowledged" was a defensible
+    ///      judgement. At scale 1 the grid is the identity, `usdfrIn == usdfrAmount` exactly, and
+    ///      the window widens to the whole top `drawn` of the range. That is not the same judgement
+    ///      about the same object. Bounding the SUM rather than the addend makes the overflow
+    ///      UNREPRESENTABLE rather than merely unlikely, refuses only inputs no holder can hold, and
+    ///      makes `previewRedeem` answer a controller error instead of `Panic(0x11)`.
+    /// @param usdfrIn The amount the exit would burn.
+    /// @param bound `supply - drawn`, which `supply - drawn <= supply` makes underflow-free because
+    ///        `drawn` was burned out of `supply`.
+    error Controller_RedeemExceedsSupply(uint256 usdfrIn, uint256 bound);
     /// @notice AUDIT FIX (R4-01): the user par paths are closed while the reserve holds less USDC
     ///         than its idle ledger claims. Recognition of the gap is permissionless and immediate;
     ///         restoring custody, or the authenticated custody-loss cascade writing the ledger down
@@ -88,6 +123,27 @@ interface IMintRedeemController {
     /// @param deficitBefore `max(0, totalUSDfr() - backingValue())` before the operation.
     /// @param deficitAfter The same quantity after it, which must not exceed `deficitBefore`.
     error Controller_DeficitWorsened(uint256 deficitBefore, uint256 deficitAfter);
+
+    /// @notice A paired-yield baseline is already open, so a second cannot be started.
+    error Controller_PairedYieldAlreadyOpen(address caller);
+    /// @notice A split mint must consume this caller's existing paired backing baseline.
+    error Controller_PairedYieldRequired();
+    /// @notice A paired operation cannot complete against a changed retention obligation.
+    error Controller_PairedRetentionChanged(uint256 beforeRequirement, uint256 afterRequirement);
+    /// @notice The protocol fee cannot exceed the total amount being issued.
+    error Controller_InvalidYieldSplit(uint256 total, uint256 fee);
+
+    /// @notice A paired-yield baseline was recorded before its caller moved backing.
+    event PairedYieldOpened(address indexed caller, uint256 supplyBefore, uint256 backingBefore);
+
+    /// @notice A stranded paired-yield baseline was cleared by governance.
+    event PairedYieldCleared(address indexed caller);
+
+    /// @notice Records the supply/backing baseline for a yield mint whose backing leg moves first.
+    function beginPairedYield() external;
+
+    /// @notice Governance escape for a paired-yield baseline stranded by a reverted operation.
+    function clearStalePairedYield() external;
 
     /// @notice AUDIT FIX (R16-M3). Par issuance is closed while the protocol is under-backed for
     ///         ANY reason — a G3 conservative mark or a residual cascade deficit as well as the
@@ -186,9 +242,16 @@ interface IMintRedeemController {
     ///      `Deploy.s.sol` grants that role to `WaterfallEngine` alone TODAY; a second grantee, or
     ///      any future unclamped call site, would spend the junior retention silently. The clamp is
     ///      a caller-side property; this is the callee-side one.
-    /// @param retention `seniorSubParShortfall()`.
+    /// @param threshold THE BOUND THAT WAS ACTUALLY ENFORCED, which differs by branch and is why
+    ///        this parameter is not named `retention`. On an ordinary yield mint it is
+    ///        `seniorSubParShortfall()`, the junior retention the surplus must not fall below. On a
+    ///        PAIRED mint opened by `beginPairedYield` it is the surplus recorded BEFORE the caller
+    ///        moved any backing, because a paired move raises backing and supply by the identical
+    ///        amount and the property enforced there is exact neutrality rather than a floor.
+    ///        Reporting the retention on the paired branch made the error describe a rule that
+    ///        branch does not apply; corrected 2026-09-10.
     /// @param surplus `max(0, recognizedBackingValue() - totalUSDfr())` after the mint.
-    error Controller_SeniorRetentionBreached(uint256 retention, uint256 surplus);
+    error Controller_SeniorRetentionBreached(uint256 threshold, uint256 surplus);
 
     /// @notice AUDIT FIX (R18). The reserve took the USDC and reported the right credit but did not
     ///         BOOK it as backing. The recognition twin of `Controller_DepositNotCustodied`: R16-L2
@@ -317,6 +380,13 @@ interface IMintRedeemController {
     ///      (interest since R16-M5, the origination fee since R18); a caller that does not will
     ///      revert rather than withhold.
     function mintYield(address to, uint256 amount) external;
+
+    /// @notice Issues one paired increase to two authorized sinks, checking the complete total.
+    /// @param senior Destination of total minus fee; unused when that amount is zero.
+    /// @param total Total new supply, justified by the backing increase since beginPairedYield.
+    /// @param feeRecipient Destination of fee; unused when fee is zero.
+    /// @param fee Part of total allocated before the senior leg, in normalized USDfr units.
+    function mintYieldSplit(address senior, uint256 total, address feeRecipient, uint256 fee) external;
 
     /// @notice Burns USDfr from `from` to realize a loss through the cascade.
     ///         `LOSS_BURNER_ROLE` — deliberately NOT `CREDIT_ROLE`.

@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
 
-import {ClaimBridge} from "../../src/ClaimBridge.sol";
+import {IFacility1Bridge} from "../helpers/Facility1HistoricalBridge.sol";
 import {IAttestationOracle} from "../../src/interfaces/IAttestationOracle.sol";
 
 interface IOracle {
@@ -23,12 +23,10 @@ interface IController {
     function backingInvariantHolds() external view returns (bool);
 }
 
-/// @notice Replays the REAL KMS attester signatures against a mainnet fork before they are
-///         broadcast. The rehearsal that preceded this used throwaway keys and granted them
-///         ATTESTER_ROLE; this one grants nothing and impersonates nobody. The production
-///         attesters must recover from these exact signature bytes, or the mint gate stays shut.
-///
-///         If this passes, the same three `attest` calls will succeed on mainnet.
+/// @notice Replays the archived Facility 1 signatures against the historical implementation at
+///         block 25,848,835. No attester roles or replacement signatures are introduced.
+/// @dev Passing proves this historical replay; current deployment and signature approval are
+///      separate human-owned operations. The historical bridge ABI deliberately predates PIK.
 contract Facility1RealSignatures is Test {
     address constant BRIDGE = 0x46FE513a20a1d4Fe77ecEcB763C6843D7AbBF32a;
     address constant ORACLE = 0x5e01d55B4B6c361Dd8b9B889F21A731E22281167;
@@ -48,8 +46,8 @@ contract Facility1RealSignatures is Test {
     bytes constant SIG_CREDIT_A2 =
         hex"644a09dc477a03b1ca89dd4efe41d4076165ba9a1b9afa8e3f0fec56d9e49f031fd50a3d270e06cd78a012c0f1fe56be9e8208d9aa5af70e535b6969c3ddbffb1c";
 
-    function _terms() internal pure returns (ClaimBridge.OriginationTerms memory t) {
-        t = ClaimBridge.OriginationTerms({
+    function _terms() internal pure returns (IFacility1Bridge.OriginationTerms memory t) {
+        t = IFacility1Bridge.OriginationTerms({
             classId: 2,
             borrowerId: bytes32(uint256(1)),
             stateId: bytes32(0),
@@ -60,8 +58,8 @@ contract Facility1RealSignatures is Test {
             fundingRecipient: RECIPIENT,
             paymentInterval: 7889400,
             nextPaymentDue: 1790726400,
-            rateType: ClaimBridge.RateType.Fixed,
-            dayCountConvention: ClaimBridge.DayCountConvention.Thirty360,
+            rateType: IFacility1Bridge.RateType.Fixed,
+            dayCountConvention: IFacility1Bridge.DayCountConvention.Thirty360,
             renewable: false,
             paymentScheduleHash: 0xd6694762e3fb1746f2a6627abac995e529593b4638825eb3c8d6e0463f34d7e8,
             rateIndexRef: bytes32(0),
@@ -93,8 +91,8 @@ contract Facility1RealSignatures is Test {
         vm.skip(bytes(forkUrl).length == 0);
         vm.createSelectFork(forkUrl, 25848835);
 
-        ClaimBridge.OriginationTerms memory t = _terms();
-        bytes32 termsHash = ClaimBridge(BRIDGE).creditTermsHash(t);
+        IFacility1Bridge.OriginationTerms memory t = _terms();
+        bytes32 termsHash = IFacility1Bridge(BRIDGE).creditTermsHash(t);
         assertEq(
             termsHash,
             0x5027fcf72ba803e90bf89fa716ecfa319ff33710d3c2f12ae211e8783b1bc5f0,
@@ -117,9 +115,9 @@ contract Facility1RealSignatures is Test {
         uint256 backingBefore = IReserves(RESERVES).totalBackingValue();
 
         vm.prank(OPS);
-        uint256 tokenId = ClaimBridge(BRIDGE).originate(TREASURY, t);
+        uint256 tokenId = IFacility1Bridge(BRIDGE).originate(TREASURY, t);
         assertEq(tokenId, 1, "first facility must be id 1");
-        assertEq(ClaimBridge(BRIDGE).ownerOf(1), TREASURY, "NFT must land with the treasury");
+        assertEq(IFacility1Bridge(BRIDGE).ownerOf(1), TREASURY, "NFT must land with the treasury");
 
         vm.prank(OPS);
         IWaterfall(WATERFALL).fund(1, 100_000_000);

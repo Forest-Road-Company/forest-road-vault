@@ -40,6 +40,18 @@ export const PROTOCOL_ERRORS = [
   // ReserveManager errors surface through MintRedeemController.redeem
   {type: "error", name: "ReserveManager_InsufficientIdleValue", inputs: [{name: "requestedValue", type: "uint256"}, {name: "idleValue", type: "uint256"}]},
   {type: "error", name: "Queue_NoLiquidity", inputs: []},
+  // CuratorModule (first-loss posting from /curators)
+  {type: "error", name: "Curator_NotApprovedCurator", inputs: [{name: "classId", type: "uint256"}, {name: "curator", type: "address"}]},
+  {type: "error", name: "Curator_ZeroAmount", inputs: []},
+  {type: "error", name: "Curator_UnknownClass", inputs: [{name: "classId", type: "uint256"}]},
+  {type: "error", name: "Curator_InsufficientStake", inputs: [{name: "classId", type: "uint256"}, {name: "curator", type: "address"}, {name: "requested", type: "uint256"}, {name: "posted", type: "uint256"}]},
+  {type: "error", name: "Curator_HeadroomExceeded", inputs: [{name: "classId", type: "uint256"}, {name: "requested", type: "uint256"}, {name: "headroom", type: "uint256"}]},
+  {type: "error", name: "Curator_ClassDefaultFrozen", inputs: [{name: "classId", type: "uint256"}]},
+  {type: "error", name: "Curator_CustodyLossFrozen", inputs: []},
+  {type: "error", name: "Curator_ReserveNotWired", inputs: []},
+  {type: "error", name: "Curator_ReserveLossWithdrawalsFrozen", inputs: []},
+  {type: "error", name: "Curator_UnsettledClosedRound", inputs: [{name: "classId", type: "uint256"}, {name: "stakeRound", type: "uint256"}, {name: "liveRound", type: "uint256"}]},
+  {type: "error", name: "Curator_ShareCapacityExceeded", inputs: [{name: "amount", type: "uint256"}, {name: "availableShares", type: "uint256"}]},
   // OZ shared
   {type: "error", name: "EnforcedPause", inputs: []},
   {type: "error", name: "ReentrancyGuardReentrantCall", inputs: []},
@@ -319,6 +331,7 @@ export const BRIDGE_ABI = [
           {name: "renewalTermsHash", type: "bytes32"},
           {name: "offchainRef", type: "bytes32"},
           {name: "state", type: "uint8"},
+          {name: "pik", type: "bool"},
         ],
       },
     ],
@@ -419,6 +432,8 @@ export const ATTESTATION_ORACLE_ABI = [
   },
 ] as const;
 
+/** CuratorModule: the transparency read plus the curator's own surface on /curators
+ *  (per-class approval, posting, headroom and freezes; post and withdraw). */
 export const CURATOR_ABI = [
   {
     type: "function",
@@ -427,6 +442,21 @@ export const CURATOR_ABI = [
     inputs: [{name: "classId", type: "uint256"}],
     outputs: [{type: "uint256"}],
   },
+  {type: "function", name: "isApprovedCurator", stateMutability: "view", inputs: [{name: "classId", type: "uint256"}, {name: "curator", type: "address"}], outputs: [{type: "bool"}]},
+  {type: "function", name: "postedOf", stateMutability: "view", inputs: [{name: "classId", type: "uint256"}, {name: "curator", type: "address"}], outputs: [{type: "uint256"}]},
+  {type: "function", name: "firstLossTarget", stateMutability: "view", inputs: [{name: "classId", type: "uint256"}], outputs: [{type: "uint256"}]},
+  {type: "function", name: "requiredFirstLoss", stateMutability: "view", inputs: [{name: "classId", type: "uint256"}], outputs: [{type: "uint256"}]},
+  {type: "function", name: "headroom", stateMutability: "view", inputs: [{name: "classId", type: "uint256"}], outputs: [{type: "uint256"}]},
+  {type: "function", name: "unresolvedDefaults", stateMutability: "view", inputs: [{name: "classId", type: "uint256"}], outputs: [{type: "uint256"}]},
+  {type: "function", name: "poolRound", stateMutability: "view", inputs: [{name: "classId", type: "uint256"}], outputs: [{type: "uint256"}]},
+  {type: "function", name: "custodyFreezeActive", stateMutability: "view", inputs: [], outputs: [{type: "bool"}]},
+  {type: "function", name: "paused", stateMutability: "view", inputs: [], outputs: [{type: "bool"}]},
+  {type: "function", name: "postFirstLoss", stateMutability: "nonpayable", inputs: [{name: "classId", type: "uint256"}, {name: "amount", type: "uint256"}], outputs: []},
+  {type: "function", name: "withdrawFirstLoss", stateMutability: "nonpayable", inputs: [{name: "classId", type: "uint256"}, {name: "amount", type: "uint256"}], outputs: []},
+  {type: "function", name: "claimClosedRound", stateMutability: "nonpayable", inputs: [{name: "classId", type: "uint256"}, {name: "curator", type: "address"}], outputs: []},
+  {type: "event", name: "FirstLossPosted", inputs: [{name: "classId", type: "uint256", indexed: true}, {name: "curator", type: "address", indexed: true}, {name: "amount", type: "uint256", indexed: false}, {name: "shares", type: "uint256", indexed: false}, {name: "round", type: "uint256", indexed: false}]},
+  {type: "event", name: "FirstLossWithdrawn", inputs: [{name: "classId", type: "uint256", indexed: true}, {name: "curator", type: "address", indexed: true}, {name: "amount", type: "uint256", indexed: false}, {name: "shares", type: "uint256", indexed: false}, {name: "round", type: "uint256", indexed: false}]},
+  ...PROTOCOL_ERRORS,
 ] as const;
 
 export const POINTS_ABI = [

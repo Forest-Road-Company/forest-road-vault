@@ -119,7 +119,7 @@ contract CustodyPreArmHandler is Test {
 
     /// @notice The UNBOUNDED governance path the pre-arm is supposed to outlast.
     function mLivePath() public view returns (uint256) {
-        uint256 path = uint256(Config.GOV_VOTING_DELAY) + uint256(Config.GOV_VOTING_PERIOD) + Config.TIMELOCK_MIN_DELAY;
+        uint256 path = 10 days; // The custody safeguard retains its original floor.
         if (govKind == GOV_WELLFORMED) {
             uint256 live = govDelay + govPeriod + govMinDelay;
             if (live > path) path = live;

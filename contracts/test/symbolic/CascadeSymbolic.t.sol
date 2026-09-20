@@ -3,24 +3,13 @@ pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 
-/// @dev SYMBOLIC proof (halmos) of the §1.3 loss-cascade arithmetic in
-///      `DefaultManager.realizeLoss` (src/DefaultManager.sol) — the two safety properties
-///      CLAUDE.md §1.5 explicitly names for formal treatment, here established for ALL
-///      inputs (not just fuzzed ones):
-///        - VALUE CONSERVATION: absorbed + covered + depositorLoss == loss, with no
-///          under/overflow — nothing created or destroyed by the split.
-///        - LAYER ORDERING (senior-last): depositor/senior principal is impaired ONLY after
-///          BOTH junior layers are exhausted (curator drained AND backstop capped).
-///
-///      The split arithmetic below mirrors realizeLoss line-for-line (layer1 = curator
-///      `absorbed=min(loss,pool); residual=loss-absorbed`; layer2 = backstop `covered<=residual`
-///      enforced by the ICascadeBackstop contract; layer3 = `depositorLoss=loss-absorbed-covered`).
-///      The differential fuzz (CreditHandler per-call asserts, 512×256 heavy) independently
-///      binds the REAL contract's split to exactly this arithmetic, so: contract == model (fuzz)
-///      + model correct ∀ inputs (this proof) = the cascade split is sound for all reachable states.
-///
-///      Run (from contracts/): `halmos --match-contract CascadeSymbolic`. `check_`-prefixed so
-///      `forge test` ignores it (halmos-only; not part of the forge suite count).
+/// @notice Arithmetic reference for cascade conservation and ordering (curator, shared backstop, then senior).
+/// @dev Halmos can establish the properties of this isolated arithmetic model. It does not
+///      execute DefaultManager or prove every reachable production state. Production equivalence
+///      is separately sampled by the real native lifecycle and stateful differential tests;
+///      finite fuzzing does not turn a model proof into a universal implementation proof.
+///      Run `halmos --match-contract CascadeSymbolic` from contracts for the symbolic model.
+///      Only testFuzz-prefixed wrappers, where present, run under ordinary forge test.
 contract CascadeSymbolic is Test {
     function check_cascadeConservationAndOrdering(uint256 loss, uint256 poolBalance, uint256 covered) public pure {
         // realizeLoss precondition: loss != 0 (reverts on zero).

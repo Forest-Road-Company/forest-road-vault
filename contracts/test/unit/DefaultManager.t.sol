@@ -9,6 +9,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 import {ClaimBridge} from "../../src/ClaimBridge.sol";
 import {DefaultManager} from "../../src/DefaultManager.sol";
+import {DefaultAccrualLib} from "../../src/libraries/DefaultAccrualLib.sol";
 import {ICascadeBackstop} from "../../src/interfaces/ICascadeBackstop.sol";
 import {IDefaultManager} from "../../src/interfaces/IDefaultManager.sol";
 import {Config} from "../../src/libraries/Config.sol";
@@ -296,6 +297,13 @@ contract DefaultManagerTest is CreditLayerFixture {
     }
 
     // ── declareDefault / accelerate ──────────────────────────────────────
+
+    function test_cashLoanCannotUseLegacyPikDefaultPreparation() public {
+        uint256 id = _liveFilmFacility(100_000e18);
+        vm.expectRevert(abi.encodeWithSelector(DefaultAccrualLib.DefaultAccrual_NotLegacyPik.selector, id));
+        vm.prank(servicer);
+        defaultManager.settleLegacyPikForDefault(id, FILM_REF, 1);
+    }
 
     function test_declareDefault_freezesAndEmitsRemedy() public {
         vm.prank(admin);
@@ -1291,7 +1299,7 @@ contract DefaultManagerTest is CreditLayerFixture {
 
     // ── pause: permissionless triggers only ──────────────────────────────
 
-    function test_pause_blocksTriggersNeverLossRecognition() public {
+    function test_managerPauseBlocksTriggersButAllowsCashDefault() public {
         _postFirstLoss(anchorCurator, Config.CLASS_DIGITAL_ASSETS, 600_000e18);
         uint256 id = _liveDigitalFacility();
         _setValuation(id, 750_000e18, uint64(block.timestamp));
@@ -1306,7 +1314,7 @@ contract DefaultManagerTest is CreditLayerFixture {
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         defaultManager.liquidate(id);
 
-        // role-gated remedy/loss paths keep working while paused (design note)
+        // This cash-loan fixture exercises the manager pause, without legacy PIK posting.
         _attestDefault(id);
         vm.prank(servicer);
         defaultManager.declareDefault(id, FILM_REF);

@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {UndrawnLimbBase} from "./UNDRAWN_LIMB_FALSIFIER.t.sol";
 
-/// @notice W7 structural checks that are intentionally separate from the published grading files.
+/// @notice Impairment read budgets with thirty-two declared loans and the shared reserve.
 contract W7PerEventLadderTest is UndrawnLimbBase {
     function setUp() public override {
         super.setUp();
@@ -15,7 +15,7 @@ contract W7PerEventLadderTest is UndrawnLimbBase {
         }
     }
 
-    function test_w7_thirtyTwoLiveUndrawnEventsExposeTheHardProbeBoundary() public {
+    function test_thirtyTwoDeclaredLoansFitTheImpairmentReadBudget() public {
         // `setUp` and the test body are distinct runner calls, so this first read starts with a
         // fresh transaction access list instead of relying on address-only `vm.cool` calls that
         // leave every storage slot warmed by fixture construction.
@@ -24,17 +24,29 @@ contract W7PerEventLadderTest is UndrawnLimbBase {
             abi.encodeWithSignature("pendingSeniorImpairment()")
         );
         uint256 used = before - gasleft();
-        emit log_named_uint("W7 32-live-event assessed impairment gas", used);
-        assertFalse(readable, "control changed: the 32-event cold ladder unexpectedly fits the 400,000 stipend");
-        assertEq(result.length, 0, "the exhausted stipend should return no fabricated mark");
-        assertLt(used, 400_000, "the caller failed to retain its EIP-150 gas reserve");
+        emit log_named_uint("32-row bounded impairment read gas", used);
+        assertTrue(readable, "constant-cost residuals must fit the production read budget");
+        assertEq(result.length, 32, "the impairment read must return one complete word");
+        assertEq(abi.decode(result, (uint256)), _expectedMark(), "the budgeted read changed the senior mark");
+        assertLt(used, 250_000, "the residual path regained a cost per declared row");
     }
 
-    function test_w7_diagnosticColdThirtyTwoEventCost() public {
+    function test_coldImpairmentReadPreservesTheResidualValue() public {
         uint256 before = gasleft();
-        assessedImpairmentSource.pendingSeniorImpairment();
+        uint256 mark = assessedImpairmentSource.pendingSeniorImpairment();
         uint256 used = before - gasleft();
-        emit log_named_uint("W7 32-live-event cold diagnostic gas", used);
-        assertLt(used, 600_000, "diagnostic ceiling exceeded");
+        emit log_named_uint("32-row cold impairment read gas", used);
+        assertLt(used, 250_000, "constant-cost cold read budget exceeded");
+        assertEq(mark, _expectedMark(), "the cold read changed the senior mark");
     }
+
+    function _expectedMark() private view returns (uint256 residual) {
+        assertEq(evIds.length, 32);
+        residual = 32 * 20_000e18;
+        uint256 firstLoss = curator.poolBalance(FILM);
+        residual -= firstLoss < residual ? firstLoss : residual;
+        uint256 reserve = sGrove.coverageReserve();
+        residual -= reserve < residual ? reserve : residual;
+    }
+
 }

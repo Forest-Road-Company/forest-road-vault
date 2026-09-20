@@ -1,0 +1,33 @@
+{
+  "name": "forestroad-curator-vault",
+  "private": true,
+  "type": "module",
+  "license": "BUSL-1.1",
+  "scripts": {
+    "build:program": "bash scripts/build-program.sh",
+    "build:release": "node scripts/build-release.mjs",
+    "test:program": "cargo test -p forestroad-curator-vault --no-fail-fast",
+    "test:mutations": "node scripts/mutation-controls.mjs",
+    "test:surface": "node scripts/test-surface-census.mjs",
+    "lint:program": "cargo clippy -p forestroad-curator-vault --all-targets -- -D warnings",
+    "test:ops": "node --import tsx --test scripts/*.test.ts",
+    "typecheck": "tsc -p tsconfig.scripts.json",
+    "snapshot:devnet": "tsx scripts/snapshot-devnet.ts",
+    "verify:devnet": "tsx scripts/verify-devnet.ts"
+  },
+  "dependencies": {
+    "@anchor-lang/core": "^1.2.0",
+    "@solana/web3.js": "^1.98.0"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.2.0",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.7.3"
+  },
+  "overrides": {
+    "stream-json": "3.5.0",
+    "toml": "4.2.0",
+    "uuid": "11.1.1"
+  }
+}

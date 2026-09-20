@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.30;
 
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
@@ -228,5 +229,94 @@ contract MintRedeemControllerTest is TokenLayerFixture {
         vm.prank(admin);
         controller.upgradeToAndCall(newImpl, "");
         assertTrue(controller.backingInvariantHolds());
+    }
+
+    // -- paired-yield baseline (2026-09-09) --------------------------------
+
+    /// @notice Only CREDIT_ROLE may open a baseline.
+    function test_pairedYield_openIsCreditRoleOnly() public {
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, Roles.CREDIT_ROLE)
+        );
+        controller.beginPairedYield();
+    }
+
+    /// @notice Only governance may clear a stranded baseline.
+    function test_pairedYield_clearIsAdminOnly() public {
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, bytes32(0))
+        );
+        controller.clearStalePairedYield();
+    }
+
+    /// @notice A second baseline cannot be opened while one stands.
+    /// @dev THIS IS WHAT MAKES THE BASELINE SAFE. The deficit is not monotone, so a stale snapshot
+    ///      taken in a worse state would be a LOOSER baseline for a later mint, not a stricter one.
+    ///      Refusing a second open, plus consuming it in `mintYield`, is what stops one baseline
+    ///      spanning two operations.
+    function test_pairedYield_refusesASecondOpenWhileOneStands() public {
+        address credit = creditModule;
+        vm.prank(credit);
+        controller.beginPairedYield();
+        vm.prank(credit);
+        vm.expectRevert(
+            abi.encodeWithSelector(IMintRedeemController.Controller_PairedYieldAlreadyOpen.selector, credit)
+        );
+        controller.beginPairedYield();
+    }
+
+    /// @notice Governance can clear a baseline stranded by a reverted operation.
+    function test_pairedYield_governanceCanClearAStrandedBaseline() public {
+        address credit = creditModule;
+        vm.prank(credit);
+        controller.beginPairedYield();
+
+        vm.expectEmit(true, false, false, false, address(controller));
+        emit IMintRedeemController.PairedYieldCleared(credit);
+        vm.prank(admin);
+        controller.clearStalePairedYield();
+
+        // and a fresh one may then be opened
+        vm.prank(credit);
+        controller.beginPairedYield();
+    }
+
+    /// @notice Opening a baseline emits the snapshot it recorded.
+    function test_pairedYield_openEmitsTheSnapshot() public {
+        address credit = creditModule;
+        vm.expectEmit(true, false, false, false, address(controller));
+        emit IMintRedeemController.PairedYieldOpened(credit, 0, 0);
+        vm.prank(credit);
+        controller.beginPairedYield();
+    }
+
+    /// @notice CANTINA 3.1.2. The probe's two revert branches, each on its specific error.
+    /// @dev CLAUDE.md section 1.1 requires the specific custom error on every revert path. These
+    ///      shipped untested; a mutation back to a bare `code.length` check, or to a padded
+    ///      `abi.encodeWithSelector` probe, would have been caught by nothing.
+    function test_initialize_refusesAnEOAModule() public {
+        MintRedeemController impl = new MintRedeemController();
+        address proxy = address(new ERC1967Proxy(address(impl), ""));
+        vm.expectRevert(abi.encodeWithSelector(MintRedeemController.Controller_ModuleNotResponding.selector, alice));
+        MintRedeemController(proxy).initialize(admin, guardian, admin, alice, address(compliance), address(reserves));
+    }
+
+    /// @notice A CONTRACT that does not answer the probed view is refused too, which is the half a
+    ///         code-length check alone would miss.
+    function test_initialize_refusesAContractThatDoesNotAnswerTheProbe() public {
+        address mute = address(new MuteModule());
+        MintRedeemController impl = new MintRedeemController();
+        address proxy = address(new ERC1967Proxy(address(impl), ""));
+        vm.expectRevert(abi.encodeWithSelector(MintRedeemController.Controller_ModuleNotResponding.selector, mute));
+        MintRedeemController(proxy).initialize(admin, guardian, admin, mute, address(compliance), address(reserves));
+    }
+}
+
+/// @dev A contract that reverts on every call: the second Cantina 3.1.2 branch.
+contract MuteModule {
+    fallback() external {
+        revert("mute");
     }
 }

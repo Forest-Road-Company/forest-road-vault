@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.30;
 
+import {IMintRedeemController} from "../../src/interfaces/IMintRedeemController.sol";
+
+import {IAccrualMigration} from "../../src/interfaces/IAccrualMigration.sol";
+import {ReserveMigrationLib} from "../../src/libraries/ReserveMigrationLib.sol";
+
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {console2} from "forge-std/console2.sol";
@@ -146,7 +151,58 @@ contract INV_AccessControlSurface is RealOracleFixture, PrivilegedSurface {
     // AUDIT NOTE (ADR-0035, 2026-08-11): re-pinned 133 -> 132 because the owner decision retires
     // `SGrove.setPerEventCap` together with the per-event ceiling it governed. Runtime enumeration
     // removed exactly that selector; no surviving privileged selector was removed from the probe.
-    uint256 internal constant EXPECTED_SURFACE = 132;
+    // AUDIT NOTE (PIK capitalisation, 2026-09-08): re-pinned 132 -> 133 because PIK interest
+    // capitalisation adds exactly ONE role-guarded selector,
+    // `ReserveManager.recordPikCapitalization` (CREDIT_ROLE), matching its `recordFeeCapitalization`
+    // twin. The coordinating entry point `WaterfallEngine.capitalizePik` is deliberately
+    // PERMISSIONLESS and correctly does not move this number: the amount it computes is a pure
+    // function of already-signed terms and one contractual interval, so there is nothing for a role
+    // to protect. This gate firing on the addition is the gate WORKING; the new entry point picks up
+    // unauthorised-caller coverage automatically from this suite's runtime enumeration. See
+    // `docs/SPEC_INTEREST_ACCRUAL.md`.
+    ///
+    ///      RE-BASELINED 2026-09-09, 133 -> 135, deliberately. The paired-yield baseline added two
+    ///      role-guarded selectors to `MintRedeemController`: `beginPairedYield` under `CREDIT_ROLE`,
+    ///      matching `mintYield` whose measurement it corrects, and `clearStalePairedYield` under
+    ///      `DEFAULT_ADMIN_ROLE`, the governance escape that mirrors
+    ///      `sUSDfr.clearStaleFeeOperation`. Neither mints, burns or moves value: the first records
+    ///      a supply/backing snapshot and the second zeroes it. They exist because
+    ///      `WaterfallEngine.capitalizePik` raises backing before supply, so `mintYield`'s own
+    ///      mid-operation snapshot read a deficit-neutral pair as a worsening and refused. The gate
+    ///      caught this as drift before the note existed, which is the behaviour intended.
+    ///
+    ///      RE-BASELINED 2026-09-10, 135 -> 137, deliberately. The PIK crank-liveness work adds
+    ///      exactly two role-guarded selectors, one per tree, and both are reviewed:
+    ///        - `CollateralRegistry.recordCapitalizedExposure` (CREDIT_ROLE), the capitalisation
+    ///          twin of `recordExposureIncrease`. It carries the SAME role as the function it
+    ///          splits from, so this is a split of an existing privilege rather than a new one:
+    ///          the origination path keeps the admission revert, the capitalisation path books the
+    ///          exposure and reports the breach without reverting. Anything that could call the
+    ///          old one could already do this.
+    ///        - `DefaultManager.setWaterfall` (DEFAULT_ADMIN_ROLE), the timelocked lever that
+    ///          points the manager at the engine whose `paused()` flag gates the PIK branch of
+    ///          `markPastDue`. It must be role-gated: an address that answers `paused() == true`
+    ///          would suppress PIK past-due marking entirely, so it is exactly the class of
+    ///          governance power `setLossSource` and `setYieldSink` already occupy.
+    ///      The other three functions the same change adds are deliberately NOT privileged and
+    ///      correctly do not move this number: `DefaultManager.waterfallEngine` is a view, and
+    ///      `WaterfallEngine.capitalizePik` stays permissionless for the reason recorded in the
+    ///      2026-09-08 note. The gate firing on this was the gate WORKING; both new entry points
+    ///      pick up unauthorised-caller coverage automatically from the runtime enumeration.
+    // Continuous accrual: USDfr binding and delivery (2), plus vault, registry, bridge and
+    // controller binding (4). All six carry existing role guards and enter the exhaustive probe.
+    // Native accrual integration, 2026-09-12: 143 -> 147. Exactly four external
+    // DEFAULT_ADMIN_ROLE selectors were added: ReserveManager.configureContinuousAccrual,
+    // ReserveManager.enableContinuousAccrual, DefaultManager.setAccrualReserve and
+    // WaterfallEngine.setAccrualReserve. No role-guarded selector was removed. The runtime
+    // four-state sweep already refused all 147 entries before this explicit re-baseline.
+    // Ledger replacement, 2026-09-12: one new DEFAULT_ADMIN_ROLE selector.
+    // The replacement-specific test checks its enumeration, four outsiders, and the admin.
+    // Native opening preparation adds one DEFAULT_ADMIN_ROLE entry; no old entry is removed.
+    // 2026-09-14: mintYieldSplit adds one CREDIT_ROLE selector. Its exact selector,
+    // four unauthorized callers and the role holder are checked below; no entry is removed.
+    // Governance-only cancellation of an unratified arm adds one guarded selector.
+    uint256 internal constant EXPECTED_SURFACE = 152;
     /// @dev Distinct role-guarded function NAMES in `src/`, counting BOTH guard styles the
     ///      repository uses (`onlyRole` modifiers, 148 distinct names, plus `USDfr.burn`'s inline
     ///      `_checkRole`) and INCLUDING internal ones such as `_authorizeUpgrade` that carry no
@@ -161,7 +217,23 @@ contract INV_AccessControlSurface is RealOracleFixture, PrivilegedSurface {
     // AUDIT NOTE (four-input merge): +4 net guarded names, matching the selector accounting above.
     // AUDIT NOTE (ADR-0035): -1 for the retired `SGrove.setPerEventCap`, matching the selector
     // accounting above.
-    uint256 internal constant EXPECTED_GUARDED_NAMES = 149;
+    // AUDIT NOTE (PIK capitalisation, 2026-09-08): +1 for `ReserveManager.recordPikCapitalization`,
+    // matching the selector-surface re-pin above. The internal-guard difference is unchanged at
+    // 150 - 133 = 17: the new guard is on an externally reachable function, so both pins move by
+    // the same one.
+    ///
+    ///      RE-BASELINED 2026-09-09, +2, for `beginPairedYield` and `clearStalePairedYield`. The
+    ///      internal-guard difference is unchanged: both new guards are on externally reachable
+    ///      functions, so both pins move by the same two.
+    ///
+    ///      RE-BASELINED 2026-09-10, +2, for `CollateralRegistry.recordCapitalizedExposure` and
+    ///      `DefaultManager.setWaterfall`. The internal-guard difference is unchanged: both new
+    ///      guards are on externally reachable functions, so both pins move by the same two.
+    // The six new external selectors add six names; the 17 internal role guards are unchanged.
+    // The four native external selectors above add four names; internal guards stay at 17.
+    // The replacement guard is external; the internal guard count is unchanged.
+    // Its role guard is external; the internal guard count is unchanged.
+    uint256 internal constant EXPECTED_GUARDED_NAMES = 169;
     /// @dev AST-confirmed `src/` functions guarded by an inline caller/address comparison.
     ///      This is deliberately a second runtime pin rather than folding custom-error trusted
     ///      callers into the OZ-onlyRole probe. It includes all four CommitmentLedger functions
@@ -330,12 +402,84 @@ contract INV_AccessControlSurface is RealOracleFixture, PrivilegedSurface {
     //  deterministic companions — the teeth
     // =====================================================================
 
-    /// @notice EXHAUSTIVE AND DETERMINISTIC: all 132 privileged selectors × 4 role-less actors.
+    /// @notice The fee/senior split participates in the complete runtime role census.
+    function test_acl_yieldSplitIsEnumeratedAndRoleChecked() public {
+        uint256 matched;
+        for (uint256 i; i < surface.length; ++i) {
+            if (
+                surface[i].target != address(controller)
+                    || surface[i].selector != IMintRedeemController.mintYieldSplit.selector
+            ) continue;
+            ++matched;
+            for (uint256 actor; actor < 4; ++actor) {
+                assertEq(
+                    uint256(handler.probe(i, actor)),
+                    uint256(GuardProbe.Verdict.RefusedAsSpecified),
+                    "yield split did not refuse an outsider at its role check"
+                );
+            }
+        }
+        assertEq(matched, 1, "yield split must occur exactly once in the runtime inventory");
+        // The real waterfall holds CREDIT_ROLE and reaches the distinct paired-operation guard.
+        // Successful fee/senior minting and callback exclusion are covered in ControllerYieldSplit.
+        vm.prank(address(waterfall));
+        vm.expectRevert(IMintRedeemController.Controller_PairedYieldRequired.selector);
+        controller.mintYieldSplit(address(vault), 1e18, feeRecipient, 1e17);
+    }
+
+    /// @notice Migration is enumerated once, refuses every outsider, and reaches dispatch for the admin.
+    function test_acl_nativeMigrationIsEnumeratedAndAuthorized() public {
+        bytes4 selector = IAccrualMigration.prepareContinuousAccrualMigration.selector;
+        uint256 matched;
+        for (uint256 i; i < surface.length; ++i) {
+            if (surface[i].target != address(reserves) || surface[i].selector != selector) continue;
+            ++matched;
+            for (uint256 actor; actor < 4; ++actor) {
+                assertEq(
+                    uint256(handler.probe(i, actor)),
+                    uint256(GuardProbe.Verdict.RefusedAsSpecified),
+                    "migration did not refuse an outsider at its role check"
+                );
+            }
+        }
+        assertEq(matched, 1, "migration must occur exactly once in the runtime inventory");
+        vm.prank(admin);
+        vm.expectPartialRevert(ReserveMigrationLib.AccrualMigration_InvalidAction.selector);
+        IAccrualMigration(address(reserves)).prepareContinuousAccrualMigration(abi.encode(uint8(255), bytes("")));
+    }
+
+    /// @notice The new ledger entry must be included and discriminate admin from every outsider.
+    function test_acl_ledgerReplacementIsEnumeratedAndAuthorized() public {
+        bytes4 selector = bytes4(keccak256("replaceCommitmentLedger()"));
+        uint256 matched;
+        for (uint256 i; i < surface.length; ++i) {
+            if (surface[i].target != address(defaultManager) || surface[i].selector != selector) continue;
+            ++matched;
+            for (uint256 actor; actor < 4; ++actor) {
+                assertEq(
+                    uint256(handler.probe(i, actor)),
+                    uint256(GuardProbe.Verdict.RefusedAsSpecified),
+                    "replacement did not refuse an outsider with the access-control error"
+                );
+            }
+        }
+        assertEq(matched, 1, "replacement must occur exactly once in the runtime inventory");
+        (,,,,,,, address oldLedger) = defaultManager.modules();
+        vm.prank(admin);
+        defaultManager.replaceCommitmentLedger();
+        (,,,,,,, address newLedger) = defaultManager.modules();
+        assertTrue(
+            newLedger != oldLedger && newLedger.code.length != 0,
+            "the authorized empty-book replacement did not install its new ledger"
+        );
+    }
+
+    /// @notice EXHAUSTIVE AND DETERMINISTIC: all enumerated privileged selectors × 4 role-less actors.
     /// @dev The assertion that gives this teeth is `refusedByRole == surface`, not
     ///      `admitted == 0`. "Nothing was admitted" is satisfiable by a probe that never reaches
     ///      the guard at all (a decode failure, a `whenNotPaused` ordered first, a wrong
     ///      selector) — which is exactly how a probe table rots into decoration. Requiring that
-    ///      EVERY entry was refused BY THE ROLE CHECK means each of the 132 guards is
+    ///      EVERY entry was refused BY THE ROLE CHECK means each enumerated guard is
     ///      individually demonstrated live on every run.
     function test_acl_everyPrivilegedSelectorRefusesEveryUnauthorisedActor() public {
         uint256 n = handler.entryCount();
@@ -410,7 +554,7 @@ contract INV_AccessControlSurface is RealOracleFixture, PrivilegedSurface {
         queue.setMinRedemptionValue(newFloor);
     }
 
-    /// @notice "IN ANY STATE", DETERMINISTICALLY. The whole 132-entry surface is swept in each of
+    /// @notice "IN ANY STATE", DETERMINISTICALLY. The whole enumerated surface is swept in each of
     ///         four constructed protocol shapes, so the §1.3 clause is demonstrated rather than
     ///         left to whichever states a fuzz run happened to visit.
     /// @dev This is the assertion that replaces a per-run state-shape counter in `afterInvariant`

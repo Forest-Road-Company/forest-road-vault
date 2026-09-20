@@ -15,11 +15,22 @@ contract MutableImpairmentSource is IRevisionedImpairmentSource {
     uint256 internal feeImpairment;
     uint256 internal revision;
     uint256 internal backstopCapacity;
+    uint256 internal cohortExposure;
 
     function set(uint256 impairment_) external {
         impairment = impairment_;
         feeImpairment = impairment_;
         revision += 1;
+    }
+
+    function growPastDue(uint256 amount) external {
+        cohortExposure += amount;
+        impairment += amount;
+        feeImpairment += amount;
+    }
+
+    function setCohortExposure(uint256 amount) external {
+        cohortExposure = amount;
     }
 
     function setFeeImpairment(uint256 feeImpairment_) external {
@@ -48,11 +59,15 @@ contract MutableImpairmentSource is IRevisionedImpairmentSource {
     }
 
     function impairmentStateHash() external view returns (bytes32) {
-        return keccak256(abi.encode(_riskHash(), backstopCapacity));
+        return keccak256(abi.encode(_riskHash(), cohortExposure, backstopCapacity));
     }
 
     function impairmentRiskStateHash() external view returns (bytes32) {
-        return _riskHash();
+        return keccak256(abi.encode(_riskHash(), cohortExposure));
+    }
+
+    function impairmentAssessmentState() external view returns (bytes32, uint256, uint256) {
+        return (_riskHash(), cohortExposure, backstopCapacity);
     }
 
     function impairmentBackstopCapacity() external view returns (uint256) {

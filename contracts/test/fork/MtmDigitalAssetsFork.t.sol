@@ -7,10 +7,13 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Pau
 import {ForkLifecycleFixture} from "./ForkLifecycleFixture.sol";
 import {ClaimBridge} from "../../src/ClaimBridge.sol";
 import {IAttestationOracle} from "../../src/interfaces/IAttestationOracle.sol";
+import {IContinuousAccrual} from "../../src/interfaces/IContinuousAccrual.sol";
 import {ICollateralRegistry} from "../../src/interfaces/ICollateralRegistry.sol";
 import {ICuratorModule} from "../../src/interfaces/ICuratorModule.sol";
 import {IDefaultManager} from "../../src/interfaces/IDefaultManager.sol";
 import {Config} from "../../src/libraries/Config.sol";
+import {ReserveAccrualCreditLib} from "../../src/libraries/ReserveAccrualCreditLib.sol";
+import {ReserveRoundingLib} from "../../src/libraries/ReserveRoundingLib.sol";
 import {Roles} from "../../src/libraries/Roles.sol";
 
 /// @title MtmDigitalAssetsFork — the marked-to-market Digital Assets class (ADR-0015),
@@ -36,10 +39,8 @@ import {Roles} from "../../src/libraries/Roles.sol";
 ///           - the full margin lifecycle: healthy -> mark falls -> permissionless
 ///             `marginCall` -> `cureDeadline` -> cure (fresh mark OR principal repayment) ->
 ///             `clearMarginCall`; and separately cure expiry -> `liquidate`;
-///           - the FRESHNESS ASYMMETRY, which is the load-bearing safety property of the
-///             class: a STALE mark still authorizes the protocol-PROTECTIVE actions
-///             (`marginCall`, `liquidate`) but can never authorize the protocol-HARMFUL one
-///             (`clearMarginCall`);
+///           - fresh valuation evidence is required for margin calls, liquidation and cures;
+///             an expired mark cannot authorize any of those three actions;
 ///           - the thresholds binding EXACTLY at 6500 / 8000 bps (6499 and 7999 must not);
 ///           - liquidation feeding the same three-layer cascade and ADR-0022 impairment pool
 ///             as a receivable default, with exact per-layer figures.
@@ -73,6 +74,37 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
     uint256 private constant V_LIQ_EXACT = 325_000e18; // LTV 8000 exactly -> liquidatable
     uint256 private constant V_LIQ_MISS = 325_001e18; // LTV 7999 -> NOT liquidatable
     uint256 private constant V_HEALTHY = 500_000e18; // LTV 5200
+
+    // ADR-0038 (continuous accrual) figures for the working facility. `_mark` warps one second
+    // before every mark (H-02 watermark), so at any margin action taken straight after a mark
+    // the facility has earned exactly ONE SECOND of 1000 bps Actual/360 interest, and under
+    // ADR-0038 Q1/Q2 ("Full face"; accrual stops "At default declaration") that second is part
+    // of the at-risk face. Three distinct one-second figures exist; each is derived, and
+    // `_pinOneSecondFigures` proves every literal against its closed form and the live engine:
+    //   I1        the canonical contractual interest, floored to the 1e12 USDC grid
+    //             (AccrualSegments.cumulative): _coupon(P, 1000, 1) = floor(835,905,349,794,238 / 1e12) * 1e12.
+    //   I1_BOOK   the book's integer per-second slope (AccrualBook.open: amount / (end - start)).
+    //             The 13,000e18 ceiling is reached exactly at the 180-day maturity, so the planner
+    //             (AccrualSegments.plan) ends the only technical segment one second before it:
+    //             duration 180 days - 1 = 15,551,999 s, endpoint _coupon(P, 1000, 15,551,999) =
+    //             12,999,999,164e12, slope = 12,999,999,164e12 / 15,551,999 = 835,905,349,788,152.
+    //   I1_ROUND  the closure rounding loss: the book streamed I1_BOOK but the contract owes I1, so
+    //             AccrualLoans._close burns I1_BOOK - I1 through the three-layer cascade
+    //             (ReserveRoundingLib.allocate: curator, then sGROVE, then senior).
+    //   I1_SENIOR the senior share of the streamed second, materialized at closure: I1_BOOK less
+    //             the floored 10% protocol interest fee (AccrualBook.snapshot: mulDiv(gross, 1000, 10_000)).
+    //   I1_REM    the segment remainder the integer slope leaves behind: endpoint - slope * duration
+    //             = 12,999,999,164e12 - 835,905,349,788,152 * 15,551,999 = 9,884,152 wei. Before an
+    //             authenticated lifecycle action the book recognizes its cumulative share exactly
+    //             (AccrualBook.reconcile: floor(remainder * elapsed / duration)), so the gross the
+    //             book has streamed `secs` after funding is `_streamed(secs)` below, not slope * secs.
+    uint256 private constant DA_RATE_BPS = 1000;
+    uint256 private constant DA_TENOR = 180 days;
+    uint256 private constant I1 = 835_000_000_000_000;
+    uint256 private constant I1_BOOK = 835_905_349_788_152;
+    uint256 private constant I1_ROUND = I1_BOOK - I1; // 905,349,788,152
+    uint256 private constant I1_SENIOR = I1_BOOK - I1_BOOK / 10; // 752,314,814,809,337
+    uint256 private constant I1_REM = 9_884_152;
 
     // ─────────────────────────────────────────────────────────────────────
     // 1. THE CLASS ITSELF: parameters and the mint-gate asymmetry
@@ -403,20 +435,54 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         defaultManager.marginCall(tokenId);
     }
 
-    /// @notice CURE ROUTE 2 — repay principal. The LTV numerator falls through the real
-    ///         waterfall (attested PaymentReceived, exposure released, interest routed senior), and
-    ///         the margin path keeps working while the facility is Amortizing.
+    /// @notice CURE ROUTE 2, repay principal. The LTV numerator falls through the real
+    ///         waterfall (attested PaymentReceived, exposure released) and the margin path keeps
+    ///         working while the facility is Amortizing.
+    ///
+    ///         ADR-0038 changed the interest leg. Interest is recognized continuously and a cash
+    ///         interest leg DISCHARGES what the engine has already accrued rather than minting new
+    ///         income: a leg above the accrued coupon is refused (`AccrualLoans_PaymentAboveDebt`,
+    ///         ADR-0038 "Decision" item 4, "Recognition must not double-count"). So the cure runs
+    ///         twelve hours after the margin call, inside `MARK_AGE`, and pays exactly the engine's
+    ///         coupon, which is pinned to the note's closed form. The 10% protocol interest fee is
+    ///         NOT minted inside `distribute` ("A receipt matching recognized income reclassifies
+    ///         that same claim into cash and does not charge either fee again",
+    ///         docs/remediation/CONTINUOUS_ACCRUAL_OWNER_DIRECTIONS_2026-09-11.md, "Both existing
+    ///         fees on both interest types"); it stays a reserve claim that anyone can deliver
+    ///         through `materializeAccrued` (ADR-0038 "Implementation mechanism and checkpoint").
+    ///         This test drives that delivery from a roleless caller and pins the PHYSICAL split
+    ///         that the pre-ADR-0038 version pinned at receipt, to the wei: the fee is the floored
+    ///         10% of the gross the book has STREAMED to the receipt (`_streamed`, the integer
+    ///         slope plus the reconciled remainder share, ADR-0038 "Implementation mechanism and
+    ///         checkpoint": the exact cumulative interpolation is recognized before a lifecycle
+    ///         action), the senior vault holds the canonical coupon less that fee (the streamed
+    ///         excess over the coupon is the closure rounding loss, burned from the senior because
+    ///         no junior capital is posted in this shape, ADR-0038 Q3), nothing is left virtual,
+    ///         and fee plus senior equal the coupon exactly, so the income is charged once and
+    ///         nothing is created. A one-wei drift in the fee rounding fails this test.
     function test_fork_mtm_cureByRepayingPrincipal_throughTheRealWaterfall() public onFork {
         uint256 tokenId = _liveDigitalFacility();
+        uint256 fundedAt = block.timestamp;
         _mark(tokenId, V_MARGIN_EXACT);
+        _pinOneSecondFigures(tokenId);
         vm.prank(carol);
         defaultManager.marginCall(tokenId);
 
+        // ADR-0038: interest accrues to the second and the cash interest leg is bounded by it.
+        // Twelve hours inside the one-day mark window earns the coupon the borrower pays below.
+        _warp(12 hours);
+        uint256 elapsed = block.timestamp - fundedAt;
+        assertEq(elapsed, 12 hours + 1, "one mark second plus twelve hours since funding");
+        uint256 interest = reserves.accruedDebt(tokenId).interest;
+        assertEq(interest, _coupon(P, DA_RATE_BPS, elapsed), "engine coupon is the Actual/360 note on the USDC grid");
+        assertEq(interest, 36_111_947e12, "260,000 at 10% for 43,201 s = 36,111,947,016,197,954,552, floored to 1e12");
+
         uint256 vaultHeldBefore = usdfr.balanceOf(address(vault));
         uint256 feeRecipientBefore = usdfr.balanceOf(ops);
+        assertEq(reserves.accrualSnapshot().feeRecipient, ops, "ops is the accrual fee recipient on this deploy");
 
-        // 5,000 interest + 60,000 principal
-        _repay(tokenId, 5_000e18, 60_000e18);
+        // the earned coupon + 60,000 principal
+        _repay(tokenId, interest, 60_000e18);
 
         // principal leg
         assertEq(reserves.deployedTo(tokenId), 200_000e18, "outstanding fell to 200,000");
@@ -427,13 +493,36 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
             "partial principal starts amortization"
         );
 
-        // interest leg, exactly: fee 10% of 5,000 = 500; all 4,500 remaining goes senior.
-        assertEq(usdfr.balanceOf(ops) - feeRecipientBefore, 500e18, "10% protocol fee on gross interest");
+        // interest leg under ADR-0038. The receipt reclassifies already-recognized income: no
+        // fee is minted inside distribute (that would be the second yield mint the owner
+        // direction forbids), the 10% fee is retained as a reserve claim, and its delivery is
+        // permissionless. Legs 3 delivers both claims so the vault figure below does not depend
+        // on whether the sub-grid rounding path already materialized the senior leg at receipt.
+        // The split is exact: the fee is floor(streamed gross / 10) where the streamed gross is
+        // the slope times 43,201 s plus the reconciled remainder share floor(9,884,152 * 43,201 /
+        // 15,551,999) = 27,456 wei; the senior vault holds the coupon less that fee because the
+        // streamed excess over the coupon (16,197,982,008 wei) is burned from the senior.
+        assertEq(usdfr.balanceOf(ops) - feeRecipientBefore, 0, "no fee mint inside distribute: not a second yield mint");
         assertEq(
-            usdfr.balanceOf(address(vault)) - vaultHeldBefore,
-            4_500e18,
-            "senior receives every unit after the protocol fee"
+            _streamed(elapsed),
+            36_111_947_016_197_982_008,
+            "streamed gross at the receipt = 835,905,349,788,152 * 43,201 + 27,456"
         );
+        uint256 feeClaim = reserves.accrualSnapshot().feeUnissued;
+        assertEq(feeClaim, _streamed(elapsed) / 10, "the 10% protocol fee is retained as a reserve claim");
+        vm.prank(carol);
+        (, uint256 feeDelivered) = reserves.materializeAccrued(3);
+        assertEq(feeDelivered, feeClaim, "delivery converts the whole retained fee claim");
+        uint256 feeDelta = usdfr.balanceOf(ops) - feeRecipientBefore;
+        uint256 vaultDelta = usdfr.balanceOf(address(vault)) - vaultHeldBefore;
+        assertEq(feeDelta, feeDelivered, "the delivered fee lands with the fee recipient");
+        assertEq(feeDelta, _streamed(elapsed) / 10, "10% protocol fee on the streamed gross, physically delivered");
+        assertEq(vaultDelta, interest - _streamed(elapsed) / 10, "senior receives every unit after the protocol fee");
+        assertEq(
+            vaultDelta + feeDelta, interest, "fee plus senior equal the coupon exactly: charged once, nothing created"
+        );
+        assertEq(reserves.accrualSnapshot().feeUnissued, 0, "no fee claim left virtual");
+        assertEq(reserves.accrualSnapshot().seniorUnissued, 0, "no senior claim left virtual");
 
         // the margin arithmetic now clears on the SAME (still fresh) mark
         (uint256 ltv, uint64 asOf) = defaultManager.currentLtvBps(tokenId);
@@ -460,6 +549,7 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
     ///         a stale high valuation cannot clear an existing call.
     function test_fork_mtm_staleMarkCannotTriggerOrCureMarginAction() public onFork {
         uint256 tokenId = _liveDigitalFacility();
+        uint64 fundedAt = uint64(block.timestamp);
         _mark(tokenId, V_MARGIN_EXACT);
         (, uint64 breachAsOf) = defaultManager.currentLtvBps(tokenId);
 
@@ -486,10 +576,14 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         assertEq(defaultManager.cureDeadline(tokenId), expectedDeadline, "fresh evidence opens the cure window");
 
         // Make the arithmetic clear, then let the standing mark become stale.
+        uint64 paidAt = uint64(block.timestamp);
         _repay(tokenId, 0, 60_000e18);
         _warp(uint256(MARK_AGE) + 1);
         (uint256 ltv, uint64 asOfNow) = defaultManager.currentLtvBps(tokenId);
-        assertEq(ltv, 5000, "the numbers say cured");
+        assertEq(
+            ltv, _paydownFace(fundedAt, paidAt) * Config.BPS / V_MARGIN_EXACT, "debt includes both accrual periods"
+        );
+        assertLt(ltv, MARGIN_LTV, "the position is healthy including earned interest");
         assertEq(asOfNow, breachAsOf, "but the evidence is now stale");
 
         // HARMFUL: refused. The staleness check precedes the threshold check, so this is the
@@ -506,7 +600,8 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         // A fresh mark at the same value releases it.
         _mark(tokenId, V_MARGIN_EXACT);
         (uint256 ltvFresh,) = defaultManager.currentLtvBps(tokenId);
-        assertEq(ltvFresh, 5000, "identical LTV to the refused attempt");
+        assertEq(ltvFresh, _paydownFace(fundedAt, paidAt) * Config.BPS / V_MARGIN_EXACT, "fresh mark uses current debt");
+        assertLt(ltvFresh, MARGIN_LTV, "fresh evidence still shows a healthy position");
         vm.prank(carol);
         defaultManager.clearMarginCall(tokenId);
         assertEq(uint256(defaultManager.cureDeadline(tokenId)), 0, "cured on fresh evidence only");
@@ -543,7 +638,20 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
 
     /// @notice The other liquidation outcome: custodied collateral is SOLD and the proceeds
     ///         recover the facility in full. The position closes to Resolved, the ADR-0022
-    ///         impairment mark is released, the NFT unfreezes, and no loss is ever realized.
+    ///         impairment mark is released, the NFT unfreezes, and no credit loss is realized.
+    ///
+    ///         Under ADR-0038 (Q1 "Full face", Q2 accrual stops "At default declaration") the
+    ///         face at risk is the principal PLUS the one second of interest earned before the
+    ///         mark, so "recovered in full" means the custodian returns principal and that
+    ///         second (`I1`). Closure aligns the streamed second (`I1_BOOK`) to the contractual
+    ///         `I1`: the senior share of the streamed second is materialized to the vault and the
+    ///         `I1_ROUND` excess is burned through the cascade (Q3), which with no junior capital
+    ///         in this shape reaches the senior. Both are pinned exactly, so the only movement in
+    ///         supply and senior NAV is that sub-grid closure figure and nothing else.
+    ///
+    ///         The FINAL `marginCall` assertion is unchanged and stays red under the C3-RC2 /
+    ///         C6 contract finding (a retired facility answers `AccrualBook_UnknownFacility`
+    ///         before `DefaultManager_NotDefaultable`); it is not this repair's to resolve.
     function test_fork_mtm_liquidationRecoveredInFullResolvesAndClearsImpairment() public onFork {
         _mintFromUSDC(alice, 2_000_000e6);
         _stake(alice, 800_000e18);
@@ -554,13 +662,26 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         uint256 vaultBefore = vault.totalAssets();
 
         _mark(tokenId, V_LIQ_EXACT);
+        _pinOneSecondFigures(tokenId);
+        // closure: the streamed second aligns to the contractual second and the excess is a
+        // rounding loss that the cascade allocates to the SENIOR, because no curator first-loss
+        // or sGROVE coverage is posted in this shape
+        vm.expectEmit(true, false, false, true, address(reserves));
+        emit ReserveRoundingLib.AccrualRoundingAllocated(tokenId, 1, I1_ROUND, 0, 0, 0, I1_ROUND, 0, 0);
+        vm.expectEmit(true, false, false, true, address(reserves));
+        emit ReserveAccrualCreditLib.AccrualLoanAligned(tokenId, 1, uint64(block.timestamp), 0, I1_ROUND, true);
         vm.prank(carol);
         defaultManager.liquidate(tokenId);
-        assertEq(defaultManager.pendingSeniorImpairment(), P, "the whole outstanding is marked at risk");
+        assertEq(reserves.deployedTo(tokenId), P + I1, "face = principal + canonical one-second interest");
+        assertEq(defaultManager.pendingSeniorImpairment(), P + I1, "the whole outstanding is marked at risk");
         assertLt(vault.redemptionTotalAssets(), vault.totalAssets(), "exit price marked down");
+        assertEq(
+            vault.totalAssets(), vaultBefore + I1_SENIOR - I1_ROUND, "senior: materialized claim less the rounding loss"
+        );
 
-        // the custodian liquidates the collateral and returns the full outstanding
-        _repay(tokenId, 0, P);
+        // the custodian liquidates the collateral and returns the full outstanding: principal
+        // and the one second of interest the face carries
+        _repay(tokenId, I1, P);
 
         assertEq(
             uint256(bridge.facility(tokenId).state),
@@ -574,9 +695,10 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         assertEq(defaultManager.pendingSeniorImpairment(), 0, "the conservative NAV mark is released");
         assertEq(vault.redemptionTotalAssets(), vault.totalAssets(), "exit price back to the deposit price");
 
-        // no loss was ever realized: supply and the senior vault are untouched
-        assertEq(usdfr.totalSupply(), supplyBefore, "nothing burned");
-        assertEq(vault.totalAssets(), vaultBefore, "seniors took no principal loss");
+        // no credit loss was realized: supply and the senior vault moved only by the closure
+        // figures pinned above (the materialized senior second less the rounding loss)
+        assertEq(usdfr.totalSupply(), supplyBefore + I1_SENIOR - I1_ROUND, "only the closure rounding loss was burned");
+        assertEq(vault.totalAssets(), vaultBefore + I1_SENIOR - I1_ROUND, "seniors took no principal loss");
         assertLe(usdfr.totalSupply(), reserves.totalBackingValue(), "BACKING INVARIANT holds");
 
         // the dual-record freeze lifts with the resolution
@@ -595,6 +717,7 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
     ///         valuation reconfirms the breach.
     function test_fork_mtm_liquidationThresholdBindsExactlyAt8000_andRequiresAFreshMark() public onFork {
         uint256 tokenId = _liveDigitalFacility();
+        uint64 fundedAt = uint64(block.timestamp);
 
         // one bps short of the hard threshold
         _mark(tokenId, V_LIQ_MISS);
@@ -625,8 +748,29 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         );
         defaultManager.liquidate(tokenId);
 
-        // A new valuation, observed now, reconfirms the same hard breach.
-        _mark(tokenId, V_LIQ_EXACT);
+        // Rebuild both sides of the boundary from the independently computed accrued face.
+        // Updating only the old mark's expected event would stop checking equality at 8000.
+        _warp(1);
+        assertEq(reserves.accruedDebt(tokenId).interest, _cashFace(fundedAt) - P, "independent earned coupon");
+        assertGt(
+            _cashFace(fundedAt) * Config.BPS / V_LIQ_EXACT, LIQ_LTV, "old principal-only mark is above the boundary"
+        );
+        _markNow(tokenId, _cashFace(fundedAt) * Config.BPS / (uint256(LIQ_LTV) - 1));
+        (uint256 accruedMiss,) = defaultManager.currentLtvBps(tokenId);
+        assertEq(accruedMiss, 7999, "accrued debt one basis point below liquidation");
+        vm.prank(carol);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IDefaultManager.DefaultManager_ThresholdNotBreached.selector, tokenId, 7999, uint256(LIQ_LTV)
+            )
+        );
+        defaultManager.liquidate(tokenId);
+        assertEq(uint256(bridge.facility(tokenId).state), uint256(ClaimBridge.LoanState.Active));
+
+        _warp(1);
+        _markNow(tokenId, _cashFace(fundedAt) * Config.BPS / uint256(LIQ_LTV));
+        (uint256 accruedHit,) = defaultManager.currentLtvBps(tokenId);
+        assertEq(accruedHit, 8000, "accrued debt exactly at liquidation");
         vm.expectEmit(true, false, false, true, address(defaultManager));
         emit IDefaultManager.LiquidationInitiated(tokenId, 8000);
         vm.prank(carol);
@@ -644,6 +788,7 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
     ///         the curator lock and the ADR-0022 impairment pool.
     function test_fork_mtm_cureWindowExpiry_liquidatesOneSecondPastTheDeadline() public onFork {
         uint256 tokenId = _liveDigitalFacility();
+        uint64 fundedAt = uint64(block.timestamp);
         _mintFromUSDC(ops, 200_000e6);
         vm.startPrank(ops);
         usdfr.approve(address(curator), 40_000e18);
@@ -656,14 +801,19 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         uint64 deadline = defaultManager.cureDeadline(tokenId);
 
         // exactly AT the deadline the original mark is still fresh (`age == maxMarkAge`),
-        // `block.timestamp > deadline` is false, and 6500 < 8000, so
+        // `block.timestamp > deadline` is false, and accrued LTV remains below 8000, so
         // neither trigger holds. The error names the LIQUIDATION threshold, not the margin one.
         _warp(uint256(Config.DEFAULT_MARGIN_CURE_WINDOW));
         assertEq(uint64(block.timestamp), deadline, "sitting exactly on the deadline");
+        assertGe(_cashFace(fundedAt) * Config.BPS / V_MARGIN_EXACT, MARGIN_LTV);
+        assertLt(_cashFace(fundedAt) * Config.BPS / V_MARGIN_EXACT, LIQ_LTV);
         vm.prank(carol);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IDefaultManager.DefaultManager_ThresholdNotBreached.selector, tokenId, 6500, uint256(LIQ_LTV)
+                IDefaultManager.DefaultManager_ThresholdNotBreached.selector,
+                tokenId,
+                _cashFace(fundedAt) * Config.BPS / V_MARGIN_EXACT,
+                uint256(LIQ_LTV)
             )
         );
         defaultManager.liquidate(tokenId);
@@ -674,7 +824,7 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         _mark(tokenId, V_MARGIN_EXACT);
         uint256 impairmentBefore = defaultManager.pendingSeniorImpairment();
         vm.expectEmit(true, false, false, true, address(defaultManager));
-        emit IDefaultManager.LiquidationInitiated(tokenId, 6500);
+        emit IDefaultManager.LiquidationInitiated(tokenId, _cashFace(fundedAt) * Config.BPS / V_MARGIN_EXACT);
         vm.prank(carol);
         defaultManager.liquidate(tokenId);
 
@@ -694,10 +844,17 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         vm.expectRevert(abi.encodeWithSelector(ICuratorModule.Curator_ClassDefaultFrozen.selector, CLASS5));
         curator.withdrawFirstLoss(CLASS5, 1e18);
         // 3. the senior EXIT price marks down immediately, while the deposit price does not
-        assertEq(defaultManager.declaredDefaultedPrincipal(CLASS5), P, "the whole outstanding is at risk");
+        assertEq(
+            defaultManager.declaredDefaultedPrincipal(CLASS5), _cashFace(fundedAt), "full contractual face is at risk"
+        );
+        assertEq(
+            curator.poolBalance(CLASS5),
+            40_000e18 - _closureRounding(fundedAt),
+            "curator absorbs the rounding correction first"
+        );
         assertEq(
             defaultManager.pendingSeniorImpairment() - impairmentBefore,
-            P - 40_000e18,
+            _cashFace(fundedAt) - 40_000e18 + _closureRounding(fundedAt),
             "impairment = outstanding less the curator first-loss layer"
         );
         assertLt(vault.redemptionTotalAssets(), vault.totalAssets(), "exit price below deposit price (ADR-0022)");
@@ -714,6 +871,7 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
     ///         evidence says the position is healthy.
     function test_fork_mtm_recoveredLtvSurvivesCureExpiry() public onFork {
         uint256 tokenId = _liveDigitalFacility();
+        uint64 fundedAt = uint64(block.timestamp);
         _mark(tokenId, V_MARGIN_EXACT);
         vm.prank(carol);
         defaultManager.marginCall(tokenId);
@@ -724,10 +882,14 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
 
         // collateral recovered before anyone pulled the trigger
         _mark(tokenId, V_HEALTHY);
+        assertLt(_cashFace(fundedAt) * Config.BPS / V_HEALTHY, MARGIN_LTV, "recovery includes the elapsed coupon");
         vm.prank(carol);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IDefaultManager.DefaultManager_ThresholdNotBreached.selector, tokenId, 5200, uint256(LIQ_LTV)
+                IDefaultManager.DefaultManager_ThresholdNotBreached.selector,
+                tokenId,
+                _cashFace(fundedAt) * Config.BPS / V_HEALTHY,
+                uint256(LIQ_LTV)
             )
         );
         defaultManager.liquidate(tokenId);
@@ -750,8 +912,16 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
     // ─────────────────────────────────────────────────────────────────────
 
     /// @notice A marked-to-market liquidation feeds the SAME three-layer cascade as a
-    ///         receivable default — curator first-loss, then sGROVE, then senior principal —
+    ///         receivable default, curator first-loss, then sGROVE, then senior principal,
     ///         with every figure pinned exactly, including the PM-R-11 impairment netting.
+    ///
+    ///         Under ADR-0038 (Q1 "Full face", Q2 accrual stops "At default declaration", Q3
+    ///         reversal "Through the three-layer cascade") the face that enters the impairment
+    ///         pool is the principal plus the one second of interest earned before the mark
+    ///         (`I1`), and the closure's sub-grid rounding loss (`I1_ROUND`, the streamed
+    ///         `I1_BOOK` less the contractual `I1`) is itself allocated through the cascade, so
+    ///         layer 1 absorbs it FIRST and every later figure carries it. The senior share of
+    ///         the streamed second (`I1_SENIOR`) is materialized to the vault at closure.
     function test_fork_mtm_liquidationIntoTheThreeLayerCascade() public onFork {
         _mintFromUSDC(alice, 2_000_000e6);
         _stake(alice, 800_000e18);
@@ -772,20 +942,39 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         uint256 vaultAssetsBefore = vault.totalAssets();
         uint256 supplyBefore = usdfr.totalSupply();
 
-        // hard breach -> permissionless liquidation
+        // hard breach -> permissionless liquidation. One second has accrued since funding (the
+        // mark second); ADR-0038 Q1 puts it into the at-risk face, and closure allocates the
+        // streamed-versus-contractual excess through the cascade: layer 1 absorbs it FIRST.
         _mark(tokenId, V_LIQ_EXACT);
+        _pinOneSecondFigures(tokenId);
+        vm.expectEmit(true, false, false, true, address(reserves));
+        emit ReserveRoundingLib.AccrualRoundingAllocated(tokenId, 1, I1_ROUND, 0, I1_ROUND, 0, 0, 0, 0);
+        vm.expectEmit(true, false, false, true, address(reserves));
+        emit ReserveAccrualCreditLib.AccrualLoanAligned(tokenId, 1, uint64(block.timestamp), 0, I1_ROUND, true);
         vm.prank(carol);
         defaultManager.liquidate(tokenId);
 
-        // ADR-0022 conservative NAV BEFORE realization: 260,000 at risk, less 50,000 of
-        // curator capital, less the 100,000 shared reserve = 110,000.
-        assertEq(defaultManager.declaredDefaultedPrincipal(CLASS5), P, "the whole outstanding entered the pool");
-        assertEq(defaultManager.pendingSeniorImpairment(), 110_000e18, "260k - 50k curator - 100k backstop");
+        // ADR-0022 conservative NAV BEFORE realization: the face (260,000 + I1) at risk, less
+        // the curator capital left after the rounding loss, less the 100,000 shared reserve.
+        assertEq(reserves.deployedTo(tokenId), P + I1, "face = principal + canonical one-second interest");
+        assertEq(defaultManager.declaredDefaultedPrincipal(CLASS5), P + I1, "the whole outstanding entered the pool");
+        assertEq(curator.poolBalance(CLASS5), 50_000e18 - I1_ROUND, "layer 1 absorbed the closure rounding loss");
+        assertEq(sGrove.coverageReserve(), 100_000e18, "layer 2 untouched while layer 1 had capital");
+        assertEq(
+            defaultManager.pendingSeniorImpairment(),
+            (P + I1) - (50_000e18 - I1_ROUND) - 100_000e18,
+            "face - curator - 100k backstop"
+        );
+        assertEq(defaultManager.pendingSeniorImpairment(), 110_000e18 + I1 + I1_ROUND, "= 110,000 + I1 + I1_ROUND");
 
-        // realize 200,000 of loss: 50,000 curator + 100,000 backstop + 50,000 senior
+        // realize 200,000 of loss: what is left of the 50,000 curator layer + 100,000 backstop
+        // + the residual on senior, which is 50,000 plus the rounding loss the curator already
+        // absorbed
         bytes32 lossEvidence = _attestLoss(tokenId, 200_000e18, bytes32(0));
         vm.expectEmit(true, true, false, true, address(defaultManager));
-        emit IDefaultManager.LossRealized(tokenId, CLASS5, 200_000e18, 50_000e18, 100_000e18, 50_000e18);
+        emit IDefaultManager.LossRealized(
+            tokenId, CLASS5, 200_000e18, 50_000e18 - I1_ROUND, 100_000e18, 50_000e18 + I1_ROUND
+        );
         vm.prank(ops);
         defaultManager.realizeLoss(tokenId, 200_000e18, lossEvidence);
 
@@ -795,23 +984,28 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         (uint256 drawn, uint256 cap) = sGrove.eventCoverage(tokenId);
         assertEq(drawn, 100_000e18, "coverage drawn is recorded per EVENT");
         assertEq(cap, 100_000e18, "event view is cumulative draw plus zero live reserve");
-        assertEq(vault.totalAssets(), vaultAssetsBefore - 50_000e18, "layer 3 took only the residual");
+        assertEq(
+            vault.totalAssets(),
+            vaultAssetsBefore + I1_SENIOR - 50_000e18 - I1_ROUND,
+            "layer 3 took only the residual (after receiving the materialized senior second)"
+        );
 
-        // supply and backing fell together (ADR-0012)
-        assertEq(supplyBefore - usdfr.totalSupply(), 200_000e18, "the whole loss was burned");
-        assertEq(reserves.deployedTo(tokenId), 60_000e18, "principal written down by exactly the loss");
-        assertEq(registry.classExposure(CLASS5), 60_000e18, "and exposure released in the same transaction");
+        // supply and backing fell together (ADR-0012): the materialized senior second was
+        // minted at closure, then the loss and the rounding excess were burned
+        assertEq(supplyBefore + I1_SENIOR - usdfr.totalSupply(), 200_000e18 + I1_ROUND, "the whole loss was burned");
+        assertEq(reserves.deployedTo(tokenId), 60_000e18 + I1, "face written down by exactly the loss");
+        assertEq(registry.classExposure(CLASS5), 60_000e18 + I1, "and exposure released in the same transaction");
         assertLe(usdfr.totalSupply(), reserves.totalBackingValue(), "BACKING INVARIANT holds through the cascade");
 
-        // PM-R-11: the remaining 60,000 can no longer net any backstop coverage because the
-        // physical shared reserve is empty.
-        assertEq(defaultManager.defaultedContribution(tokenId), 60_000e18, "60,000 still unrealized");
+        // PM-R-11: the remaining 60,000 + I1 can no longer net any backstop coverage because
+        // the physical shared reserve is empty.
+        assertEq(defaultManager.defaultedContribution(tokenId), 60_000e18 + I1, "60,000 + I1 still unrealized");
         assertEq(defaultManager.liveDefaultCoverageConsumed(), 100_000e18, "and 100,000 of coverage is spent");
         assertEq(sGrove.coverageCapacity(), 0, "no live reserve remains");
         assertEq(
             defaultManager.pendingSeniorImpairment(),
-            60_000e18,
-            "but this event nets nothing: 60,000 marked in full (PM-R-11)"
+            60_000e18 + I1,
+            "but this event nets nothing: 60,000 + I1 marked in full (PM-R-11)"
         );
     }
 
@@ -871,10 +1065,16 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
     }
 
     /// @notice Guardian policy: the PERMISSIONLESS triggers pause, the role-gated remedy
-    ///         paths never do — and a declared default supersedes a margin call in flight.
+    ///         paths never do, and a declared default supersedes a margin call in flight.
+    ///
+    ///         Under ADR-0038 (Q1 "Full face", Q2 accrual stops "At default declaration") the
+    ///         face the declaration freezes is the principal plus the one second of interest
+    ///         earned before the mark (`I1`), so the write-down realized while paused is
+    ///         measured against `P + I1`, not `P`.
     function test_fork_mtm_guardianPausesTriggersButNotTheRemedyPath() public onFork {
         uint256 tokenId = _liveDigitalFacility();
         _mark(tokenId, V_MARGIN_EXACT);
+        _pinOneSecondFigures(tokenId);
         vm.prank(carol);
         defaultManager.marginCall(tokenId);
         uint64 deadline = defaultManager.cureDeadline(tokenId);
@@ -904,9 +1104,10 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         );
         assertEq(uint256(defaultManager.cureDeadline(tokenId)), 0, "the in-flight margin call was superseded");
 
-        // realizeLoss is likewise unpausable
+        // realizeLoss is likewise unpausable; the declaration froze the face at P + I1
+        assertEq(reserves.deployedTo(tokenId), P + I1, "declared face = principal + canonical one-second interest");
         _realizeLoss(tokenId, 1e18, bytes32(0));
-        assertEq(reserves.deployedTo(tokenId), P - 1e18, "loss realized while paused");
+        assertEq(reserves.deployedTo(tokenId), P + I1 - 1e18, "loss realized while paused, against the accrued face");
 
         // a non-guardian cannot unpause
         vm.prank(carol);
@@ -1100,6 +1301,74 @@ contract MtmDigitalAssetsForkTest is ForkLifecycleFixture {
         _mintFromUSDC(alice, 2_000_000e6);
         tokenId = _originateDigital(P, V_ORIG, MAX_LTV);
         _fundDigital(tokenId, P);
+    }
+
+    /// @dev Reference debt comes only from signed principal, rate and elapsed time.
+    function _cashFace(uint64 fundedAt) private view returns (uint256) {
+        return P + _coupon(P, DA_RATE_BPS, block.timestamp - fundedAt);
+    }
+
+    function _paydownFace(uint64 fundedAt, uint64 paidAt) private view returns (uint256) {
+        return P - 60_000e18 + _coupon(P, DA_RATE_BPS, paidAt - fundedAt)
+            + _coupon(P - 60_000e18, DA_RATE_BPS, block.timestamp - paidAt);
+    }
+
+    function _closureRounding(uint64 fundedAt) private view returns (uint256) {
+        uint256 elapsed = block.timestamp - fundedAt;
+        uint256 canonical = _coupon(P, DA_RATE_BPS, elapsed);
+        uint256 recognized = _streamed(elapsed);
+        assertGe(recognized, canonical, "fixture must have a downward rounding correction");
+        return recognized - canonical;
+    }
+
+    /// @dev Caller advances time before deriving the current-time mark, preserving the oracle watermark.
+    function _markNow(uint256 tokenId, uint256 value) private {
+        (IAttestationOracle.AttestationInput memory a, bytes[] memory sigs) =
+            _signedValuation(tokenId, value, uint64(block.timestamp));
+        oracle.attest(a, sigs);
+    }
+
+    /// @dev Actual/360 simple interest on the signed note, floored to the 1e12 USDC grid: the
+    ///      contractual figure the engine's `accruedDebt(id).interest` must equal
+    ///      (AccrualSegments.cumulative), as `FullLifecycleFork` pins it.
+    function _coupon(uint256 principal, uint256 rateBps, uint256 secs) private pure returns (uint256) {
+        return (principal * rateBps * secs / (10_000 * 360 days)) / 1e12 * 1e12;
+    }
+
+    /// @dev Exactly one second after funding (the `_mark` second, before any lifecycle action):
+    ///      proves the `I1*` literals against their closed forms AND against the live engine, so
+    ///      no figure used in the ADR-0038 assertions is a magic number. The facility is the only
+    ///      one in the book, so the portfolio gross is its streamed slope.
+    function _pinOneSecondFigures(uint256 tokenId) private view {
+        assertEq(I1, _coupon(P, DA_RATE_BPS, 1), "I1 = floor(P * 10% * 1 s / 360 d) on the 1e12 grid");
+        assertEq(
+            I1_BOOK,
+            _coupon(P, DA_RATE_BPS, DA_TENOR - 1) / (DA_TENOR - 1),
+            "I1_BOOK = the segment endpoint amount / its 15,551,999 s duration"
+        );
+        assertEq(I1_ROUND, 905_349_788_152, "I1_ROUND = I1_BOOK - I1");
+        assertEq(I1_SENIOR, 752_314_814_809_337, "I1_SENIOR = I1_BOOK less the floored 10% fee");
+        assertEq(
+            I1_REM,
+            _coupon(P, DA_RATE_BPS, DA_TENOR - 1) - I1_BOOK * (DA_TENOR - 1),
+            "I1_REM = the segment endpoint less slope * duration (AccrualBook.open: segmentAmount % duration)"
+        );
+        assertEq(reserves.accruedDebt(tokenId).interest, I1, "engine: canonical one-second interest");
+        IContinuousAccrual.Snapshot memory s = reserves.accrualSnapshot();
+        assertEq(s.gross, I1_BOOK, "engine: one second of the book slope");
+        assertEq(s.feeUnissued, I1_BOOK / 10, "engine: 10% fee claim on the streamed second");
+        assertEq(s.seniorUnissued, I1_SENIOR, "engine: the senior share of the streamed second");
+    }
+
+    /// @dev The gross the book has recognized for the working facility `secs` after funding, at
+    ///      an authenticated lifecycle action: the integer slope times elapsed (AccrualBook.open)
+    ///      plus the reconciled share of the segment remainder (AccrualBook.reconcile:
+    ///      floor(remainder * elapsed / duration), credited by `stop` inside AccrualLoans._close).
+    ///      Posting (a margin call's `takePosting`) settles the slope only and does not move the
+    ///      segment start, so `secs` is measured from funding. A pure helper rather than a local:
+    ///      one more local in the cure test is stack-too-deep.
+    function _streamed(uint256 secs) private pure returns (uint256) {
+        return I1_BOOK * secs + (I1_REM * secs) / (DA_TENOR - 1);
     }
 
     function _usdc(address who) private view returns (uint256) {

@@ -235,7 +235,8 @@ contract QA is Script {
             paymentScheduleHash: keccak256("QA_AMORTIZATION_SCHEDULE"),
             rateIndexRef: bytes32(0),
             renewalTermsHash: bytes32(0),
-            offchainRef: keccak256("QA_CREDIT_FILE")
+            offchainRef: keccak256("QA_CREDIT_FILE"),
+            pik: false
         });
         bytes32 termsHash = s.bridge.creditTermsHash(terms);
         _attest(s.oracle, tokenId, IAttestationOracle.AttestationKind.AssignmentExecuted, termsHash);

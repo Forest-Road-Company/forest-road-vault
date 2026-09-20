@@ -11,6 +11,13 @@ import {ICuratorModule} from "../../src/interfaces/ICuratorModule.sol";
 import {IDefaultManager} from "../../src/interfaces/IDefaultManager.sol";
 import {Config} from "../../src/libraries/Config.sol";
 import {Roles} from "../../src/libraries/Roles.sol";
+import {SUSDfr} from "../../src/sUSDfr.sol";
+import {DefaultAccrualLib} from "../../src/libraries/DefaultAccrualLib.sol";
+import {AccrualLoans} from "../../src/libraries/AccrualLoans.sol";
+import {IAccrualLifecycle} from "../../src/interfaces/IAccrualLifecycle.sol";
+import {IWaterfallEngine} from "../../src/interfaces/IWaterfallEngine.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title CascadeNavFork — the three-layer loss cascade and the conservative NAV, on a pinned
 ///        mainnet fork, against a locally deployed current-source stack and REAL USDC.
@@ -45,6 +52,12 @@ import {Roles} from "../../src/libraries/Roles.sol";
 ///      - `_realizeAndVerify` — runs `realizeLoss` and checks the resulting (curator, backstop,
 ///        depositor) split against that independent model, from BOTH the observed balance deltas
 ///        and the emitted `LossRealized` event, and asserts the ordering can never invert.
+///      - `_firstSegmentBook` / `_gridInterest` / `_seniorShare`: an INDEPENDENT model of the
+///        ADR-0038 accrual book's first technical segment (integer slope, remainder credit at a
+///        lifecycle stop, canonical grid-floored curve) so at-risk faces and closure rounding are
+///        asserted from the signed terms, never read back from the reserve.
+///      - `_expectRepayRefused`: attests a receipt shape the engine must refuse and pins the exact
+///        custom error under a state snapshot, so the refused attestation does not linger.
 contract CascadeNavForkTest is ForkLifecycleFixture {
     uint256 internal constant FILM = Config.CLASS_FILM_TAX_CREDITS; // 1, receivable
     uint256 internal constant RENEWABLE = Config.CLASS_RENEWABLE_ENERGY; // 2, receivable
@@ -565,14 +578,37 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
     // ─────────────────────────────────────────────────────────────────────
 
     /// @notice The exit price is checked against the deposit price at EVERY step of a full
-    ///         workout. This test explicitly enables optional ADR-0023 smoothing so the
-    ///         non-launch branch remains covered against the production topology.
+    ///         workout under continuous accrual (ADR-0038): accrued, unreceived interest is priced
+    ///         into BOTH bases before any cash arrives (Q1), the receipt of the earned coupon swaps
+    ///         the priced claim for cash rather than recognising it a second time, accrual stops at
+    ///         declaration (Q2), and a clean, component-labelled payoff restores the exit price to
+    ///         the realized NAV exactly.
+    /// @dev ADR-0023 smoothing cannot be enabled on the deployed topology: `Deploy._wire` binds the
+    ///      vault to the continuous-accrual reserve, and ADR-0038 ("Decisions received from Forest
+    ///      Road, 2026-09-10", Q5: "Enable ADR-0023 vesting alongside? No, not on.
+    ///      `yieldVestingPeriod` stays zero.") is enforced by `SUSDfr.setYieldVestingPeriod`'s
+    ///      `SUSDfr_AccrualVestingConflict` guard (VAULT_ACCRUAL_VALIDATION_2026-09-11.md,
+    ///      "Resulting accounting and operation rules"). The guard is pinned here so a regression
+    ///      that re-enabled a vesting stream beside accrual flips this test red.
+    ///
+    ///      The engine refuses a payment leg above its contractual component
+    ///      (`AccrualLoans.repay`, `AccrualLoans_PaymentAboveDebt`; ACCRUAL_BUILD_LOG_2026-09-12.md,
+    ///      "WP3f and WP4, native lifecycle regression foundation": "refusal of a signed
+    ///      overpayment with unchanged accounting and an unconsumed attestation"), so the legacy
+    ///      all-principal payoff of `deployedTo` is pinned as a refused receipt and the clean
+    ///      resolve is paid as unpaid interest plus principal.
     function test_fork_redemptionNavNeverExceedsTotalAssetsAcrossAWholeWorkout() public onFork {
-        uint64 optionalStreamPeriod = 7 days;
-        vault.setYieldVestingPeriod(optionalStreamPeriod);
+        uint64 elapsedStep = 7 days;
+        // ADR-0038 Q5: the vault is bound, so the optional ADR-0023 stream cannot be switched on.
+        assertEq(vault.accrualReserve(), address(reserves), "precondition: vault bound to the accrual reserve");
+        vm.expectRevert(SUSDfr.SUSDfr_AccrualVestingConflict.selector);
+        vault.setYieldVestingPeriod(elapsedStep);
+        assertEq(vault.yieldVestingPeriod(), 0, "vesting stays off on a bound vault");
+
         _mintFromUSDC(alice, 5_000_000e6);
         _assertNavOrdering("after mint");
         _stake(alice, 3_000_000e18);
+        uint256 taPostStake = vault.totalAssets();
         _assertNavOrdering("after stake");
         _mintFromUSDC(ops, 1_000_000e6);
         _fundCoverage(ops, 600_000e18);
@@ -581,13 +617,24 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         uint256 id = _originateAndFundIn(FILM, keccak256("BW-NAV"), 1_500_000e18, 7500);
         _assertNavOrdering("after origination");
 
-        // Realized yield lands and begins vesting: totalAssets() deliberately EXCLUDES the
-        // unvested stream (ADR-0023), so the two bases must still order correctly.
-        _repay(id, 100_000e18, 0);
-        assertGt(vault.unvestedYield(), 0, "precondition: yield is mid-stream");
-        _assertNavOrdering("yield mid-vest");
-        _warp(optionalStreamPeriod / 2);
-        _assertNavOrdering("yield half vested");
+        // ADR-0038 Q1: 30 days of the 10% Actual/360 note are priced into both bases before any
+        // cash arrives. The earned coupon on the 1e12 reserve grid is 12,500 USDfr exactly.
+        _warp(30 days);
+        uint256 coupon = _gridInterest(1_500_000e18, 1000, 30 days);
+        assertEq(coupon, 12_500e18, "closed form: 1.5M x 10% x 30/360, on the grid");
+        assertEq(reserves.accruedDebt(id).interest, coupon, "the engine's unpaid interest is the closed-form coupon");
+        assertGt(vault.totalAssets(), taPostStake, "accrued income is priced before the receipt");
+        _assertNavOrdering("30d accrued");
+
+        // The receipt swaps the priced claim for cash: afterwards the vault holds exactly its
+        // post-stake assets plus the senior share of the coupon (the protocol interest fee goes to
+        // the fee recipient), and no ADR-0023 stream exists to hold any of it back.
+        _repay(id, coupon, 0);
+        assertEq(vault.unvestedYield(), 0, "no stream forms on a bound vault");
+        assertEq(vault.totalAssets(), taPostStake + _seniorShare(coupon), "the receipt is not a second recognition");
+        _assertNavOrdering("after receipt");
+        _warp(elapsedStep / 2);
+        _assertNavOrdering("3.5d later");
 
         _declare(id);
         assertGt(defaultManager.pendingSeniorImpairment(), 0, "a declared default marks the exit price down");
@@ -603,14 +650,29 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         assertEq(sGrove.coverageCapacityAt(sGrove.coverageReserve()), sGrove.coverageReserve());
         _assertNavOrdering("after an uncapped-capacity probe");
 
-        _warp(optionalStreamPeriod);
-        assertEq(vault.unvestedYield(), 0, "the stream fully vested");
-        _assertNavOrdering("fully vested");
+        // ADR-0038 Q2: accrual stops at declaration, so a week of elapsed time moves nothing.
+        uint256 taDeclared = vault.totalAssets();
+        _warp(elapsedStep);
+        assertEq(vault.totalAssets(), taDeclared, "accrual did not stop at declaration (ADR-0038 Q2)");
+        _assertNavOrdering("7d after declaration");
 
-        // Clean recovery of everything still outstanding.
-        _repay(id, 0, reserves.deployedTo(id));
+        // Clean recovery of everything still outstanding. The outstanding face is the funded
+        // principal less the realized loss, plus the 3.5 days of interest earned between the
+        // coupon and the declaration: the grid-floored cumulative curve at 33.5 days, less the
+        // coupon already paid (ADR-0038 Q1, full face; Q2, nothing accrues after declaration).
+        IAccrualLifecycle.Debt memory d = reserves.accruedDebt(id);
+        uint256 outstanding =
+            1_500_000e18 - 200_000e18 + (_gridInterest(1_500_000e18, 1000, 30 days + elapsedStep / 2) - coupon);
+        assertEq(d.principal + d.interest, outstanding, "outstanding = principal less loss + 3.5d of interest");
+        assertEq(reserves.deployedTo(id), outstanding, "deployedTo carries the same face");
+        // Pinned negative: the legacy all-principal payoff of `deployedTo` claims more principal
+        // than the contract holds and is refused with unchanged accounting.
+        _expectRepayRefused(id, 0, outstanding, AccrualLoans.AccrualLoans_PaymentAboveDebt.selector);
+        _repay(id, d.interest, d.principal);
         assertEq(defaultManager.pendingSeniorImpairment(), 0, "a clean resolve clears the mark");
         assertEq(vault.redemptionTotalAssets(), vault.totalAssets(), "exit price back at the realized NAV");
+        assertEq(reserves.deployedTo(id), 0, "nothing outstanding after the clean resolve");
+        assertEq(uint256(bridge.facility(id).state), uint256(ClaimBridge.LoanState.Resolved), "Resolved");
         _assertNavOrdering("resolved");
     }
 
@@ -750,8 +812,18 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
     /// @notice The MARKED-TO-MARKET fast path (ADR-0015, class 5). A PERMISSIONLESS `liquidate`
     ///         enters the same unrealized-impairment pool as `declareDefault` and marks the exit
     ///         price down, then the same three-layer cascade settles it.
-    /// @dev `liquidate` is deliberately callable by anyone — the attested mark is the whole
+    /// @dev `liquidate` is deliberately callable by anyone: the attested mark is the whole
     ///      evidence. Driven here by `carol`, who holds no role and is not even KYC'd.
+    ///
+    ///      ADR-0038 ("Decisions received from Forest Road, 2026-09-10", Q1 full face, Q2 accrual
+    ///      stops at declaration, Q3 reversal through the cascade; and "Loss-bearing cash and PIK
+    ///      without changing the contractual basis": "the lifecycle posts all earned interest before
+    ///      a default or loss"): the face that enters the pool is principal PLUS the hour of
+    ///      interest earned up to the liquidation, on the reserve grid. That hour is derived from
+    ///      the book's own arithmetic (`_firstSegmentBook`) rather than pinned as a figure, and the
+    ///      sub-unit discrepancy between the streamed integer slope and the canonical curve that
+    ///      `AccrualLoans._close` burns at the stop is asserted where Q3 sends it: through the
+    ///      cascade, here to layer 2 because the class holds no curator capital.
     function test_fork_permissionlessLiquidationEntersTheImpairmentPoolAndCascades() public onFork {
         _mintFromUSDC(alice, 4_000_000e6);
         _stake(alice, 2_000_000e18);
@@ -771,17 +843,46 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         (uint256 ltvAfterMark,) = defaultManager.currentLtvBps(id);
         assertEq(ltvAfterMark, 8333, "LTV breached the 8000 liquidation threshold");
 
+        // ADR-0038 Q1: the at-risk face is principal plus the hour of 10% Actual/360 interest earned
+        // since funding, on the 1e12 reserve grid. The stop aligns the book's streamed integer slope
+        // to that canonical curve; the streamed excess is a sub-unit rounding loss (Q3).
+        (uint256 streamed, uint256 recognized, uint256 canonical) = _firstSegmentBook(500_000e18, 1000, 1 hours);
+        assertEq(canonical, 5_787_037e12, "closed form: 500k x 10% x 3600 / (360 days), grid-floored");
+        assertEq(reserves.accruedDebt(id).interest, canonical, "the engine's unpaid interest is the canonical hour");
+        uint256 face = 500_000e18 + canonical;
+        uint256 roundingLoss = recognized - canonical;
+        assertLt(roundingLoss, 1e12, "AccrualLoans._close bounds the closure discrepancy below one reserve unit");
+
         uint256 totalBefore = vault.totalAssets();
         vm.prank(carol); // PERMISSIONLESS: no role, no KYC
         defaultManager.liquidate(id);
 
         assertEq(uint256(bridge.facility(id).state), uint256(ClaimBridge.LoanState.Defaulted), "frozen by liquidation");
-        assertEq(defaultManager.declaredDefaultedPrincipal(DIGITAL), 500_000e18, "entered the impairment pool");
-        assertEq(defaultManager.defaultedContribution(id), 500_000e18, "the facility's contribution was recorded");
+        assertEq(reserves.deployedTo(id), face, "deployedTo = principal + the canonical hour of interest");
+        assertEq(defaultManager.declaredDefaultedPrincipal(DIGITAL), face, "entered the impairment pool");
+        assertEq(defaultManager.defaultedContribution(id), face, "the facility's contribution was recorded");
         assertEq(curator.unresolvedDefaults(DIGITAL), 1, "curator withdrawals frozen for the class");
-        assertEq(defaultManager.pendingSeniorImpairment(), 100_000e18, "500k declared less the 400k reserve");
-        assertEq(vault.totalAssets(), totalBefore, "the DEPOSIT base is untouched by a declaration");
-        assertEq(vault.redemptionTotalAssets(), totalBefore - 100_000e18, "the EXIT base is marked down");
+        // ADR-0038 Q3: the closure rounding loss went through the cascade. No curator capital is
+        // posted in the digital-assets class, so layer 2 absorbed it and the senior was untouched.
+        assertEq(curator.poolBalance(DIGITAL), 0, "no curator capital in the digital-assets class");
+        assertEq(sGrove.coverageReserve(), 400_000e18 - roundingLoss, "layer 2 absorbed the sub-unit rounding loss");
+        assertEq(
+            defaultManager.pendingSeniorImpairment(),
+            face - (400_000e18 - roundingLoss),
+            "declared face less the live reserve (PM-R-11 nets what layer 2 can still reach)"
+        );
+        // The DEPOSIT base moves only by the senior share of the stop's segment-remainder credit
+        // (`AccrualBook.reconcile` inside `liquidate`): materialising the accrued claim is price
+        // neutral, and the declaration itself marks only the EXIT base.
+        uint256 remainderCredit = _seniorShare(recognized) - _seniorShare(streamed);
+        assertEq(
+            vault.totalAssets(), totalBefore + remainderCredit, "the DEPOSIT base moves only by the closure remainder"
+        );
+        assertEq(
+            vault.redemptionTotalAssets(),
+            vault.totalAssets() - defaultManager.pendingSeniorImpairment(),
+            "the EXIT base is marked down by exactly the pending impairment"
+        );
 
         // The same cascade settles it.
         Layers memory got = _realizeAndVerify(id, DIGITAL, 300_000e18);
@@ -812,9 +913,9 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         _assertNavOrdering("accelerated");
     }
 
-    /// @notice With NO backstop wired (the pre-Phase-H shape, and the shape governance falls back
-    ///         to if sGROVE is ever unwired), layer 2 simply does not exist: losses run curator ->
-    ///         depositors, and the conservative NAV nets NO coverage at all.
+    /// @notice The legacy absent-route branch excludes even a funded backstop from loss coverage.
+    /// @dev Native activation forbids this mismatch, and the governed setter stays frozen. A
+    ///      test-only storage override preserves coverage of the older absent-route branch.
     function test_fork_cascadeWithNoBackstopWiredGoesStraightToDepositors() public onFork {
         _mintFromUSDC(alice, 4_000_000e6);
         _stake(alice, 2_000_000e18);
@@ -822,8 +923,15 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
         _postFirstLoss(FILM, 100_000e18);
         _fundCoverage(ops, 500_000e18); // funded, but about to be unreachable
 
+        assertEq(defaultManager.accrualReserve(), address(reserves), "native route is bound");
+        vm.expectRevert(DefaultAccrualLib.DefaultAccrual_WrongModules.selector);
         defaultManager.setBackstop(address(0));
-        assertEq(defaultManager.backstop(), address(0), "layer 2 unwired");
+        assertEq(defaultManager.backstop(), address(sGrove), "governed unbinding is refused");
+
+        bytes32 backstopSlot = bytes32(uint256(0x336a2060fa754acf2cdfdb8c351983bf3b455537ad219c0e1b705a95a2f8a200) + 8);
+        assertEq(vm.load(address(defaultManager), backstopSlot), bytes32(uint256(uint160(address(sGrove)))));
+        vm.store(address(defaultManager), backstopSlot, bytes32(0));
+        assertEq(defaultManager.backstop(), address(0), "test-only absent route");
 
         uint256 id = _originateAndFundIn(FILM, keccak256("BW-NOBS"), 800_000e18, 7500);
         _declare(id);
@@ -1271,6 +1379,80 @@ contract CascadeNavForkTest is ForkLifecycleFixture {
             found = true;
         }
         assertTrue(found, "LossRealized was emitted");
+    }
+
+    /// @dev Contractual simple interest on the 1e12 reserve grid: `AccrualMath.periodAmount` with a
+    ///      non-binding cap, i.e. `AccrualSegments.cumulative` for a cash facility, Actual/360.
+    function _gridInterest(uint256 principal, uint16 rateBps, uint64 elapsed) internal pure returns (uint256) {
+        return (principal * rateBps * elapsed / (Config.BPS * 360 days)) / 1e12 * 1e12;
+    }
+
+    /// @dev INDEPENDENT MODEL of the ADR-0038 accrual book's FIRST technical segment for a cash
+    ///      facility funded with a 365-day term (CLAUDE.md 1.5, differential testing), recomputed
+    ///      from the signed terms rather than read back from the reserve:
+    ///      - `ReserveAccrualLib.loanCeiling` reserves the grid-floored 365-day entitlement as the
+    ///        cap, and `AccrualSegments.plan` finds that cap reachable at maturity (H) and ends the
+    ///        first technical segment one second earlier, at H-1;
+    ///      - `AccrualBook.open` streams the segment amount at an INTEGER slope of wei per second;
+    ///      - `AccrualBook.reconcile`, run by `AccrualLoans._close` at a lifecycle stop, credits the
+    ///        integer-division remainder pro rata to the elapsed time;
+    ///      - `AccrualSegments.cumulative` is the canonical grid-floored curve `_close` aligns the
+    ///        recognized value to, burning any excess through the cascade as a rounding loss.
+    /// @return streamed The book value before the stop: integer slope times elapsed seconds.
+    /// @return recognized The value after the stop's remainder credit.
+    /// @return canonical The contractual entitlement on the reserve grid.
+    function _firstSegmentBook(uint256 principal, uint16 rateBps, uint64 elapsed)
+        internal
+        pure
+        returns (uint256 streamed, uint256 recognized, uint256 canonical)
+    {
+        uint256 gridCap = _gridInterest(principal, rateBps, 365 days);
+        uint64 capHit = uint64(Math.mulDiv(gridCap, Config.BPS * 360 days, principal * rateBps, Math.Rounding.Ceil));
+        uint64 duration = capHit - 1;
+        uint256 segmentAmount = _gridInterest(principal, rateBps, duration);
+        uint256 slope = segmentAmount / duration;
+        streamed = slope * elapsed;
+        recognized = streamed + Math.mulDiv(segmentAmount % duration, elapsed, duration);
+        canonical = _gridInterest(principal, rateBps, elapsed);
+    }
+
+    /// @dev The senior vault's share of gross interest: gross less the floored protocol interest
+    ///      fee (`AccrualBook.snapshot`, `WaterfallEngine` fee split).
+    function _seniorShare(uint256 gross) internal view returns (uint256) {
+        return gross - gross * waterfall.protocolFeeBps() / Config.BPS;
+    }
+
+    /// @dev Attest a receipt of the given shape and assert the waterfall refuses it with `selector`,
+    ///      under a state snapshot so the refused attestation and the dealt stables do not linger.
+    function _expectRepayRefused(uint256 tokenId, uint256 interest, uint256 principalRepaid, bytes4 selector)
+        internal
+    {
+        uint256 snap = vm.snapshotState();
+        uint256 stableAmount = (interest + principalRepaid) / 1e12;
+        deal(USDC, borrower, IERC20(USDC).balanceOf(borrower) + stableAmount);
+        vm.prank(borrower);
+        IERC20(USDC).approve(address(reserves), stableAmount);
+        bytes32 paymentId = keccak256(abi.encode("fork-payment-refused", tokenId, interest, principalRepaid));
+        _attest(
+            tokenId,
+            IAttestationOracle.AttestationKind.PaymentReceived,
+            keccak256(
+                abi.encode(paymentId, tokenId, USDC, borrower, stableAmount, interest, principalRepaid, uint64(0))
+            )
+        );
+        vm.prank(ops);
+        vm.expectRevert(selector);
+        waterfall.distribute(
+            IWaterfallEngine.Payment({
+                tokenId: tokenId,
+                paymentId: paymentId,
+                payer: borrower,
+                interest: interest,
+                principal: principalRepaid,
+                nextPaymentDue: 0
+            })
+        );
+        assertTrue(vm.revertToState(snap), "snapshot revert failed");
     }
 
     /// @dev The ADR-0022 exit/deposit ordering, checked on both the asset base and the price.

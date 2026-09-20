@@ -18,6 +18,8 @@ import {Roles} from "./libraries/Roles.sol";
 ///
 ///         Safety is deliberately one-sided:
 ///         - an assessment can only LOWER the base source's zero-recovery impairment;
+///         - newly accrued overdue income increases both assessed impairment amounts at full
+///           face until a new assessment covers it; time alone does not void the existing work;
 ///         - an assessment is bound to one revisioned risk-state fingerprint; any new default,
 ///           past-due mark, recovery, realization, curator-capacity change, or global-backstop
 ///           capacity decrease invalidates it immediately and restores the conservative base;
@@ -44,6 +46,10 @@ contract AssessedImpairmentSource is Initializable, AccessControlUpgradeable, UU
         // conservatively instead of treating their default-zero slot as a valid snapshot.
         uint256 assessedPerformanceFeeImpairment;
         bool performanceFeeImpairmentSnapshotted;
+        // Append-only: exact risk identity is separate from the overdue face that earns.
+        bytes32 assessedAccrualRiskStateHash;
+        uint256 assessedPastDueExposure;
+        bool accrualStateSnapshotted;
     }
 
     // keccak256(abi.encode(uint256(keccak256("forestroad.storage.AssessedImpairmentSource")) - 1))
@@ -74,6 +80,8 @@ contract AssessedImpairmentSource is Initializable, AccessControlUpgradeable, UU
     /// @dev This is the assessed senior amount plus the fee-neutral junior-capital credit
     ///      standing when the assessment was published.
     event AssessmentPerformanceFeeImpairmentSet(uint256 performanceFeeImpairment);
+    /// @notice Records the risk identity and overdue face underlying the interest reserve.
+    event AssessmentAccrualStateSet(bytes32 indexed riskStateHash, uint256 pastDueExposure);
 
     error Assessment_ZeroAddress();
     error Assessment_ZeroEvidenceHash();
@@ -109,7 +117,8 @@ contract AssessedImpairmentSource is Initializable, AccessControlUpgradeable, UU
     /// @dev `assessedSeniorImpairment` is an absolute 18-decimal USDfr amount after estimated
     ///      recoveries and both junior layers. It may be zero. It cannot exceed the current
     ///      zero-recovery result, because this override exists to recognize supportable recovery,
-    ///      not to invent a harsher mark than the conservative engine.
+    ///      not to invent a harsher mark than the conservative engine. Newly accrued overdue
+    ///      face is then added to this amount at zero assumed recovery, capped by the live base.
     /// @param assessedSeniorImpairment The assessed senior loss in USDfr.
     /// @param validUntil Expiry timestamp, no more than 30 days from this transaction.
     /// @param evidenceHash Hash of the signed valuation/recovery memorandum and supporting data.
@@ -143,9 +152,12 @@ contract AssessedImpairmentSource is Initializable, AccessControlUpgradeable, UU
         bytes32 stateHash = $.baseSource.impairmentStateHash();
         $.assessedStateHash = stateHash;
         $.assessedRiskStateHash = $.baseSource.impairmentRiskStateHash();
-        $.assessedBackstopCapacity = $.baseSource.impairmentBackstopCapacity();
+        ($.assessedAccrualRiskStateHash, $.assessedPastDueExposure, $.assessedBackstopCapacity) =
+            _readAssessmentState(address($.baseSource));
+        $.accrualStateSnapshotted = true;
         emit AssessmentSet(assessedSeniorImpairment, conservativeBase, validUntil, evidenceHash, stateHash);
         emit AssessmentPerformanceFeeImpairmentSet($.assessedPerformanceFeeImpairment);
+        emit AssessmentAccrualStateSet($.assessedAccrualRiskStateHash, $.assessedPastDueExposure);
     }
 
     /// @notice Clears the live assessment immediately; redemption pricing returns to zero recovery.
@@ -171,25 +183,26 @@ contract AssessedImpairmentSource is Initializable, AccessControlUpgradeable, UU
         AssessmentStorage storage $ = _storage();
         uint256 conservativeBase = $.baseSource.pendingSeniorImpairment();
         if ($.validUntil == 0 || block.timestamp > $.validUntil) return conservativeBase;
-        if (!_assessmentStateMatches($)) return conservativeBase;
-        uint256 assessed = $.assessedSeniorImpairment;
+        (bool matches, uint256 increase) = _assessmentAccrual($);
+        if (!matches) return conservativeBase;
+        uint256 assessed = $.assessedSeniorImpairment + increase;
         return assessed < conservativeBase ? assessed : conservativeBase;
     }
 
     /// @inheritdoc IImpairmentSource
     /// @dev The assessment snapshots the junior-capital credit standing at publication.
     ///      A permitted global-backstop increase therefore cannot move this fee base even
-    ///      though it may improve redemption protection. Expired, invalid, cleared, or
+    ///      though it may improve redemption protection. New overdue income is fully reserved
+    ///      here as well as in redemption pricing. Expired, invalid, cleared, or
     ///      pre-upgrade assessments fail conservatively to the base source's gross view.
     function performanceFeeImpairment() external view returns (uint256) {
         AssessmentStorage storage $ = _storage();
-        if (
-            !$.performanceFeeImpairmentSnapshotted || $.validUntil == 0 || block.timestamp > $.validUntil
-                || !_assessmentStateMatches($)
-        ) {
+        if (!$.performanceFeeImpairmentSnapshotted || $.validUntil == 0 || block.timestamp > $.validUntil) {
             return $.baseSource.performanceFeeImpairment();
         }
-        return $.assessedPerformanceFeeImpairment;
+        (bool matches, uint256 increase) = _assessmentAccrual($);
+        if (!matches) return $.baseSource.performanceFeeImpairment();
+        return $.assessedPerformanceFeeImpairment + increase;
     }
 
     /// @notice Returns the current assessment and the zero-recovery comparison value.
@@ -221,7 +234,8 @@ contract AssessedImpairmentSource is Initializable, AccessControlUpgradeable, UU
     /// @return assessedStateHash Hash captured when governance published the assessment.
     /// @return currentStateHash Live hash from the conservative base.
     /// @return matches Whether the live state is assessment-compatible. The exact hashes may
-    ///         differ only when global backstop capacity increased from the assessed snapshot.
+    ///         differ when global backstop capacity increased or overdue interest accrued.
+    ///         The latter is reserved by increasing both assessed impairment amounts.
     function assessmentState()
         external
         view
@@ -254,23 +268,46 @@ contract AssessedImpairmentSource is Initializable, AccessControlUpgradeable, UU
         $.assessedBackstopCapacity = 0;
         $.assessedPerformanceFeeImpairment = 0;
         $.performanceFeeImpairmentSnapshotted = false;
+        $.assessedAccrualRiskStateHash = bytes32(0);
+        $.assessedPastDueExposure = 0;
+        $.accrualStateSnapshotted = false;
         emit AssessmentCleared();
     }
 
-    function _assessmentStateMatches(AssessmentStorage storage $) private view returns (bool) {
-        bytes32 currentStateHash = $.baseSource.impairmentStateHash();
-        if ($.assessedStateHash == currentStateHash) return true;
-        // A pre-upgrade assessment has no directional snapshots and must fail closed
-        // after any exact-state change. Governance can republish it against the new model.
-        if ($.assessedRiskStateHash == bytes32(0)) return false;
-        if ($.assessedRiskStateHash != $.baseSource.impairmentRiskStateHash()) return false;
-        return $.baseSource.impairmentBackstopCapacity() >= $.assessedBackstopCapacity;
+    function _assessmentStateMatches(AssessmentStorage storage $) private view returns (bool matches) {
+        (matches,) = _assessmentAccrual($);
+    }
+
+    /// @dev New overdue income receives zero assumed recovery until it is itself assessed.
+    ///      A decrease belongs to a changed risk book, never to a negative interest adjustment.
+    ///      Pre-field assessments fall back even when the old exact hash still matches.
+    function _assessmentAccrual(AssessmentStorage storage $) private view returns (bool matches, uint256 increase) {
+        if (!$.accrualStateSnapshotted) return (false, 0);
+        (bytes32 riskHash, uint256 exposure, uint256 capacity) = _readAssessmentState(address($.baseSource));
+        if (
+            riskHash != $.assessedAccrualRiskStateHash || capacity < $.assessedBackstopCapacity
+                || exposure < $.assessedPastDueExposure
+        ) return (false, 0);
+        return (true, exposure - $.assessedPastDueExposure);
+    }
+
+    /// @dev Exact tuple validation also covers an older wrapper upgraded before its base.
+    function _readAssessmentState(address source)
+        private
+        view
+        returns (bytes32 riskHash, uint256 exposure, uint256 capacity)
+    {
+        (bool ok, bytes memory data) =
+            source.staticcall(abi.encodeCall(IRevisionedImpairmentSource.impairmentAssessmentState, ()));
+        if (!ok || data.length != 96) revert Assessment_BaseNotRevisioned(source);
+        return abi.decode(data, (bytes32, uint256, uint256));
     }
 
     /// @dev Validate the complete revisioned interface explicitly. This wrapper must never silently
     ///      accept the old amount-only interface, because that recreates the stale-assessment
     ///      vulnerability; nor should it accept a revision-only source that later bricks pricing.
     function _requireRevisionedSource(address source) private view {
+        _readAssessmentState(source);
         (bool impairmentOk, bytes memory impairmentData) =
             source.staticcall(abi.encodeCall(IImpairmentSource.pendingSeniorImpairment, ()));
         (bool performanceImpairmentOk, bytes memory performanceImpairmentData) =

@@ -158,7 +158,7 @@ contract CommitmentLedgerInvariantHandler {
 ///      order cannot change total junior delivery: each class contributes
 ///      `min(classPrincipal, remainingClassCurator)` and layer two contributes
 ///      `min(totalResidual, remainingSharedReserve)`. This invariant deliberately derives that
-///      closed form without copying either production walk.
+///      closed form from row sums without using the production class totals.
 contract CommitmentLedgerInvariants is StdInvariant, Test {
     CommitmentLedgerInvariantCurator internal curator;
     CommitmentLedgerInvariantBackstop internal reserve;
@@ -225,6 +225,18 @@ contract CommitmentLedgerInvariants is StdInvariant, Test {
         (uint256 actualResidual, uint256 actualPastDueSenior) = ledger.conservativeResiduals();
         assertEq(actualResidual, expectedResidual, "CONSERVATIVE RESIDUAL != INDEPENDENT SHARED-RESERVE MODEL");
         assertEq(actualPastDueSenior, expectedPastDueSenior, "PAST-DUE SENIOR RESIDUAL != INDEPENDENT MODEL");
+    }
+
+    /// @notice Every published class total equals a fresh sum of all surviving rows.
+    function invariant_classTotalsEqualTheSumOfLiveRows() public view {
+        uint256[] memory totals = new uint256[](Config.NUM_CLASSES);
+        for (uint256 i; i < ledger.eventCount(); ++i) {
+            (uint256 classId,,, uint256 principal) = ledger.eventInfo(ledger.eventAt(i));
+            totals[classId - 1] += principal;
+        }
+        for (uint256 classId = 1; classId <= Config.NUM_CLASSES; ++classId) {
+            assertEq(ledger.remainingPrincipalForClass(classId), totals[classId - 1], "class aggregate drifted from live rows");
+        }
     }
 
     function invariant_eventEnumerationRemainsUniqueAndBounded() public view {

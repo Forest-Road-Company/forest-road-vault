@@ -374,7 +374,8 @@ abstract contract ForkLifecycleFixture is Test, Deploy {
             paymentScheduleHash: keccak256("fork-schedule"),
             rateIndexRef: bytes32(0),
             renewalTermsHash: bytes32(0),
-            offchainRef: offchainRef
+            offchainRef: offchainRef,
+            pik: false
         });
     }
 

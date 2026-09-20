@@ -13,6 +13,7 @@ import {createConfig, custom, fallback, http, type Config} from "wagmi";
 import {injected, walletConnect} from "wagmi/connectors";
 import {CHAIN_ID, IS_LOCAL_FORK, RPC_URL} from "@/config/contracts";
 import {EXPECTED_CHAIN, LOCAL_SEPOLIA_FORK} from "@/lib/chain";
+import {walletMetadata} from "@/lib/walletMetadata";
 import {mainnet, sepolia} from "wagmi/chains";
 
 export {EXPECTED_CHAIN};
@@ -40,12 +41,7 @@ function productionConnectors() {
             projectId: walletConnectProjectId,
             showQrModal: true,
             customStoragePrefix: "forest-road-vault",
-            metadata: {
-              name: "Forest Road Vault",
-              description: "On-chain access to Forest Road's private-credit vault.",
-              url: "https://forestroadvault.com",
-              icons: ["https://forestroadvault.com/favicon.ico"],
-            },
+            metadata: walletMetadata(),
           }),
         ]
       : []),

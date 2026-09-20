@@ -200,7 +200,8 @@ abstract contract CollateralFixture is Test {
             paymentScheduleHash: keccak256("fixture-schedule"),
             rateIndexRef: bytes32(0),
             renewalTermsHash: bytes32(0),
-            offchainRef: offchainRef
+            offchainRef: offchainRef,
+            pik: false
         });
     }
 }
