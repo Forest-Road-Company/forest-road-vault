@@ -392,6 +392,16 @@ export function TransparencyDashboard() {
   const now = useNowSeconds();
 
   const fmt = (x: bigint | undefined, dp = 2) => (x !== undefined ? fmtAmount(x, 18, dp) : "–");
+  /* Band figures only: house-style compact notation past $1mm so a mainnet-sized
+     number cannot overflow its fifth of the band. Exact values stay in the
+     panels below and on each figure's reconcile link. */
+  const fmtBand = (x: bigint | undefined) => {
+    if (x === undefined) return "–";
+    const n = Number(x) / 1e18;
+    if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}bn`;
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}mm`;
+    return fmtAmount(x, 18, 2);
+  };
 
   return (
     <div className="mt-12">
@@ -419,12 +429,12 @@ export function TransparencyDashboard() {
         <div className="mt-5 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <div>
             <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy-accent">USDfr supply</p>
-            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">{fmt(supply)}</p>
+            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">{fmtBand(supply)}</p>
             <Reconcile addr={CONTRACTS.USDfr!} fn="totalSupply" />
           </div>
           <div>
             <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-on-navy-accent">Backing value</p>
-            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">${fmt(backing)}</p>
+            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">${fmtBand(backing)}</p>
             <Reconcile addr={CONTRACTS.ReserveManager!} fn="totalBackingValue" />
           </div>
           <div>
@@ -433,7 +443,7 @@ export function TransparencyDashboard() {
             </p>
             <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">
               {grossCollateralAndReserves !== undefined
-                ? `$${fmt(grossCollateralAndReserves)}`
+                ? `$${fmtBand(grossCollateralAndReserves)}`
                 : "–"}
             </p>
             <p className="mt-1 text-[10.5px] text-on-navy-faint">
@@ -451,7 +461,7 @@ export function TransparencyDashboard() {
               Curator first-loss capital
             </p>
             <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">
-              {curatorCapital !== undefined ? `$${fmt(curatorCapital)}` : "–"}
+              {curatorCapital !== undefined ? `$${fmtBand(curatorCapital)}` : "–"}
             </p>
             <p className="mt-1 text-[10.5px] text-on-navy-faint">
               {curatorCapitalBps !== null
@@ -464,12 +474,12 @@ export function TransparencyDashboard() {
               sGROVE total backstop
             </p>
             <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">
-              {coverageReserve !== undefined ? `$${fmt(coverageReserve)}` : "–"}
+              {coverageReserve !== undefined ? `$${fmtBand(coverageReserve)}` : "–"}
             </p>
             <p className="mt-1 text-[10.5px] text-on-navy-faint">
               {backstopReserveBps !== null
-                ? `${formatBps(backstopReserveBps)} of loans · $${fmt(coverageCapacity)} live callable reserve`
-                : `$${fmt(coverageCapacity)} live callable reserve`}
+                ? `${formatBps(backstopReserveBps)} of loans · $${fmtBand(coverageCapacity)} live callable reserve`
+                : `$${fmtBand(coverageCapacity)} live callable reserve`}
             </p>
           </div>
         </div>
