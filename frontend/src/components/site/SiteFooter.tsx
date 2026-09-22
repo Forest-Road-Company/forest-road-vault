@@ -3,9 +3,10 @@ import Link from "next/link";
 import {IS_TESTNET} from "@/config/contracts";
 
 /**
- * The closing navy moment. The deck runs "FOREST ROAD ASSET MANAGEMENT"
- * along the foot of every slide; here that running head sits under the
- * white lockup on a navy band.
+ * The closing navy moment: the Vault lockup on a navy band, with the
+ * product running head beneath it, matching the Vault decks' running
+ * foot ("FOREST ROAD VAULT"). FRAM branding was retired from the site
+ * in September 2026.
  */
 export function SiteFooter() {
   return (
@@ -16,11 +17,11 @@ export function SiteFooter() {
         <div className="flex flex-col gap-10 md:flex-row md:justify-between">
           <div className="max-w-md space-y-4">
             <Image
-              src="/brand/fram-lockup-white.png"
-              alt="Forest Road Asset Management"
-              width={264}
-              height={267}
-              className="h-12 w-auto"
+              src="/brand/vault-lockup-white.png"
+              alt="Forest Road Vault"
+              width={3023}
+              height={510}
+              className="h-9 w-auto"
             />
             <p className="text-[13px] leading-relaxed text-on-navy-faint">
               A KYC-gated credit protocol bringing Forest
@@ -95,7 +96,7 @@ export function SiteFooter() {
 
         <div className="mt-12 flex flex-col gap-3 border-t border-on-navy-line pt-6 md:flex-row md:items-baseline md:justify-between">
           <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-on-navy-faint">
-            Forest Road Asset Management
+            Forest Road Vault
           </p>
           <p className="max-w-3xl text-[11px] leading-relaxed text-on-navy-faint md:text-right">
             {IS_TESTNET
