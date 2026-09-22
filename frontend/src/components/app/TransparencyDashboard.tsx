@@ -426,22 +426,24 @@ export function TransparencyDashboard() {
             </span>
           )}
         </div>
-        <div className="mt-5 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        {/* min-w-0 on every cell: a grid track's default min-width is its content, so one long
+            figure would otherwise widen its column and push the neighbouring figures into it. */}
+        <div className="mt-5 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 [&>div]:min-w-0">
           <div>
             <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy-accent">USDfr supply</p>
-            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">{fmtBand(supply)}</p>
+            <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">{fmtBand(supply)}</p>
             <Reconcile addr={CONTRACTS.USDfr!} fn="totalSupply" />
           </div>
           <div>
             <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-on-navy-accent">Backing value</p>
-            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">${fmtBand(backing)}</p>
+            <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">${fmtBand(backing)}</p>
             <Reconcile addr={CONTRACTS.ReserveManager!} fn="totalBackingValue" />
           </div>
           <div>
             <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-on-navy-accent">
               Gross collateral &amp; reserves
             </p>
-            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">
+            <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">
               {grossCollateralAndReserves !== undefined
                 ? `$${fmtBand(grossCollateralAndReserves)}`
                 : "–"}
@@ -460,7 +462,7 @@ export function TransparencyDashboard() {
             <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-on-navy-accent">
               Curator first-loss capital
             </p>
-            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">
+            <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">
               {curatorCapital !== undefined ? `$${fmtBand(curatorCapital)}` : "–"}
             </p>
             <p className="mt-1 text-[10.5px] text-on-navy-faint">
@@ -473,7 +475,7 @@ export function TransparencyDashboard() {
             <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy-accent">
               sGROVE total backstop
             </p>
-            <p className="tnum display mt-1 text-[32px] leading-none text-on-navy md:text-[38px]">
+            <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">
               {coverageReserve !== undefined ? `$${fmtBand(coverageReserve)}` : "–"}
             </p>
             <p className="mt-1 text-[10.5px] text-on-navy-faint">
