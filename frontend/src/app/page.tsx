@@ -35,9 +35,9 @@ export default function Landing() {
 
           <p className="mt-8 max-w-[54ch] text-[17px] leading-relaxed text-on-navy-muted">
             Forest Road&apos;s specialty finance book is on-chain. Deposit
-            stablecoins to mint USDfr, stake it into sUSDfr, and
-            earn what the loan book earns. The book spans media &amp;
-            entertainment, renewable energy, and digital assets.
+            USDC to mint USDfr, stake it into sUSDfr, and earn what the
+            loan book earns. Its sectors are media &amp; entertainment,
+            renewable energy, and digital assets.
           </p>
 
           <div className="mt-10 flex flex-wrap items-center gap-x-4 gap-y-3">
@@ -105,11 +105,11 @@ export default function Landing() {
             </p>
             <ul className="mt-6 space-y-3.5 text-[15px] leading-relaxed text-ink-muted">
               <li>
-                Minted 1:1 from approved stablecoins via a KYC-gated controller.
+                Minted 1:1 from USDC via a KYC-gated controller.
               </li>
               <li>
-                Backing is stablecoin reserves, short-term instruments, and
-                deployed loan principal. Check it on-chain at any time.
+                Backing is USDC held in reserve plus outstanding loans and the
+                interest they have earned. Check it on-chain at any time.
               </li>
               <li>It is a dollar claim and earns nothing on its own.</li>
             </ul>
@@ -145,12 +145,12 @@ export default function Landing() {
                 Stake USDfr to get it; its value can fall if loans lose money.
               </li>
               <li>
-                Redemptions are filled first in, first out, as loan
-                repayments come in.
+                Exits wait out a 21-day minimum hold, then fill first in,
+                first out as cash allows.
               </li>
               <li>
-                Fees come out of realized performance only, at capped,
-                disclosed rates.
+                Fees come only out of what the book actually earns, at
+                capped, disclosed rates.
               </li>
             </ul>
           </div>
@@ -175,7 +175,7 @@ export default function Landing() {
                   .
                 </>
               }
-              lede="Forest Road and its partners post first-loss capital that sits ahead of every depositor. If a loan underperforms, that capital absorbs the loss before depositors are touched. The order is written into the contract."
+              lede="Forest Road posts first-loss capital that sits ahead of every depositor. If a loan underperforms, that capital absorbs the loss before depositors are touched. The order is written into the contract."
             />
             <Link
               href="/how-it-works"

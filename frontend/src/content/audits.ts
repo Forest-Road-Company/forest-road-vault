@@ -1,10 +1,11 @@
 /**
  * Registry of published security reviews.
  *
- * Each round is its own report page at /docs/audit/<slug>, with its own findings list and
- * its own remediation history. Narrative prose lives in ./docs/audits/*.md; the findings
- * themselves are typed data here so the register, the severity counts, and the per-report
- * pages all read from one source and cannot drift apart.
+ * Each round is its own report page at /docs/audit/<slug>, with its material findings or claim
+ * groups and remediation history. Narrative prose lives in ./docs/audits/*.md; the displayed
+ * findings are typed data here so the register, severity counts, and per-report pages read from
+ * one source. Large ensemble corpora remain in the named full report and are not misrepresented
+ * here as hundreds of independently confirmed defects.
  *
  * Finding IDs are namespaced per round on purpose, `H-01` in Round 1 and `H-1` in the
  * pre-mainnet campaign are different findings, and the two are easy to confuse.
@@ -86,6 +87,352 @@ export type AuditReport = {
 
 /** Newest first. This is the order the register renders. */
 export const AUDITS: AuditReport[] = [
+  {
+    slug: "2026-09-20-curator-vault-corrovera",
+    file: "audits/2026-09-20-curator-vault-corrovera.md",
+    title: "Corrovera review of the Solana curator vault",
+    eyebrow: "External review",
+    date: "2026-09-20",
+    dateLabel: "20 September 2026",
+    external: true,
+    baseline:
+      "Initial closeout 99b0371; final remediated source b7164af; canonical devnet program 3ZPRvNDUDRZuZ8Hug873JtSDJueA8D7PEVE21uLLAvwh",
+    scope:
+      "The Solana curator-vault program, its tests and release tooling, the curator website paths, the canonical artifact and devnet evidence. It is not a review of the Ethereum V2 credit protocol, and no Solana mainnet deployment was in scope.",
+    method:
+      "Independent Corrovera review followed by two remediation verifications, execution probes, event and error census, stateful campaigns, committed mutation controls, reproducible-build checks and byte-for-byte comparison with the devnet ProgramData account.",
+    archive: "audit-reports/curator-vault-audit-2026-09-20/",
+    summary:
+      "Four Medium findings covered frontend release identity, reproducible builds, test assurance and emergency halt latency. Three closed in the first package; the test-assurance work and a notice/draw regression required a second package. The final source has no open High or Medium program-source or test-assurance finding. Solana mainnet counsel, Squads and specialist-review gates remain separate.",
+    findings: [
+      {
+        id: "CV-M1",
+        severity: "Medium",
+        title: "The served frontend revision was not bound to the reviewed commit",
+        disposition: "Remediated",
+        note:
+          "Production builds now require the Vercel commit identity, expose it through /api/revision and provide a release verifier. Every promotion must still run the verifier against the served domain; the control is not a claim that an arbitrary future deployment is current.",
+      },
+      {
+        id: "CV-M2",
+        severity: "Medium",
+        title: "The deployed Solana artifact was not independently reproducible from pinned inputs",
+        disposition: "Remediated",
+        note:
+          "The release uses a digest-pinned solana-verify container, explicit SBF v3 and platform-tools v1.57. The committed 475,824-byte ELF is bound to source and IDL hashes and matches the active devnet ProgramData bytes, including zero trailing allocation bytes.",
+      },
+      {
+        id: "CV-M3",
+        severity: "Medium",
+        title: "The program test campaign and mutation evidence did not support its assurance claims",
+        disposition: "Remediated",
+        note:
+          "The final suite covers all 25 instructions, 38 errors and every field of 23 events. Its stateful campaign records outcomes and reaches withdrawals; nine compiled program mutations each fail both a directed regression and the campaign before pristine restoration.",
+      },
+      {
+        id: "CV-M4",
+        severity: "Medium",
+        title: "A screened position could continue receiving coupons until multisig action",
+        disposition: "Remediated",
+        note:
+          "A one-way emergency authority may pause deposits and draws or halt one position's coupon payout immediately. It cannot clear a halt, move principal, rotate authority or perform administrative actions; clearing remains with the designated authorities.",
+      },
+      {
+        id: "CV-R1",
+        severity: "Medium",
+        title: "The first notice guard could lock treasury draw access for the whole position term",
+        disposition: "Remediated",
+        note:
+          "The guard now protects only the exit window: committed principal remains drawable while its contractual lock is live, and a pending notice refuses new draws once the lock deadline opens the curator's protected exit window.",
+      },
+      {
+        id: "CV-I1",
+        severity: "Informational",
+        title: "Solana mainnet release remains a human and specialist-review gate",
+        disposition: "Deferred",
+        note:
+          "The canonical artifact is active on devnet. Counsel approval, a production 2-of-4 Squads, a separate emergency signer, specialist Solana review and the human mainnet ceremony remain required before any Solana mainnet launch.",
+      },
+    ],
+  },
+  {
+    slug: "2026-09-20-ethereum-v2-deployed-review",
+    file: "audits/2026-09-20-ethereum-v2-deployed-review.md",
+    title: "Review of the exact deployed Ethereum V2 contracts",
+    eyebrow: "Deployment review",
+    date: "2026-09-20",
+    dateLabel: "20 September 2026",
+    baseline:
+      "Ethereum deployment block 26,006,832; review block 26,021,143; contracts/src tree 3095b3b8acac7a511b86681036f80709225d6353",
+    scope:
+      "All 18 live Ethereum V2 proxies, their implementations and linked libraries, production roles and parameters, plus cross-contract scenarios on a fork of the exact deployed state. This was an internal finding-only review, not an external audit.",
+    method:
+      "Read-only live validation, clean compilation, complete serialized fork population, focused deployed-address scenarios, deliberate failure controls, generated access-control and invariant partitions, storage/layout gates and manually triaged static analysis.",
+    archive: "docs/remediation/ETHEREUM_DEPLOYED_ROBUSTNESS_REVIEW_2026-09-20.md",
+    summary:
+      "No new Critical, High or Medium contract defect was confirmed. The clean fork population passed 537 tests across 69 suites with zero failures or skips. One earlier rounding availability edge remains owner-accepted with a funded bounded keeper; one Low fee-withholding policy and one informational upgrade constraint remain disclosed.",
+    findings: [
+      {
+        id: "EV2-A1",
+        severity: "Medium",
+        title: "An exhausted loss cascade can leave a sub-USDC-unit rounding remainder",
+        disposition: "Accepted",
+        note:
+          "If curator, sGROVE and senior assets are all exhausted, the bounded remainder can leave supply slightly above recognized backing and close value-sensitive operations. It transfers no value to an attacker. The owner selected an exact, funded correction worker capped at 0.01 USDC per payment, 0.10 USDC per rolling day and ten payments per day.",
+      },
+      {
+        id: "EV2-L1",
+        severity: "Low",
+        title: "Conservative protocol-fee withholding can repeat while impairment remains",
+        disposition: "Accepted",
+        note:
+          "Each interest receipt may withhold against the same standing impairment because the impairment stock is not consumed by the withheld fee. This can reduce protocol revenue more than the initial stock; it favors senior backing and cannot extract investor assets.",
+      },
+      {
+        id: "EV2-I1",
+        severity: "Informational",
+        title: "Strict delivery measurements can fail closed after a governed callback replacement",
+        disposition: "By design",
+        note:
+          "A future governance-installed callback that injects value inside an exact balance-delta measurement can make the operation revert. The deployed fixed modules do not do this, and replacing them requires governance with direct upgrade authority.",
+      },
+    ],
+  },
+  {
+    slug: "2026-09-18-solana-curator-correctness",
+    file: "audits/2026-09-18-solana-curator-correctness.md",
+    title: "Solana and curator correctness review",
+    eyebrow: "Internal review",
+    date: "2026-09-18",
+    dateLabel: "18 September 2026",
+    baseline:
+      "Ethereum/Solana dde4cd43; BSC 45174c80; later superseded by the 20 September curator-vault remediation baseline",
+    scope:
+      "The ten Solana curator-vault Rust files, client and deployment tooling, curator website paths, and focused Ethereum and BSC CuratorModule dependency closures.",
+    method:
+      "Internal source review with SBF and host builds, LiteSVM lifecycle tests, independent integer models, randomized sequences, frontend interaction checks and focused EVM curator suites.",
+    archive: "docs/remediation/SOLANA_CURATOR_REVIEW_2026-09-18.md",
+    summary:
+      "The review found two Medium interface/configuration failures and seven Low program or interface issues. The revoked-position access defect was fixed immediately; the Reown project was replaced and configured for the intended origins. The 20 September external review and remediation packages supersede the remaining source status.",
+    findings: [
+      {
+        id: "SC-M1",
+        severity: "Medium",
+        title: "Revoking curator approval hid an existing withdrawable Ethereum position",
+        disposition: "Remediated",
+        note:
+          "The website now retains positive-balance positions after revocation, disables only new posting and preserves withdrawal and closed-round settlement. The contract had never revoked the holder's withdrawal right.",
+      },
+      {
+        id: "SC-M2",
+        severity: "Medium",
+        title: "Reown rejected the live WalletConnect origin",
+        disposition: "Remediated",
+        note:
+          "The owner created the replacement Reown project and allowlisted all three intended domains. Release builds query the public origin policy and refuse promotion if the required origins are absent.",
+      },
+      {
+        id: "SC-L1",
+        severity: "Low",
+        title: "Failed Ethereum curator reads could appear as healthy zero values",
+        disposition: "Superseded",
+        note:
+          "Closed by the later curator-vault package, which requires successful gating reads and includes pause, custody and failed-read state in the displayed withdrawal amount.",
+      },
+      {
+        id: "SC-L2",
+        severity: "Low",
+        title: "Solana confirmation could be shown beside stale unlabelled state",
+        disposition: "Superseded",
+        note:
+          "Closed by the later package's ordered refresh, visible failure state and wallet-local read controls.",
+      },
+      {
+        id: "SC-L3",
+        severity: "Low",
+        title: "The interest route did not reject a missing form object cleanly",
+        disposition: "Superseded",
+        note:
+          "Closed by runtime shape validation and later constant-cost admission, concurrency and cleanup controls.",
+      },
+      {
+        id: "SC-L4",
+        severity: "Low",
+        title: "Coupon payment timing differed from the completed-month specification",
+        disposition: "Superseded",
+        note:
+          "The program now separates total coupon owed from the amount payable through the completed month boundary; later earned amounts remain for the next boundary.",
+      },
+      {
+        id: "SC-L5",
+        severity: "Low",
+        title: "Unsolicited SPL-token balances were absent from the accounting identities",
+        disposition: "Superseded",
+        note:
+          "The later package defines direct transfers as measured surplus and adds bounded principal and coupon recovery paths without spending accounted funding.",
+      },
+      {
+        id: "SC-L6",
+        severity: "Low",
+        title: "Wallet Standard inferred cluster from the RPC URL",
+        disposition: "Superseded",
+        note:
+          "Later release configuration binds the cluster, manifest and wallet metadata and rejects inconsistent production inputs.",
+      },
+      {
+        id: "SC-L7",
+        severity: "Low",
+        title: "Zero-key validation and the position initialization sentinel were incomplete",
+        disposition: "Superseded",
+        note:
+          "The versioned account layout now rejects zero authorities and owners and no longer uses a zero owner as the initialization sentinel.",
+      },
+    ],
+  },
+  {
+    slug: "2026-09-17-corrovera-diff-review",
+    file: "audits/2026-09-17-corrovera-diff-review.md",
+    title: "Corrovera review of the accrual and open-finding diffs",
+    eyebrow: "External review",
+    date: "2026-09-17",
+    dateLabel: "17 September 2026",
+    external: true,
+    baseline:
+      "Five reviewed diffs covering continuous accrual, assessment ratcheting, ceremony controls, custody exits, impairment recovery and legacy PIK default handling",
+    scope:
+      "Changed Ethereum and BSC contracts and their focused regression packages. The review included execution probes and refutation/rescue rounds; it was not a fresh line-by-line review of every unchanged protocol file.",
+    method:
+      "Multi-reader review, two-refuter checks for material candidates, rescuer review of proposed kills, full-suite reruns and focused probes with deliberate incorrect changes against each fix.",
+    archive: "audit-reports/corrovera-diff-audit-2026-09-17/",
+    summary:
+      "The rounds confirmed and corrected the assessment one-second-expiry defect, the cold-gas impairment probe, armed-exit admission gaps, BSC reconciliation and pre-default legacy PIK loss. Two Medium findings were accepted only for the unused legacy upgrade route; Ethereum V2 instead deployed fresh with accrual active at genesis.",
+    findings: [
+      {
+        id: "DA-M1",
+        severity: "Medium",
+        title: "Past-due accrual invalidated a recovery assessment one second after publication",
+        disposition: "Remediated",
+        note:
+          "The assessment now ratchets its recorded exposure, fee mark and senior mark with the assessed cohort. The exit quote remains conservative without opening the accrual leak that simply dropping the cohort from the risk hash would have created.",
+      },
+      {
+        id: "DB-M1",
+        severity: "Medium",
+        title: "Armed-loss exit gates had dust-funding and reconciliation gaps",
+        disposition: "Remediated",
+        note:
+          "The exit predicate was moved to the durable payable-basket boundary, and BSC ratification reconciles live custody before releasing the latch. Focused controls covered permissionless dust, KYC minting, repayment and credit-role deposits.",
+      },
+      {
+        id: "DB-M2",
+        severity: "Medium",
+        title: "A fixed 200,000-gas recovery probe could misclassify a healthy source",
+        disposition: "Remediated",
+        note:
+          "The production-shaped cold read exceeded the old stipend. The revised probe uses a bounded in-frame budget with measured headroom and remains constant in facility count through its aggregate read path.",
+      },
+      {
+        id: "DD-L1",
+        severity: "Low",
+        title: "Legacy default could forfeit completed but uncranked PIK coupons",
+        disposition: "Remediated",
+        note:
+          "Legacy default now records completed PIK before declaring default across unmarked, marked, prepared and accelerated paths. Fresh V2 uses continuous accrual from genesis but retains the corrected legacy code.",
+      },
+      {
+        id: "DE-M1",
+        severity: "Medium",
+        title: "The legacy 16-coupon default cap was not a safe bound in the bound upgrade state",
+        disposition: "Accepted",
+        note:
+          "Accepted only because Ethereum V2 was deployed fresh with accrual enabled before funding, so the legacy upgrade path is not used. Any later legacy migration must size against its exact bound state and batch before default; the 16-coupon value is not a mainnet gas guarantee.",
+      },
+      {
+        id: "DE-M2",
+        severity: "Medium",
+        title: "The legacy multi-transaction preparation exposed curator withdrawal before freeze",
+        disposition: "Accepted",
+        note:
+          "Accepted under the same fresh-genesis decision. If the legacy route is ever revived, the procedure must pause both the queue and CuratorModule before publishing default evidence and must not use the historical atomic wording.",
+      },
+      {
+        id: "DE-L1",
+        severity: "Low",
+        title: "Closed-round share rescaling can retain a bounded storage remainder",
+        disposition: "Accepted",
+        note:
+          "The ceiling division remainder is bounded by the number of classes minus one wei and has no practical value consequence. The owner declined a bytecode-costly change and retained the bound as a documented limitation.",
+      },
+      {
+        id: "DE-L2",
+        severity: "Low",
+        title: "A custody token becoming unreadable after a BSC latch can block its exit verbs",
+        disposition: "Accepted",
+        note:
+          "This is a fail-closed dependency on the selected token's balance query. The owner accepted it as an exceptional token failure risk; BSC had not been deployed at this review.",
+      },
+    ],
+  },
+  {
+    slug: "2026-09-13-corrovera-dual-chain-ensemble",
+    file: "audits/2026-09-13-corrovera-dual-chain-ensemble.md",
+    title: "Corrovera dual-chain source ensemble",
+    eyebrow: "External review",
+    date: "2026-09-13",
+    dateLabel: "13 September 2026",
+    external: true,
+    baseline: "125 production source files across the Ethereum and BSC trees",
+    scope:
+      "One source file per review manifest, covering 125 files. Dependency closure was not established, and deployment scripts were outside scope. Cross-file invariants and ceremony controls could therefore not be cleared by silence in this round.",
+    method:
+      "Two-reviewer ensemble over every scoped file, producing 317 claims across 88 files, followed by correctness triage, dependency-aware verification, full-suite reruns and remediation packages.",
+    archive:
+      "audit-reports/corrovera-dual-chain-2026-09-13/CORROVERA-ENSEMBLE-REPORT.md",
+    summary:
+      "The initial corpus contained no consensus High: both proposed High claims split between reviewers and were later refuted once dependencies were visible. Thirty-five Medium claims had initial two-reviewer agreement and 31 were unresolved at publication; later triage consolidated duplicates, rejected context-free claims and corrected the confirmed defects. The large claim corpus remains in the full report rather than being restated as 317 confirmed findings.",
+    findings: [
+      {
+        id: "EN-H1/H2",
+        severity: "High",
+        title: "Two proposed High claims lacked consensus and failed dependency-aware confirmation",
+        disposition: "Superseded",
+        note:
+          "The BSC ClaimBridge mint-gate concern and the ReserveCascade backing-value concern did not survive full interacting-contract review. In particular, the alleged cascade overcount depended on USDfr being counted by backingValue, which the dependency-aware trace disproved.",
+      },
+      {
+        id: "EN-M-GROUP-1",
+        severity: "Medium",
+        title: "Confirmed lifecycle, custody and access-control defects",
+        disposition: "Remediated",
+        note:
+          "Supported items included the custody-predicate overreach, one-shot attestation coverage, ACL baseline drift and missing interaction guards. The final remediation verification reran the full historical regression corpus and closed those supported classes.",
+      },
+      {
+        id: "EN-M-GROUP-2",
+        severity: "Medium",
+        title: "PIK payoff, fee withholding and retention coverage gaps",
+        disposition: "Remediated",
+        note:
+          "Follow-up review confirmed non-accrual PIK payoff forfeiture, native PIK fee delivery without required withholding and a paired-yield retention check gap. The remediation packages corrected them on the applicable trees and added focused controls.",
+      },
+      {
+        id: "EN-M-GROUP-3",
+        severity: "Medium",
+        title: "Recovery-assessment identity drift under continuous past-due accrual",
+        disposition: "Remediated",
+        note:
+          "The one-second expiry behavior was confirmed in the later diff round and fixed with the assessment ratchet described in that review.",
+      },
+      {
+        id: "EN-SCOPE-1",
+        severity: "Informational",
+        title: "Single-file review could not establish cross-contract or deployment guarantees",
+        disposition: "Accepted",
+        note:
+          "Sixty-eight claims stated the missing dependency closure directly. Cross-file invariants, script behavior and live role topology were addressed only by later integration, deployment and fork reviews; they are not retroactively attributed to this round.",
+      },
+    ],
+  },
   {
     slug: "2026-08-27-cantina-managed-review",
     file: "audits/2026-08-27-cantina-managed-review.md",

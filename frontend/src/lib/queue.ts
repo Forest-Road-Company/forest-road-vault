@@ -41,3 +41,33 @@ export function isEligible(
   const remaining = secondsUntilEligible(requestedAt, redeemCooldown, nowSeconds);
   return remaining === 0;
 }
+
+export type QueueSettlementStatus =
+  | {kind: "loading"}
+  | {kind: "epoch-open"; secondsRemaining: number}
+  | {kind: "queue-empty"}
+  | {kind: "head-cooldown"; secondsRemaining: number}
+  | {kind: "settlement-due"};
+
+/**
+ * Explains the keeper's next action after the epoch clock has elapsed. The epoch
+ * deadline and each request's mandatory cooldown are independent; an expired epoch
+ * is deliberately retained while its FIFO head is still cooling down.
+ */
+export function queueSettlementStatus(
+  epochEndsAt: bigint | undefined,
+  queuedShares: bigint | undefined,
+  headEligibleAt: bigint | undefined,
+  nowSeconds: number | null,
+): QueueSettlementStatus {
+  if (epochEndsAt === undefined || queuedShares === undefined || nowSeconds === null) {
+    return {kind: "loading"};
+  }
+  const untilEpochEnd = Number(epochEndsAt) - nowSeconds;
+  if (untilEpochEnd > 0) return {kind: "epoch-open", secondsRemaining: untilEpochEnd};
+  if (queuedShares === 0n) return {kind: "queue-empty"};
+  if (headEligibleAt === undefined) return {kind: "loading"};
+  const untilEligible = Number(headEligibleAt) - nowSeconds;
+  if (untilEligible > 0) return {kind: "head-cooldown", secondsRemaining: untilEligible};
+  return {kind: "settlement-due"};
+}

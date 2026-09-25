@@ -6,11 +6,25 @@ import {useAccount, useSwitchChain} from "wagmi";
 import {NETWORK_NAME} from "@/config/contracts";
 import {EXPECTED_CHAIN} from "@/lib/wagmi";
 
-export function NetworkBanner() {
+export function NetworkBanner({
+  walletChainId,
+  onSwitched,
+}: {
+  /** The chain the RPC alignment probe got from the wallet itself, when it proved a wrong one. */
+  walletChainId?: bigint;
+  /** Called once the wallet accepts the switch, so the caller can re-check straight away. */
+  onSwitched?: () => void;
+}) {
   const {isConnected, chainId} = useAccount();
   const {switchChain, isPending, error} = useSwitchChain();
 
-  if (!isConnected || chainId === EXPECTED_CHAIN.id) return null;
+  // wagmi learns the chain from the connector's events. The alignment probe asks the wallet
+  // directly, so it can prove a wrong chain wagmi was never told about, and when it has, its
+  // answer is the fresher one. Either is enough to offer the switch.
+  const reportedChain = walletChainId ?? (chainId === undefined ? undefined : BigInt(chainId));
+  if (!isConnected || reportedChain === undefined || reportedChain === BigInt(EXPECTED_CHAIN.id)) {
+    return null;
+  }
 
   return (
     <div className="mt-6 rounded-card border border-warn/40 bg-warn/10 px-5 py-3.5">
@@ -18,11 +32,11 @@ export function NetworkBanner() {
         <p className="text-[13.5px] text-ink">
           <span className="font-medium">Wrong network.</span>{" "}
           <span className="text-ink-muted">
-            This build runs on {NETWORK_NAME}. Your wallet is on chain {chainId}.
+            This build runs on {NETWORK_NAME}. Your wallet is on chain {reportedChain.toString()}.
           </span>
         </p>
         <button
-          onClick={() => switchChain({chainId: EXPECTED_CHAIN.id})}
+          onClick={() => switchChain({chainId: EXPECTED_CHAIN.id}, {onSuccess: () => onSwitched?.()})}
           disabled={isPending}
           className="rounded-pill bg-warn px-4 py-1.5 text-[12.5px] font-medium text-raised transition-transform hover:scale-[1.02] disabled:opacity-60"
         >

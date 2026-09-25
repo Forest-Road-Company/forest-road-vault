@@ -11,7 +11,8 @@ of these are invisible in the ABI and will surface as unexplained reverts.
 signatures, both `Deposit` and `Withdraw` events, and the complete ERC-20 share surface.
 
 **But `withdraw()` and `redeem()` are not synchronous and are not callable by holders.** Senior exit
-runs through a 21-day `RedemptionQueue`. Both functions are gated so that the only workable
+runs through the `RedemptionQueue`, where each request waits out a 21-day minimum hold before it can
+fill. Both functions are gated so that the only workable
 combination is `owner == msg.sender == redemptionQueue`. Concretely:
 
 - An ordinary holder calling `redeem()` reverts. So does a contract holding shares on a user's behalf.
@@ -25,7 +26,21 @@ top of `sUSDfr`, treat it as an asynchronous-redemption vault (the shape ERC-754
 than a standard 4626 vault, even though it does not implement ERC-7540 and does not signal async
 semantics on-chain. `supportsInterface` does not return true for `IERC4626`.
 
-Entry is synchronous and unrestricted: `deposit()` and `mint()` behave normally.
+Entry is synchronous: `deposit()` and `mint()` behave like ordinary ERC-4626 entry points, while
+the token's compliance checks still apply to the receiver.
+
+## NAV includes earned but unreceived interest
+
+Ethereum V2 recognizes earned cash and PIK interest continuously from each facility's frozen
+basis. `totalAssets()` therefore changes with time even when no repayment transaction has occurred.
+The protocol interest split and sUSDfr performance fee are applied to that earned income as it
+streams; receipt or PIK capitalization must not be treated by an integrator as new income a second
+time.
+
+PIK capitalization remains a contractual schedule event. A facility may have continuously earned
+PIK in NAV while its on-chain principal does not change until the scheduled boundary is serviced.
+Quotes should be read at one block and should not be cached across a lifecycle transaction,
+default declaration or keeper checkpoint.
 
 ## Every balance change requires 500,000 gas *available*
 
@@ -52,11 +67,14 @@ The practical consequence, which is easy to miss:
 
 If you hardcode a gas limit anywhere near these tokens, set it from the floor, not from consumption.
 
-## Transfers are permissionless but sanctions-screened
+Governance proposal FRV-007, in voting from 26 to 28 September 2026, would upgrade both tokens to
+remove this floor. Until it executes, the floor applies; this section will change if it does.
 
-Share and token transfers are **not** KYC-gated. The only transfer restriction is a sanctions
-blocklist: a transfer is denied if either party is explicitly blocked and not a protocol module.
-Burns are never blockable.
+## Transfers are permissionless but jurisdiction-screened
+
+Share and token transfers are **not** gated by ordinary allowlist membership. A wallet-specific
+jurisdiction block denies a transfer if either party is blocked and not a protocol module. Burns
+remain available so the protocol can reduce supply safely.
 
 For integrators this means a DEX pool or router does not need allowlisting, but a token that can
 refuse a specific recipient is unusual, and aggregators generally do not model it. Expect occasional
@@ -89,12 +107,13 @@ from `convertToAssets(1e18)` will propagate the failure to everything downstream
 ## Three asset bases coexist
 
 Do not assume one "assets" number. Entry prices off realised `totalAssets()`; exit prices off a
-conservative `redemptionTotalAssets()`; performance measurement uses a third base gross of junior
-capital. Mixing them has produced High-severity findings in our own review history. If you are
+conservative `redemptionTotalAssets()`; performance measurement uses a third base that excludes
+temporary curator and sGROVE capital. Mixing them has produced High-severity findings in our own review history. If you are
 comparing an amount against a total, check which base you are holding.
 
 ## Where to look next
 
-The audit register publishes every finding with its disposition, including the open ones. The
-security page states what has and has not been externally reviewed, and what remains outstanding
-before mainnet activation.
+The [audit register](/docs/audit) records each review's scope, material findings and
+disposition, including accepted findings. The [security](/docs/security) and
+[live-status](/docs/status) pages state what was reviewed, what ran on mainnet, and which
+observations or operating dependencies remain.

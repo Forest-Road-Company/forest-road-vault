@@ -120,7 +120,8 @@ export type ContractName =
   | "sGROVE"
   | "GroveVotesAggregator"
   | "Governor"
-  | "Timelock";
+  | "Timelock"
+  | "MtmAtomicExecutor";
 
 function optionalAddress(name: string, value: string | undefined): Address | undefined {
   if (!value) return undefined;
@@ -154,6 +155,7 @@ const SEPOLIA_CONTRACTS: Record<ContractName, Address> = {
   GroveVotesAggregator: "0x76d7d431482cCe2b1720e7F40F06aE82b0917476",
   Governor: "0xED0c1870Fd0b52b62BDCA09F696b2B74cDe2BA1B",
   Timelock: "0xeaa4C93f48503E075D70371BCCd2ce1f5efe9e7e",
+  MtmAtomicExecutor: "0x34248C34Da0333473bCa1Ea56577aa9ccf79E242",
 };
 
 const ENV_CONTRACTS: Partial<Record<ContractName, Address>> = {
@@ -210,6 +212,10 @@ const ENV_CONTRACTS: Partial<Record<ContractName, Address>> = {
   ),
   Governor: optionalAddress("NEXT_PUBLIC_GOVERNOR_ADDRESS", process.env.NEXT_PUBLIC_GOVERNOR_ADDRESS),
   Timelock: optionalAddress("NEXT_PUBLIC_TIMELOCK_ADDRESS", process.env.NEXT_PUBLIC_TIMELOCK_ADDRESS),
+  MtmAtomicExecutor: optionalAddress(
+    "NEXT_PUBLIC_MTM_EXECUTOR_ADDRESS",
+    process.env.NEXT_PUBLIC_MTM_EXECUTOR_ADDRESS,
+  ),
 };
 
 export const CONTRACTS: Partial<Record<ContractName, Address>> = IS_MAINNET

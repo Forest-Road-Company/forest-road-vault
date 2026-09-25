@@ -8,7 +8,7 @@ import { AUDITS, openFindings, totalFindings } from "@/content/audits";
 export const metadata: Metadata = {
   title: "Audit Register | Forest Road Vault",
   description:
-    "Every source-level security review run against the protocol, newest first, each with its own findings and remediation history.",
+    "Dated reviews of Forest Road Vault, with scope, material findings, remediation history, and review limits.",
 };
 
 /** Reviews run by a party other than Forest Road are labelled external. */
@@ -27,7 +27,7 @@ export default function AuditRegisterPage() {
       bleed
       section="Assurance"
       title="Audit register"
-      lede="Every source-level review run against this protocol, newest first. Each round keeps its own findings list and its own remediation history, including the findings that were accepted rather than fixed."
+      lede="Dated reviews, newest first. Each record states what was reviewed, how it was checked, its material findings and their current disposition. Large claim corpora remain available in the named full reports."
     >
       {/* ── The register in numbers, on navy. ───────────────────────────── */}
       <Section tone="navy">
@@ -40,8 +40,8 @@ export default function AuditRegisterPage() {
             },
             {
               value: findings,
-              label: "Findings published",
-              note: "Published in full, including those accepted rather than fixed.",
+              label: "Material findings listed",
+              note: "Including accepted findings; each large report retains its complete claim corpus.",
             },
             {
               value: open,
@@ -51,7 +51,7 @@ export default function AuditRegisterPage() {
           ]}
         />
         <div className="mt-8">
-          <HighlightBox tone="navy" title="Published in full, open findings included">
+          <HighlightBox tone="navy" title="Scope and unresolved findings stay visible">
             Because a protocol that custodies capital against legal claims
             should be reviewable before it is trusted. Most of these are
             internal engineering reviews, which are <em>not</em> a substitute

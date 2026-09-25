@@ -121,12 +121,16 @@ export function KpiBand({
   preserveLabelCase?: boolean;
 }) {
   return (
-    <div className={`kpi-band px-2 py-8 ${className}`}>
+    <div className={`kpi-band ${className}`}>
       {items.map((it) => (
-        <div key={it.label} className="px-6 py-2">
+        <div key={it.label} className="px-6 py-8">
           <div
             data-figure
-            className="display text-[32px] leading-none text-on-navy md:text-[38px]"
+            /* Fluid, and it wraps: a figure is whatever the page puts here,
+               and "Solana and Ethereum" at a fixed 32px ran past the cell on
+               every phone and tablet width. The clamp floor keeps it a
+               figure; `anywhere` keeps a single long word inside the cell. */
+            className="display text-[clamp(23px,3.1vw,38px)] leading-[1.05] text-on-navy [overflow-wrap:anywhere]"
           >
             {it.value}
           </div>

@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { AUDIT_SECTION, DOCS, docBySlug } from "@/content/docs";
 
 export function generateStaticParams() {
@@ -77,7 +78,9 @@ export default async function DocPage({
       <article className="doc-prose mt-10">
         {/* Raw HTML is explicitly discarded. react-markdown also applies a safe URL transform,
             so repository prose cannot inject script URLs or executable markup into the site. */}
-        <ReactMarkdown skipHtml>{markdown}</ReactMarkdown>
+        <ReactMarkdown skipHtml remarkPlugins={[remarkGfm]}>
+          {markdown}
+        </ReactMarkdown>
       </article>
 
       <Link

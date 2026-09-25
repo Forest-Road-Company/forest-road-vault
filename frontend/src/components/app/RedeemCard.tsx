@@ -243,6 +243,10 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   };
 
   const now = useNowSeconds();
+  // A lapsed heartbeat is left in the past on purpose: when nothing is eligible the keeper's
+  // close abandons without advancing it, so the next request settles as soon as its hold ends.
+  // Counting down to a time already gone would read "ends in now" for as long as that lasts.
+  const epochOpen = epochEndsAt !== undefined && now !== null && Number(epochEndsAt) <= now;
   const epochCountdown =
     epochEndsAt !== undefined && now !== null ? fmtCountdown(Number(epochEndsAt) - now) : null;
   const cooldownDuration =
@@ -292,8 +296,17 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
             <span className="text-warn">{cooldownDuration ?? "loading…"}</span>
           </p>
           <p>
-            Settlement heartbeat ends in{" "}
-            <span className="text-ink-muted">{epochCountdown ?? "–"}</span>
+            {epochOpen ? (
+              <>
+                Settlement heartbeat: <span className="text-ink-muted">open</span>, eligible
+                requests settle as their hold ends
+              </>
+            ) : (
+              <>
+                Settlement heartbeat ends in{" "}
+                <span className="text-ink-muted">{epochCountdown ?? "–"}</span>
+              </>
+            )}
             {isSettling ? <span className="ml-2 text-warn">settling now</span> : null}
           </p>
           <p>
@@ -350,7 +363,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
           Actual recovery may be higher or lower.{" "}
           {IS_TESTNET
             ? "A separately funded testnet top-up tool may be exercised, but any payment is discretionary and not included above."
-            : "Mainnet v1 has no recovery top-up distributor; no additional payment or airdrop is promised or included above."}
+            : "Mainnet has no recovery top-up distributor; no additional payment or airdrop is promised or included above."}
         </p>
       ) : null}
 

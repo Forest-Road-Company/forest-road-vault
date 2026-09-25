@@ -18,6 +18,22 @@ export const DOCS: DocEntry[] = [
       "What the protocol is: two tokens, identified-per-asset collateral, and the three-layer loss cascade.",
   },
   {
+    slug: "how-to",
+    file: "how-to.md",
+    title: "How to use the app",
+    eyebrow: "Guide",
+    summary:
+      "Step by step: connect a wallet, check what your address can do, get USDfr, stake it for yield, exit through the redemption queue, and track your position.",
+  },
+  {
+    slug: "status",
+    file: "status.md",
+    title: "Live deployment status",
+    eyebrow: "Ethereum V2",
+    summary:
+      "The live loan book, the loss protection in place today, what has run on mainnet, governance in progress, and the operating limits that apply.",
+  },
+  {
     slug: "guarantees",
     file: "invariants.md",
     title: "Protocol guarantees",
@@ -47,7 +63,7 @@ export const DOCS: DocEntry[] = [
     title: "Security & testing",
     eyebrow: "Assurance",
     summary:
-      "Test rigor, exact current evidence, the multi-round internal audit, and the human-owned production assurance gates.",
+      "Test rigor and the evidence behind the deployed release, the limits that remain, the trust boundaries, and how to report a vulnerability.",
   },
   {
     slug: "integrating",
@@ -73,7 +89,7 @@ export const AUDIT_SECTION = {
   title: "Audit register",
   eyebrow: "Full findings",
   summary:
-    "Every source-level review run against the protocol, newest first. Each round has its own findings and its own remediation history, including the findings that were accepted rather than fixed.",
+    "Dated contract, deployment, curator and interface reviews, newest first. Each record states its scope, material findings, remediation status and limits; complete claim corpora remain in their named reports.",
 } as const;
 
 /**
@@ -87,7 +103,7 @@ export const ADDRESSES_SECTION = {
   title: "Deployed addresses",
   eyebrow: "On-chain",
   summary:
-    "Every contract this build reads, with its role and a block-explorer link. It is generated from the same configuration the application uses, so it cannot fall out of step with the live deployment.",
+    "Every contract, what it does, and a block-explorer link, plus the USDfr/USDC market. Addresses come from the same configuration the application uses, so they cannot fall out of step with the live deployment.",
 } as const;
 
 export function docBySlug(slug: string): DocEntry | undefined {

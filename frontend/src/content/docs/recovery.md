@@ -1,9 +1,8 @@
 # Recovery assessments and redemption top-ups
 
-> Clean mainnet v1 includes `AssessedImpairmentSource`, whose zero-recovery base is
-> `DefaultManager`, but does not deploy or wire `RecoveryTopUpDistributor`. The assessment
-> wrapper was first exercised on the Sepolia QA deployment. With no active governance
-> assessment, queue pricing is exactly the conservative zero-recovery result.
+> Ethereum V2 includes `AssessedImpairmentSource`, whose zero-recovery base is
+> `DefaultManager`, but does not deploy or wire `RecoveryTopUpDistributor`. With no active
+> governance assessment, queue pricing is exactly the conservative zero-recovery result.
 
 ## Why an exit can be marked down
 
@@ -31,6 +30,11 @@ A new default, past-due mark, recovery, realized loss or change in curator first
 assessment inactive immediately. This still happens if offsetting changes leave the headline
 impairment number unchanged. A fresh professional memorandum and governance assessment are
 required before the discount can apply again.
+
+Earned interest on the assessed past-due cohort does not make the memorandum expire merely because
+one second passes. The assessment records the relevant accrued exposure and ratchets its fee and
+senior marks by the same increase. This keeps the assessed exit quote conservative without giving
+an outside caller a permissionless one-second invalidation lever.
 
 Backstop capacity is treated directionally rather than as an exact match. A **fall** in sGROVE
 backstop capacity invalidates the assessment, because less junior protection stands behind the

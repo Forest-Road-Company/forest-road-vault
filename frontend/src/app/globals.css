@@ -439,29 +439,34 @@ table,
   }
 
   /* Figure band, hairline-divided cells carrying the numbers a reader
-     should leave with. Every cell names its source. */
+     should leave with. Every cell names its source.
+
+     The hairlines are the 1px gap letting the container's background show
+     through, not a rule drawn on each cell. A rule drawn per cell has no way
+     to know it sits at the start of a wrapped row, so the band drew a stray
+     vertical hairline down the left edge of every row after the first on a
+     phone. As a gap, a wrapped row is divided horizontally instead, which is
+     what the row break means. */
   .kpi-band {
-    background: var(--color-navy-deepest);
+    background: var(--color-line);
     border: 1px solid var(--color-line);
     border-radius: var(--radius-card);
     display: flex;
     flex-wrap: wrap;
+    gap: 1px;
+    overflow: hidden;
   }
 
+  /* Flex rather than a grid: a grid of three cells in two columns leaves a
+     fourth track empty, and an empty track here is a hole showing the
+     hairline colour. Flex cells grow to fill their row instead.
+     min-width: 0 lets a long figure wrap inside the cell rather than set the
+     cell's width. */
   .kpi-band > * {
     position: relative;
-    flex: 1 1 0;
-    min-width: 150px;
-  }
-
-  .kpi-band > * + *::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 6px;
-    bottom: 6px;
-    width: 1px;
-    background: var(--color-line);
+    flex: 1 1 170px;
+    min-width: 0;
+    background: var(--color-navy-deepest);
   }
 
   /* Data table with a tinted header row. */
@@ -746,6 +751,10 @@ table,
   color: var(--color-ink);
   padding: 0.12em 0.38em;
   border-radius: 4px;
+  /* An identifier is one long word. `invariant_sgrove_usdfrCustodyEquivalence`
+     pushed the page 26px wider than a 320px phone rather than breaking. Only
+     inline code breaks; a block keeps its own overflow. */
+  overflow-wrap: anywhere;
 }
 .doc-prose blockquote {
   border-left: 1px solid var(--color-accent);

@@ -14,7 +14,7 @@ export function SiteFooter() {
        without it the two bands read as one dark mass at a glance. */
     <footer className="navy-band-deep border-t border-white/20">
       <div className="mx-auto max-w-6xl px-5 py-14">
-        <div className="flex flex-col gap-10 md:flex-row md:justify-between">
+        <div className="flex flex-col gap-10 lg:flex-row lg:justify-between">
           <div className="max-w-md space-y-4">
             <Image
               src="/brand/vault-lockup-white.png"
@@ -26,14 +26,18 @@ export function SiteFooter() {
             <p className="text-[13px] leading-relaxed text-on-navy-faint">
               A KYC-gated credit protocol bringing Forest
               Road&apos;s specialty finance book on-chain. Yield is variable and
-              reflects the actual performance of the loan book and reserves.
-              Nothing here promises a fixed return. Token characterization is a
+              reflects the actual performance of the loan book. Nothing here
+              promises a fixed return. Token characterization is a
               matter for counsel; nothing on this site is legal, tax, or
               investment advice, or an offer of securities.
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-x-16 gap-y-8 text-[13px] sm:grid-cols-3 sm:gap-y-2">
+          {/* The three link columns sit beside a max-w-md paragraph, but only from lg: at tablet
+              widths the row left the third column past the viewport edge ("Community" was cut
+              off), so the footer stacks until there is room. The gap grows with the width and a
+              column is never narrower than its own text. */}
+          <div className="grid grid-cols-2 gap-x-8 gap-y-8 text-[13px] sm:grid-cols-3 sm:gap-y-2 lg:gap-x-16 [&>div]:min-w-max">
             <div className="space-y-0.5">
               <p className="running-head text-on-navy-accent">Protocol</p>
               <Link href="/how-it-works" className="block py-1 text-on-navy-muted hover:text-on-navy">

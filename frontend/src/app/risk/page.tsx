@@ -31,11 +31,11 @@ const protocolRisks = [
   },
   {
     label: "Liquidity timing",
-    body: "The underlying is illiquid, amortizing credit. sUSDfr redemptions queue in fixed redemption windows (epochs) and may take multiple windows to fill. Do not stake capital you may need on demand.",
+    body: "The underlying is illiquid, amortizing credit. sUSDfr exits go through a redemption queue: each request waits out a 21-day minimum hold, cannot be cancelled, and then fills first in, first out as idle cash allows, which may take several daily settlements. Instant USDfr-to-USDC redemption is limited to idle reserves. Do not stake capital you may need on demand.",
   },
   {
     label: "Smart-contract risk",
-    body: "Contracts can contain defects despite testing, invariant fuzzing, and independent audits. Audits and monitoring reduce, but do not eliminate, this risk.",
+    body: "Contracts can contain defects despite testing, invariant fuzzing, and security reviews. Reviews and monitoring reduce, but do not eliminate, this risk.",
   },
   {
     label: "Regulatory risk",
@@ -47,7 +47,7 @@ const protocolRisks = [
   },
   {
     label: "Assessed redemption value",
-    body: "When a defaulted loan must be priced for redemptions, the queue uses a published, evidence-backed recovery assessment; without one it assumes zero recovery, the conservative default. Any assessment can change or be withdrawn before settlement. No recovery top-up is deployed or promised in v1; any future top-up would require separate approval and funding.",
+    body: "When a defaulted loan must be priced for redemptions, the queue uses a published, evidence-backed recovery assessment; without one it assumes zero recovery, the conservative default. Any assessment can change or be withdrawn before settlement. No recovery top-up is deployed or promised on mainnet; any future top-up would require separate approval and funding.",
   },
 ];
 

@@ -37,7 +37,7 @@ export function SiteNav() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-bg/88 backdrop-blur-xl">
-      <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-6 px-5">
+      <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-5 sm:gap-6">
         <Link
           href="/"
           onClick={() => setOpen(false)}
@@ -85,11 +85,15 @@ export function SiteNav() {
         </div>
 
         <div className="flex flex-none items-center gap-2">
+          {/* Below 360px the lockup, the pill and the 44px menu target together
+              measured wider than the viewport, and every page scrolled sideways
+              by 36px as a result. The pill stands down at that width and the
+              menu panel carries the same link, so nothing becomes unreachable. */}
           {isAppRoute ? null : (
             <Link
               href="/app"
               onClick={() => setOpen(false)}
-              className="rounded-pill bg-navy px-4 py-1.5 text-[13px] font-semibold text-on-navy transition-colors hover:bg-navy-raised"
+              className="hidden rounded-pill bg-navy px-4 py-1.5 text-[13px] font-semibold text-on-navy transition-colors hover:bg-navy-raised min-[360px]:block"
             >
               Enter App
             </Link>
@@ -159,6 +163,15 @@ export function SiteNav() {
                 </Link>
               );
             })}
+            {isAppRoute ? null : (
+              <Link
+                href="/app"
+                onClick={() => setOpen(false)}
+                className="mt-3 flex items-center justify-center rounded-pill bg-navy px-4 py-2.5 text-[15px] font-semibold text-on-navy min-[360px]:hidden"
+              >
+                Enter App
+              </Link>
+            )}
           </div>
         </div>
       ) : null}

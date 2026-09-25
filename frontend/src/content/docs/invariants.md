@@ -7,8 +7,8 @@ cascade sections additionally have Halmos transition/arithmetic proofs. This doc
 the protocol's **safety spec**. It maps each property in CLAUDE.md §1.3 to (a) the
 mechanism that enforces it on-chain and (b) the named test(s) that prove it.
 
-Run: `FOUNDRY_PROFILE=heavy forge test` (from `contracts/`). The clean mainnet-v1
-candidate is also rehearsed against canonical Ethereum-mainnet USDC on a fork.
+Run: `FOUNDRY_PROFILE=heavy forge test` (from `contracts/`). Ethereum V2 is also
+rehearsed against canonical Ethereum-mainnet USDC and the exact deployed proxy addresses on forks.
 
 > Convention: an invariant is a property that must hold **across all reachable states**.
 > If one cannot be made to hold: that is a genuine-problem STOP. We surface it rather
@@ -18,15 +18,23 @@ candidate is also rehearsed against canonical Ethereum-mainnet USDC on a fork.
 
 ## 1. Backing invariant (ADR-0012)
 
-**Property.** `USDfr.totalSupply()` ≤ backing value, always, where backing =
-accounted canonical USDC at par + outstanding deployed principal. Mainnet v1 has no
-generic asset registry or reserve-instrument mark.
+**Property.** `USDfr.totalSupply()` ≤ backing value, where backing is accounted canonical USDC at
+par plus outstanding deployed value, including earned cash and PIK interest recognized by the
+continuous-accrual ledger. Ethereum V2 has no generic reserve-asset registry or reserve-instrument
+mark.
+
+One bounded exception is disclosed rather than hidden: after all three loss-bearing layers are
+fully exhausted, sub-USDC-unit interpolation can leave a remainder smaller than one USDC base
+unit. The resulting interlock closes minting and value-sensitive exits until an exact
+recapitalization restores the inequality. A funded, rate-limited worker operates that correction.
 
 **Enforcement.** User mints atomically pull canonical USDC before minting USDfr.
-Origination fees are capitalized only when principal is deployed. Repayments atomically
-pull the attested payer's USDC before reducing principal or routing interest. Every
-supply-increasing path asserts backing after the mint; write-downs are atomically paired
-with the loss-cascade burns. Direct USDC donations never become recognized backing through
+Origination fees are capitalized only when principal is deployed. Continuous accrual updates the
+aggregate recognized claim from a frozen basis; repayment and PIK-capitalization checkpoints
+remove accrued value as they post the corresponding receipt or principal without counting it
+twice. Repayments atomically pull the attested payer's USDC before reducing principal or routing
+interest. Every supply-increasing path asserts backing after the mint; write-downs are atomically
+paired with the loss-cascade burns. Direct USDC donations never become recognized backing through
 reconciliation: the reconciliation function is intentionally one-way downward and only
 acknowledges a custody shortfall.
 
@@ -40,18 +48,20 @@ differential stateful tests.
 
 ## 2. Value conservation in the waterfall
 
-**Property.** Every distributed repayment is fully and correctly allocated:
-`fee + toVault == interest` and the principal leg reduces deployed principal
-exactly; nothing is created or destroyed; senior (`sUSDfr`) is never subordinated to
-junior (curator).
+**Property.** Every unit of earned or received interest is fully and correctly allocated:
+`protocol fee + senior leg == gross interest`. Posting a receipt or capitalizing PIK removes the
+matching accrued value, and the principal leg reduces deployed principal exactly. Nothing is
+recognized twice; senior (`sUSDfr`) is never subordinated to junior (curator).
 
-**Enforcement.** `_routeInterest` splits by construction into protocol fee and sUSDfr
-yield. `distribute` consumes a single-use `PaymentReceived` attestation committing to
+**Enforcement.** The accrual engine applies the interest split continuously, and materialization
+delivers each authorized leg once. `_routeInterest` applies the same economics at receipt.
+`distribute` consumes a single-use `PaymentReceived` attestation committing to
 the exact facility, payment id, payer, interest, principal and next due date, then pulls
-the exact USDC amount. Mainnet v1 has no DSRA. Later performance/management fees mint
+the exact USDC amount. Ethereum V2 has no DSRA. Performance/management fees mint
 `sUSDfr` shares and therefore do not alter this cash-conservation equation.
 
-**Tests.** `invariant_waterfall_conservesValue`, `invariant_reserves_and_pools_reconcile`.
+**Tests.** `invariant_waterfall_conservesValue`, `invariant_reserves_and_pools_reconcile`, the
+continuous-accrual reference-model campaigns and the long randomized checkpoint-drift tests.
 
 ## 3. Loss-cascade ordering (three-layer)
 
@@ -129,7 +139,7 @@ crystallization. Every queue entry/settlement/exit path checkpoints before prici
 ### Fee-accounting corollary (ADR-0031)
 
 The performance fee launches at 10% of performance-fee NAV profit above a
-**global** post-fee high-water mark and may change prospectively up to a hard 20% v1
+**global** post-fee high-water mark and may change prospectively up to a hard 20%
 cap. Investment losses never lower the hurdle. A deposit carries `H + assets`; an exit
 carries the greater of the old hurdle less assets paid and the old hurdle's remaining
 effective-supply fraction. This protects stayers in a drawdown and prevents a leaver
@@ -138,7 +148,7 @@ Junior-capacity changes never mutate the hurdle: they may improve
 the redemption mark but are removed from performance-fee NAV because contributed
 loss protection is not investment profit. The management fee starts at
 0%, is prospective, and is capped
-at 2% per 365-day year in v1. Both setters crystallize the old rate first. Management
+at 2% per 365-day year. Both setters crystallize the old rate first. Management
 is charged first; neither fee removes backing assets; recovery below an old peak is fee-free;
 the same profit cannot be charged twice; and management retention on an unchanged fee
 base is materially checkpoint-frequency neutral.
@@ -217,9 +227,10 @@ backing and role revocation have all been independently verified.
 - **Differential model:** the attestation oracle runs against an independent ghost model
   (`invariant_oracle_ghostParity`); reward accounting is cross-checked by
   `invariant_sgrove_rewardsConserve` against notified/claimed ghosts.
-- **Symbolic:** Halmos proves five backing-transition properties (four against the real
-  controller/reserve implementations, one full-domain user-flow lemma) and the modeled
-  cascade arithmetic across nine paths. Exact scope and trust boundaries are documented
+- **Symbolic:** Halmos proves eight properties: five backing-transition properties (four
+  against the real controller/reserve implementations, one full-domain user-flow lemma), the
+  modeled cascade arithmetic across nine paths, and two reserve custody-incident properties
+  that execute the real linked incident helper. Exact scope and trust boundaries are documented
   in `docs/formal-methods-amenability.md`; this supplements, rather than replaces, the
   integrated backing and cascade campaigns.
 - **Gas snapshots:** `forge snapshot` tracked; regressions flagged in review.

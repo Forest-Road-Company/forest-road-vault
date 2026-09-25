@@ -1,4 +1,13 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Forest Road Vault website
+
+This Next.js application is the depositor and curator interface plus the public protocol
+documentation. Ethereum V2 is live for controlled, KYC-gated deposits. The site derives every
+mainnet contract address and deployment identity from required build variables and refuses an
+incomplete mainnet configuration.
+
+Current public documentation lives in `src/content/docs/`. Keep the live-status page, deployed
+addresses and audit register synchronized with every release. The USD 100 million Ethereum value
+is a bootstrap concentration floor for credit exposure, not a deposit cap.
 
 ## Getting Started
 
@@ -44,3 +53,7 @@ The production project also requires `CRON_SECRET`, the daily schedule in `verce
 fixed-window WAF rule on `POST /api/curators/interest` allowing at most 16 requests per source IP
 per 600 seconds. The application-level Blob gates remain a second layer and the cron deletes only
 expired `curators-rate/` gate objects.
+
+The Reown project must allow the two custom domains and the stable Vercel production domain. The
+release build checks the provider's public origin policy; a syntactically valid project id is not
+enough when the served origin is absent.

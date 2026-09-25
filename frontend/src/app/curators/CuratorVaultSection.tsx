@@ -18,9 +18,9 @@ export function CuratorVaultSection() {
   if (!ethereum && !solana) return null;
   const lede =
     ethereum && solana
-      ? "Approved curators act here. On Ethereum, post first-loss capital into the CuratorModule per collateral class and withdraw what the class does not require. On Solana, subscribe to the vault: deposit, give notice, withdraw when eligible, and claim coupons as they fall due."
+      ? "Approved curators act here. Forest Road's Ethereum position is held by its AnchorCurator Safe; separately approved partners use their own approved wallet. On Solana, subscribe to the vault: deposit, give notice, withdraw when eligible, and claim coupons as they fall due."
       : ethereum
-        ? "Approved Ethereum curators post first-loss capital into the CuratorModule per collateral class here, and withdraw what the class does not require."
+        ? "Forest Road's Ethereum position is held by its AnchorCurator Safe. Separately approved partners use their own approved wallet to post first-loss capital per class and withdraw what the class does not require."
         : "Approved Solana curators subscribe here: deposit, give notice, withdraw when eligible, and claim coupons as they fall due.";
   return (
     <Section tone="light" id="position">

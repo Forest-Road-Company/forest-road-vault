@@ -8,20 +8,17 @@
  */
 
 import {useEffect, useState} from "react";
-import {useBlockNumber, usePublicClient, useReadContracts} from "wagmi";
+import {useBlockNumber, useReadContract, useReadContracts} from "wagmi";
 import {
   CONTRACTS,
   EXPLORER_BASE_URL,
   IS_TESTNET,
   NETWORK_NAME,
-  PROTOCOL_DEPLOYMENT_BLOCK,
   SUPPORTS_VAULT_FEE_ACCOUNTING,
 } from "@/config/contracts";
 import {
-  BRIDGE_HISTORY_ABI,
   BRIDGE_ABI,
   CURATOR_ABI,
-  DEFAULT_HISTORY_ABI,
   ERC20_ABI,
   QUEUE_ABI,
   REGISTRY_ABI,
@@ -29,17 +26,13 @@ import {
   SGROVE_ABI,
   SHARE_DECIMALS,
   VAULT_ABI,
-  VAULT_HISTORY_ABI,
   WATERFALL_ABI,
-  WATERFALL_HISTORY_ABI,
 } from "@/lib/abi";
-import {
-  calculateHistoricalNetDefaultMetrics,
-  type HistoricalNetDefaultMetrics,
-} from "@/lib/book";
+import {formatUtcMinute, type HistoricalNetDefaultMetrics} from "@/lib/book";
 import {fmtAmount, fmtCountdown, shortAddress} from "@/lib/format";
 import {formatBps} from "@/lib/yield";
-import {readBlockRangeChunked} from "@/lib/logs";
+import {queueSettlementStatus} from "@/lib/queue";
+import {parseTransparencyHistoryResponse} from "@/lib/transparencyHistory";
 import {VERTICALS} from "@/lib/verticals";
 import {useNowSeconds} from "@/components/app/useNowSeconds";
 import {useBookEconomics} from "@/components/app/useBookEconomics";
@@ -70,10 +63,10 @@ export function TransparencyDashboard() {
   // minute (a single multicall + one blockNumber call).
   const POLL = {refetchInterval: 60_000} as const;
   const {data: blockNumber} = useBlockNumber({query: POLL});
-  const publicClient = usePublicClient();
   const [revenue, setRevenue] = useState<RevenueState>({phase: "loading"});
   const [creditPerformance, setCreditPerformance] =
     useState<CreditPerformanceState>({phase: "loading"});
+  const [historyBlock, setHistoryBlock] = useState<bigint>();
   const {data} = useReadContracts({
     query: POLL,
     contracts: [
@@ -92,6 +85,8 @@ export function TransparencyDashboard() {
       {address: CONTRACTS.RedemptionQueue!, abi: QUEUE_ABI, functionName: "epochEndsAt"},
       {address: CONTRACTS.RedemptionQueue!, abi: QUEUE_ABI, functionName: "totalQueuedShares"},
       {address: CONTRACTS.RedemptionQueue!, abi: QUEUE_ABI, functionName: "availableLiquidity"},
+      {address: CONTRACTS.RedemptionQueue!, abi: QUEUE_ABI, functionName: "totalRequests"},
+      {address: CONTRACTS.RedemptionQueue!, abi: QUEUE_ABI, functionName: "head"},
       {address: CONTRACTS.WaterfallEngine!, abi: WATERFALL_ABI, functionName: "protocolFeeBps"},
       {address: CONTRACTS.WaterfallEngine!, abi: WATERFALL_ABI, functionName: "feeRecipient"},
       {address: CONTRACTS.CuratorModule!, abi: CURATOR_ABI, functionName: "poolBalance", args: [1n]},
@@ -99,6 +94,11 @@ export function TransparencyDashboard() {
       {address: CONTRACTS.CuratorModule!, abi: CURATOR_ABI, functionName: "poolBalance", args: [3n]},
       {address: CONTRACTS.CuratorModule!, abi: CURATOR_ABI, functionName: "poolBalance", args: [4n]},
       {address: CONTRACTS.CuratorModule!, abi: CURATOR_ABI, functionName: "poolBalance", args: [5n]},
+      {address: CONTRACTS.WaterfallEngine!, abi: WATERFALL_ABI, functionName: "originationFeeBps", args: [1n]},
+      {address: CONTRACTS.WaterfallEngine!, abi: WATERFALL_ABI, functionName: "originationFeeBps", args: [2n]},
+      {address: CONTRACTS.WaterfallEngine!, abi: WATERFALL_ABI, functionName: "originationFeeBps", args: [3n]},
+      {address: CONTRACTS.WaterfallEngine!, abi: WATERFALL_ABI, functionName: "originationFeeBps", args: [4n]},
+      {address: CONTRACTS.WaterfallEngine!, abi: WATERFALL_ABI, functionName: "originationFeeBps", args: [5n]},
     ],
   });
   const {data: feeData} = useReadContracts({
@@ -132,9 +132,27 @@ export function TransparencyDashboard() {
   const epochEndsAt = v(12);
   const queuedShares = v(13);
   const queueLiquidity = v(14);
-  const protocolFeeBps = data?.[15]?.result as number | undefined;
-  const waterfallFeeRecipient = data?.[16]?.result as string | undefined;
-  const curatorPools = [v(17), v(18), v(19), v(20), v(21)];
+  const totalQueueRequests = v(15);
+  const queueHead = v(16);
+  const protocolFeeBps = data?.[17]?.result as number | undefined;
+  const waterfallFeeRecipient = data?.[18]?.result as string | undefined;
+  const curatorPools = [v(19), v(20), v(21), v(22), v(23)];
+  const originationFeeBps = [24, 25, 26, 27, 28].map(
+    (index) => data?.[index]?.result as number | undefined,
+  );
+  const hasQueueHead =
+    queuedShares !== undefined &&
+    queuedShares > 0n &&
+    queueHead !== undefined &&
+    totalQueueRequests !== undefined &&
+    queueHead < totalQueueRequests;
+  const {data: headEligibleAt} = useReadContract({
+    address: CONTRACTS.RedemptionQueue!,
+    abi: QUEUE_ABI,
+    functionName: "eligibleToSettleAt",
+    args: [queueHead ?? 0n],
+    query: {...POLL, enabled: hasQueueHead},
+  });
   const fv = (i: number) => feeData?.[i]?.result as bigint | undefined;
   const performanceFeeBps = feeData?.[0]?.result as number | undefined;
   const managementFeeBps = feeData?.[1]?.result as number | undefined;
@@ -176,208 +194,34 @@ export function TransparencyDashboard() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadRevenue() {
-      if (
-        !publicClient ||
-        blockNumber === undefined ||
-        !CONTRACTS.WaterfallEngine ||
-        !CONTRACTS.sUSDfr ||
-        blockNumber < PROTOCOL_DEPLOYMENT_BLOCK
-      ) {
-        return;
-      }
+    async function loadHistory() {
+      if (blockNumber === undefined) return;
       setRevenue({phase: "loading"});
-      try {
-        const common = {
-          address: CONTRACTS.WaterfallEngine,
-          abi: WATERFALL_HISTORY_ABI,
-        } as const;
-        const vaultCommon = {
-          address: CONTRACTS.sUSDfr,
-          abi: VAULT_HISTORY_ABI,
-        } as const;
-        const [originations, distributions, performanceFees, managementFees] = await Promise.all([
-          readBlockRangeChunked(
-            PROTOCOL_DEPLOYMENT_BLOCK,
-            blockNumber,
-            (fromBlock, toBlock) =>
-              publicClient.getContractEvents({
-                ...common,
-                eventName: "OriginationFeeCharged",
-                fromBlock,
-                toBlock,
-              }),
-          ),
-          readBlockRangeChunked(
-            PROTOCOL_DEPLOYMENT_BLOCK,
-            blockNumber,
-            (fromBlock, toBlock) =>
-              publicClient.getContractEvents({
-                ...common,
-                eventName: "Distributed",
-                fromBlock,
-                toBlock,
-              }),
-          ),
-          readBlockRangeChunked(
-            PROTOCOL_DEPLOYMENT_BLOCK,
-            blockNumber,
-            (fromBlock, toBlock) =>
-              publicClient.getContractEvents({
-                ...vaultCommon,
-                eventName: "PerformanceFeeAccrued",
-                fromBlock,
-                toBlock,
-              }),
-          ),
-          readBlockRangeChunked(
-            PROTOCOL_DEPLOYMENT_BLOCK,
-            blockNumber,
-            (fromBlock, toBlock) =>
-              publicClient.getContractEvents({
-                ...vaultCommon,
-                eventName: "ManagementFeeAccrued",
-                fromBlock,
-                toBlock,
-              }),
-          ),
-        ]);
-        if (cancelled) return;
-        setRevenue({
-          phase: "ready",
-          originationFees: originations.reduce(
-            (sum, event) => sum + (event.args.fee ?? 0n),
-            0n,
-          ),
-          interestFees: distributions.reduce(
-            (sum, event) => sum + (event.args.fee ?? 0n),
-            0n,
-          ),
-          performanceFees: performanceFees.reduce(
-            (sum, event) => sum + (event.args.feeAssets ?? 0n),
-            0n,
-          ),
-          managementFees: managementFees.reduce(
-            (sum, event) => sum + (event.args.feeAssets ?? 0n),
-            0n,
-          ),
-        });
-      } catch {
-        if (!cancelled) setRevenue({phase: "error"});
-      }
-    }
-
-    void loadRevenue();
-    return () => {
-      cancelled = true;
-    };
-  }, [blockNumber, publicClient]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadCreditPerformance() {
-      if (
-        !publicClient ||
-        blockNumber === undefined ||
-        !CONTRACTS.ClaimBridge ||
-        !CONTRACTS.WaterfallEngine ||
-        !CONTRACTS.DefaultManager ||
-        blockNumber < PROTOCOL_DEPLOYMENT_BLOCK
-      ) {
-        return;
-      }
       setCreditPerformance({phase: "loading"});
       try {
-        const [originations, fundings, losses] = await Promise.all([
-          readBlockRangeChunked(
-            PROTOCOL_DEPLOYMENT_BLOCK,
-            blockNumber,
-            (fromBlock, toBlock) =>
-              publicClient.getContractEvents({
-                address: CONTRACTS.ClaimBridge!,
-                abi: BRIDGE_HISTORY_ABI,
-                eventName: "Originated",
-                fromBlock,
-                toBlock,
-              }),
-          ),
-          readBlockRangeChunked(
-            PROTOCOL_DEPLOYMENT_BLOCK,
-            blockNumber,
-            (fromBlock, toBlock) =>
-              publicClient.getContractEvents({
-                address: CONTRACTS.WaterfallEngine!,
-                abi: WATERFALL_HISTORY_ABI,
-                eventName: "Funded",
-                fromBlock,
-                toBlock,
-              }),
-          ),
-          readBlockRangeChunked(
-            PROTOCOL_DEPLOYMENT_BLOCK,
-            blockNumber,
-            (fromBlock, toBlock) =>
-              publicClient.getContractEvents({
-                address: CONTRACTS.DefaultManager!,
-                abi: DEFAULT_HISTORY_ABI,
-                eventName: "LossRealized",
-                fromBlock,
-                toBlock,
-              }),
-          ),
-        ]);
+        const response = await fetch("/api/transparency/history", {
+          headers: {accept: "application/json"},
+        });
+        if (!response.ok) throw new Error(`history endpoint returned ${response.status}`);
+        const history = parseTransparencyHistoryResponse(await response.json());
         if (cancelled) return;
-
-        const classByToken = new Map<bigint, number>();
-        for (const event of originations) {
-          const tokenId = event.args.tokenId;
-          const classId = event.args.classId;
-          if (tokenId === undefined || classId === undefined) {
-            throw new Error("incomplete Originated event");
-          }
-          classByToken.set(tokenId, Number(classId));
-        }
-
-        const funded = fundings.map((event) => {
-          const tokenId = event.args.tokenId;
-          const principal = event.args.principal;
-          if (tokenId === undefined || principal === undefined) {
-            throw new Error("incomplete Funded event");
-          }
-          const classId = classByToken.get(tokenId);
-          if (classId === undefined) {
-            throw new Error(`missing origination for funded facility ${tokenId}`);
-          }
-          return {classId, principal};
-        });
-        const realizedLosses = losses.map((event) => {
-          const classId = event.args.classId;
-          const loss = event.args.loss;
-          if (classId === undefined || loss === undefined) {
-            throw new Error("incomplete LossRealized event");
-          }
-          return {classId: Number(classId), loss};
-        });
-
-        setCreditPerformance({
-          phase: "ready",
-          metrics: calculateHistoricalNetDefaultMetrics(
-            funded,
-            realizedLosses,
-            VERTICALS.map((_, index) => index + 1),
-          ),
-        });
+        setHistoryBlock(history.asOfBlock);
+        setRevenue({phase: "ready", ...history.revenue});
+        setCreditPerformance({phase: "ready", metrics: history.credit});
       } catch {
-        if (!cancelled) setCreditPerformance({phase: "error"});
+        if (!cancelled) {
+          setHistoryBlock(undefined);
+          setRevenue({phase: "error"});
+          setCreditPerformance({phase: "error"});
+        }
       }
     }
 
-    void loadCreditPerformance();
+    void loadHistory();
     return () => {
       cancelled = true;
     };
-  }, [blockNumber, publicClient]);
+  }, [blockNumber]);
 
   const totalRevenue =
     revenue.phase === "ready"
@@ -390,6 +234,31 @@ export function TransparencyDashboard() {
   const backingOk =
     supply !== undefined && backing !== undefined ? supply <= backing : undefined;
   const now = useNowSeconds();
+  const settlementStatus = queueSettlementStatus(
+    epochEndsAt,
+    queuedShares,
+    hasQueueHead ? headEligibleAt : undefined,
+    now,
+  );
+  const settlementStatusText =
+    settlementStatus.kind === "epoch-open"
+      ? `ends in ${fmtCountdown(settlementStatus.secondsRemaining)}`
+      : settlementStatus.kind === "queue-empty"
+        ? "ended · queue empty"
+        : settlementStatus.kind === "head-cooldown"
+          ? `ended · head eligible in ${fmtCountdown(settlementStatus.secondsRemaining)}`
+          : settlementStatus.kind === "settlement-due"
+            ? "ended · keeper settlement due"
+            : "–";
+  const currentOriginationFee = originationFeeBps.every(
+    (fee): fee is number => fee !== undefined,
+  )
+    ? new Set(originationFeeBps).size === 1
+      ? `${formatBps(BigInt(originationFeeBps[0]))} · all classes`
+      : VERTICALS.map(
+          (vertical, index) => `${vertical.name}: ${formatBps(BigInt(originationFeeBps[index]))}`,
+        ).join(" · ")
+    : "–";
 
   const fmt = (x: bigint | undefined, dp = 2) => (x !== undefined ? fmtAmount(x, 18, dp) : "–");
   /* Band figures only: house-style compact notation past $1mm so a mainnet-sized
@@ -427,7 +296,8 @@ export function TransparencyDashboard() {
           )}
         </div>
         {/* min-w-0 on every cell: a grid track's default min-width is its content, so one long
-            figure would otherwise widen its column and push the neighbouring figures into it. */}
+            figure would otherwise widen its column and push the neighbouring figures into it
+            (reported from a cached build showing pre-compact figures, 22 September). */}
         <div className="mt-5 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 [&>div]:min-w-0">
           <div>
             <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy-accent">USDfr supply</p>
@@ -449,9 +319,14 @@ export function TransparencyDashboard() {
                 : "–"}
             </p>
             <p className="mt-1 text-[10.5px] text-on-navy-faint">
+              {/* A mark past its freshness window still stands until the next one arrives
+                  (owner direction, 2026-09-24), so the figure stays up and says how old the
+                  mark behind it is. Only a loan with no mark at all withholds the figure. */}
               {collateralValue && !collateralValue.complete
-                ? "fresh collateral mark unavailable"
-                : grossCollateralAndReservesBps !== null
+                ? "collateral mark unavailable"
+                : collateralValue?.staleMarkAsOf != null
+                  ? `last digital-asset mark ${formatUtcMinute(collateralValue.staleMarkAsOf)}, awaiting update`
+                  : grossCollateralAndReservesBps !== null
                   ? `${formatBps(grossCollateralAndReservesBps)} of funds on loan`
                   : deployed === 0n
                     ? "no funds currently on loan"
@@ -491,7 +366,8 @@ export function TransparencyDashboard() {
           principal with the broader collateral reference: receivables scale their
           live outstanding principal by the signed LTV, so the reference amortizes
           with the loan and falls on a write-down, and digital-asset loans use the
-          latest fresh m-of-n attested mark; closed facilities are excluded. Curator
+          latest m-of-n attested mark, dated when it is older than its class&apos;s
+          freshness window, until the next one arrives; closed facilities are excluded. Curator
           capital is
           shown separately because it is subordinated USDfr already backed by this
           same asset pool, not an additional external asset to add a second time.
@@ -649,7 +525,7 @@ export function TransparencyDashboard() {
           </p>
           {creditPerformance.phase === "error" ? (
             <p className="mt-2 text-[11.5px] text-warn">
-              Historical default logs are unavailable from this RPC.
+              Historical credit data is temporarily unavailable.
             </p>
           ) : null}
         </Panel>
@@ -657,7 +533,7 @@ export function TransparencyDashboard() {
         <Panel title="Protocol revenue" addr={CONTRACTS.WaterfallEngine!}>
           <Row k="Revenue since deployment" val={`${fmt(totalRevenue, 4)} USDfr-equiv.`} />
           <Row
-            k="Origination fees"
+            k="Origination fees collected"
             val={
               revenue.phase === "ready"
                 ? `${fmt(revenue.originationFees, 4)} USDfr`
@@ -691,6 +567,10 @@ export function TransparencyDashboard() {
                 ? `${fmt(revenue.managementFees, 4)} USDfr-equiv.`
                 : "–"
             }
+          />
+          <Row
+            k="Current origination fee"
+            val={currentOriginationFee}
           />
           <Row
             k="Current interest fee"
@@ -746,7 +626,7 @@ export function TransparencyDashboard() {
           ) : null}
           {revenue.phase === "error" ? (
             <p className="mt-2 text-[11.5px] text-warn">
-              Historical revenue logs are unavailable from this RPC.
+              Historical revenue data is temporarily unavailable.
             </p>
           ) : null}
         </Panel>
@@ -763,14 +643,8 @@ export function TransparencyDashboard() {
         <Panel title="Redemption queue" addr={CONTRACTS.RedemptionQueue!}>
           <Row k="Current epoch" val={epoch?.toString() ?? "–"} />
           <Row
-            k="Epoch ends"
-            val={
-              epochEndsAt !== undefined && now !== null
-                ? Number(epochEndsAt) <= now
-                  ? "over: awaiting close"
-                  : `in ${fmtCountdown(Number(epochEndsAt) - now)}`
-                : "–"
-            }
+            k="Settlement status"
+            val={settlementStatusText}
           />
           <Row
             k="Queued shares"
@@ -782,6 +656,7 @@ export function TransparencyDashboard() {
         <Panel title="Provenance" addr={CONTRACTS.MintRedeemController!}>
           <Row k="Network" val={NETWORK_NAME} />
           <Row k="As of block" val={blockNumber?.toString() ?? "–"} />
+          <Row k="History through block" val={historyBlock?.toString() ?? "–"} />
           <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
             Every figure on this page is a direct contract read
             {EXPLORER
