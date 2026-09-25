@@ -403,7 +403,11 @@ const readSurfaces: Array<[string, string, string[], string]> = [
       "epochEndsAt",
       "totalQueuedShares",
       "availableLiquidity",
+      "totalRequests",
+      "head",
+      "eligibleToSettleAt",
       "protocolFeeBps",
+      "originationFeeBps",
       "feeRecipient",
       "poolBalance",
       "performanceFeeBps",
@@ -473,6 +477,7 @@ for (const [label, path, dependencies, refreshEvidence] of readSurfaces) {
 }
 
 const transparency = source("./src/components/app/TransparencyDashboard.tsx");
+const transparencyHistory = source("./src/lib/transparencyHistory.server.ts");
 for (const historyEvent of [
   "Originated",
   "Funded",
@@ -484,12 +489,14 @@ for (const historyEvent of [
 ]) {
   check(
     `transparency history: ${historyEvent}`,
-    transparency.includes(`eventName: "${historyEvent}"`),
+    transparencyHistory.includes(`eventName: "${historyEvent}"`),
   );
 }
 check(
   "transparency history is block-triggered",
-  transparency.includes("blockNumber") && transparency.includes("useEffect"),
+  transparency.includes("blockNumber") &&
+    transparency.includes("useEffect") &&
+    transparency.includes('fetch("/api/transparency/history"'),
 );
 
 if (failures > 0) {

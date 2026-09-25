@@ -281,6 +281,7 @@ export const QUEUE_ABI = [
   {type: "function", name: "claim", stateMutability: "nonpayable", inputs: [{name: "requestId", type: "uint256"}], outputs: [{name: "assets", type: "uint256"}]},
   {type: "function", name: "request", stateMutability: "view", inputs: [{name: "requestId", type: "uint256"}], outputs: [{name: "owner", type: "address"}, {name: "sharesRemaining", type: "uint256"}, {name: "assetsClaimable", type: "uint256"}, {name: "epochRequested", type: "uint256"}, {name: "requestedAt", type: "uint256"}]},
   {type: "function", name: "totalRequests", stateMutability: "view", inputs: [], outputs: [{type: "uint256"}]},
+  {type: "function", name: "head", stateMutability: "view", inputs: [], outputs: [{type: "uint256"}]},
   {type: "function", name: "currentEpoch", stateMutability: "view", inputs: [], outputs: [{type: "uint256"}]},
   {type: "function", name: "epochEndsAt", stateMutability: "view", inputs: [], outputs: [{type: "uint64"}]},
   {type: "function", name: "isSettling", stateMutability: "view", inputs: [], outputs: [{type: "bool"}]},
@@ -357,6 +358,7 @@ export const BRIDGE_HISTORY_ABI = [
 
 export const WATERFALL_ABI = [
   {type: "function", name: "protocolFeeBps", stateMutability: "view", inputs: [], outputs: [{type: "uint16"}]},
+  {type: "function", name: "originationFeeBps", stateMutability: "view", inputs: [{name: "classId", type: "uint256"}], outputs: [{type: "uint16"}]},
   {type: "function", name: "feeRecipient", stateMutability: "view", inputs: [], outputs: [{type: "address"}]},
 ] as const;
 

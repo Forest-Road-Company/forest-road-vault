@@ -50,7 +50,14 @@ export type CollateralValueMetrics = {
   outstandingPrincipal: bigint;
   coverageBps: bigint | null;
   complete: boolean;
+  /** The oldest mark included past its class freshness window, or null when every included mark is fresh. */
+  staleMarkAsOf: bigint | null;
 };
+
+/** A chain timestamp as `YYYY-MM-DD HH:MM UTC`, the site's display form. */
+export function formatUtcMinute(seconds: bigint): string {
+  return `${new Date(Number(seconds) * 1_000).toISOString().replace("T", " ").slice(0, 16)} UTC`;
+}
 
 const ACTIVE = 1;
 const AMORTIZING = 2;
@@ -194,9 +201,13 @@ export function calculateProjectedSeniorIncome(
  * live reference value is the underwriting denominator implied by remaining
  * principal/LTV. Scaling the reference value down with amortization and write-downs
  * prevents displayed coverage from rising merely because the denominator fell.
- * Digital-assets collateral instead uses its latest fresh m-of-n attested mark.
- * If an outstanding MTM facility has no usable mark, `complete` is false and the
- * aggregate must not be presented as a complete collateral value.
+ * Digital-assets collateral instead uses its latest m-of-n attested mark. A mark
+ * past the class freshness window still stands until the next one arrives (owner
+ * direction, 2026-09-24): it is included, and `staleMarkAsOf` carries its date so
+ * the display says it is stale rather than presenting it as current. Only an
+ * outstanding MTM facility with NO usable mark (never attested, zero, or dated in
+ * the future) makes `complete` false, and then the aggregate must not be shown.
+ * This is a display rule only: the protocol's margin path still requires a fresh mark.
  */
 export function calculateCollateralValueMetrics(
   positions: readonly CollateralPosition[],
@@ -207,20 +218,26 @@ export function calculateCollateralValueMetrics(
   let markedToMarketValue = 0n;
   let outstandingPrincipal = 0n;
   let complete = true;
+  let staleMarkAsOf: bigint | null = null;
 
   for (const position of positions) {
     if (position.outstandingPrincipal <= 0n) continue;
     outstandingPrincipal += position.outstandingPrincipal;
 
     if (position.classId === DIGITAL_ASSETS_CLASS_ID) {
-      const markIsFresh =
+      const markIsUsable =
         position.valuation > 0n &&
         position.valuationAsOf > 0n &&
-        position.valuationAsOf <= now &&
-        now - position.valuationAsOf <= markedToMarketMaxAge;
-      if (!markIsFresh) {
+        position.valuationAsOf <= now;
+      if (!markIsUsable) {
         complete = false;
         continue;
+      }
+      if (
+        now - position.valuationAsOf > markedToMarketMaxAge &&
+        (staleMarkAsOf === null || position.valuationAsOf < staleMarkAsOf)
+      ) {
+        staleMarkAsOf = position.valuationAsOf;
       }
       markedToMarketValue += position.valuation;
       continue;
@@ -245,6 +262,7 @@ export function calculateCollateralValueMetrics(
         ? (referenceValue * BPS) / outstandingPrincipal
         : null,
     complete,
+    staleMarkAsOf,
   };
 }
 

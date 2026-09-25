@@ -205,8 +205,14 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
         ) : (
           <span>wallet not connected</span>
         )}
+        {/* The rate is one unbreakable run: it read "Rate: 1" at the end of a
+            line and "sUSDfr = 1.0021 USDfr" on the next once the line wrapped,
+            on any phone. The space before it is the line's only break
+            opportunity, and without it the unbreakable run and the balance
+            together set the card's minimum width. */}
+        {rate !== undefined ? " " : null}
         {rate !== undefined ? (
-          <span className="ml-3">
+          <span className="ml-2 whitespace-nowrap">
             Rate:{" "}
             <span className="text-ink-muted">
               1 sUSDfr = {fmtAmount(rate, 18, 4)} USDfr
@@ -245,7 +251,7 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
               can change before settlement.{" "}
               {IS_TESTNET
                 ? "A separately funded testnet top-up tool may be exercised, but no top-up or airdrop is promised, automatic, or included in this value."
-                : "Mainnet v1 has no recovery top-up distributor; no top-up or airdrop is promised or included in this value."}
+                : "Mainnet has no recovery top-up distributor; no top-up or airdrop is promised or included in this value."}
             </span>
           </p>
         </div>

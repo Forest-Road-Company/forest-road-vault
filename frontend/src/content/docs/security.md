@@ -1,206 +1,130 @@
-# Security & Testing
+# Security and Testing
 
-> The application identifies its active network and deployment receipt at build time.
-> Production promotion is authorized only after the gates below are cleared. Token
-> characterization is a matter for counsel; nothing here is a securities-law
-> representation.
+Forest Road Vault V2 is live on Ethereum mainnet. Its permanent proxy entry points were deployed
+at block 26,006,832 from the manifest identified on the
+[deployed-addresses page](/docs/addresses). Bootstrap authority has been removed from the deployer;
+administration and upgrades are held by timelocked governance.
 
-Forest Road Vault custodies capital against real legal claims, so correctness and test
-rigor are treated as the deliverable, not an afterthought. This page summarizes the
-posture; the full invariant specification and role model are published alongside it.
+Security reviews and tests reduce risk. They do not prove that the contracts, governance,
+custodians, keepers, signers or real-world loan facts cannot fail. Each review on the
+[audit register](/docs/audit) states its own source baseline and scope because a clean result
+outside that boundary is not evidence about the rest of the system.
 
-## Testing
+## Current release evidence
 
-- **Foundry** covers the contract set with targeted branch/revert tests, realistic
-  end-to-end flows, stateful invariants, and fuzz campaigns.
-- ADR-0031 changed the exact source after the July 27–28 internal audit snapshot.
-  Those historical 855-test / 442-function / 2,427-line figures are superseded and
-  are not presented as current assurance. Four successive external fee-accounting
-  reviews then found and re-checked the impaired-flow, dual-NAV, and exit-carry
-  defects. The latest found no High issue and no safety-invariant break. Forest Road
-  accepted the remaining protocol-revenue-only global-HWM tradeoff; the follow-up
-  zero-vesting and hardening delta still awaits exact-source independent review. Its
-  local, fork, coverage, static-analysis, and symbolic evidence is recorded in
-  `CURRENT_VERIFICATION.md`.
-- A **differential model** cross-checks the attestation oracle, and reward accounting is
-  reconciled against independent ghost accounting.
-- **Halmos** checks five backing-transition properties (68 paths) and the cascade
-  arithmetic property (9 paths). The published formal-methods note states the model and
-  token trust boundaries; this is not a whole-protocol formal-verification claim.
-- **Mainnet-fork tests** exercise the USDC-only launch surface against canonical Ethereum
-  USDC at a pinned block, including the complete lifecycle, governance, compliance,
-  oracle, points, queue, marked-to-market, deployment/handover, and loss-cascade paths.
+The deployment qualification and the later deployed-contract review resolved the live proxies,
+implementations, linked libraries, roles, negative roles, module wiring, fee settings, risk
+parameters and continuous-accrual bindings against the production manifest. Etherscan recorded
+source verification for all 60 deployment inventory addresses and implementation association for
+all 18 proxies. On-chain code hashes and ERC-1967 implementation slots are the authoritative
+identity checks.
 
-## The safety spec
+The exact deployed source tree completed:
 
-Nine system invariants are encoded as stateful properties and exercised across fuzzed
-reachable states: the backing invariant (supply never exceeds backing), value
-conservation in the waterfall, strict loss-cascade ordering, the synchronized mint gate,
-FIFO redemption with no double-claim, concentration limits, exchange-rate monotonicity,
-access control, and reserve reconciliation. See **Protocol guarantees** for the full list
-and how each is enforced on-chain.
+- a clean production build with Solidity 0.8.30, optimizer runs 100, Cancun and no IR;
+- 3,108 non-fork release checks, comprising 3,105 passing tests and three separately executed
+  endpoint checks;
+- 208 heavy invariant tests at 512 runs and depth 256;
+- eight Halmos symbolic properties;
+- executable reachability for 1,074 of 1,074 deployed-scope functions;
+- 99.40% line and 94.95% branch coverage over `contracts/src`; and
+- a later clean mainnet-fork population of 69 suites and 537 passing tests with zero failures or
+  skips.
 
-## Review
+The deployed-address scenarios cover cash and PIK origination, continuous accrual, scheduled PIK
+capitalization, both fee layers, repayment, delinquency and cure, assessed impairment, the
+curator-to-sGROVE-to-senior loss order, recovery, queue FIFO and settlement, direct redemption,
+sGROVE rewards and unbonding, voting and timelock execution, custody controls, signature quorum and
+replay, stale accrual, donations, late entry, pausing, and split sub-par exits.
 
-- A historical internal, multi-round **adversarial audit** was run against its then-current contract set.
-  Independent reviewers rotated attack lenses each round (arithmetic, economic/MEV,
-  upgrade & storage, external-token integration, access control), plus static analysis
-  (Slither). No Critical finding was confirmed. Every High finding and its disposition is
-  published: deployment authorization was remediated with regression tests; the remaining
-  curator-capital settlement risk is explicitly accepted/deferred rather than described
-  as fixed.
-- All contracts use **audited, standard implementations** (OpenZeppelin) for tokens,
-  ERC-4626, ERC-721, access control, proxies, reentrancy guards, and pausing. Nothing
-  security-sensitive is hand-rolled. Checks-Effects-Interactions and reentrancy guards are
-  used throughout the value-moving paths.
+The important new tests were checked with deliberate incorrect changes. The review asserted that
+each change actually applied, observed the intended failures, restored the source byte for byte,
+and reran the passing cases. This matters because a test that stays green after the behavior it is
+supposed to protect is removed provides no useful evidence.
 
-- **Two subsequent five-pass source-level audits** were then run across the production
-  contracts and their deployment wiring, surfacing eighteen further findings at module
-  boundaries the earlier tests had treated as trusted: backing/valuation and facility
-  lifecycle in Round 1, and compliance, the vault, the redemption queue and the treasury in
-  Round 2. We publish all of them, with per-finding remediation status, in the
-  **Audit Register**, where every round keeps its own findings and its own remediation
-  history. ADR-0030 subsequently removed the legacy multi-stable, DSRA,
-  reserve-instrument, recovery-top-up deployment, and compatibility surfaces. The fresh
-  clean-v1 stack formerly deployed at Sepolia block 11340997 is now explicitly archived
-  because ADR-0031 and later liveness remediation changed the source. The current
-  `7eef49b` suite was deployed across blocks 11386373–11386520, explorer-verified, and
-  exercised through all 661 callable ABI entries on a finalized fork. That deployment
-  evidence does not close the outstanding independent source-delta review.
-  No historical completion label or hash applies to the current source. This is exactly
-  why an internal review is not a substitute for an external one.
+## Live acceptance
 
-An internal review is **not** a substitute for an independent external audit.
+A funded mainnet canary completed USDfr minting and transfer, sUSDfr deposit and transfer, direct
+USDfr redemption and sUSDfr queue entry. Supply equalled recognized backing, and physical USDC in
+ReserveManager equalled its idle ledger.
 
-## Production assurance gates (human-owned)
+The operations Safe then blocked the canary by jurisdiction. USDfr and sUSDfr transfers, minting
+and redemption refused the blocked wallet; one signed transfer was mined with failed status and no
+value movement. Unrelated wallets and protocol burn legs remained available. The Safe cleared the
+block, the wallet's retained allowlist status became effective again, and the temporary drill
+balance redeemed for exactly 1 USDC.
 
-The internal engineering review does not itself authorize production. A first mainnet
-promotion requires an **external security audit**, a **securities-law opinion**, an
-**executed legal wrapper**, an **economic review**, and **acceptance of the
-attestation-trust model**.
+The queue request remains in its contractually required 21-day cooldown until 12 October 2026.
+The full settlement and claim sequence has passed on a fork, while its live settlement remains a
+scheduled observation rather than a completed claim.
 
-Current status of those gates:
+## Recent review history
 
-- **Corrovera independent review: RECEIVED AND OWNER-DISPOSITIONED 4 AUGUST 2026.** Corrovera Security
-  reviewed the whole protocol as it stood on 4 August 2026, all 37 files and 10,502 lines of
-  contract source, at a commit byte-identical to the `contracts/src` tree at `b5245398`
-  **on that date**. The source has since grown to 49 files and has not been re-reviewed by
-  Corrovera, so this review is scoped to the 4 August tree rather than to current source.
-  It was conducted with our existing 36-entry findings
-  register supplied as an exclusion list so that a rediscovery could not be reported as a
-  discovery. It is the first review of this protocol by a party other than Forest Road, and
-  it is published in full on the Audit Register. **Its limits belong with its findings, so
-  we state them here rather than only in the report:** the engagement was Corrovera's
-  AI-assisted tier; **no finding in it reached `confirmed`**, because fork reproduction was
-  not part of the engagement; no property was formally proven; no fuzzing ran beyond our own
-  suite; and adjudication was by one engineer rather than a consensus pipeline. The report's
-  own words are that a clean section *"is not evidence of security."* It was not clean. It
-  produced two new Medium findings outside the register: F-01, a curator being able to
-  inflate the price its own queued redemption settles at, and F-02, ordinary forbearance
-  suppressing the senior impairment mark with no misconduct required. **Forest Road analysed
-  both and accepted them as low practical risk on 4 August 2026. Accepted is not fixed:**
-  neither mechanism is refuted, neither is remediated in code, and Corrovera's Medium
-  ratings stand as they wrote them. F-01 is near-unreachable only while Forest Road is the
-  sole curator, and goes live at the first approval of a third-party curator, so that
-  approval is itself gated on remediating it first. Forest Road confirmed that one external audit
-  is the applicable launch requirement, so the received Corrovera engagement satisfies that gate.
-  This policy disposition does not change the report's scope, AI-assisted method, Medium ratings or
-  stated limitations. A reader who wants a stricter bar than this evidence supports should say so;
-  the material to judge it is on the register.
-- **Prior internal rounds, for context.** Four independent
-  ADR-0031 review rounds are complete; the latest confirmed the holder-protective
-  exit/backstop fixes and reported no High issue. It preceded the current
-  zero-vesting, legacy-seed, upgrade-order, liveness, deployment-receipt, UI, and CI
-  follow-up. An internal adversarial audit of the whole
-  protocol (Round 16, 2 August 2026) reviewed the current source directly and reported
-  several live findings. Forest Road formally accepted two corrected residual risks on
-  3 August 2026: D7-01 at Medium and D4-01 at Low. Neither mechanism is resolved or
-  refuted, but neither is a release blocker after acceptance. D7-01's loss-avoidance
-  channel is closed by the existing atomic-private default procedure; its surviving risk
-  is a throughput-cap bypass. D4-01's anonymous path is a bounded, non-compounding
-  one-epoch delay. The round's four Low assurance-chain findings
-  (D13-01 through D13-04) were subsequently remediated with tracked regressions, but the
-  open protocol findings remain, so the delta this gate refers to has grown rather than
-  closed. That round
-  also corrected four of its own earlier conclusions, including one previously published
-  here: the upgrade role is held only by the timelock **in the current configuration**, but
-  the default administrator role administers it, so that is a configuration state and not a
-  control. It remains an internal review and does not move this gate.
-- **Securities-law opinion: OWNER-REPORTED COMPLETE.** The repository does not
-  independently attest the underlying letter. Nothing on this site is a
-  securities-law representation.
-- **Executed legal wrapper: OWNER-REPORTED COMPLETE.**
-- **Economic review: OWNER-REPORTED COMPLETE.**
-- **Attestation-trust model acceptance: OWNER-REPORTED COMPLETE.**
-- **Mainnet operator ceremony: COMPLETE 16 AUGUST 2026**, at block 25,768,251, with bootstrap
-  authority surrendered to the timelock. What follows is the historical record of what was
-  outstanding before it ran: Tracked default/heavy tests and Solidity formatting
-  pass, and the pinned-fork recovery rehearsal now exercises the real Treasury Safe proxy. The
-  Safe shared-owner common mode is formally accepted as `SAFE-CD-01` and remains disclosed rather
-  than described as independent control. The validated KMS deployer is now funded with ETH and
-  canonical USDC. Forest Road approved its four gas-policy values, and the strict read-only
-  renewed-session preflight passed at mainnet block 25,681,334 without a signing request. A later
-  receipt-integrity review corrected a stale raw-timelock entry to the initializer-locking wrapper
-  actually deployed and added deployment/proxy/manifest cross-binding tests. That correction
-  rotates the authorization, so the prior preflight is historical evidence only; corrected-source
-  commit review, green CI, replacement freeze, fresh two-operator approval and a repeated strict
-  preflight are required before ceremony. The roleless atomic MTM executor and private
-  keeper worker now exist. A follow-up internal audit fixed four additional Medium findings and the
-  Low `KPA-L1` repository limitation. Round 17 then found two Low items: Forest Road accepted the
-  live, PROVEN `MTM-01` risk on 4 August 2026 without claiming a fix or refutation, and
-  `MTM-02` is fixed by local digest/quorum/action validation, event-based peer recovery and a required fixed gas limit, so neither read RPC
-  receives a pre-inclusion digest commitment, unsigned valuation or signed bearer bundle. The hardened unit suite passes 54/54, the executor suite passes
-  12/12, and the complete compiled-worker lifecycle passes on a disposable fork pinned to mainnet
-  block 25,500,000, including near-cap repeated-ID multi-bundle scheduling, both code-bearing and
-  no-code bad-queue rejection, fail-closed expired-entry eviction, no-action rejection with zero
-  relay calls, `rpc-commitment-leak=0`, `rpc-valuation-leak=0` and `rpc-bearer-leak=0`. The
-  live Flashbots qualification uses dedicated unfunded auth identities plus funded, competitively
-  priced, deterministic-revert tests. Both were classified as reverts, marked failed, excluded from
-  the selected Alchemy/Ankr public views and never included, with unchanged keeper balances and
-  nonces. Flashbots' public status API nevertheless returned limited failed-transaction metadata
-  contrary to its current documentation; it returned no calldata, raw transaction or signature.
-  Internal payload logging/retention remains unprovable. Forest Road formally accepted that
-  hosted-relay residual as `MTM-RELAY-01` on 5 August 2026, subject to the exact non-fast,
-  Flashbots-only-builder, hash-only configuration, separate relay-auth keys, zero ordinary-RPC
-  bearer leakage and four documented revisit triggers. The acceptance does not claim provider
-  internals or universal/reorg no-rebroadcast are technically proven.
-  The local guardian adapter does not prove the actual Safe. The executor
-  remains undeployed but is within Corrovera's reviewed `contracts/src`; the
-  one-external-audit requirement is satisfied. The exact selected bounded-batch feed now runs with
-  private-only Railway PostgreSQL and passes a 48-facility concurrent load plus exact-service
-  restart recovery; Forest Road approved its capacity-32 latency/capacity operating bound on
-  5 August 2026. Both offline keepers have matching feed endpoints/tokens,
-  `MAX_PENDING_BUNDLES=32` and approved gas variables. Two independently controlled
-  hosts, independent-heartbeat evidence and the actual
-  human Guardian-Safe drill are absent. The feed test can use synthetic bundles and a disposable
-  fork; the Safe drill requires real owners but may use the tightly capped disposable mainnet test deployment,
-  so neither item requires a public production launch. Human
-  recovery timing and capital-policy records also remain open. A local test cannot mark those
-  controls complete.
+The Audit Register now includes the September review sequence:
 
-Once launched, those controls and the documented monitoring,
-incident-response, and governance processes remain ongoing obligations.
+- the 13 September Corrovera dual-chain ensemble, which read 125 source files individually and
+  explicitly did not establish dependency closure or review deployment scripts;
+- the 17 September Corrovera diff review and its follow-up probes over the accrual, impairment,
+  custody and legacy-default changes;
+- the 18 September internal Solana and curator correctness review;
+- the 20 September Corrovera curator-vault review and its remediation verification; and
+- the 20 September internal review of the exact Ethereum V2 deployment on forked mainnet state.
+
+The 13 September headline claim count is not presented as 317 confirmed defects. It was a claim
+corpus: reviewers agreed on some claims, disagreed on others, and many depended on context that a
+one-file review could not see. Later dependency-aware checks refuted the two proposed Highs,
+confirmed and corrected the supported Mediums, and retained the scope limitation in the public
+record.
+
+The Solana curator vault is a separate product surface. Its canonical artifact is active and
+verified on devnet; no Solana mainnet deployment has occurred. Its audit history must not be read
+as assurance for the Ethereum contracts, or vice versa.
+
+## Accepted and operational residuals
+
+No new Critical, High or Medium contract defect was confirmed by the deployed Ethereum review.
+The following limits remain relevant:
+
+- If curator capital, sGROVE coverage and senior assets are all exhausted, a close can leave a
+  remainder smaller than one USDC base unit. Value-sensitive operations fail closed. A funded
+  worker may supply the exact correction under per-payment, daily and count limits.
+- Repeated protocol-fee withholding during a standing senior impairment can reduce protocol
+  revenue by more than the initial impairment. It favors senior backing and cannot extract senior
+  assets.
+- Live acceptance ran with an empty credit book; no synthetic loan was created to produce a launch
+  receipt. Real facilities have been originated since 21 September 2026, each through the same
+  attestation gate with its own documents, attester quorum and capital. See
+  [Live deployment status](/docs/status).
+- Module-wide Guardian pause/unpause has fork evidence but no recorded live Safe drill. The
+  wallet-specific jurisdiction drill is complete and is a different control.
+- Both marked-to-market keepers currently share Railway under an owner-accepted temporary hosting
+  decision. This is a common administrative and hosting failure domain.
+
+## Trust boundaries
+
+Two valid attester signatures can establish any off-chain fact the accounting consumes. Credit
+terms, payments, defaults, cures, losses, valuations and amendments each need two; the assignment
+and lien-filing facts need one. The contracts enforce signer ordering, quorum, payload binding,
+expiry and replay protection, but cannot inspect a legal document or independently prove that an
+off-chain payment occurred.
+
+The operations Safe controls KYC, operational servicing and emergency user-path pauses. It cannot
+upgrade contracts or satisfy the attester quorum by itself. Timelocked governance can change
+implementations and governed parameters after the voting and delay process. Canonical USDC,
+Ethereum execution, RPC availability and keeper funding remain external dependencies.
+
+Continuous accrual recognizes earned cash and PIK interest before receipt. It uses frozen facility
+bases and constant-time aggregates. Lifecycle transactions checkpoint before changing a basis,
+rate or earning status; differential and stateful tests compare those aggregates with independent
+reference models over long event sequences.
 
 ## Reporting a vulnerability
 
-Email **jevans@forestroad.com**. Please report privately rather than opening a public issue for
-anything affecting the safety of deployed contracts or user funds.
+Email **jevans@forestroad.com** and report privately rather than opening a public issue for a
+problem that may affect deployed contracts or user funds. Include the affected contract and
+function, the conditions needed to reach the behavior, its likely impact and, where possible, a
+minimal test on a local deployment or fork.
 
-Include the affected contract and function, the conditions required to reach it, and the impact you
-believe it has; a proof-of-concept test is the most useful thing you can send. We will acknowledge
-receipt, say plainly whether we consider it a finding and at what severity, and agree disclosure
-timing with you.
-
-Findings that survive validation are published on the audit register with their severity and
-disposition, **including the ones accepted rather than fixed**. Reproduction detail is withheld
-while a mechanism is live and unremediated, which is a deliberate exception to publishing in full.
-Reporters are credited unless they ask not to be. There is no bug bounty at this stage.
-
-The Sepolia deployment retains bootstrap admin privileges, uses a mock stablecoin, and runs with
-concentration limits fully open, so findings that depend only on that configuration are expected.
-If you are unsure whether something is configuration or a defect, report it and let us make that
-call rather than discarding it.
-
-We have no interest in pursuing good-faith research, and nothing here waives any right. Please test
-against your own deployment or a local fork rather than the live testnet, do not access or modify
-data that is not yours, and do not degrade the service for others.
+Please do not test by moving another person's assets, accessing data that is not yours, or
+degrading the live service. Findings that survive validation are added to the Audit Register with
+their severity and disposition, including accepted findings.

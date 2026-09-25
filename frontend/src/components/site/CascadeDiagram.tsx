@@ -10,12 +10,12 @@
 const layers = [
   {
     label: "1 · First-loss capital",
-    sub: "posted by Forest Road and partners",
+    sub: "posted by Forest Road",
     note: "absorbs first",
   },
   {
     label: "2 · Backstop reserve",
-    sub: "a separately funded reserve that absorbs ahead of depositors",
+    sub: "a USDfr reserve held by sGROVE, ahead of depositors",
     note: "absorbs second",
   },
   {

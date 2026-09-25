@@ -8,7 +8,7 @@ import {IS_TESTNET, NETWORK_NAME} from "@/config/contracts";
 export const metadata: Metadata = {
   title: "Docs | Forest Road Vault",
   description:
-    "Protocol documentation: overview, the safety-spec guarantees, the governance role model, and the security posture.",
+    "Protocol documentation: overview, a how-to guide, live status, the safety-spec guarantees, governance, exit pricing, security, integration notes and deployed addresses.",
 };
 
 const evidence = [AUDIT_SECTION, ADDRESSES_SECTION];
@@ -20,14 +20,14 @@ export default function DocsIndex() {
       bleed
       section="Docs"
       title="Documentation"
-      lede={`Written for reviewers and integrators. This build reads the ${NETWORK_NAME} deployment.${IS_TESTNET ? " Test tokens have no value." : ""}`}
+      lede={`For depositors, reviewers and integrators. This build reads the ${NETWORK_NAME} deployment.${IS_TESTNET ? " Test tokens have no value." : ""}`}
     >
       {/* ── The written record: a contents register, which is what it is.
              An odd number of documents never divides into a card grid. ─── */}
       <Section tone="surface">
         <SectionHead
           title="The documents."
-          lede="Start with the overview. The rest cover the protocol's guarantees, who can change what, how defaults are priced at exit, how the system is tested, and how to integrate."
+          lede="Start with the overview, then the how-to guide if you plan to use the app. The rest cover live status, the protocol's guarantees, who can change what, how defaults are priced at exit, how the system is tested, and how to integrate."
         />
 
         <div className="mt-14">

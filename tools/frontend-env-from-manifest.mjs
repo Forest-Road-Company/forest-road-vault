@@ -110,18 +110,18 @@ const isBytes32 = (value) =>
   /^0x[0-9a-fA-F]{64}$/.test(String(value ?? "")) &&
   String(value).toLowerCase() !== ZERO_BYTES32;
 
-function requireMainnetRpcUrl(value) {
+function requireMainnetRpcUrl(value, variable = "NEXT_PUBLIC_RPC_URL") {
   let parsed;
   try {
     parsed = new URL(String(value));
   } catch {
-    throw new Error("NEXT_PUBLIC_RPC_URL must be a valid HTTPS URL");
+    throw new Error(`${variable} must be a valid HTTPS URL`);
   }
   if (parsed.protocol !== "https:") {
-    throw new Error("NEXT_PUBLIC_RPC_URL must use HTTPS for a mainnet build");
+    throw new Error(`${variable} must use HTTPS for a mainnet build`);
   }
   if (parsed.username || parsed.password || parsed.hash) {
-    throw new Error("NEXT_PUBLIC_RPC_URL must not contain URL credentials or a fragment");
+    throw new Error(`${variable} must not contain URL credentials or a fragment`);
   }
   const hostname = parsed.hostname.toLowerCase();
   if (
@@ -134,19 +134,26 @@ function requireMainnetRpcUrl(value) {
     hostname === "example.com" ||
     hostname.endsWith(".example.com")
   ) {
-    throw new Error("NEXT_PUBLIC_RPC_URL must be a real remote mainnet endpoint");
+    throw new Error(`${variable} must be a real remote mainnet endpoint`);
   }
   return parsed.toString();
 }
 
+/* The browser origin the released site is served from, the same constant the
+   wallet metadata carries (frontend/src/lib/walletMetadata.ts). The client RPC
+   key is a public key restricted by domain allowlist at the provider, so a
+   request without this origin is refused, and the gate has to present the
+   origin a browser would rather than call as an anonymous server. */
+const CANONICAL_ORIGIN = "https://forestroadvault.com";
+
 let rpcRequestId = 0;
-async function rpcCall(rpcUrl, method, params = []) {
+async function rpcCall(rpcUrl, method, params = [], headers = {}) {
   let response;
   const requestId = ++rpcRequestId;
   try {
     response = await fetch(rpcUrl, {
       method: "POST",
-      headers: {"content-type": "application/json"},
+      headers: {"content-type": "application/json", ...headers},
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: requestId,
@@ -178,7 +185,13 @@ async function rpcCall(rpcUrl, method, params = []) {
 }
 
 async function verifyMainnetRpc(rpcUrl, deployment, addressMappings) {
-  const chainIdRaw = await rpcCall(rpcUrl, "eth_chainId");
+  /* Every call in this function goes out as the released origin: this is the
+     key the browser bundle ships, and it is only usable from the allowlisted
+     domains. Verifying it as an anonymous server would prove nothing about
+     the endpoint the site actually uses, and fails outright behind an
+     allowlist. */
+  const browser = {origin: CANONICAL_ORIGIN, referer: `${CANONICAL_ORIGIN}/`};
+  const chainIdRaw = await rpcCall(rpcUrl, "eth_chainId", [], browser);
   if (
     typeof chainIdRaw !== "string" ||
     !/^0x[0-9a-fA-F]+$/.test(chainIdRaw) ||
@@ -187,7 +200,7 @@ async function verifyMainnetRpc(rpcUrl, deployment, addressMappings) {
     throw new Error("NEXT_PUBLIC_RPC_URL does not report Ethereum mainnet chain ID 1");
   }
 
-  const blockNumberRaw = await rpcCall(rpcUrl, "eth_blockNumber");
+  const blockNumberRaw = await rpcCall(rpcUrl, "eth_blockNumber", [], browser);
   if (
     typeof blockNumberRaw !== "string" ||
     !/^0x[0-9a-fA-F]+$/.test(blockNumberRaw) ||
@@ -202,7 +215,7 @@ async function verifyMainnetRpc(rpcUrl, deployment, addressMappings) {
     const group = addressMappings.slice(i, i + 4);
     await Promise.all(
       group.map(async ([, key]) => {
-        const code = await rpcCall(rpcUrl, "eth_getCode", [deployment[key], "latest"]);
+        const code = await rpcCall(rpcUrl, "eth_getCode", [deployment[key], "latest"], browser);
         if (
           typeof code !== "string" ||
           !/^0x[0-9a-fA-F]*$/.test(code) ||
@@ -212,6 +225,29 @@ async function verifyMainnetRpc(rpcUrl, deployment, addressMappings) {
         }
       }),
     );
+  }
+}
+
+async function verifyMainnetArchiveRpc(rpcUrl, deployment) {
+  const chainIdRaw = await rpcCall(rpcUrl, "eth_chainId");
+  if (
+    typeof chainIdRaw !== "string" ||
+    !/^0x[0-9a-fA-F]+$/.test(chainIdRaw) ||
+    BigInt(chainIdRaw) !== 1n
+  ) {
+    throw new Error("ETHEREUM_ARCHIVE_RPC_URL does not report Ethereum mainnet chain ID 1");
+  }
+
+  const deploymentBlock = `0x${BigInt(deployment.deployedAtBlock).toString(16)}`;
+  const logs = await rpcCall(rpcUrl, "eth_getLogs", [
+    {
+      address: deployment.bridge,
+      fromBlock: deploymentBlock,
+      toBlock: deploymentBlock,
+    },
+  ]);
+  if (!Array.isArray(logs)) {
+    throw new Error("ETHEREUM_ARCHIVE_RPC_URL did not return a log array for the deployment block");
   }
 }
 
@@ -499,6 +535,7 @@ const mappings = [
   ["NEXT_PUBLIC_GROVE_VOTES_AGGREGATOR_ADDRESS", "votesAggregator"],
   ["NEXT_PUBLIC_GOVERNOR_ADDRESS", "governor"],
   ["NEXT_PUBLIC_TIMELOCK_ADDRESS", "timelock"],
+  ["NEXT_PUBLIC_MTM_EXECUTOR_ADDRESS", "mtmExecutor"],
 ];
 
 const lines = [
@@ -537,6 +574,7 @@ if (verifyBuildEnv) {
     throw new Error("A mainnet frontend build must use a chain-1 production manifest");
   }
   let mainnetRpcUrl;
+  let archiveRpcUrl;
   for (const line of lines) {
     const separator = line.indexOf("=");
     const name = line.slice(0, separator);
@@ -561,11 +599,20 @@ if (verifyBuildEnv) {
       );
     }
   }
-  // The roleless executor is not a frontend address, but it is part of the approved
-  // deployment receipt and must exist at build time just like every exported module.
-  await verifyMainnetRpc(mainnetRpcUrl, deployment, [...mappings, ["", "mtmExecutor"]]);
+  const configuredArchiveRpcUrl = process.env.ETHEREUM_ARCHIVE_RPC_URL;
+  if (!configuredArchiveRpcUrl || configuredArchiveRpcUrl.trim() === "") {
+    throw new Error("ETHEREUM_ARCHIVE_RPC_URL is required for mainnet historical reads");
+  }
+  archiveRpcUrl = requireMainnetRpcUrl(
+    configuredArchiveRpcUrl,
+    "ETHEREUM_ARCHIVE_RPC_URL",
+  );
+  // Every exported address, the roleless MTM executor included, must have live code at build
+  // time: the site publishes all of them on its deployed-addresses page.
+  await verifyMainnetRpc(mainnetRpcUrl, deployment, mappings);
+  await verifyMainnetArchiveRpc(archiveRpcUrl, deployment);
   process.stdout.write(
-    `Frontend manifest gate: ${manifestPath} matches its independent approvals, every mainnet build variable, and live chain-1 contract code.\n`,
+    `Frontend manifest gate: ${manifestPath} matches its independent approvals, every mainnet build variable, live chain-1 contract code, and an archive log read.\n`,
   );
 } else {
   process.stdout.write(`${lines.join("\n")}\n`);

@@ -9,12 +9,12 @@
  * the UI never pretends otherwise.
  */
 
-import {useEffect, useState} from "react";
+import {useCallback, useEffect, useState} from "react";
 import {useAccount, usePublicClient, useReadContract, useWalletClient} from "wagmi";
 import {CONTRACTS, IS_LOCAL_FORK, IS_TESTNET, NETWORK_NAME} from "@/config/contracts";
 import {COMPLIANCE_ABI} from "@/lib/abi";
 import {EXPECTED_CHAIN} from "@/lib/wagmi";
-import {probeRpcAlignment, type RpcRequest} from "@/lib/rpcAlignment";
+import {probeRpcAlignment, type RpcAlignmentFailure, type RpcRequest} from "@/lib/rpcAlignment";
 import {ConnectControl} from "@/components/app/ConnectControl";
 import {NetworkBanner} from "@/components/app/NetworkBanner";
 import {MintCard} from "@/components/app/MintCard";
@@ -25,11 +25,20 @@ import {YieldPositionPanel} from "@/components/app/YieldPositionPanel";
 const POLL = {refetchInterval: 30_000} as const;
 const RPC_ALIGNMENT_POLL_MS = 15_000;
 
+/**
+ * What to do when the wallet reports the right chain but its own RPC fails or disagrees. A
+ * switch request cannot help, because the wallet already reports the right chain: this is
+ * nearly always a wallet pointed at a custom RPC or a fork for that chain.
+ */
+const WALLET_RPC_GUIDANCE = IS_LOCAL_FORK
+  ? "Point your wallet at the same local fork as the app, then check again."
+  : `Your wallet reports ${NETWORK_NAME}, so switching from here cannot fix this. If it uses a custom RPC or a fork for ${NETWORK_NAME}, select the standard ${NETWORK_NAME} network in your wallet, then check again.`;
+
 type RpcAlignment =
   | {phase: "idle"}
   | {phase: "checking"}
   | {phase: "aligned"}
-  | {phase: "mismatch"; message: string};
+  | {phase: "mismatch"; reason: RpcAlignmentFailure; message: string; walletChainId?: bigint};
 
 export function AppSurface() {
   const {address, isConnected, chainId} = useAccount();
@@ -37,6 +46,10 @@ export function AppSurface() {
   const {data: walletClient} = useWalletClient();
   const rightNetwork = chainId === EXPECTED_CHAIN.id;
   const [rpcAlignment, setRpcAlignment] = useState<RpcAlignment>({phase: "idle"});
+  // Bumped to re-run the probe now rather than at the next poll: after a switch the wallet
+  // accepted, or when the person has fixed their wallet and presses "Check again".
+  const [recheckRequest, setRecheckRequest] = useState(0);
+  const recheckRpc = useCallback(() => setRecheckRequest((n) => n + 1), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,7 +74,14 @@ export function AppSurface() {
       setRpcAlignment(
         result.aligned
           ? {phase: "aligned"}
-          : {phase: "mismatch", message: result.message},
+          : result.reason === "wallet-chain"
+            ? {
+                phase: "mismatch",
+                reason: result.reason,
+                message: result.message,
+                walletChainId: result.walletChainId,
+              }
+            : {phase: "mismatch", reason: result.reason, message: result.message},
       );
     }
 
@@ -74,7 +94,7 @@ export function AppSurface() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [isConnected, publicClient, rightNetwork, walletClient]);
+  }, [isConnected, publicClient, rightNetwork, walletClient, recheckRequest]);
 
   const rpcReady = rpcAlignment.phase === "aligned";
 
@@ -136,14 +156,31 @@ export function AppSurface() {
         )}
       </div>
 
-      <NetworkBanner />
+      {/* A wallet proved to be on another chain gets the switch banner, not a mismatch: it
+          is the one cause the page can repair. */}
+      <NetworkBanner
+        walletChainId={rpcAlignment.phase === "mismatch" ? rpcAlignment.walletChainId : undefined}
+        onSwitched={recheckRpc}
+      />
 
-      {rpcAlignment.phase === "mismatch" ? (
+      {rpcAlignment.phase === "mismatch" && rpcAlignment.reason !== "wallet-chain" ? (
         <div className="mt-6 rounded-card border border-warn/40 bg-warn/10 px-5 py-3.5">
-          <p className="text-[13.5px] leading-relaxed text-ink">
-            <span className="font-medium">RPC mismatch.</span>{" "}
-            <span className="text-ink-muted">{rpcAlignment.message}</span>
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="min-w-0 flex-1 text-[13.5px] leading-relaxed text-ink">
+              <span className="font-medium">RPC mismatch.</span>{" "}
+              <span className="text-ink-muted">{rpcAlignment.message}</span>
+            </p>
+            <button
+              type="button"
+              onClick={recheckRpc}
+              className="rounded-pill border border-warn/60 px-4 py-1.5 text-[12.5px] font-medium text-ink transition-transform hover:scale-[1.02]"
+            >
+              Check again
+            </button>
+          </div>
+          {rpcAlignment.reason === "wallet" || rpcAlignment.reason === "state" ? (
+            <p className="mt-2 text-[12px] leading-relaxed text-ink-muted">{WALLET_RPC_GUIDANCE}</p>
+          ) : null}
         </div>
       ) : null}
 
@@ -154,8 +191,12 @@ export function AppSurface() {
             <span className="text-ink-muted">
               You can hold, view, transfer, and even stake freely. Existing sUSDfr
               can exit through the redemption queue. Only mint and instant redeem are
-              disabled, and the contracts enforce that on-chain, not just here. Contact
-              Forest Road to complete the applicable onboarding process for this address.
+              disabled, and the contracts enforce that on-chain, not just here. To
+              begin onboarding for this address, email{" "}
+              <a href="mailto:jevans@forestroad.com" className="u-link text-ink">
+                jevans@forestroad.com
+              </a>
+              .
             </span>
           </p>
         </div>

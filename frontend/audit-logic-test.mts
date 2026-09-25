@@ -41,6 +41,7 @@ import {
   decodeClassMaxMarkAge,
   decodeFacilityCollateral,
   decodeFacilityEconomics,
+  formatUtcMinute,
 } from "./src/lib/book.ts";
 import {nextUnreadBlockRange, readBlockRangeChunked} from "./src/lib/logs.ts";
 import {probeRpcAlignment} from "./src/lib/rpcAlignment.ts";
@@ -385,13 +386,68 @@ check(
     1_000n,
     100n,
   );
+  // Owner direction 2026-09-24: a mark past its freshness window stands until the next one
+  // arrives. It is carried at its last value and its date is surfaced, never silently current.
   check(
-    "collateral: stale MTM mark fails aggregate closed",
-    !staleCollateral.complete,
+    "collateral: stale MTM mark is carried at its last value",
+    staleCollateral.complete &&
+      staleCollateral.markedToMarketValue === 20_000n &&
+      staleCollateral.coverageBps === 20_000n,
   );
   check(
-    "collateral: stale aggregate does not publish coverage",
-    staleCollateral.coverageBps === null,
+    "collateral: stale MTM mark reports its as-of time",
+    staleCollateral.staleMarkAsOf === 899n,
+  );
+}
+{
+  const position = {
+    classId: 5,
+    originalPrincipal: 10_000n,
+    ltvBps: 5_000n,
+    outstandingPrincipal: 10_000n,
+  };
+  // Exactly at the window edge is fresh; one second past it is stale.
+  const atEdge = calculateCollateralValueMetrics(
+    [{...position, valuation: 20_000n, valuationAsOf: 900n}],
+    1_000n,
+    100n,
+  );
+  check(
+    "collateral: a mark exactly at the freshness edge is fresh",
+    atEdge.complete && atEdge.staleMarkAsOf === null,
+  );
+  // With two stale marks the older one is reported, so the caveat never understates.
+  const twoStale = calculateCollateralValueMetrics(
+    [
+      {...position, valuation: 20_000n, valuationAsOf: 850n},
+      {...position, valuation: 30_000n, valuationAsOf: 700n},
+    ],
+    1_000n,
+    100n,
+  );
+  check(
+    "collateral: the oldest stale mark is the one reported",
+    twoStale.staleMarkAsOf === 700n && twoStale.markedToMarketValue === 50_000n,
+  );
+  // No usable mark still fails the aggregate closed: never attested, zero, or future-dated.
+  for (const [label, valuation, valuationAsOf] of [
+    ["never attested", 0n, 0n],
+    ["a zero mark", 0n, 950n],
+    ["a future-dated mark", 20_000n, 1_001n],
+  ] as const) {
+    const missing = calculateCollateralValueMetrics(
+      [{...position, valuation, valuationAsOf}],
+      1_000n,
+      100n,
+    );
+    check(
+      `collateral: ${label} fails the aggregate closed`,
+      !missing.complete && missing.coverageBps === null && missing.staleMarkAsOf === null,
+    );
+  }
+  check(
+    "collateral: mark times display in the site's UTC form",
+    formatUtcMinute(1_790_072_231n) === "2026-09-22 10:17 UTC",
   );
 }
 
@@ -560,6 +616,10 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
     new URL("./src/content/docs/security.md", import.meta.url),
     "utf8",
   );
+  const statusDoc = readFileSync(
+    new URL("./src/content/docs/status.md", import.meta.url),
+    "utf8",
+  );
   const wagmiConfig = readFileSync(new URL("./src/lib/wagmi.ts", import.meta.url), "utf8");
   const writeFlow = readFileSync(
     new URL("./src/components/app/useWriteFlow.ts", import.meta.url),
@@ -612,7 +672,7 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
       !mainnetProductionCsp.stdout.includes("http://127.0.0.1:*"),
     mainnetProductionCsp.stderr,
   );
-  check("markdown: raw HTML is discarded", docsPage.includes("<ReactMarkdown skipHtml>"));
+  check("markdown: raw HTML is discarded", /<ReactMarkdown skipHtml[\s>]/.test(docsPage));
   check("markdown: no raw HTML injection remains", !docsPage.includes("dangerouslySetInnerHTML"));
   check(
     "mainnet config: zero addresses and duplicate module addresses are rejected",
@@ -743,11 +803,17 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
       riskPage.includes("IS_MAINNET"),
   );
   check(
-    "public assurance copy separates historical evidence from the current unaudited tree",
-    securityDoc.includes("historical 855-test / 442-function / 2,427-line figures are superseded") &&
-      securityDoc.includes("CURRENT_VERIFICATION.md") &&
-      securityDoc.includes("No historical completion label or hash") &&
-      securityDoc.includes("curator-capital settlement risk is explicitly accepted/deferred") &&
+    "public assurance copy identifies the live deployment, scope limits and accepted residuals",
+    securityDoc.includes("Forest Road Vault V2 is live on Ethereum mainnet") &&
+      securityDoc.includes("not presented as 317 confirmed defects") &&
+      securityDoc.includes("The Solana curator vault is a separate product surface") &&
+      securityDoc.includes("No new Critical, High or Medium contract defect was confirmed") &&
+      statusDoc.includes("Forest Road Vault V2 is live on Ethereum mainnet") &&
+      statusDoc.includes("Minting USDfr and redeeming it directly for USDC require a KYC-verified address") &&
+      statusDoc.includes("concentration floor, not a deposit cap") &&
+      statusDoc.includes("21-day minimum") &&
+      statusDoc.includes("cannot be cancelled") &&
+      !statusDoc.includes("No synthetic loan was originated") &&
       !securityDoc.includes("Every Critical and High finding was fixed"),
   );
 
@@ -911,6 +977,19 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
   } else if (request.method === "eth_getCode") {
     const empty = process.env.FRV_TEST_RPC_EMPTY_CODE_ADDRESS?.toLowerCase();
     result = String(request.params[0]).toLowerCase() === empty ? "0x" : "0x6000";
+  } else if (request.method === "eth_getLogs") {
+    if (process.env.FRV_TEST_RPC_ARCHIVE_ERROR) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          jsonrpc: "2.0",
+          id: request.id,
+          error: {code: -32602, message: "archive access required"},
+        }),
+      };
+    }
+    result = [];
   } else {
     throw new Error("Unexpected mock RPC method " + request.method);
   }
@@ -985,6 +1064,7 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
             ...process.env,
             ...exportedEnv,
             NEXT_PUBLIC_RPC_URL: "https://rpc.ankr.com/eth",
+            ETHEREUM_ARCHIVE_RPC_URL: "https://eth-mainnet.g.alchemy.com/v2/test-key",
             MAINNET_APPROVED_DEPLOYMENT_HASH: deploymentHash,
             MAINNET_APPROVED_MANIFEST_SHA256: createHash("sha256")
               .update(validSerialized)
@@ -1046,6 +1126,24 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
       mismatchedRpcResponse.status !== 0 &&
         mismatchedRpcResponse.stderr.includes("invalid JSON-RPC response"),
       mismatchedRpcResponse.stderr,
+    );
+    const missingArchiveRpc = runBuildGuard({
+      ETHEREUM_ARCHIVE_RPC_URL: "",
+    });
+    check(
+      "mainnet build: the server-only archive RPC is mandatory",
+      missingArchiveRpc.status !== 0 &&
+        missingArchiveRpc.stderr.includes("ETHEREUM_ARCHIVE_RPC_URL is required"),
+      missingArchiveRpc.stderr,
+    );
+    const archiveReadRejected = runBuildGuard({
+      FRV_TEST_RPC_ARCHIVE_ERROR: "1",
+    });
+    check(
+      "mainnet build: an RPC that refuses historical log reads is rejected",
+      archiveReadRejected.status !== 0 &&
+        archiveReadRejected.stderr.includes("invalid JSON-RPC response"),
+      archiveReadRejected.stderr,
     );
     const insecureRpc = runBuildGuard({
       NEXT_PUBLIC_RPC_URL: "http://rpc.example.net/eth",

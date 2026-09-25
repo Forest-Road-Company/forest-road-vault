@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { AuditFindingsList } from "@/components/site/AuditFindings";
 import { AUDITS, auditBySlug } from "@/content/audits";
 
@@ -93,10 +94,11 @@ export default async function AuditReportPage({
             </>
           )}{" "}
           It reviews the source at the baseline below, which is not necessarily identical to
-          the code deployed on any network. Forest Road Vault is live on Ethereum mainnet.
-          Findings recorded here as open are open against the live protocol, and each review&apos;s
-          scope bounds what its clean result is worth. Nothing here is a securities-law
-          representation; token characterization is a matter for counsel.
+          the code deployed on any network. Forest Road Vault is live on Ethereum mainnet; its
+          Solana curator vault remains on devnet and BSC has its own deployment status. An open
+          finding applies only to the product, version and deployment state named by this review.
+          Each review&apos;s scope bounds what its clean result is worth. Nothing here is a
+          securities-law representation; token characterization is a matter for counsel.
         </p>
       </div>
 
@@ -115,7 +117,9 @@ export default async function AuditReportPage({
       <article className="doc-prose mt-12">
         {/* Raw HTML is explicitly discarded. react-markdown also applies a safe URL transform,
             so repository prose cannot inject script URLs or executable markup into the site. */}
-        <ReactMarkdown skipHtml>{markdown}</ReactMarkdown>
+        <ReactMarkdown skipHtml remarkPlugins={[remarkGfm]}>
+          {markdown}
+        </ReactMarkdown>
       </article>
 
       {older ? (

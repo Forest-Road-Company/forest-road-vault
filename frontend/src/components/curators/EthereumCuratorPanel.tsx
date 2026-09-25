@@ -299,6 +299,11 @@ export function EthereumCuratorPanel() {
           governance after eligibility checks and a signed agreement; register interest below and
           Forest Road will be in touch. There is nothing to post from this page until then.
         </p>
+        <p className="mt-3 text-[12.5px] leading-relaxed text-ink-faint">
+          Forest Road&apos;s position belongs to the AnchorCurator Safe. A Safe owner&apos;s personal
+          wallet does not display or control that position; open this surface through the Safe or
+          submit the calls from its transaction builder.
+        </p>
         <div className="mt-5 border-t border-line pt-5">
           <p className="text-[13px] font-semibold text-ink">Previously posted capital?</p>
           <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-muted">
@@ -404,7 +409,7 @@ export function EthereumCuratorPanel() {
               {!current ? <option value="">Choose a class</option> : null}
               {positionViews.map((v) => (
                 <option key={v.classId.toString()} value={v.classId.toString()}>
-                  {v.name}{v.approved ? "" : " — approval withdrawn"}
+                  {v.name}{v.approved ? "" : " (approval withdrawn)"}
                 </option>
               ))}
             </select>

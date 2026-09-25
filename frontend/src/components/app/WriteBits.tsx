@@ -64,7 +64,10 @@ export function AmountInput({
           // garbage and over-precision early, not at simulate time
           if (new RegExp(`^\\d*\\.?\\d{0,${maxDecimals}}$`).test(v)) onChange(v);
         }}
-        className="w-full bg-transparent font-mono text-[15px] text-ink outline-none placeholder:text-ink-faint disabled:cursor-not-allowed disabled:text-ink-faint"
+        /* min-w-0: an input's intrinsic width is ~20 characters, and as a flex
+           child that became the card's minimum width, which pushed the whole
+           /app page 34px wider than a 320px phone. */
+        className="w-full min-w-0 bg-transparent font-mono text-[15px] text-ink outline-none placeholder:text-ink-faint disabled:cursor-not-allowed disabled:text-ink-faint"
       />
       {onMax ? (
         <button
