@@ -31,7 +31,7 @@ vi.mock("@/lib/abi", () => ({COMPLIANCE_ABI: []}));
 vi.mock("@/lib/wagmi", () => ({EXPECTED_CHAIN: {id: 1}}));
 vi.mock("@/lib/rpcAlignment", () => ({probeRpcAlignment: harness.probe}));
 vi.mock("@/components/app/ConnectControl", () => ({ConnectControl: () => <span>wallet</span>}));
-vi.mock("@/components/app/MintCard", () => ({MintCard: () => null}));
+vi.mock("@/components/app/GetUsdfrCard", () => ({GetUsdfrCard: () => null}));
 vi.mock("@/components/app/StakeCard", () => ({StakeCard: () => null}));
 vi.mock("@/components/app/RedeemCard", () => ({RedeemCard: () => null}));
 vi.mock("@/components/app/YieldPositionPanel", () => ({YieldPositionPanel: () => null}));

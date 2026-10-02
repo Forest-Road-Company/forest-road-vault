@@ -18,7 +18,7 @@ import {getConnection} from "wagmi/actions";
 import {useQueryClient} from "@tanstack/react-query";
 import {createPublicClient, custom, type Abi, type Address} from "viem";
 import {IS_LOCAL_FORK} from "@/config/contracts";
-import {decodeWriteError} from "@/lib/errors";
+import {decodeWriteError, type DecodedError} from "@/lib/errors";
 import {probeRpcAlignment, type RpcRequest} from "@/lib/rpcAlignment";
 import {EXPECTED_CHAIN} from "@/lib/wagmi";
 
@@ -92,6 +92,9 @@ export function useWriteFlow() {
       functionName: string;
       args: readonly unknown[];
       onSuccess?: () => void;
+      /** Revert copy for a call whose errors the protocol copy does not cover. The Uniswap buy
+       *  route passes one: its reverts arrive wrapped by the router, Permit2 or the PoolManager. */
+      decodeError?: (err: unknown) => DecodedError;
     }) => {
       if (!address) {
         setStatus({
@@ -231,7 +234,7 @@ export function useWriteFlow() {
         setCurrentStatus({phase: "success", hash: minedHash});
         if (isCurrentFlow()) params.onSuccess?.();
       } catch (err) {
-        const decoded = decodeWriteError(err);
+        const decoded = (params.decodeError ?? decodeWriteError)(err);
         setCurrentStatus({
           phase: "error",
           message: decoded.message,

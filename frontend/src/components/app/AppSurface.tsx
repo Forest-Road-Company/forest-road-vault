@@ -17,7 +17,7 @@ import {EXPECTED_CHAIN} from "@/lib/wagmi";
 import {probeRpcAlignment, type RpcAlignmentFailure, type RpcRequest} from "@/lib/rpcAlignment";
 import {ConnectControl} from "@/components/app/ConnectControl";
 import {NetworkBanner} from "@/components/app/NetworkBanner";
-import {MintCard} from "@/components/app/MintCard";
+import {GetUsdfrCard} from "@/components/app/GetUsdfrCard";
 import {StakeCard} from "@/components/app/StakeCard";
 import {RedeemCard} from "@/components/app/RedeemCard";
 import {YieldPositionPanel} from "@/components/app/YieldPositionPanel";
@@ -189,7 +189,8 @@ export function AppSurface() {
           <p className="text-[13.5px] leading-relaxed text-ink">
             <span className="font-medium">This address is not KYC-verified.</span>{" "}
             <span className="text-ink-muted">
-              You can hold, view, transfer, and even stake freely. Existing sUSDfr
+              You can {IS_TESTNET ? "" : "buy USDfr on the Buy tab, "}hold, view, transfer, and
+              even stake freely. Existing sUSDfr
               can exit through the redemption queue. Only mint and instant redeem are
               disabled, and the contracts enforce that on-chain, not just here. To
               begin onboarding for this address, email{" "}
@@ -217,8 +218,8 @@ export function AppSurface() {
               the book all render without a wallet.
             </li>
             <li>
-              Connect on {NETWORK_NAME} to stake, request a redemption, or claim
-              one. None of these requires KYC.
+              Connect on {NETWORK_NAME} to {IS_TESTNET ? "" : "buy USDfr, "}stake, request a
+              redemption, or claim one. None of these requires KYC.
             </li>
             <li>
               Minting and instant redemption are KYC-gated on-chain at the
@@ -232,7 +233,9 @@ export function AppSurface() {
 
       {/* ── Write cards ──────────────────────────────────────────────── */}
       <div className="mt-8 grid gap-5 lg:grid-cols-3">
-        <MintCard writesEnabled={writesEnabled} chainOk={chainOk} />
+        {/* Mainnet: Buy through the Uniswap pool (any address, the default tab) or Mint 1:1
+            (KYC-verified). A testnet has no pool and shows the mint card alone. */}
+        <GetUsdfrCard writesEnabled={writesEnabled} chainOk={chainOk} />
         {/* Staking is permissionless on-chain (2026-07-14), gate on network only, not KYC. */}
         <StakeCard writesEnabled={chainOk} />
         <RedeemCard writesEnabled={writesEnabled} chainOk={chainOk} />

@@ -67,8 +67,10 @@ The practical consequence, which is easy to miss:
 
 If you hardcode a gas limit anywhere near these tokens, set it from the floor, not from consumption.
 
-Governance proposal FRV-007, in voting from 26 to 28 September 2026, would upgrade both tokens to
-remove this floor. Until it executes, the floor applies; this section will change if it does.
+Governance proposal FRV-007 has received the Treasury's For vote and remains in voting until
+10:20:11 UTC on 28 September 2026. If it passes, it must then be queued and wait a separate two-day
+Timelock before upgrading both tokens. Until it executes, the floor applies; this section will
+change after the live proxy implementations change.
 
 ## Transfers are permissionless but jurisdiction-screened
 

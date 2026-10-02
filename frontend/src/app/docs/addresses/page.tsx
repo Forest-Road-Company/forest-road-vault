@@ -11,6 +11,7 @@ import {
   PROTOCOL_DEPLOYMENT_BLOCK,
   type ContractName,
 } from "@/config/contracts";
+import {USDFR_USDC_POOL} from "@/config/markets";
 
 export const metadata: Metadata = {
   title: "Deployed Addresses | Forest Road Vault",
@@ -92,17 +93,6 @@ const GROUPS: ReadonlyArray<{title: string; names: readonly ContractName[]}> = [
   {title: "Governance", names: ["Governor", "Timelock", "GroveVotesAggregator"]},
   {title: "Participation", names: ["PointsModule"]},
 ];
-
-/**
- * The USDfr/USDC market is a third-party Uniswap v4 pool, not a Forest Road deployment, so it is
- * not in the deployment manifest. Verified on chain: USDC is currency0, USDfr currency1, LP fee
- * 375 (0.0375%), tick spacing 4, no hooks, on the canonical v4 PoolManager.
- */
-const UNISWAP_POOL = {
-  id: "0x72ef9130b1c7bd2daa49405e618b7ad27eb90e03c893629ba1d28a4562fc7b55",
-  manager: "0x000000000004444c5dc75cB358380D2e3dE08A90",
-  url: "https://app.uniswap.org/explore/pools/ethereum/0x72ef9130b1c7bd2daa49405e618b7ad27eb90e03c893629ba1d28a4562fc7b55",
-} as const;
 
 const configured = (name: ContractName) => Boolean(CONTRACTS[name]);
 const grouped = new Set(GROUPS.flatMap((group) => group.names));
@@ -215,19 +205,19 @@ export default function AddressesPage() {
                   A Uniswap v4 pool pairing USDfr with USDC (0.0375% fee, no hooks). Uniswap is
                   independent of Forest Road; its price can differ from the 1:1 mint and redeem
                   rate.{" "}
-                  <a href={UNISWAP_POOL.url} target="_blank" rel="noreferrer" className="u-link text-ink">
+                  <a href={USDFR_USDC_POOL.url} target="_blank" rel="noreferrer" className="u-link text-ink">
                     View on Uniswap
                   </a>
                 </span>
                 <span className="min-w-0 space-y-1">
                   <span className="block text-[11px] uppercase tracking-[0.14em] text-ink-faint">Pool ID</span>
                   <span className="block break-all font-mono text-[12px] leading-relaxed text-ink-muted">
-                    {UNISWAP_POOL.id}
+                    {USDFR_USDC_POOL.id}
                   </span>
                   <span className="block pt-1 text-[11px] uppercase tracking-[0.14em] text-ink-faint">
                     Uniswap v4 PoolManager
                   </span>
-                  <AddressLink address={UNISWAP_POOL.manager} />
+                  <AddressLink address={USDFR_USDC_POOL.manager} />
                 </span>
               </li>
             </ul>

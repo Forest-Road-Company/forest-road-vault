@@ -21,7 +21,10 @@ import {
   DEFAULT_HISTORY_ABI,
   ERC20_ABI,
   IMPAIRMENT_SOURCE_ABI,
+  ORACLE_WIRING_ABI,
+  OWNER_STATUS_ABI,
   POINTS_ABI,
+  POINTS_HISTORY_ABI,
   QUEUE_ABI,
   REGISTRY_ABI,
   RESERVES_ABI,
@@ -29,6 +32,7 @@ import {
   TEST_STABLE_ABI,
   VAULT_ABI,
   VAULT_HISTORY_ABI,
+  VAULT_POINTS_ABI,
   WATERFALL_ABI,
   WATERFALL_HISTORY_ABI,
 } from "./src/lib/abi.ts";
@@ -179,6 +183,10 @@ checkAbi(
 );
 checkAbi("CuratorModule", CURATOR_ABI, artifactAbi("CuratorModule", "CuratorModule"));
 checkAbi("PointsModule", POINTS_ABI, artifactAbi("PointsModule", "PointsModule"));
+checkAbi("PointsModule history", POINTS_HISTORY_ABI, artifactAbi("PointsModule", "PointsModule"));
+checkAbi("sUSDfr points hook", VAULT_POINTS_ABI, artifactAbi("sUSDfr", "SUSDfr"));
+checkAbi("ComplianceRegistry owner status", OWNER_STATUS_ABI, artifactAbi("ComplianceRegistry", "ComplianceRegistry"));
+checkAbi("SUSDfrExitValueOracle wiring", ORACLE_WIRING_ABI, artifactAbi("SUSDfrExitValueOracle", "SUSDfrExitValueOracle"));
 checkAbi("SGrove", SGROVE_ABI, artifactAbi("SGrove", "SGrove"));
 checkAbi(
   "CollateralRegistry",
@@ -297,6 +305,14 @@ const publicWriteSurfaces: Array<[string, string, string[]]> = [
     "./src/components/app/StakeCard.tsx",
     ['functionName: "approve"', 'functionName: "deposit"'],
   ],
+  // The Buy tab: the one-time Permit2 approval and the router's execute, both built in
+  // lib/uniswapV4Swap.ts (checked below), go through the shared flow; the execute carries the
+  // route's own revert decoder.
+  [
+    "BuyUsdfrPanel",
+    "./src/components/app/BuyUsdfrPanel.tsx",
+    ["flow.run(permit2ApprovalRequest())", "...buyRequest(args)", "decodeError: decodeSwapError"],
+  ],
   [
     "RedeemCard",
     "./src/components/app/RedeemCard.tsx",
@@ -315,9 +331,21 @@ for (const [label, path, functions] of publicWriteSurfaces) {
     check(`${label}: ${functionName}`, body.includes(functionName));
   }
 }
+// The Buy tab's two writes are built here rather than in the panel.
+const buyRoute = source("./src/lib/uniswapV4Swap.ts");
+for (const builds of ['functionName: "approve" as const', 'functionName: "execute" as const']) {
+  check(`uniswapV4Swap: builds ${builds}`, buyRoute.includes(builds));
+}
+check(
+  "uniswapV4Swap: the one-time Permit2 approval is the maximum",
+  buyRoute.includes("export const PERMIT2_APPROVAL_AMOUNT = maxUint256;") &&
+    buyRoute.includes("args: [PERMIT2, PERMIT2_APPROVAL_AMOUNT] as const"),
+);
 
 const componentFiles = [
   "./src/components/app/AppSurface.tsx",
+  "./src/components/app/GetUsdfrCard.tsx",
+  "./src/components/app/BuyUsdfrPanel.tsx",
   "./src/components/app/MintCard.tsx",
   "./src/components/app/StakeCard.tsx",
   "./src/components/app/RedeemCard.tsx",
@@ -348,6 +376,18 @@ const readSurfaces: Array<[string, string, string[], string]> = [
     "./src/components/app/MintCard.tsx",
     ["balanceOf", "allowance"],
     "refetchInterval: 30_000",
+  ],
+  [
+    "buy state",
+    "./src/components/app/BuyUsdfrPanel.tsx",
+    ["balanceOf", "allowance", "getSlot0", "canTransfer"],
+    "refetchInterval: 30_000",
+  ],
+  [
+    "buy quote",
+    "./src/components/app/BuyUsdfrPanel.tsx",
+    [],
+    "refetchInterval: QUOTE_REFRESH_MS",
   ],
   [
     "stake state",

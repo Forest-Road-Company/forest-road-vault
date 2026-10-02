@@ -20,7 +20,8 @@ import {
   type TransparencyHistoryWire,
 } from "@/lib/transparencyHistory";
 
-function archiveRpcUrl(): string {
+/** The archive RPC for server-side history reads; required on mainnet, HTTPS or loopback only. */
+export function archiveRpcUrl(): string {
   const configured = process.env.ETHEREUM_ARCHIVE_RPC_URL?.trim();
   const value = configured || (IS_MAINNET ? "" : RPC_URL);
   if (!value) throw new Error("ETHEREUM_ARCHIVE_RPC_URL is required on mainnet");

@@ -1,6 +1,12 @@
 "use client";
 
-/** Deposit USDC and mint USDfr 1:1 through the USDC-only controller. */
+/**
+ * Deposit USDC and mint USDfr 1:1 through the USDC-only controller.
+ *
+ * `MintCard` is the standalone card a testnet shows. On mainnet the same form is the "Mint 1:1"
+ * tab of the Get USDfr card, beside the Buy tab, and `onShowBuy` points addresses that are not
+ * KYC-verified to that tab.
+ */
 
 import {useState} from "react";
 import {parseUnits} from "viem";
@@ -16,6 +22,29 @@ const FAUCET_AMOUNT = parseUnits("10000", STABLE_DECIMALS);
 const POLL = {refetchInterval: 30_000} as const;
 
 export function MintCard({writesEnabled, chainOk}: {writesEnabled: boolean; chainOk: boolean}) {
+  return (
+    <div className="panel flex h-full flex-col p-6">
+      <div className="flex items-baseline justify-between">
+        <h3 className="font-display text-[16px] font-semibold tracking-tight">Deposit &amp; mint</h3>
+        <p className="text-[11px] font-semibold tracking-[0.03em] text-ink-faint">
+          {STABLE_SYMBOL} → USDfr
+        </p>
+      </div>
+      <MintForm writesEnabled={writesEnabled} chainOk={chainOk} />
+    </div>
+  );
+}
+
+export function MintForm({
+  writesEnabled,
+  chainOk,
+  onShowBuy,
+}: {
+  writesEnabled: boolean;
+  chainOk: boolean;
+  /** Mainnet only: selects the Buy tab, the route for addresses the mint gate turns away. */
+  onShowBuy?: () => void;
+}) {
   const {address} = useAccount();
   const [amount, setAmount] = useState("");
   const flow = useWriteFlow();
@@ -73,16 +102,21 @@ export function MintCard({writesEnabled, chainOk}: {writesEnabled: boolean; chai
   };
 
   return (
-    <div className="panel flex h-full flex-col p-6">
-      <div className="flex items-baseline justify-between">
-        <h3 className="font-display text-[16px] font-semibold tracking-tight">Deposit &amp; mint</h3>
-        <p className="text-[11px] font-semibold tracking-[0.03em] text-ink-faint">
-          {STABLE_SYMBOL} → USDfr
-        </p>
-      </div>
+    <>
       <p className="mt-2 text-[13px] leading-relaxed text-ink-muted">
         Deposit {STABLE_SYMBOL}, mint USDfr 1:1. KYC-verified addresses only.
       </p>
+      {/* The route for the addresses the mint gate turns away, so it never follows
+          writesEnabled. Only the mainnet tab passes it: the pool does not exist on a testnet. */}
+      {onShowBuy ? (
+        <p className="mt-1.5 text-[12px] leading-snug text-ink-faint">
+          Not KYC-verified? Any address can{" "}
+          <button type="button" onClick={onShowBuy} className="u-link text-ink">
+            buy USDfr in the Buy tab
+          </button>
+          , then stake it.
+        </p>
+      ) : null}
 
       {/* An in-flight read shows the shape of the value it is fetching; a value
           that needs a wallet says so. The two states are not the same thing and
@@ -153,6 +187,6 @@ export function MintCard({writesEnabled, chainOk}: {writesEnabled: boolean; chai
           Mainnet uses canonical Ethereum USDC. There is no faucet or alternate reserve asset.
         </p>
       )}
-    </div>
+    </>
   );
 }
