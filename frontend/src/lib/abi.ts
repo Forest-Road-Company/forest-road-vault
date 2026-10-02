@@ -294,6 +294,9 @@ export const QUEUE_ABI = [
 
 export const COMPLIANCE_ABI = [
   {type: "function", name: "isAllowed", stateMutability: "view", inputs: [{name: "account", type: "address"}], outputs: [{type: "bool"}]},
+  // The exact predicate USDfr evaluates on every transfer (the first argument is the token). The
+  // Buy tab asks it about the pool's payout to the buyer before asking for any signature.
+  {type: "function", name: "canTransfer", stateMutability: "view", inputs: [{name: "token", type: "address"}, {name: "from", type: "address"}, {name: "to", type: "address"}], outputs: [{type: "bool"}]},
 ] as const;
 
 export const RESERVES_ABI = [
@@ -459,6 +462,62 @@ export const CURATOR_ABI = [
   {type: "event", name: "FirstLossPosted", inputs: [{name: "classId", type: "uint256", indexed: true}, {name: "curator", type: "address", indexed: true}, {name: "amount", type: "uint256", indexed: false}, {name: "shares", type: "uint256", indexed: false}, {name: "round", type: "uint256", indexed: false}]},
   {type: "event", name: "FirstLossWithdrawn", inputs: [{name: "classId", type: "uint256", indexed: true}, {name: "curator", type: "address", indexed: true}, {name: "amount", type: "uint256", indexed: false}, {name: "shares", type: "uint256", indexed: false}, {name: "round", type: "uint256", indexed: false}]},
   ...PROTOCOL_ERRORS,
+] as const;
+
+/** The sUSDfr token's points-hook failure event and hook wiring. */
+export const VAULT_POINTS_ABI = [
+  {
+    type: "event",
+    name: "PointsHookFailed",
+    anonymous: false,
+    inputs: [
+      {name: "from", type: "address", indexed: true},
+      {name: "to", type: "address", indexed: true},
+      {name: "value", type: "uint256", indexed: false},
+    ],
+  },
+  {type: "function", name: "pointsModule", stateMutability: "view", inputs: [], outputs: [{type: "address"}]},
+] as const;
+
+/** The exit-value oracle's wiring views, checked so only Forest Road's oracle qualifies a market. */
+export const ORACLE_WIRING_ABI = [
+  {type: "function", name: "vault", stateMutability: "view", inputs: [], outputs: [{type: "address"}]},
+  {type: "function", name: "controller", stateMutability: "view", inputs: [], outputs: [{type: "address"}]},
+  {type: "function", name: "loanToken", stateMutability: "view", inputs: [], outputs: [{type: "address"}]},
+  {type: "function", name: "ONE_SHARE", stateMutability: "view", inputs: [], outputs: [{type: "uint256"}]},
+] as const;
+
+/** The ComplianceRegistry views that decide whether an owner may be credited at all. */
+export const OWNER_STATUS_ABI = [
+  {
+    type: "function",
+    name: "isProtocolExempt",
+    stateMutability: "view",
+    inputs: [{name: "module", type: "address"}],
+    outputs: [{type: "bool"}],
+  },
+  {
+    type: "function",
+    name: "isJurisdictionBlocked",
+    stateMutability: "view",
+    inputs: [{name: "account", type: "address"}],
+    outputs: [{type: "bool"}],
+  },
+] as const;
+
+/** PointsModule rate-epoch history: rebuilds the forward-only epochs the share formula integrates. */
+export const POINTS_HISTORY_ABI = [
+  {
+    type: "event",
+    name: "RateEpochAppended",
+    anonymous: false,
+    inputs: [
+      {name: "index", type: "uint256", indexed: true},
+      {name: "ratePerUnitDay", type: "uint256", indexed: false},
+      {name: "usdfrMultBps", type: "uint32", indexed: false},
+      {name: "curatorMultBps", type: "uint32", indexed: false},
+    ],
+  },
 ] as const;
 
 export const POINTS_ABI = [

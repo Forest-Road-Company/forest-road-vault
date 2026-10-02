@@ -672,6 +672,62 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
       !mainnetProductionCsp.stdout.includes("http://127.0.0.1:*"),
     mainnetProductionCsp.stderr,
   );
+
+  // Production is built only from main through the Git integration (Forest Road, 25 September
+  // 2026). The decision itself, case by case, then the wiring that makes a production build stop.
+  const {evaluateDeploySource} = await import("./next.config.ts");
+  const reported = "a".repeat(40);
+  const productionFrom = (branch: string, commit: string | undefined, head: string | null) =>
+    evaluateDeploySource(
+      {VERCEL_ENV: "production", VERCEL_GIT_COMMIT_REF: branch, VERCEL_GIT_COMMIT_SHA: commit},
+      head,
+    );
+  const gitMain = productionFrom("main", reported, reported);
+  check("deploy source: a Git integration build of main reaches production", gitMain.enforced && gitMain.allowed, gitMain.summary);
+  const upload = productionFrom("main", reported, null);
+  check(
+    "deploy source: a CLI upload that claims main is refused, since it carries no git checkout",
+    upload.enforced && !upload.allowed && upload.summary.includes("not running in a git checkout"),
+    upload.summary,
+  );
+  const branchBuild = productionFrom("feature", reported, reported);
+  check("deploy source: a branch build is refused for production", branchBuild.enforced && !branchBuild.allowed, branchBuild.summary);
+  const otherCheckout = productionFrom("main", reported, "b".repeat(40));
+  check("deploy source: a checkout at another commit is refused", otherCheckout.enforced && !otherCheckout.allowed, otherCheckout.summary);
+  const unreported = productionFrom("main", undefined, reported);
+  check("deploy source: a production build with no reported commit is refused", unreported.enforced && !unreported.allowed, unreported.summary);
+  const preview = evaluateDeploySource(
+    {VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "feature", VERCEL_GIT_COMMIT_SHA: reported},
+    null,
+  );
+  check("deploy source: preview builds are reported and never blocked", !preview.enforced && preview.summary.includes("reported only"), preview.summary);
+  const blockedBuild = spawnSync(
+    process.execPath,
+    [
+      "--experimental-strip-types",
+      "--input-type=module",
+      "-e",
+      'const {default: createConfig} = await import("./next.config.ts"); try { createConfig("phase-production-build"); console.log("BUILD-PROCEEDED"); } catch (error) { console.log(error.message); }',
+    ],
+    {
+      cwd: new URL(".", import.meta.url),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        VERCEL: "1",
+        VERCEL_ENV: "production",
+        VERCEL_GIT_COMMIT_REF: "main",
+        VERCEL_GIT_COMMIT_SHA: "c".repeat(40),
+      },
+    },
+  );
+  check(
+    "deploy source: a production build from anything but the reported git commit stops before building",
+    blockedBuild.stdout.includes("Production deploys come only from main") &&
+      !blockedBuild.stdout.includes("BUILD-PROCEEDED"),
+    blockedBuild.stdout + blockedBuild.stderr,
+  );
+
   check("markdown: raw HTML is discarded", /<ReactMarkdown skipHtml[\s>]/.test(docsPage));
   check("markdown: no raw HTML injection remains", !docsPage.includes("dangerouslySetInnerHTML"));
   check(

@@ -9,6 +9,56 @@ const sourceRevision = process.env.VERCEL_GIT_COMMIT_SHA?.toLowerCase();
 if (process.env.VERCEL === "1" && !/^[0-9a-f]{40}$/.test(sourceRevision ?? "")) {
   throw new Error("VERCEL_GIT_COMMIT_SHA must identify the exact source revision for a Vercel build");
 }
+/**
+ * Production is built only from `main` through the Vercel Git integration (Forest Road decision,
+ * 25 September 2026). A CLI upload (`vercel --prod`) ships whatever is on the uploader's disk,
+ * possibly stale or uncommitted, and silently replaces what main deployed; four such uploads
+ * reached production that day between Git deploys. The Git variables cannot tell the two apart:
+ * the CLI reports the uploader's own checkout, and build variables can be set by hand. What an
+ * upload cannot carry is the repository itself, because the CLI never uploads `.git` while an
+ * integration build runs inside a clone. So a production build must run in a git checkout whose
+ * HEAD is the reported commit on main. This is a guardrail against mistakes, not a security
+ * boundary, and an instant rollback to an earlier deployment rebuilds nothing, so it stays open.
+ */
+export function evaluateDeploySource(
+  env: Readonly<Record<string, string | undefined>>,
+  checkoutHead: string | null,
+): {enforced: boolean; allowed: boolean; summary: string} {
+  const target = env.VERCEL_ENV || "unknown";
+  const branch = env.VERCEL_GIT_COMMIT_REF || "none";
+  const commit = (env.VERCEL_GIT_COMMIT_SHA ?? "").toLowerCase();
+  const head = checkoutHead?.trim().toLowerCase() || null;
+  const problems: string[] = [];
+  if (branch !== "main") problems.push(`branch ${branch} is not main`);
+  if (!/^[0-9a-f]{40}$/.test(commit)) problems.push("no commit SHA was reported");
+  if (head === null) {
+    problems.push("the build is not running in a git checkout, so it is an upload, not a Git integration build");
+  } else if (head !== commit) {
+    problems.push(`the checkout is at ${head.slice(0, 7)}, not the reported commit`);
+  }
+  const enforced = env.VERCEL_ENV === "production";
+  const allowed = problems.length === 0;
+  return {
+    enforced,
+    allowed,
+    summary:
+      `Deploy source gate: ${target} build of ${commit.slice(0, 7) || "an unreported commit"} on ${branch}: ` +
+      `${allowed ? "built from git main" : problems.join("; ")}` +
+      `${enforced ? "" : " (reported only; enforced for production)"}.`,
+  };
+}
+
+function checkoutHead(): string | null {
+  try {
+    return execFileSync("git", ["-c", "safe.directory=*", "rev-parse", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
 const localConnectSources = isDevelopment || isLocalFork
   ? " http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*"
   : "";
@@ -42,6 +92,18 @@ const securityHeaders = [
 
 export default function createNextConfig(phase: string): NextConfig {
   if (phase === PHASE_PRODUCTION_BUILD) {
+    // Any Vercel build, including a local `vercel build --prod`, reports where it came from;
+    // only production refuses. Plain local `next build` runs have no VERCEL_ENV and skip it.
+    if (process.env.VERCEL_ENV) {
+      const source = evaluateDeploySource(process.env, checkoutHead());
+      console.log(source.summary);
+      if (source.enforced && !source.allowed) {
+        throw new Error(
+          `${source.summary} Production deploys come only from main through the Git integration: ` +
+            "merge to main instead of running `vercel --prod`.",
+        );
+      }
+    }
     // This runs from Next's own production-build phase, so `next build` cannot
     // bypass the receipt-bound deployment verifier by skipping npm lifecycle hooks.
     execFileSync(

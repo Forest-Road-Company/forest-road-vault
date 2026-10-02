@@ -1,5 +1,6 @@
 "use client";
 
+import {useQuery} from "@tanstack/react-query";
 import {useAccount, useReadContracts} from "wagmi";
 import {CONTRACTS, NETWORK_NAME} from "@/config/contracts";
 import {POINTS_ABI, SHARE_DECIMALS} from "@/lib/abi";
@@ -83,6 +84,105 @@ function SourceCard({
         </p>
       </div>
       <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">{note}</p>
+    </div>
+  );
+}
+
+type MorphoPointsResponse =
+  | {ok: true; enabled: false}
+  | {
+      ok: true;
+      enabled: true;
+      collateral: string;
+      points: string;
+      asOfBlock: string;
+      excluded?: "protocol-exempt" | "jurisdiction-blocked";
+    }
+  | {
+      ok: true;
+      enabled: true;
+      collateral: string;
+      asOfBlock: string;
+      reconcileRequired: true;
+      trackedShares: string;
+      walletShares: string;
+    };
+
+/**
+ * sUSDfr posted in the Forest Road Morpho market leaves the wallet, so PointsModule credits the
+ * Morpho Blue contract rather than the owner. The server replays the market's own collateral
+ * events through the same formula and reconciles the balance with Morpho Blue before answering.
+ * Hidden until the market is configured.
+ */
+export function MorphoCollateralCard({wallet}: {wallet: `0x${string}`}) {
+  const {data, isError} = useQuery({
+    queryKey: ["morpho-collateral-points", wallet],
+    queryFn: async (): Promise<MorphoPointsResponse> => {
+      const response = await fetch(`/api/points/morpho?wallet=${wallet}`);
+      const body = (await response.json()) as MorphoPointsResponse | {ok: false};
+      if (!response.ok || !body.ok) throw new Error("Morpho collateral points unavailable");
+      return body;
+    },
+    refetchInterval: 60_000,
+  });
+
+  if (!isError && (!data || !data.enabled)) return null;
+
+  return (
+    <div className="panel mt-5 p-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+          sUSDfr posted as collateral on Morpho
+        </h3>
+        <span className="font-mono text-[11px] text-accent">{maturityRangeLabel(10_000)}</span>
+      </div>
+      {isError || !data?.enabled ? (
+        <p className="mt-4 text-[13px] leading-relaxed text-ink-muted">
+          Morpho collateral points are temporarily unavailable. No zero balance has been assumed.
+        </p>
+      ) : "reconcileRequired" in data ? (
+        <p className="mt-4 text-[13px] leading-relaxed text-ink-muted">
+          These points are held back until the on-chain points ledger is reconciled for this address.
+          The ledger still counts {fmtAmount(BigInt(data.trackedShares), SHARE_DECIMALS, 4)} sUSDfr in
+          this wallet, which holds {fmtAmount(BigInt(data.walletShares), SHARE_DECIMALS, 4)}, because a
+          points update was dropped. Anyone can call <span className="font-mono">reconcile</span> on the
+          PointsModule for this address; the points then show here.
+        </p>
+      ) : data.excluded ? (
+        <p className="mt-4 text-[13px] leading-relaxed text-ink-muted">
+          {data.excluded === "protocol-exempt"
+            ? "This address is a protocol address, so its collateral does not accrue points."
+            : "This address is jurisdiction-blocked, so none of its collateral earns points while that status stands."}
+        </p>
+      ) : (
+        <>
+          <p className="display mt-4 text-[32px] leading-none text-ink">
+            {fmtAmount(BigInt(data.points), 18, 4)}
+          </p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
+            points computed from Morpho events
+          </p>
+          <div className="mt-4 border-t border-line pt-3 font-mono text-[10.5px] leading-relaxed text-ink-faint">
+            <p>
+              Collateral:{" "}
+              <span className="text-ink-muted">{fmtAmount(BigInt(data.collateral), SHARE_DECIMALS, 4)} sUSDfr</span>
+            </p>
+            <p>
+              As of block <span className="text-ink-muted">{data.asOfBlock}</span>
+            </p>
+          </div>
+        </>
+      )}
+      <p className="mt-3 max-w-[80ch] text-[11.5px] leading-relaxed text-ink-faint">
+        sUSDfr posted as collateral in the Forest Road USDC/sUSDfr market on Morpho moves to the Morpho
+        Blue contract, and the on-chain ledger above records its points against that contract rather
+        than against you. This card shows the points the same collateral earns under the same formula
+        as sUSDfr held in a wallet, computed by Forest Road from Morpho Blue&apos;s own events, with the
+        ramp starting when the collateral is posted. They are shown separately from the on-chain total
+        above. Whether an address is a protocol address or jurisdiction-blocked is read at the block
+        shown and applies to its whole collateral history: while that status stands the card shows no
+        points, and if it changes, the full history counts under the new status.
+      </p>
     </div>
   );
 }
@@ -256,6 +356,8 @@ export function PointsDashboard() {
               note="The highest weighting reflects capital that absorbs realized class losses first."
             />
           </div>
+
+          {address ? <MorphoCollateralCard wallet={address} /> : null}
 
           <div className="panel mt-5 overflow-hidden">
             <div className="border-b border-line px-6 py-4">

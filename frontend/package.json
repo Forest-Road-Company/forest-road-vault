@@ -14,6 +14,8 @@
     "test": "npm run test:logic && npm run test:sync && npm run test:render",
     "test:render": "vitest run",
     "test:mutations": "node scripts/mutation-controls.mjs",
+    "test:server": "node --test points-route-server-test.mts",
+    "test:fork": "vitest run --config vitest.fork.config.ts",
     "build:e2e:fork": "NEXT_PUBLIC_CHAIN_ID=31337 NEXT_PUBLIC_RPC_URL=${SEPOLIA_FORK_RPC_URL:-http://127.0.0.1:8547} NEXT_PUBLIC_PROTOCOL_DEPLOYMENT_BLOCK=${E2E_DEPLOYMENT_BLOCK:-11489206} NEXT_PUBLIC_SUSDFR_FEE_ABI_VERSION=1 npm run build",
     "test:e2e:fork": "playwright test --config playwright.config.ts"
   },
@@ -28,7 +30,7 @@
     "@tanstack/react-query": "^5.101.2",
     "@vercel/blob": "^2.8.0",
     "@walletconnect/ethereum-provider": "2.23.10",
-    "next": "16.3.5",
+    "next": "16.3.8",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "10.1.0",
@@ -37,7 +39,7 @@
     "wagmi": "^3.7.1"
   },
   "devDependencies": {
-    "@next/eslint-plugin-next": "16.3.5",
+    "@next/eslint-plugin-next": "16.3.8",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^7.0.0",
@@ -61,8 +63,13 @@
     "@emnapi/core": "1.11.3",
     "@emnapi/wasi-threads": "1.2.3",
     "@walletconnect/solana-adapter": "0.0.9",
-    "axios": "1.19.0",
-    "brace-expansion": "5.0.9",
+    "axios": "1.20.0",
+    "minimatch@3": {
+      "brace-expansion": "1.1.21"
+    },
+    "minimatch@10": {
+      "brace-expansion": "5.0.12"
+    },
     "postcss": "8.5.25",
     "sharp": "^0.35.0",
     "stream-json": "3.5.0",

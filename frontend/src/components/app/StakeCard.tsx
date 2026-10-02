@@ -181,7 +181,8 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
   };
 
   return (
-    <div className="panel flex h-full flex-col p-6">
+    // `stake-card` is the target of the Buy tab's "stake it" pointer after a purchase.
+    <div id="stake-card" className="panel flex h-full scroll-mt-6 flex-col p-6">
       <div className="flex items-baseline justify-between">
         <h3 className="font-display text-[16px] font-semibold tracking-tight">Stake</h3>
         <p className="text-[11px] font-semibold tracking-[0.03em] text-ink-faint">

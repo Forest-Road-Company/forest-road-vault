@@ -1,6 +1,6 @@
 # Live Deployment Status
 
-**Updated 25 September 2026.** Forest Road Vault V2 is live on Ethereum mainnet and lending to
+**Updated 27 September 2026.** Forest Road Vault V2 is live on Ethereum mainnet and lending to
 real borrowers. The application reads the deployment whose permanent entry points appear on the
 [deployed-addresses page](/docs/addresses). Bootstrap administration has been surrendered to
 timelocked governance.
@@ -52,13 +52,16 @@ principal. The dashboard shows the live balance of every layer.
 
 ## In progress
 
-Two governance proposals were open on 25 September:
+Two governance proposals are progressing through their independent schedules:
 
 - **FRV-005** upgrades five core contracts so that one facility can carry both cash and PIK
-  interest, and approves a borrower payout destination. The new interest mode stays switched off
-  until a separate, later proposal turns it on. Voting closes on 27 September.
+  interest, and approves a borrower payout destination. It passed and was queued on 27 September;
+  its two-day Timelock ends at 05:33:35 UTC on 29 September. The new interest mode stays switched
+  off until a separate, later proposal turns it on.
 - **FRV-007** upgrades USDfr and sUSDfr to remove the fixed gas floor on balance changes described
-  in [Integrating](/docs/integrating). Voting runs from 26 to 28 September.
+  in [Integrating](/docs/integrating). It has received the Treasury's For vote and remains in
+  voting until 10:20:11 UTC on 28 September. If it passes, it must then be queued and wait its own
+  two-day Timelock.
 
 A passed proposal executes only after the two-day timelock. Proposal state is public on the
 Governor contract.
