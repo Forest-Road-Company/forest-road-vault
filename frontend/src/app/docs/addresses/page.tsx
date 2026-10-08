@@ -12,6 +12,8 @@ import {
   type ContractName,
 } from "@/config/contracts";
 import {USDFR_USDC_POOL} from "@/config/markets";
+import {PERMIT2} from "@/lib/uniswapV4Liquidity";
+import {UNIVERSAL_ROUTER, V4_QUOTER} from "@/lib/uniswapV4Swap";
 
 export const metadata: Metadata = {
   title: "Deployed Addresses | Forest Road Vault",
@@ -219,6 +221,27 @@ export default function AddressesPage() {
                   </span>
                   <AddressLink address={USDFR_USDC_POOL.manager} />
                 </span>
+              </li>
+              <li className="grid gap-1.5 border-b border-line/60 py-4 md:grid-cols-[13rem_1fr_minmax(0,24rem)] md:gap-6">
+                <span className="text-[13.5px] font-medium text-ink">Uniswap Universal Router</span>
+                <span className="text-[13px] leading-relaxed text-ink-muted">
+                  The Buy card sends its swap to this router. It is also the spender named in the signed Permit2 allowance.
+                </span>
+                <span className="min-w-0"><AddressLink address={UNIVERSAL_ROUTER} /></span>
+              </li>
+              <li className="grid gap-1.5 border-b border-line/60 py-4 md:grid-cols-[13rem_1fr_minmax(0,24rem)] md:gap-6">
+                <span className="text-[13.5px] font-medium text-ink">Uniswap Permit2</span>
+                <span className="text-[13px] leading-relaxed text-ink-muted">
+                  The Buy card asks for a one-time USDC approval to this contract. Its approval has no expiry until revoked.
+                </span>
+                <span className="min-w-0"><AddressLink address={PERMIT2} /></span>
+              </li>
+              <li className="grid gap-1.5 border-b border-line/60 py-4 md:grid-cols-[13rem_1fr_minmax(0,24rem)] md:gap-6">
+                <span className="text-[13.5px] font-medium text-ink">Uniswap V4Quoter</span>
+                <span className="text-[13px] leading-relaxed text-ink-muted">
+                  The Buy card reads a USDC-to-USDfr quote from this contract before preparing a swap.
+                </span>
+                <span className="min-w-0"><AddressLink address={V4_QUOTER} /></span>
               </li>
             </ul>
           </section>

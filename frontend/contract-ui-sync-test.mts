@@ -311,7 +311,7 @@ const publicWriteSurfaces: Array<[string, string, string[]]> = [
   [
     "BuyUsdfrPanel",
     "./src/components/app/BuyUsdfrPanel.tsx",
-    ["flow.run(permit2ApprovalRequest())", "...buyRequest(args)", "decodeError: decodeSwapError"],
+    ["flow.run(permit2ApprovalRequest())", "...buyRequest(args)", "decodeError: (error) => decodeSwapError(error, signedPermit !== null)"],
   ],
   [
     "RedeemCard",

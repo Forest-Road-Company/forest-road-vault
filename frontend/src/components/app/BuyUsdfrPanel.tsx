@@ -11,7 +11,9 @@
  *   1. once per wallet, if USDC's allowance to Permit2 is below the amount: a maximum ERC-20
  *      approval to Permit2, as Uniswap's own app grants it (owner decision, 1 October 2026);
  *   2. Buy: fresh reads (latest block, Permit2 allowance and nonce, and the same compliance
- *      predicate USDfr applies to the pool's payout), then, unless the router already holds a
+ *      predicate USDfr applies to the pool's payout). If an older router allowance could pay,
+ *      show its exact live amount and expiry and require a separate acknowledgement; re-read it
+ *      on Continue, repeating the review if it changed. Then, unless the router already holds a
  *      Permit2 allowance covering the amount until the deadline, a PermitSingle signature for
  *      exactly this amount, then `execute` with the quote less the slippage limit as the minimum.
  * Encoding lives in `lib/uniswapV4Swap.ts`, which the mainnet-fork test drives against the real
@@ -60,6 +62,7 @@ import {
   type SignedPermit,
 } from "@/lib/uniswapV4Swap";
 import {useWriteFlow} from "@/components/app/useWriteFlow";
+import {useNowSeconds} from "@/components/app/useNowSeconds";
 import {ActionButton, AmountInput, StatusLine, busyLabelFor} from "@/components/app/WriteBits";
 
 const POLL = {refetchInterval: 30_000} as const;
@@ -84,11 +87,24 @@ const BLOCKED_MESSAGE =
 
 const APPROVE_LABEL = "Approve USDC for Uniswap (once)";
 const APPROVE_EXPLANATION =
-  "A one-time approval lets Uniswap's Permit2 contract move your USDC when you sign a buy; each buy is limited to its own amount by your signature.";
+  "This gives Permit2 an unlimited USDC approval with no expiry until you revoke it by approving zero. It also backs Permit2 authorizations you give to other sites. This card's new signatures authorize only one buy's exact amount for 20 minutes.";
+const MAX_PERMIT2_ALLOWANCE = (1n << 160n) - 1n;
+
+type LockedQuote = {amountIn: bigint; amountOut: bigint; minimum: bigint};
+
+function allowanceExpiry(seconds: number): string {
+  const milliseconds = seconds * 1_000;
+  return milliseconds <= 8_640_000_000_000 ? `${new Date(milliseconds).toISOString().slice(0, 16)} UTC` : "far in the future";
+}
+
+function routerAllowanceLimit(amount: bigint): string {
+  return amount === MAX_PERMIT2_ALLOWANCE ? "an unlimited amount of USDC" : `up to ${fmtAmount(amount, USDC_DECIMALS)} USDC`;
+}
 
 type Prep =
   | {phase: "idle"}
   | {phase: "preparing"}
+  | {phase: "reviewReuse"; amountIn: bigint; minimum: bigint; amount: bigint; expiration: number; nonce: number; directReuse: boolean}
   | {phase: "permit"}
   | {phase: "notice"; message: string}
   | {phase: "error"; message: string; errorName: string | null};
@@ -116,6 +132,12 @@ export function BuyUsdfrPanel({
   const [slippageText, setSlippageText] = useState(formatBpsPercent(DEFAULT_SLIPPAGE_BPS).replace("%", ""));
   const [prep, setPrep] = useState<Prep>({phase: "idle"});
   const [bought, setBought] = useState(false);
+  const [lockedQuote, setLockedQuote] = useState<LockedQuote | null>(null);
+  /** The allowance used by this particular click, from its fresh on-chain read. */
+  const [freshRouterAllowance, setFreshRouterAllowance] = useState<{
+    amountIn: bigint; amount: bigint; expiration: number; chainTime: bigint; directReuse: boolean;
+  } | null>(null);
+  const nowSeconds = useNowSeconds();
 
   // A preparation belongs to the account that started it (the same rule as the write flow).
   const [prepOwner, setPrepOwner] = useState(address);
@@ -123,6 +145,8 @@ export function BuyUsdfrPanel({
     setPrepOwner(address);
     setPrep({phase: "idle"});
     setBought(false);
+    setLockedQuote(null);
+    setFreshRouterAllowance(null);
   }
   const prepGeneration = useRef(0);
   const currentAddress = useRef(address);
@@ -130,6 +154,7 @@ export function BuyUsdfrPanel({
     currentAddress.current = address;
     prepGeneration.current += 1;
   }, [address]);
+  useEffect(() => () => { prepGeneration.current += 1; }, []);
 
   const {data: balance, isLoading: balanceLoading} = useReadContract({
     address: USDC,
@@ -144,6 +169,13 @@ export function BuyUsdfrPanel({
     functionName: "allowance",
     args: address ? [address, PERMIT2] : undefined,
     query: {enabled: Boolean(address), ...POLL},
+  });
+  const {data: routerAllowance} = useReadContract({
+    address: PERMIT2,
+    abi: PERMIT2_ABI,
+    functionName: "allowance",
+    args: address ? [address, USDC, UNIVERSAL_ROUTER] : undefined,
+    query: {enabled: Boolean(address) && active, ...POLL},
   });
   const {data: slot0} = useReadContract({
     address: V4_STATE_VIEW,
@@ -185,7 +217,6 @@ export function BuyUsdfrPanel({
 
   const slippage = parseSlippagePercent(slippageText);
   const minimum = liveQuote && slippage.ok ? minAmountOut(liveQuote.amountOut, slippage.bps) : null;
-  const belowFloor = liveQuote ? isBelowWarningFloor(liveQuote.amountIn, liveQuote.amountOut) : false;
   const fees = slot0 ? buySwapFeePips(slot0[3], slot0[2]) : null;
 
   const exceedsBalance = parsed !== null && balance !== undefined && parsed > balance;
@@ -194,6 +225,23 @@ export function BuyUsdfrPanel({
     parsed !== null && parsed > 0n && allowance !== undefined && needsPermit2Approval(allowance, parsed);
   const prepBusy = prep.phase === "preparing" || prep.phase === "permit";
   const busy = prepBusy || flow.busy;
+  // A quote may refresh while a wallet is signing. Show the minimum carried by this buy's
+  // calldata until it resolves, not a newer quote that this transaction cannot enforce.
+  const quoteLocked = busy || prep.phase === "reviewReuse";
+  const shownQuote = quoteLocked && lockedQuote?.amountIn === parsed ? lockedQuote : liveQuote;
+  const shownMinimum = quoteLocked && lockedQuote?.amountIn === parsed ? lockedQuote.minimum : minimum;
+  const belowFloor = shownQuote ? isBelowWarningFloor(shownQuote.amountIn, shownQuote.amountOut) : false;
+  const usableRouterAllowance =
+    routerAllowance && nowSeconds !== null && parsed !== null &&
+    routerAllowance[0] >= parsed && routerAllowance[1] > nowSeconds + Number(1_200n);
+  const displayedRouterAllowance = freshRouterAllowance?.amountIn === parsed && freshRouterAllowance.directReuse
+    ? freshRouterAllowance
+    : busy ? null
+    : usableRouterAllowance ? {amount: routerAllowance[0], expiration: routerAllowance[1]} : null;
+  const signedRouteFallback = freshRouterAllowance?.amountIn === parsed && !freshRouterAllowance.directReuse &&
+    freshRouterAllowance.amount >= parsed && BigInt(freshRouterAllowance.expiration) > freshRouterAllowance.chainTime
+      ? freshRouterAllowance
+      : null;
   // Allowance and balance must have LOADED before the button can honestly say Approve or Buy,
   // and the quote on screen must be for this exact amount before either is offered.
   const canSubmit =
@@ -209,7 +257,7 @@ export function BuyUsdfrPanel({
     minimum > 0n &&
     !busy;
 
-  const buy = async (amountIn: bigint, amountOutMinimum: bigint) => {
+  const buy = async (amountIn: bigint, amountOutMinimum: bigint, reviewed?: Extract<Prep, {phase: "reviewReuse"}>) => {
     if (!address || !publicClient) return;
     const owner = address;
     const generation = ++prepGeneration.current;
@@ -218,6 +266,7 @@ export function BuyUsdfrPanel({
       currentAddress.current?.toLowerCase() === owner.toLowerCase();
     flow.reset();
     setBought(false);
+    setFreshRouterAllowance(null);
     setPrep({phase: "preparing"});
     try {
       const [block, permitState, canReceive] = await Promise.all([
@@ -245,7 +294,26 @@ export function BuyUsdfrPanel({
       const deadline = swapDeadline(block.timestamp);
       const [permitAmount, permitExpiration, permitNonce] = permitState;
       let signedPermit: SignedPermit | null = null;
-      if (needsPermit({amount: permitAmount, expiration: permitExpiration, nonce: permitNonce}, amountIn, deadline)) {
+      const signing = needsPermit({amount: permitAmount, expiration: permitExpiration, nonce: permitNonce}, amountIn, deadline);
+      const standingAllowance = permitAmount >= amountIn && BigInt(permitExpiration) > block.timestamp;
+      if (standingAllowance && (
+        reviewed?.amountIn !== amountIn || reviewed.minimum !== amountOutMinimum ||
+        reviewed.amount !== permitAmount || reviewed.expiration !== permitExpiration ||
+        reviewed.nonce !== permitNonce || reviewed.directReuse !== !signing
+      )) {
+        setFreshRouterAllowance({
+          amountIn, amount: permitAmount, expiration: permitExpiration, chainTime: block.timestamp, directReuse: !signing,
+        });
+        setPrep({
+          phase: "reviewReuse", amountIn, minimum: amountOutMinimum,
+          amount: permitAmount, expiration: permitExpiration, nonce: permitNonce, directReuse: !signing,
+        });
+        return;
+      }
+      setFreshRouterAllowance({
+        amountIn, amount: permitAmount, expiration: permitExpiration, chainTime: block.timestamp, directReuse: !signing,
+      });
+      if (signing) {
         const permit = buildPermitSingle({amount: amountIn, nonce: permitNonce, deadline});
         setPrep({phase: "permit"});
         const signature = await signTypedData({account: owner, ...permitTypedData(permit)});
@@ -253,11 +321,14 @@ export function BuyUsdfrPanel({
         signedPermit = {permit, signature};
       }
       const args = buildBuyExecuteArgs({amountIn, amountOutMinimum, deadline, signedPermit});
-      assertBuyArgsMatch(args, {amountIn, amountOutMinimum, deadline, withPermit: signedPermit !== null});
+      assertBuyArgsMatch(args, signedPermit
+        ? {amountIn, amountOutMinimum, deadline, withPermit: true, permitNonce}
+        : {amountIn, amountOutMinimum, deadline, withPermit: false});
       setPrep({phase: "idle"});
       void flow.run({
         ...buyRequest(args),
-        decodeError: decodeSwapError,
+        decodeError: (error) => decodeSwapError(error, signedPermit !== null),
+        keepPendingUntilReceipt: true,
         onSuccess: () => {
           setAmount("");
           setBought(true);
@@ -269,10 +340,45 @@ export function BuyUsdfrPanel({
     }
   };
 
+  const approve = async () => {
+    if (!address || !publicClient) return;
+    const owner = address;
+    const generation = ++prepGeneration.current;
+    const stillCurrent = () =>
+      prepGeneration.current === generation &&
+      currentAddress.current?.toLowerCase() === owner.toLowerCase();
+    flow.reset();
+    setBought(false);
+    setLockedQuote(null);
+    setFreshRouterAllowance(null);
+    setPrep({phase: "preparing"});
+    try {
+      // An unlimited approval is not useful to a wallet USDfr would refuse at payout.
+      // Apply the same exact predicate as Buy before opening the approval transaction.
+      const canReceive = await publicClient.readContract({
+        address: CONTRACTS.ComplianceRegistry!,
+        abi: COMPLIANCE_ABI,
+        functionName: "canTransfer",
+        args: [USDFR, V4_POOL_MANAGER, owner],
+      });
+      if (!stillCurrent()) return;
+      if (!canReceive) {
+        setPrep({phase: "error", message: BLOCKED_MESSAGE, errorName: "USDfr_TransferNotAllowed"});
+        return;
+      }
+      setPrep({phase: "idle"});
+      void flow.run(permit2ApprovalRequest());
+    } catch (err) {
+      if (stillCurrent()) setPrep({phase: "error", ...decodeSwapError(err)});
+    }
+  };
+
   const changeAmount = (value: string) => {
     setAmount(value);
     setBought(false);
-    if (prep.phase === "notice" || prep.phase === "error") setPrep({phase: "idle"});
+    setLockedQuote(null);
+    setFreshRouterAllowance(null);
+    if (prep.phase === "notice" || prep.phase === "error" || prep.phase === "reviewReuse") setPrep({phase: "idle"});
   };
 
   const act = () => {
@@ -286,13 +392,21 @@ export function BuyUsdfrPanel({
       return;
     }
     if (needsApproval) {
-      setPrep({phase: "idle"});
-      setBought(false);
       // The maximum, once, as Uniswap's app does: each buy is still limited to its own amount by
       // the PermitSingle the buyer signs for it.
-      void flow.run(permit2ApprovalRequest());
+      void approve();
       return;
     }
+    if (prep.phase === "reviewReuse") {
+      if (!lockedQuote || lockedQuote.amountIn !== parsed || quoteIsStale(quote.dataUpdatedAt)) {
+        void quote.refetch();
+        setPrep({phase: "notice", message: "The quote changed during allowance review. Check the new quote, then press Buy again."});
+        return;
+      }
+      void buy(lockedQuote.amountIn, lockedQuote.minimum, prep);
+      return;
+    }
+    setLockedQuote({amountIn: parsed, amountOut: liveQuote!.amountOut, minimum: minimum!});
     void buy(parsed, minimum!);
   };
 
@@ -342,9 +456,9 @@ export function BuyUsdfrPanel({
         <>
           <dl className="mt-3 space-y-1 font-mono text-[11px] text-ink-faint">
             <QuoteRow term="You receive about">
-              {liveQuote ? (
+              {shownQuote ? (
                 <span className="text-[12.5px] font-semibold text-ink">
-                  {fmtAmount(liveQuote.amountOut, USDFR_DECIMALS, 4)} USDfr
+                  {fmtAmount(shownQuote.amountOut, USDFR_DECIMALS, 4)} USDfr
                 </span>
               ) : quoteFailed ? (
                 <span className="text-danger">no quote</span>
@@ -354,15 +468,15 @@ export function BuyUsdfrPanel({
                 </span>
               )}
             </QuoteRow>
-            {liveQuote ? (
+            {shownQuote ? (
               <>
                 <QuoteRow term="Minimum received">
-                  {minimum !== null ? `${fmtAmount(minimum, USDFR_DECIMALS, 4)} USDfr` : "needs a valid slippage limit"}
+                  {shownMinimum !== null ? `${fmtAmount(shownMinimum, USDFR_DECIMALS, 4)} USDfr` : "needs a valid slippage limit"}
                 </QuoteRow>
                 <QuoteRow term="Price">
-                  {fmtAmount(priceE18(liveQuote.amountIn, liveQuote.amountOut), 18, 6)} USDfr per USDC
+                  {fmtAmount(priceE18(shownQuote.amountIn, shownQuote.amountOut), 18, 6)} USDfr per USDC
                 </QuoteRow>
-                <QuoteRow term="Difference">{describeParity(liveQuote.amountIn, liveQuote.amountOut)}</QuoteRow>
+                <QuoteRow term="Difference">{describeParity(shownQuote.amountIn, shownQuote.amountOut)}</QuoteRow>
               </>
             ) : null}
             <QuoteRow term="Fees">
@@ -437,7 +551,7 @@ export function BuyUsdfrPanel({
       ) : null}
 
       <ActionButton
-        label={needsApproval ? APPROVE_LABEL : "Buy USDfr"}
+        label={needsApproval ? APPROVE_LABEL : prep.phase === "reviewReuse" ? "Continue with existing allowance" : "Buy USDfr"}
         busyLabel={
           prep.phase === "preparing"
             ? "Preparing…"
@@ -451,15 +565,46 @@ export function BuyUsdfrPanel({
       />
       {/* Shown while the approval is pending too: it says what the wallet is being asked for. */}
       {needsApproval ? (
-        <p className="mt-2 text-[11.5px] leading-snug text-ink-faint">{APPROVE_EXPLANATION}</p>
+        <p className="mt-2 text-[11.5px] leading-snug text-ink-faint">
+          {APPROVE_EXPLANATION} Permit2: <span className="break-all font-mono">{PERMIT2}</span>.
+        </p>
+      ) : displayedRouterAllowance ? (
+        <p className="mt-2 text-[11.5px] leading-snug text-ink-faint">
+          Your wallet already lets Uniswap&apos;s router <span className="break-all font-mono">{UNIVERSAL_ROUTER}</span>{" "}
+          spend {routerAllowanceLimit(displayedRouterAllowance.amount)} through Permit2 until{" "}
+          {allowanceExpiry(displayedRouterAllowance.expiration)}. This buy can reuse that allowance without a new signature.
+        </p>
+      ) : null}
+      {!needsApproval ? (
+        <p className="mt-2 text-[11.5px] leading-snug text-ink-muted">
+          If a new Permit2 signature is not applied, this buy may instead use another allowance you granted to
+          Uniswap&apos;s router. Any remainder can stay available until that allowance expires. This swap cannot spend
+          more than the USDC amount above.
+          {signedRouteFallback ? (
+            <span> The latest chain read found an existing allowance of {routerAllowanceLimit(signedRouteFallback.amount)}
+              {" "}until {allowanceExpiry(signedRouteFallback.expiration)} that could pay if the new signature is not applied.
+            </span>
+          ) : null}
+        </p>
       ) : null}
 
       {prep.phase === "preparing" ? (
         <PrepNote>Checking the swap against live chain state…</PrepNote>
+      ) : prep.phase === "reviewReuse" ? (
+        <PrepNote>
+          The fresh chain read found {routerAllowanceLimit(prep.amount)} for Uniswap&apos;s router through Permit2 until
+          {" "}{allowanceExpiry(prep.expiration)}. {prep.directReuse
+            ? "This buy can use that existing allowance without a new signature."
+            : "This buy may use that existing allowance if the new Permit2 signature is not applied."}
+          {" "}Any remainder can stay available until it expires. The swap cannot spend more than the USDC amount above.
+          Select Continue to acknowledge this allowance before the wallet opens.
+        </PrepNote>
       ) : prep.phase === "permit" ? (
         <PrepNote>
           Sign the Permit2 allowance in your wallet: exactly {amount || "this"} USDC for Uniswap&apos;s
-          router, valid for 20 minutes. Signing costs no gas.
+          router <span className="break-all font-mono">{UNIVERSAL_ROUTER}</span>, valid for 20 minutes.
+          This buy reverts below {lockedQuote ? fmtAmount(lockedQuote.minimum, USDFR_DECIMALS, 4) : "its minimum"} USDfr.
+          Signing costs no gas.
         </PrepNote>
       ) : prep.phase === "notice" ? (
         <PrepNote>{prep.message}</PrepNote>
@@ -468,6 +613,16 @@ export function BuyUsdfrPanel({
       ) : (
         <StatusLine status={flow.status} />
       )}
+      {busy && lockedQuote && prep.phase !== "permit" ? (
+        <p className="mt-1 text-[11.5px] leading-snug text-ink-faint">
+          This buy reverts if it would receive less than {fmtAmount(lockedQuote.minimum, USDFR_DECIMALS, 4)} USDfr.
+        </p>
+      ) : null}
+      {flow.status.phase === "pending" && flow.status.delayed && !flow.status.stopped ? (
+        <button type="button" className="u-link mt-2 text-[11.5px] text-ink-muted" onClick={flow.stopWaiting}>
+          Stop checking this transaction
+        </button>
+      ) : null}
       {bought && flow.status.phase === "success" ? (
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-muted">
           The USDfr is in your wallet.{" "}

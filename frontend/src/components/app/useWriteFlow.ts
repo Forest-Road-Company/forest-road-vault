@@ -23,6 +23,8 @@ import {probeRpcAlignment, type RpcRequest} from "@/lib/rpcAlignment";
 import {EXPECTED_CHAIN} from "@/lib/wagmi";
 
 const RECEIPT_TIMEOUT_MS = 90_000;
+/** A submitted buy is never forgotten automatically, but its receipt poll is bounded. */
+const MAX_BUY_RECEIPT_WAIT_MS = 30 * 60_000;
 
 /**
  * Extra gas added to the estimate on every write.
@@ -56,7 +58,7 @@ export type WriteStatus =
   | {phase: "idle"}
   | {phase: "simulating"}
   | {phase: "signing"}
-  | {phase: "pending"; hash: `0x${string}`}
+  | {phase: "pending"; hash: `0x${string}`; delayed?: boolean; stopped?: boolean}
   | {phase: "success"; hash: `0x${string}`}
   | {phase: "error"; message: string; errorName: string | null};
 
@@ -84,6 +86,10 @@ export function useWriteFlow() {
     // this generation gate also suppresses its eventual callback/onSuccess.
     flowGeneration.current += 1;
   }, [address]);
+  useEffect(() => () => {
+    // An unmounted card must not keep launching receipt polls or report into a later mount.
+    flowGeneration.current += 1;
+  }, []);
 
   const run = useCallback(
     async (params: {
@@ -95,6 +101,9 @@ export function useWriteFlow() {
       /** Revert copy for a call whose errors the protocol copy does not cover. The Uniswap buy
        *  route passes one: its reverts arrive wrapped by the router, Permit2 or the PoolManager. */
       decodeError?: (err: unknown) => DecodedError;
+      /** A buy that was broadcast must never become buyable again merely because receipt
+       *  polling timed out or the read RPC failed. Keep its hash pending and retry. */
+      keepPendingUntilReceipt?: boolean;
     }) => {
       if (!address) {
         setStatus({
@@ -193,13 +202,34 @@ export function useWriteFlow() {
         });
         setCurrentStatus({phase: "pending", hash});
         const replacement: {reason?: "cancelled" | "replaced" | "repriced"} = {};
-        const receipt = await executionClient.waitForTransactionReceipt({
-          hash,
-          timeout: RECEIPT_TIMEOUT_MS,
-          onReplaced: ({reason}) => {
-            replacement.reason = reason;
-          },
-        });
+        const receiptStartedAt = Date.now();
+        let waitFailures = 0;
+        let receipt;
+        for (;;) {
+          if (!isCurrentFlow()) return;
+          try {
+            receipt = await executionClient.waitForTransactionReceipt({
+              hash,
+              timeout: RECEIPT_TIMEOUT_MS,
+              onReplaced: ({reason}) => {
+                replacement.reason = reason;
+              },
+            });
+            break;
+          } catch (waitError) {
+            if (!params.keepPendingUntilReceipt) throw waitError;
+            // Broadcast already succeeded. A missing receipt is not evidence that the transaction
+            // failed; another Buy would be an independent purchase under a standing allowance.
+            if (!isCurrentFlow()) return;
+            if (Date.now() - receiptStartedAt >= MAX_BUY_RECEIPT_WAIT_MS) {
+              setCurrentStatus({phase: "pending", hash, delayed: true, stopped: true});
+              return;
+            }
+            setCurrentStatus({phase: "pending", hash, delayed: true});
+            const backoffMs = Math.min(5_000 * 2 ** Math.min(waitFailures++, 4), 60_000);
+            await new Promise<void>((resolve) => setTimeout(resolve, backoffMs));
+          }
+        }
         const minedHash = receipt.transactionHash;
         if (receipt.status !== "success") {
           // A tx that simulated fine but reverted on-chain, report it, never mask it.
@@ -213,6 +243,7 @@ export function useWriteFlow() {
         // Refresh every on-chain read (balances, allowances, queue state) BEFORE
         // reporting success, so buttons/labels never show a pre-write state next
         // to a "Confirmed." line.
+        if (!isCurrentFlow()) return;
         await queryClient.invalidateQueries();
         if (!isCurrentFlow()) return;
         if (replacement.reason === "cancelled" || replacement.reason === "replaced") {
@@ -241,7 +272,7 @@ export function useWriteFlow() {
           errorName: decoded.errorName,
         });
         // A timed-out wait can still land on-chain later, refresh reads anyway.
-        void queryClient.invalidateQueries();
+        if (isCurrentFlow()) void queryClient.invalidateQueries();
       }
     },
     [publicClient, walletClient, address, writeContractAsync, queryClient, config],
@@ -265,8 +296,15 @@ export function useWriteFlow() {
     setStatus({phase: "idle"});
   }, []);
 
+  const stopWaiting = useCallback(() => {
+    const current = statusRef.current;
+    if (current.phase !== "pending" || !current.delayed || current.stopped) return;
+    flowGeneration.current += 1;
+    setStatus({phase: "pending", hash: current.hash, delayed: true, stopped: true});
+  }, []);
+
   const busy =
     status.phase === "simulating" || status.phase === "signing" || status.phase === "pending";
 
-  return {status, run, reset, busy};
+  return {status, run, reset, stopWaiting, busy};
 }

@@ -36,8 +36,10 @@ const skip = built ? false : "no production build at .next/BUILD_ID: run `npm ru
 const CANONICAL = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed";
 /** The same hex with every letter's case flipped: a mixed-case spelling whose checksum is wrong. */
 const WRONG_CHECKSUM = "0x5AaEB6053f3e94c9B9a09F33669435e7eF1bEaED";
-const ROUTE = "/api/points/morpho";
-const CANONICAL_PATH = `${ROUTE}?wallet=${CANONICAL}`;
+/** Both wallet routes follow the same canonical-URL rules (MORPHO-17), so both are pinned here. */
+const ROUTES = ["/api/points/morpho", "/api/points/pendle"] as const;
+const canonicalPath = (route: string) => `${route}?wallet=${CANONICAL}`;
+const CANONICAL_PATH = canonicalPath(ROUTES[0]);
 const DISABLED = {ok: true, enabled: false};
 const percentEncoded = (text: string) =>
   [...text].map((c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`).join("");
@@ -144,68 +146,70 @@ if (!built && process.env.CI) {
   });
 }
 
-test("the canonical URL is answered by the loader with a short CDN cache", {skip}, async () => {
-  const answer = await get(port, CANONICAL_PATH);
-  assert.equal(answer.status, 200, `canonical: ${answer.status} ${answer.body}\n${log}`);
-  assert.deepEqual(JSON.parse(answer.body), DISABLED, "the loader must be off for this test (see the header)");
-  assert.equal(answer.headers["cache-control"], "public, s-maxage=60, stale-while-revalidate=300");
-});
-
-// Each of these is the canonical query in another spelling. The handler would send every one of
-// them to the canonical URL if it saw it as written (route.test.ts), but Next.js normalizes it
-// first, so it is answered under its own URL: a distinct CDN cache key (M1001B-n3-01). If a Next.js
-// upgrade makes one of these a 308 instead, the redirect covers more than case again: update the
-// route's comment, the MORPHO-17 records in docs/ and this list.
-const NORMALIZED_BY_NEXT: [string, string][] = [
-  ["a percent-encoded first character", `?wallet=%30x${CANONICAL.slice(2)}`],
-  ["a fully percent-encoded value", `?wallet=${percentEncoded(CANONICAL)}`],
-  ["a percent-encoded key", `?%77allet=${CANONICAL}`],
-  ["a leading separator", `?&wallet=${CANONICAL}`],
-  ["a trailing separator", `?wallet=${CANONICAL}&`],
-  ["a Next-internal nxtP key", `?wallet=${CANONICAL}&nxtPaudit=1`],
-  ["a Next-internal nxtI key", `?wallet=${CANONICAL}&nxtIaudit=1`],
-  ["Next's nextInternalLocale key", `?wallet=${CANONICAL}&nextInternalLocale=en`],
-];
-
-for (const [name, query] of NORMALIZED_BY_NEXT) {
-  test(`${name} is normalized by Next.js and answered with a cacheable 200, not redirected`, {skip}, async () => {
-    const answer = await get(port, `${ROUTE}${query}`);
-    assert.equal(answer.status, 200, `${query}: ${answer.status} ${answer.headers.location ?? ""} ${answer.body}`);
-    assert.equal(answer.headers.location, undefined);
-    assert.deepEqual(JSON.parse(answer.body), DISABLED);
+for (const ROUTE of ROUTES) {
+  test(`${ROUTE}: the canonical URL is answered by the loader with a short CDN cache`, {skip}, async () => {
+    const answer = await get(port, canonicalPath(ROUTE));
+    assert.equal(answer.status, 200, `canonical: ${answer.status} ${answer.body}\n${log}`);
+    assert.deepEqual(JSON.parse(answer.body), DISABLED, "the loader must be off for this test (see the header)");
     assert.equal(answer.headers["cache-control"], "public, s-maxage=60, stale-while-revalidate=300");
   });
-}
 
-test("a lowercase spelling still gets one cacheable 308 to the EIP-55 URL, which the loader answers", {skip}, async () => {
-  const answer = await get(port, `${ROUTE}?wallet=${CANONICAL.toLowerCase()}`);
-  assert.equal(answer.status, 308, `lowercase: ${answer.status} ${answer.body}`);
-  assert.equal(answer.headers["cache-control"], "public, max-age=86400, s-maxage=86400");
-  const location = new URL(answer.headers.location ?? "", `http://127.0.0.1:${port}`);
-  assert.equal(`${location.pathname}${location.search}`, CANONICAL_PATH);
-  const followed = await get(port, `${location.pathname}${location.search}`);
-  assert.equal(followed.status, 200);
-  assert.deepEqual(JSON.parse(followed.body), DISABLED);
-});
+  // Each of these is the canonical query in another spelling. The handler would send every one of
+  // them to the canonical URL if it saw it as written (route.test.ts), but Next.js normalizes it
+  // first, so it is answered under its own URL: a distinct CDN cache key (M1001B-n3-01). If a Next.js
+  // upgrade makes one of these a 308 instead, the redirect covers more than case again: update the
+  // route's comment, the MORPHO-17 records in docs/ and this list.
+  const NORMALIZED_BY_NEXT: [string, string][] = [
+    ["a percent-encoded first character", `?wallet=%30x${CANONICAL.slice(2)}`],
+    ["a fully percent-encoded value", `?wallet=${percentEncoded(CANONICAL)}`],
+    ["a percent-encoded key", `?%77allet=${CANONICAL}`],
+    ["a leading separator", `?&wallet=${CANONICAL}`],
+    ["a trailing separator", `?wallet=${CANONICAL}&`],
+    ["a Next-internal nxtP key", `?wallet=${CANONICAL}&nxtPaudit=1`],
+    ["a Next-internal nxtI key", `?wallet=${CANONICAL}&nxtIaudit=1`],
+    ["Next's nextInternalLocale key", `?wallet=${CANONICAL}&nextInternalLocale=en`],
+  ];
 
-test("a lowercase spelling with an encoded key and separators is normalized, then redirected", {skip}, async () => {
-  const answer = await get(port, `${ROUTE}?&%77allet=${CANONICAL.toLowerCase()}&`);
-  assert.equal(answer.status, 308, `${answer.status} ${answer.body}`);
-  const location = new URL(answer.headers.location ?? "", `http://127.0.0.1:${port}`);
-  assert.equal(`${location.pathname}${location.search}`, CANONICAL_PATH);
-});
+  for (const [name, query] of NORMALIZED_BY_NEXT) {
+    test(`${ROUTE}: ${name} is normalized by Next.js and answered with a cacheable 200, not redirected`, {skip}, async () => {
+      const answer = await get(port, `${ROUTE}${query}`);
+      assert.equal(answer.status, 200, `${query}: ${answer.status} ${answer.headers.location ?? ""} ${answer.body}`);
+      assert.equal(answer.headers.location, undefined);
+      assert.deepEqual(JSON.parse(answer.body), DISABLED);
+      assert.equal(answer.headers["cache-control"], "public, s-maxage=60, stale-while-revalidate=300");
+    });
+  }
 
-const REFUSED: [string, string][] = [
-  ["a wrong EIP-55 checksum", `?wallet=${WRONG_CHECKSUM}`],
-  ["a wrong checksum behind a percent-encoded first character", `?wallet=%30x${WRONG_CHECKSUM.slice(2)}`],
-  ["an extra ordinary key, which Next.js keeps", `?wallet=${CANONICAL}&utm=1`],
-];
-
-for (const [name, query] of REFUSED) {
-  test(`${name} is refused with a 400 that is never cached and never reaches the loader`, {skip}, async () => {
-    const answer = await get(port, `${ROUTE}${query}`);
-    assert.equal(answer.status, 400, `${query}: ${answer.status} ${answer.body}`);
-    assert.equal(answer.headers["cache-control"], "no-store");
-    assert.deepEqual(JSON.parse(answer.body), {ok: false, error: "Exactly one wallet address is required."});
+  test(`${ROUTE}: a lowercase spelling still gets one cacheable 308 to the EIP-55 URL, which the loader answers`, {skip}, async () => {
+    const answer = await get(port, `${ROUTE}?wallet=${CANONICAL.toLowerCase()}`);
+    assert.equal(answer.status, 308, `lowercase: ${answer.status} ${answer.body}`);
+    assert.equal(answer.headers["cache-control"], "public, max-age=86400, s-maxage=86400");
+    const location = new URL(answer.headers.location ?? "", `http://127.0.0.1:${port}`);
+    assert.equal(`${location.pathname}${location.search}`, canonicalPath(ROUTE));
+    const followed = await get(port, `${location.pathname}${location.search}`);
+    assert.equal(followed.status, 200);
+    assert.deepEqual(JSON.parse(followed.body), DISABLED);
   });
+
+  test(`${ROUTE}: a lowercase spelling with an encoded key and separators is normalized, then redirected`, {skip}, async () => {
+    const answer = await get(port, `${ROUTE}?&%77allet=${CANONICAL.toLowerCase()}&`);
+    assert.equal(answer.status, 308, `${answer.status} ${answer.body}`);
+    const location = new URL(answer.headers.location ?? "", `http://127.0.0.1:${port}`);
+    assert.equal(`${location.pathname}${location.search}`, canonicalPath(ROUTE));
+  });
+
+  const REFUSED: [string, string][] = [
+    ["a wrong EIP-55 checksum", `?wallet=${WRONG_CHECKSUM}`],
+    ["a wrong checksum behind a percent-encoded first character", `?wallet=%30x${WRONG_CHECKSUM.slice(2)}`],
+    ["an extra ordinary key, which Next.js keeps", `?wallet=${CANONICAL}&utm=1`],
+  ];
+
+  for (const [name, query] of REFUSED) {
+    test(`${ROUTE}: ${name} is refused with a 400 that is never cached and never reaches the loader`, {skip}, async () => {
+      const answer = await get(port, `${ROUTE}${query}`);
+      assert.equal(answer.status, 400, `${query}: ${answer.status} ${answer.body}`);
+      assert.equal(answer.headers["cache-control"], "no-store");
+      assert.deepEqual(JSON.parse(answer.body), {ok: false, error: "Exactly one wallet address is required."});
+    });
+  }
 }

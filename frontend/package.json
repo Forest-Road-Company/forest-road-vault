@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "prebuild": "node ../tools/frontend-env-from-manifest.mjs --verify-build-env",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "test:logic": "node audit-logic-test.mts",
@@ -71,8 +71,10 @@
       "brace-expansion": "5.0.12"
     },
     "postcss": "8.5.25",
-    "sharp": "^0.35.0",
-    "stream-json": "3.5.0",
+    "shell-quote": "1.12.0",
+    "sharp": "^0.35.5",
+    "source-map-js": "1.2.2",
+    "stream-json": "3.7.0",
     "toml": "4.2.0",
     "uuid": "11.1.1"
   }
