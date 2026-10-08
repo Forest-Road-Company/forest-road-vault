@@ -201,8 +201,18 @@ const cases = [
     file: "src/components/app/BuyUsdfrPanel.tsx",
     testFile: "src/components/app/GetUsdfrCard.test.tsx",
     test: "tells a jurisdiction-blocked address in words, before any signature or transaction",
-    needle: "      if (!canReceive) {",
-    replacement: "      if (false && !canReceive) {",
+    needle:
+      '      if (!canReceive) {\n' +
+      '        setPrep({phase: "error", message: BLOCKED_MESSAGE, errorName: "USDfr_TransferNotAllowed"});\n' +
+      '        return;\n' +
+      '      }\n' +
+      '      const deadline = swapDeadline(block.timestamp);',
+    replacement:
+      '      if (false && !canReceive) {\n' +
+      '        setPrep({phase: "error", message: BLOCKED_MESSAGE, errorName: "USDfr_TransferNotAllowed"});\n' +
+      '        return;\n' +
+      '      }\n' +
+      '      const deadline = swapDeadline(block.timestamp);',
   },
   {
     name: "a Permit2 allowance that lapses before the deadline is reused",
@@ -229,6 +239,100 @@ const cases = [
     test: "first approves Permit2 once, for the maximum, when USDC's allowance is short",
     needle: "  return allowance < amountIn;",
     replacement: "  return false;",
+  },
+  {
+    name: "a blocked first-time buyer is offered the unlimited approval",
+    file: "src/components/app/BuyUsdfrPanel.tsx",
+    testFile: "src/components/app/GetUsdfrCard.test.tsx",
+    test: "does not ask a blocked first-time buyer for an unlimited Permit2 approval",
+    needle:
+      '      if (!canReceive) {\n' +
+      '        setPrep({phase: "error", message: BLOCKED_MESSAGE, errorName: "USDfr_TransferNotAllowed"});\n' +
+      '        return;\n' +
+      '      }\n' +
+      '      setPrep({phase: "idle"});\n' +
+      '      void flow.run(permit2ApprovalRequest());',
+    replacement:
+      '      if (false && !canReceive) {\n' +
+      '        setPrep({phase: "error", message: BLOCKED_MESSAGE, errorName: "USDfr_TransferNotAllowed"});\n' +
+      '        return;\n' +
+      '      }\n' +
+      '      setPrep({phase: "idle"});\n' +
+      '      void flow.run(permit2ApprovalRequest());',
+  },
+  {
+    name: "a changing quote replaces the minimum during wallet confirmation",
+    file: "src/components/app/BuyUsdfrPanel.tsx",
+    testFile: "src/components/app/GetUsdfrCard.test.tsx",
+    test: "keeps the calldata minimum visible while the write flow asks for confirmation and waits for the receipt",
+    needle: '  const quoteLocked = busy || prep.phase === "reviewReuse";',
+    replacement: '  const quoteLocked = prep.phase === "reviewReuse";',
+  },
+  {
+    name: "a Buy forgets its hash after a receipt timeout",
+    file: "src/components/app/BuyUsdfrPanel.tsx",
+    testFile: "src/components/app/GetUsdfrCard.test.tsx",
+    test: "signs a permit for exactly the amount, then hands the write flow the router call it reviewed",
+    needle: "        keepPendingUntilReceipt: true,",
+    replacement: "        keepPendingUntilReceipt: false,",
+  },
+  {
+    name: "an older router allowance is used without its fresh-read review",
+    file: "src/components/app/BuyUsdfrPanel.tsx",
+    testFile: "src/components/app/GetUsdfrCard.test.tsx",
+    test: "warns before Buy that an old allowance may pay if a new permit is not applied",
+    needle: "      if (standingAllowance && (",
+    replacement: "      if (false && standingAllowance && (",
+  },
+  {
+    name: "a changed router allowance skips the second acknowledgement",
+    file: "src/components/app/BuyUsdfrPanel.tsx",
+    testFile: "src/components/app/GetUsdfrCard.test.tsx",
+    test: "repeats the allowance review if the second live read changes before the wallet opens",
+    needle:
+      "        reviewed.amount !== permitAmount || reviewed.expiration !== permitExpiration ||\n" +
+      "        reviewed.nonce !== permitNonce || reviewed.directReuse !== !signing",
+    replacement: "        false || reviewed.directReuse !== !signing",
+  },
+  {
+    name: "an unlimited Permit2 allowance is presented as an enormous finite number",
+    file: "src/components/app/BuyUsdfrPanel.tsx",
+    testFile: "src/components/app/GetUsdfrCard.test.tsx",
+    test: "names an unlimited allowance from the fresh Buy read even when the displayed poll was stale",
+    needle: '  return amount === MAX_PERMIT2_ALLOWANCE ? "an unlimited amount of USDC"',
+    replacement: '  return false ? "an unlimited amount of USDC"',
+  },
+  {
+    name: "a late permit signature submits after the connected wallet switches",
+    file: "src/components/app/BuyUsdfrPanel.tsx",
+    testFile: "src/components/app/GetUsdfrCard.test.tsx",
+    test: "does not submit an old wallet's buy if the account switches during permit signing",
+    needle: "        if (!stillCurrent()) return;\n        signedPermit = {permit, signature};",
+    replacement: "        if (false && !stillCurrent()) return;\n        signedPermit = {permit, signature};",
+  },
+  {
+    name: "a late permit signature submits after Buy unmounts",
+    file: "src/components/app/BuyUsdfrPanel.tsx",
+    testFile: "src/components/app/GetUsdfrCard.test.tsx",
+    test: "does not submit a Buy if the card unmounts while its permit signature is pending",
+    needle: "  useEffect(() => () => { prepGeneration.current += 1; }, []);",
+    replacement: "  useEffect(() => () => { void prepGeneration.current; }, []);",
+  },
+  {
+    name: "an uncertain Buy receipt poll never reaches its 30-minute stop",
+    file: "src/components/app/useWriteFlow.ts",
+    testFile: "src/components/app/useWriteFlow.test.tsx",
+    test: "keeps the hash and Buy lock when receipt checks reach the 30-minute limit",
+    needle: "            if (Date.now() - receiptStartedAt >= MAX_BUY_RECEIPT_WAIT_MS) {",
+    replacement: "            if (false && Date.now() - receiptStartedAt >= MAX_BUY_RECEIPT_WAIT_MS) {",
+  },
+  {
+    name: "an unmounted Buy flow keeps polling its old receipt",
+    file: "src/components/app/useWriteFlow.ts",
+    testFile: "src/components/app/useWriteFlow.test.tsx",
+    test: "does not report a late receipt or start another poll after its card unmounts",
+    needle: "    flowGeneration.current += 1;\n  }, []);",
+    replacement: "    void flowGeneration.current;\n  }, []);",
   },
 ];
 

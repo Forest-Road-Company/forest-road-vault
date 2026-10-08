@@ -10,7 +10,8 @@
  */
 
 import {createConfig, custom, fallback, http, type Config} from "wagmi";
-import {injected, walletConnect} from "wagmi/connectors";
+import {injected} from "wagmi/connectors/injected";
+import {walletConnect} from "wagmi/connectors/walletConnect";
 import {CHAIN_ID, IS_LOCAL_FORK, RPC_URL} from "@/config/contracts";
 import {EXPECTED_CHAIN, LOCAL_SEPOLIA_FORK} from "@/lib/chain";
 import {walletMetadata} from "@/lib/walletMetadata";

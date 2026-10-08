@@ -47,6 +47,8 @@ export const V4_QUOTER = "0x52F0E24D1c21C8A0cB1e5a5dD6198556BD9E1203" as const;
 
 /** Universal Router command bytes (Commands.sol, router 2.0.0). */
 export const COMMAND_PERMIT2_PERMIT = 0x0a;
+/** A previously submitted PermitSingle may already have set the same allowance. */
+export const COMMAND_ALLOW_REVERT = 0x80;
 export const COMMAND_V4_SWAP = 0x10;
 /** v4-periphery Actions.sol, at the revision the 2.0.0 router pins. */
 export const ACTION_SWAP_EXACT_IN_SINGLE = 0x06;
@@ -54,7 +56,7 @@ export const ACTION_SETTLE_ALL = 0x0c;
 export const ACTION_TAKE_ALL = 0x0f;
 
 const COMMANDS_SWAP_ONLY: Hex = "0x10";
-const COMMANDS_PERMIT_THEN_SWAP: Hex = "0x0a10";
+const COMMANDS_PERMIT_THEN_SWAP: Hex = "0x8a10";
 const BUY_ACTIONS: Hex = "0x060c0f";
 
 /**
@@ -438,8 +440,8 @@ function assertPermitCoversBuy(permit: PermitSingle, amountIn: bigint, deadline:
     throw new Error("The permit does not name the Uniswap router.");
   }
   if (permit.details.amount < amountIn) throw new Error("The permit does not cover the amount.");
-  if (permit.sigDeadline < deadline || BigInt(permit.details.expiration) < deadline) {
-    throw new Error("The permit would lapse before the swap deadline.");
+  if (permit.sigDeadline !== deadline || BigInt(permit.details.expiration) !== deadline) {
+    throw new Error("The permit deadline must equal the swap deadline.");
   }
 }
 
@@ -549,7 +551,8 @@ export function decodeBuyCalldata(data: Hex): {commands: Hex; inputs: readonly H
  */
 export function assertBuyArgsMatch(
   args: BuyExecuteArgs,
-  expected: {amountIn: bigint; amountOutMinimum: bigint; deadline: bigint; withPermit: boolean},
+  expected: {amountIn: bigint; amountOutMinimum: bigint; deadline: bigint} &
+    ({withPermit: true; permitNonce: number} | {withPermit: false}),
 ): void {
   const [commands, inputs, deadline] = args;
   const swapIndex = expected.withPermit ? 1 : 0;
@@ -587,6 +590,7 @@ export function assertBuyArgsMatch(
       fail("permit");
     }
     if (permit.details.amount !== expected.amountIn) fail("permit amount");
+    if (permit.details.nonce !== expected.permitNonce) fail("permit nonce");
   }
 }
 
@@ -676,10 +680,18 @@ export function describeSwapRevert(data: Hex, depth = 0): DecodedError | null {
   return {message: SWAP_ERROR_MESSAGES[errorName] ?? `The Uniswap route reverted (${errorName}).`, errorName};
 }
 
-/** The Buy tab's decoder for the shared write flow: route reverts first, then the generic copy. */
-export function decodeSwapError(err: unknown): DecodedError {
+/** The Buy tab's decoder for the shared write flow: route reverts first, then the generic copy.
+ *  With allow-revert Permit2, an allowance error after a newly signed permit means that the new
+ *  authorization did not pay; do not misdiagnose it as merely an expired standing allowance. */
+export function decodeSwapError(err: unknown, signedPermit = false): DecodedError {
   const data = revertDataOf(err);
   const described = data ? describeSwapRevert(data) : null;
+  if (signedPermit && (described?.errorName === "AllowanceExpired" || described?.errorName === "InsufficientAllowance")) {
+    return {
+      message: "Permit2 did not apply this buy's new signature (it may have been refused or already used), and no other router allowance covered the amount. Nothing was bought; check this wallet's Permit2 permissions before trying again.",
+      errorName: described.errorName,
+    };
+  }
   return described ?? decodeWriteError(err);
 }
 

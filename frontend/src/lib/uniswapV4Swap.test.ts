@@ -212,7 +212,7 @@ describe("execute arguments", () => {
     const signed = signedPermitFor(10n * USD);
     const args = buildBuyExecuteArgs({amountIn: 10n * USD, amountOutMinimum: 9n * FR, deadline: DEADLINE, signedPermit: signed});
     const decoded = decodeBuyCalldata(encodeBuyCalldata(args));
-    expect(decoded.commands).toBe("0x0a10");
+    expect(decoded.commands).toBe("0x8a10");
     expect(decoded.inputs).toHaveLength(2);
     expect(decoded.deadline).toBe(DEADLINE);
     expect(decodePermit2PermitInput(decoded.inputs[0])).toEqual({
@@ -265,8 +265,10 @@ describe("execute arguments", () => {
       ["not for USDC", {...permit, details: {...permit.details, token: USDFR}}],
       ["does not name the Uniswap router", {...permit, spender: BUYER}],
       ["does not cover the amount", {...permit, details: {...permit.details, amount: 10n * USD - 1n}}],
-      ["lapse before the swap deadline", {...permit, sigDeadline: DEADLINE - 1n}],
-      ["lapse before the swap deadline", {...permit, details: {...permit.details, expiration: Number(DEADLINE) - 1}}],
+      ["deadline must equal", {...permit, sigDeadline: DEADLINE - 1n}],
+      ["deadline must equal", {...permit, sigDeadline: DEADLINE + 1n}],
+      ["deadline must equal", {...permit, details: {...permit.details, expiration: Number(DEADLINE) - 1}}],
+      ["deadline must equal", {...permit, details: {...permit.details, expiration: Number(DEADLINE) + 1}}],
     ];
     for (const [message, bad] of variants) {
       expect(() => buildBuyExecuteArgs({...base, signedPermit: {permit: bad, signature: SIGNATURE}})).toThrow(message);
@@ -285,6 +287,7 @@ describe("the pre-submission self-check", () => {
       assertBuyArgsMatch(buildBuyExecuteArgs({...expected, signedPermit: signedPermitFor(10n * USD)}), {
         ...expected,
         withPermit: true,
+        permitNonce: 7,
       }),
     ).not.toThrow();
   });
@@ -293,17 +296,18 @@ describe("the pre-submission self-check", () => {
     const built = buildBuyExecuteArgs(expected);
     const withPermit = buildBuyExecuteArgs({...expected, signedPermit: signedPermitFor(10n * USD)});
     const cases: Array<[BuyExecuteArgs, Parameters<typeof assertBuyArgsMatch>[1], string]> = [
-      [built, {...expected, withPermit: true}, "commands"],
+      [built, {...expected, withPermit: true, permitNonce: 7}, "commands"],
       [built, {...expected, amountOutMinimum: 9n * FR + 1n, withPermit: false}, "minimum received"],
       [built, {...expected, amountIn: 10n * USD + 1n, withPermit: false}, "amount"],
       [built, {...expected, deadline: DEADLINE + 1n, withPermit: false}, "deadline"],
       [[built[0], [built[1][0], built[1][0]], built[2]], {...expected, withPermit: false}, "inputs"],
       [
         buildBuyExecuteArgs({...expected, signedPermit: signedPermitFor(11n * USD)}),
-        {...expected, withPermit: true},
+        {...expected, withPermit: true, permitNonce: 7},
         "permit amount",
       ],
-      [withPermit, {...expected, deadline: DEADLINE + 1n, withPermit: true}, "deadline"],
+      [withPermit, {...expected, deadline: DEADLINE + 1n, withPermit: true, permitNonce: 7}, "deadline"],
+      [withPermit, {...expected, withPermit: true, permitNonce: 8}, "permit nonce"],
     ];
     for (const [args, wanted, what] of cases) {
       expect(() => assertBuyArgsMatch(args, wanted)).toThrow(`(${what})`);
@@ -550,6 +554,16 @@ describe("revert decoding", () => {
     const nested = new BaseError("call failed", {cause: new RawContractError({data: {data} as never})});
     expect(revertDataOf(nested)).toBe(data);
     expect(revertDataOf(new Error("plain"))).toBeUndefined();
+  });
+
+  it("names an unapplied signed permit when allow-revert reaches an exhausted router allowance", () => {
+    for (const data of [raw("AllowanceExpired", [1n]), raw("InsufficientAllowance", [1n])]) {
+      const err = new BaseError("call failed", {cause: new RawContractError({data})});
+      const decoded = decodeSwapError(err, true);
+      expect(decoded.message).toContain("did not apply this buy's new signature");
+      expect(decoded.message).toContain("Nothing was bought");
+      expect(decodeSwapError(err).message).not.toContain("new signature");
+    }
   });
 
   it("falls back to the shared decoder for wallet rejections and unplaceable bytes", () => {

@@ -15,7 +15,7 @@ export const EXPLORER_TX = EXPLORER_BASE_URL
 export function busyLabelFor(status: WriteStatus): string {
   if (status.phase === "simulating") return "Simulating…";
   if (status.phase === "signing") return "Confirm in wallet…";
-  if (status.phase === "pending") return "Pending…";
+  if (status.phase === "pending") return status.stopped ? "Buy locked—outcome unknown" : "Pending…";
   return "Working…";
 }
 
@@ -134,7 +134,11 @@ export function StatusLine({status}: {status: WriteStatus}) {
   if (status.phase === "pending")
     return (
       <Line tone="muted">
-        Transaction pending…
+        {status.stopped
+          ? "Automatic receipt checking has stopped. This transaction may still go through, so Buy stays locked here. Check its hash in your wallet or an explorer; reload only after its outcome is clear."
+          : status.delayed
+            ? "Your transaction was submitted and may still go through. Check your wallet's activity before buying again; this page is still checking its receipt."
+          : "Transaction pending…"}
         {EXPLORER_TX ? (
           <>
             {" "}

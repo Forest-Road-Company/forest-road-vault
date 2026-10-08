@@ -21,7 +21,6 @@ import {
   V4_QUOTER_ABI,
   buildPermitSingle,
   decodePermit2PermitInput,
-  decodeSwapError,
   decodeV4SwapInput,
   permit2ApprovalRequest,
   permitTypedData,
@@ -51,10 +50,12 @@ const harness = vi.hoisted(() => ({
   usdcBalance: 5_000n * 10n ** 6n,
   permit2Allowance: 0n,
   routerAllowance: [0n, 0, 0] as readonly [bigint, number, number],
+  freshRouterAllowance: null as readonly [bigint, number, number] | null,
   canReceive: true,
-  status: {phase: "idle"} as {phase: string; hash?: `0x${string}`},
+  status: {phase: "idle"} as {phase: string; hash?: `0x${string}`; delayed?: boolean; stopped?: boolean},
   run: vi.fn(),
   reset: vi.fn(),
+  stopWaiting: vi.fn(),
   sign: vi.fn(),
   calls: [] as Hex[],
 }));
@@ -92,7 +93,7 @@ const publicClient = {
     return {timestamp: BLOCK_TIMESTAMP};
   },
   async readContract({functionName}: {functionName: string}) {
-    if (functionName === "allowance") return harness.routerAllowance;
+    if (functionName === "allowance") return harness.freshRouterAllowance ?? harness.routerAllowance;
     if (functionName === "canTransfer") return harness.canReceive;
     throw new Error(`unexpected read ${functionName}`);
   },
@@ -108,6 +109,7 @@ vi.mock("wagmi", () => ({
     }
     if (!harness.address) return {data: undefined, isLoading: false};
     if (functionName === "balanceOf") return {data: harness.usdcBalance, isLoading: false};
+    if (functionName === "allowance" && args?.length === 3) return {data: harness.routerAllowance, isLoading: false};
     if (functionName === "allowance") {
       // The Buy tab asks about Permit2; the mint form about the controller.
       return {data: args?.[1] === PERMIT2 ? harness.permit2Allowance : 0n, isLoading: false};
@@ -121,17 +123,19 @@ vi.mock("@/components/app/useWriteFlow", () => ({
     status: harness.status,
     run: harness.run,
     reset: harness.reset,
-    busy: false,
+    stopWaiting: harness.stopWaiting,
+    busy: ["simulating", "signing", "pending"].includes(harness.status.phase),
   }),
 }));
 
 function renderCard(props: {writesEnabled?: boolean; chainOk?: boolean} = {}) {
   const queryClient = new QueryClient();
-  return render(
+  const rendered = render(
     <QueryClientProvider client={queryClient}>
       <GetUsdfrCard writesEnabled={props.writesEnabled ?? false} chainOk={props.chainOk ?? true} />
     </QueryClientProvider>,
   );
+  return {...rendered, queryClient};
 }
 
 function buyPanel() {
@@ -152,10 +156,12 @@ beforeEach(() => {
   harness.usdcBalance = 5_000n * USD;
   harness.permit2Allowance = 0n;
   harness.routerAllowance = [0n, 0, 0];
+  harness.freshRouterAllowance = null;
   harness.canReceive = true;
   harness.status = {phase: "idle"};
   harness.run.mockReset();
   harness.reset.mockReset();
+  harness.stopWaiting.mockReset();
   harness.sign.mockReset();
   harness.calls = [];
 });
@@ -354,11 +360,8 @@ describe("Buy tab", () => {
     const user = await typeAmount("1000");
     await within(buyPanel()).findByText("999 USDfr");
     const approve = within(buyPanel()).getByRole("button", {name: "Approve USDC for Uniswap (once)"});
-    expect(
-      within(buyPanel()).getByText(
-        "A one-time approval lets Uniswap's Permit2 contract move your USDC when you sign a buy; each buy is limited to its own amount by your signature.",
-      ),
-    ).toBeInTheDocument();
+    expect(within(buyPanel()).getByText(/unlimited USDC approval with no expiry/)).toBeInTheDocument();
+    expect(within(buyPanel()).getByText(/authorizations you give to other sites/)).toBeInTheDocument();
     await user.click(approve);
     expect(harness.run).toHaveBeenCalledTimes(1);
     const request = harness.run.mock.calls[0][0];
@@ -386,7 +389,7 @@ describe("Buy tab", () => {
     expect(harness.sign.mock.calls[0][0].message.details.amount).toBe(4_000n * USD);
     const request = harness.run.mock.calls[0][0];
     expect(request.functionName).toBe("execute");
-    expect(request.args[0]).toBe("0x0a10");
+    expect(request.args[0]).toBe("0x8a10");
   });
 
   it("signs a permit for exactly the amount, then hands the write flow the router call it reviewed", async () => {
@@ -407,9 +410,10 @@ describe("Buy tab", () => {
     expect(request.address).toBe(UNIVERSAL_ROUTER);
     expect(request.abi).toBe(UNIVERSAL_ROUTER_ABI);
     expect(request.functionName).toBe("execute");
-    expect(request.decodeError).toBe(decodeSwapError);
+    expect(typeof request.decodeError).toBe("function");
+    expect(request.keepPendingUntilReceipt).toBe(true);
     const [commands, inputs, sentDeadline] = request.args;
-    expect(commands).toBe("0x0a10");
+    expect(commands).toBe("0x8a10");
     expect(sentDeadline).toBe(deadline);
     expect(decodePermit2PermitInput(inputs[0])).toEqual({permit, signature});
     const swap = decodeV4SwapInput(inputs[1]);
@@ -420,18 +424,158 @@ describe("Buy tab", () => {
     expect(swap.take).toEqual({currency: USDFR, amount: 9_985_005n * 10n ** 14n});
   });
 
-  it("needs only the swap when the Permit2 approval and a live router allowance both stand", async () => {
-    harness.permit2Allowance = maxUint256;
-    harness.routerAllowance = [10_000n * USD, Number(BLOCK_TIMESTAMP + 86_400n), 3];
+  it("does not submit an old wallet's buy if the account switches during permit signing", async () => {
+    harness.permit2Allowance = AFTER_FIRST_BUY;
+    let finishSignature!: (signature: Hex) => void;
+    harness.sign.mockImplementation(() => new Promise<Hex>((resolve) => { finishSignature = resolve; }));
     renderCard();
     const user = await typeAmount("1000");
     await within(buyPanel()).findByText("999 USDfr");
     await user.click(within(buyPanel()).getByRole("button", {name: "Buy USDfr"}));
+    await waitFor(() => expect(harness.sign).toHaveBeenCalledTimes(1));
+    harness.address = "0x2222222222222222222222222222222222222222";
+    await user.click(screen.getByRole("tab", {name: "Mint 1:1"}));
+    await act(async () => { finishSignature(`0x${"cd".repeat(65)}` as Hex); });
+    expect(harness.run).not.toHaveBeenCalled();
+  });
+
+  it("keeps the quoted minimum on screen while signing even if the live quote refreshes", async () => {
+    harness.permit2Allowance = AFTER_FIRST_BUY;
+    let finishSign!: (signature: Hex) => void;
+    harness.sign.mockImplementation(() => new Promise<Hex>((resolve) => { finishSign = resolve; }));
+    const {queryClient} = renderCard();
+    const user = await typeAmount("1000");
+    await within(buyPanel()).findByText("999 USDfr");
+    await user.click(within(buyPanel()).getByRole("button", {name: "Buy USDfr"}));
+    await within(buyPanel()).findByText(/Sign the Permit2 allowance in your wallet/);
+    harness.rateMilli = 1_010n;
+    await act(async () => { await queryClient.invalidateQueries({queryKey: ["usdfr-buy-quote"]}); });
+    expect(within(buyPanel()).getByText("Minimum received", {selector: "dt"}).parentElement).toHaveTextContent(
+      "Minimum received998.5005 USDfr",
+    );
+    expect(within(buyPanel()).getByText(/This buy reverts below 998.5005 USDfr/)).toBeInTheDocument();
+    await act(async () => { finishSign(`0x${"cd".repeat(65)}`); });
+    await waitFor(() => expect(harness.run).toHaveBeenCalledTimes(1));
+    expect(decodeV4SwapInput(harness.run.mock.calls[0][0].args[1][1]).take.amount).toBe(9_985_005n * 10n ** 14n);
+  });
+
+  it("keeps the calldata minimum visible while the write flow asks for confirmation and waits for the receipt", async () => {
+    harness.permit2Allowance = AFTER_FIRST_BUY;
+    harness.sign.mockResolvedValue(`0x${"cd".repeat(65)}`);
+    const rendered = renderCard();
+    const user = await typeAmount("1000");
+    await within(buyPanel()).findByText("999 USDfr");
+    await user.click(within(buyPanel()).getByRole("button", {name: "Buy USDfr"}));
+    await waitFor(() => expect(harness.run).toHaveBeenCalledTimes(1));
+    harness.status = {phase: "signing"};
+    rendered.rerender(<QueryClientProvider client={rendered.queryClient}>
+      <GetUsdfrCard writesEnabled={false} chainOk={true} />
+    </QueryClientProvider>);
+    harness.rateMilli = 1_010n;
+    await act(async () => { await rendered.queryClient.invalidateQueries({queryKey: ["usdfr-buy-quote"]}); });
+    expect(within(buyPanel()).getByText("Minimum received", {selector: "dt"}).parentElement).toHaveTextContent(
+      "Minimum received998.5005 USDfr",
+    );
+    harness.status = {phase: "pending", hash: `0x${"ef".repeat(32)}`};
+    rendered.rerender(<QueryClientProvider client={rendered.queryClient}>
+      <GetUsdfrCard writesEnabled={false} chainOk={true} />
+    </QueryClientProvider>);
+    expect(within(buyPanel()).getByText("Minimum received", {selector: "dt"}).parentElement).toHaveTextContent(
+      "Minimum received998.5005 USDfr",
+    );
+    expect(decodeV4SwapInput(harness.run.mock.calls[0][0].args[1][1]).take.amount).toBe(9_985_005n * 10n ** 14n);
+  });
+
+  it("does not submit a Buy if the card unmounts while its permit signature is pending", async () => {
+    harness.permit2Allowance = AFTER_FIRST_BUY;
+    let finishSign!: (signature: Hex) => void;
+    harness.sign.mockImplementation(() => new Promise<Hex>((resolve) => { finishSign = resolve; }));
+    const {unmount} = renderCard();
+    const user = await typeAmount("300");
+    await within(buyPanel()).findByText("299.7 USDfr");
+    await user.click(within(buyPanel()).getByRole("button", {name: "Buy USDfr"}));
+    await waitFor(() => expect(harness.sign).toHaveBeenCalledTimes(1));
+    unmount();
+    await act(async () => { finishSign(`0x${"cd".repeat(65)}`); });
+    expect(harness.run).not.toHaveBeenCalled();
+  });
+
+  it("needs only the swap when the Permit2 approval and a live router allowance both stand", async () => {
+    harness.permit2Allowance = maxUint256;
+    harness.routerAllowance = [10_000n * USD, Number(BLOCK_TIMESTAMP + 100_000_000n), 3];
+    renderCard();
+    const user = await typeAmount("1000");
+    await within(buyPanel()).findByText("999 USDfr");
+    expect(await within(buyPanel()).findByText(/This buy can reuse that allowance without a new signature/)).toBeInTheDocument();
+    expect(within(buyPanel()).getByText(/10,000 USDC through Permit2/)).toBeInTheDocument();
+    await user.click(within(buyPanel()).getByRole("button", {name: "Buy USDfr"}));
+    expect(await within(buyPanel()).findByText(/Select Continue to acknowledge this allowance before the wallet opens/)).toBeInTheDocument();
+    expect(harness.run).not.toHaveBeenCalled();
+    await user.click(within(buyPanel()).getByRole("button", {name: "Continue with existing allowance"}));
     await waitFor(() => expect(harness.run).toHaveBeenCalledTimes(1));
     expect(harness.sign).not.toHaveBeenCalled();
     const [commands, inputs] = harness.run.mock.calls[0][0].args;
     expect(commands).toBe("0x10");
     expect(inputs).toHaveLength(1);
+  });
+
+  it("names an unlimited allowance from the fresh Buy read even when the displayed poll was stale", async () => {
+    harness.permit2Allowance = maxUint256;
+    harness.routerAllowance = [0n, 0, 0];
+    harness.freshRouterAllowance = [(1n << 160n) - 1n, Number(BLOCK_TIMESTAMP + 100_000n), 7];
+    renderCard();
+    const user = await typeAmount("1000");
+    await within(buyPanel()).findByText("999 USDfr");
+    expect(within(buyPanel()).queryByText(/This buy can reuse that allowance/)).not.toBeInTheDocument();
+    await user.click(within(buyPanel()).getByRole("button", {name: "Buy USDfr"}));
+    expect(await within(buyPanel()).findByText(/Select Continue to acknowledge this allowance before the wallet opens/)).toBeInTheDocument();
+    expect(harness.run).not.toHaveBeenCalled();
+    await user.click(within(buyPanel()).getByRole("button", {name: "Continue with existing allowance"}));
+    await waitFor(() => expect(harness.run).toHaveBeenCalledTimes(1));
+    expect(harness.run.mock.calls[0][0].args[0]).toBe("0x10");
+    expect(within(buyPanel()).getByText(/an unlimited amount of USDC through Permit2/)).toBeInTheDocument();
+    expect(within(buyPanel()).getByText(/This buy can reuse that allowance without a new signature/)).toBeInTheDocument();
+  });
+
+  it("repeats the allowance review if the second live read changes before the wallet opens", async () => {
+    harness.permit2Allowance = maxUint256;
+    harness.routerAllowance = [0n, 0, 0];
+    harness.freshRouterAllowance = [1_000n * USD, Number(BLOCK_TIMESTAMP + 100_000n), 7];
+    renderCard();
+    const user = await typeAmount("300");
+    await within(buyPanel()).findByText("299.7 USDfr");
+    await user.click(within(buyPanel()).getByRole("button", {name: "Buy USDfr"}));
+    expect(await within(buyPanel()).findByText(/fresh chain read found up to 1,000 USDC/)).toBeInTheDocument();
+    expect(harness.run).not.toHaveBeenCalled();
+
+    harness.freshRouterAllowance = [2_000n * USD, Number(BLOCK_TIMESTAMP + 100_000n), 8];
+    await user.click(within(buyPanel()).getByRole("button", {name: "Continue with existing allowance"}));
+    expect(await within(buyPanel()).findByText(/fresh chain read found up to 2,000 USDC/)).toBeInTheDocument();
+    expect(harness.run).not.toHaveBeenCalled();
+
+    await user.click(within(buyPanel()).getByRole("button", {name: "Continue with existing allowance"}));
+    await waitFor(() => expect(harness.run).toHaveBeenCalledTimes(1));
+  });
+
+  it("warns before Buy that an old allowance may pay if a new permit is not applied", async () => {
+    harness.permit2Allowance = AFTER_FIRST_BUY;
+    // It covers this amount now, but not the full 20-minute swap deadline, so Buy signs.
+    harness.freshRouterAllowance = [3_000n * USD, Number(BLOCK_TIMESTAMP + 600n), 7];
+    let finishSign!: (signature: Hex) => void;
+    harness.sign.mockImplementation(() => new Promise<Hex>((resolve) => { finishSign = resolve; }));
+    renderCard();
+    const user = await typeAmount("300");
+    await within(buyPanel()).findByText("299.7 USDfr");
+    expect(within(buyPanel()).getByText(/If a new Permit2 signature is not applied/)).toBeInTheDocument();
+    await user.click(within(buyPanel()).getByRole("button", {name: "Buy USDfr"}));
+    expect(await within(buyPanel()).findByText(/existing allowance of up to 3,000 USDC/)).toBeInTheDocument();
+    expect(within(buyPanel()).getByText(/Select Continue to acknowledge this allowance before the wallet opens/)).toBeInTheDocument();
+    expect(harness.sign).not.toHaveBeenCalled();
+    await user.click(within(buyPanel()).getByRole("button", {name: "Continue with existing allowance"}));
+    await waitFor(() => expect(harness.sign).toHaveBeenCalledTimes(1));
+    await act(async () => { finishSign(`0x${"cd".repeat(65)}`); });
+    await waitFor(() => expect(harness.run).toHaveBeenCalledTimes(1));
+    expect(harness.run.mock.calls[0][0].args[0]).toBe("0x8a10");
   });
 
   it("tells a jurisdiction-blocked address in words, before any signature or transaction", async () => {
@@ -448,6 +592,44 @@ describe("Buy tab", () => {
     ).toBeInTheDocument();
     expect(harness.sign).not.toHaveBeenCalled();
     expect(harness.run).not.toHaveBeenCalled();
+  });
+
+  it("does not ask a blocked first-time buyer for an unlimited Permit2 approval", async () => {
+    harness.permit2Allowance = 0n;
+    harness.canReceive = false;
+    renderCard();
+    const user = await typeAmount("1000");
+    await within(buyPanel()).findByText("999 USDfr");
+    await user.click(within(buyPanel()).getByRole("button", {name: "Approve USDC for Uniswap (once)"}));
+    expect(await within(buyPanel()).findByText(
+      "This address cannot receive USDfr: it is jurisdiction-blocked, so USDfr would refuse the pool's payment and the swap would revert. Nothing was signed or sent.",
+    )).toBeInTheDocument();
+    expect(harness.run).not.toHaveBeenCalled();
+    expect(harness.sign).not.toHaveBeenCalled();
+  });
+
+  it("keeps Buy disabled after a receipt timeout and offers a way to stop checking without enabling another buy", async () => {
+    harness.permit2Allowance = AFTER_FIRST_BUY;
+    const rendered = renderCard();
+    await typeAmount("1000");
+    await within(buyPanel()).findByText("999 USDfr");
+    harness.status = {phase: "pending", hash: `0x${"ef".repeat(32)}`, delayed: true};
+    rendered.rerender(<QueryClientProvider client={rendered.queryClient}>
+      <GetUsdfrCard writesEnabled={false} chainOk={true} />
+    </QueryClientProvider>);
+    expect(within(buyPanel()).getByRole("button", {name: "Pending…"})).toBeDisabled();
+    const stop = within(buyPanel()).getByRole("button", {name: "Stop checking this transaction"});
+    await userEvent.setup().click(stop);
+    expect(harness.stopWaiting).toHaveBeenCalledTimes(1);
+    expect(harness.run).not.toHaveBeenCalled();
+    harness.status = {phase: "pending", hash: `0x${"ef".repeat(32)}`, delayed: true, stopped: true};
+    rendered.rerender(<QueryClientProvider client={rendered.queryClient}>
+      <GetUsdfrCard writesEnabled={false} chainOk={true} />
+    </QueryClientProvider>);
+    expect(within(buyPanel()).getByRole("button", {name: "Buy locked—outcome unknown"})).toBeDisabled();
+    expect(within(buyPanel()).getByRole("status")).toHaveTextContent(
+      "Check its hash in your wallet or an explorer; reload only after its outcome is clear.",
+    );
   });
 
   it("points to the Stake card after a successful buy", async () => {

@@ -15,10 +15,12 @@
  *   - a buyer whose router allowance already covers the amount: one V4_SWAP command, no signature;
  *   - a minimum one wei above the quote reverts with V4TooLittleReceived, in simulation and mined;
  *   - an expired deadline reverts with TransactionDeadlinePassed;
- *   - a replayed permit reverts with ExecutionFailed(InvalidNonce);
+ *   - a replayed permit is skipped by the router's allow-revert flag; with no standing allowance,
+ *     the swap reverts with InsufficientAllowance and the UI explains the new permit did not apply;
  *   - a buyer short of USDC reverts with Permit2's TRANSFER_FROM_FAILED;
  *   - a jurisdiction-blocked buyer: the compliance pre-check says no, and the swap reverts inside
  *     the pool's USDfr payout with WrappedError(USDfr_TransferNotAllowed), decoded to words.
+ *   - a compliance block after a signed permit and the pre-check still reverts atomically.
  * Impersonation and storage writes below are anvil-only and cannot reach the real chain.
  */
 import {spawn, type ChildProcess} from "node:child_process";
@@ -160,15 +162,17 @@ async function prepareBuy(buyer: PrivateKeyAccount, amountIn: bigint, amountOutM
     signedPermit = {permit, signature: await buyer.signTypedData(permitTypedData(permit))};
   }
   const args = buildBuyExecuteArgs({amountIn, amountOutMinimum, deadline, signedPermit});
-  assertBuyArgsMatch(args, {amountIn, amountOutMinimum, deadline, withPermit: signedPermit !== null});
+  assertBuyArgsMatch(args, signedPermit
+    ? {amountIn, amountOutMinimum, deadline, withPermit: true, permitNonce: nonce}
+    : {amountIn, amountOutMinimum, deadline, withPermit: false});
   return {args, deadline, signedPermit};
 }
 
-async function expectSimulationError(buyer: PrivateKeyAccount, args: Parameters<typeof buyRequest>[0]) {
+async function expectSimulationError(buyer: PrivateKeyAccount, args: Parameters<typeof buyRequest>[0], signedPermit = false) {
   try {
     await clients().pub.simulateContract({account: buyer, ...buyRequest(args)});
   } catch (err) {
-    return decodeSwapError(err);
+    return decodeSwapError(err, signedPermit);
   }
   throw new Error("The swap simulated successfully; a revert was expected.");
 }
@@ -248,7 +252,7 @@ describe.skipIf(forkUrl === "")("Buy USDfr through Uniswap on a pinned mainnet f
     const first = await prepareBuy(buyer, firstIn, minimum);
     expect(first.signedPermit?.permit.details.amount).toBe(firstIn);
     expect(first.signedPermit?.permit.details.nonce).toBe(0);
-    expect(decodeBuyCalldata(encodeBuyCalldata(first.args)).commands).toBe("0x0a10");
+    expect(decodeBuyCalldata(encodeBuyCalldata(first.args)).commands).toBe("0x8a10");
     const atExecution = await quote(firstIn);
     const firstSwap = await send(buyer, buyRequest(first.args));
     expect(firstSwap.receipt.status).toBe("success");
@@ -279,7 +283,7 @@ describe.skipIf(forkUrl === "")("Buy USDfr through Uniswap on a pinned mainnet f
     const second = await prepareBuy(buyer, secondIn, secondMinimum);
     expect(second.signedPermit?.permit.details.amount).toBe(secondIn);
     expect(second.signedPermit?.permit.details.nonce).toBe(1);
-    expect(second.args[0]).toBe("0x0a10");
+    expect(second.args[0]).toBe("0x8a10");
     const usdfrBeforeSecond = await balanceOf(USDFR, buyer.address);
     const secondSwap = await send(buyer, buyRequest(second.args));
     expect(secondSwap.receipt.status).toBe("success");
@@ -300,8 +304,8 @@ describe.skipIf(forkUrl === "")("Buy USDfr through Uniswap on a pinned mainnet f
     expect(leftAfterSecond).toBe(0n);
     expect(nonceAfterSecond).toBe(2);
 
-    // A signed permit cannot be used twice: replaying the first one fails on its stale nonce, even
-    // with USDC and the standing approval in place.
+    // The router skips a stale signed permit. With no usable router allowance left, the swap still
+    // fails, and the Buy card's signed-permit error explains that the new permission did not apply.
     await clients().test.setStorageAt({
       address: USDC,
       index: keccak256(encodeAbiParameters([{type: "address"}, {type: "uint256"}], [buyer.address, 9n])),
@@ -313,8 +317,9 @@ describe.skipIf(forkUrl === "")("Buy USDfr through Uniswap on a pinned mainnet f
       deadline: first.signedPermit!.permit.sigDeadline,
       signedPermit: first.signedPermit,
     });
-    const replayed = await expectSimulationError(buyer, replay);
-    expect(replayed).toEqual({message: SWAP_ERROR_MESSAGES.InvalidNonce, errorName: "InvalidNonce"});
+    const replayed = await expectSimulationError(buyer, replay, true);
+    expect(replayed.errorName).toBe("InsufficientAllowance");
+    expect(replayed.message).toContain("did not apply this buy's new signature");
   });
 
   it("a buyer whose router allowance already covers the amount sends one V4_SWAP command and signs nothing", async () => {
@@ -436,5 +441,63 @@ describe.skipIf(forkUrl === "")("Buy USDfr through Uniswap on a pinned mainnet f
     const decoded = await expectSimulationError(buyer, args);
     expect(decoded).toEqual({message: SWAP_ERROR_MESSAGES.USDfr_TransferNotAllowed, errorName: "USDfr_TransferNotAllowed"});
     console.log(`[blocked buyer] ${decoded.errorName}: ${decoded.message}`);
+  });
+
+  it("a compliance flip after precheck rolls back the entire signed buy", async () => {
+    const amountIn = 100n * USD;
+    const buyer = await freshBuyer(amountIn);
+    await send(buyer, permit2ApprovalRequest());
+    const {pub, wallet, test} = clients();
+    const canReceive = () => pub.readContract({
+      address: manifest.compliance,
+      abi: COMPLIANCE_ABI,
+      functionName: "canTransfer",
+      args: [USDFR, V4_POOL_MANAGER, buyer.address],
+    });
+    const routerAllowance = () => pub.readContract({
+      address: PERMIT2,
+      abi: PERMIT2_ABI,
+      functionName: "allowance",
+      args: [buyer.address, USDC, UNIVERSAL_ROUTER],
+    });
+    expect(await canReceive()).toBe(true);
+    const shown = await quote(amountIn);
+    const minimum = minAmountOut(shown.amountOut, DEFAULT_SLIPPAGE_BPS);
+    const {args, signedPermit} = await prepareBuy(buyer, amountIn, minimum);
+    expect(signedPermit).not.toBeNull();
+    expect(await routerAllowance()).toEqual([0n, 0, 0]);
+
+    // An operator changes compliance after the Buy card has checked eligibility and
+    // the wallet has signed, but before the prepared transaction reaches the chain.
+    await test.impersonateAccount({address: manifest.opsAdmin});
+    await test.setBalance({address: manifest.opsAdmin, value: 10n ** 18n});
+    const blockHash = await wallet.writeContract({
+      account: manifest.opsAdmin,
+      address: manifest.compliance,
+      abi: COMPLIANCE_ADMIN_ABI,
+      functionName: "setJurisdictionBlocked",
+      args: [buyer.address, true],
+      chain: mainnet,
+    });
+    expect((await pub.waitForTransactionReceipt({hash: blockHash})).status).toBe("success");
+    await test.stopImpersonatingAccount({address: manifest.opsAdmin});
+    expect(await canReceive()).toBe(false);
+    const decoded = await expectSimulationError(buyer, args, true);
+    expect(decoded.errorName).toBe("USDfr_TransferNotAllowed");
+
+    // Ignore the UI's failed simulation on this disposable fork to prove the
+    // on-chain transaction is atomic even when signed calldata is broadcast.
+    const hash = await wallet.sendTransaction({
+      account: buyer,
+      to: UNIVERSAL_ROUTER,
+      data: encodeBuyCalldata(args),
+      gas: 2_000_000n,
+      chain: mainnet,
+    });
+    const receipt = await pub.waitForTransactionReceipt({hash});
+    expect(receipt.status).toBe("reverted");
+    expect(await balanceOf(USDC, buyer.address)).toBe(amountIn);
+    expect(await balanceOf(USDFR, buyer.address)).toBe(0n);
+    expect(await routerAllowance()).toEqual([0n, 0, 0]);
   });
 });

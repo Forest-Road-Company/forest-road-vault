@@ -9,6 +9,7 @@ import {VERTICALS} from "@/lib/verticals";
 import {EXPECTED_CHAIN} from "@/lib/wagmi";
 import {ConnectControl} from "@/components/app/ConnectControl";
 import {NetworkBanner} from "@/components/app/NetworkBanner";
+import {PendlePointsCard} from "@/components/app/PendlePointsCard";
 
 const BPS = 10_000n;
 const CLASS_IDS = [1n, 2n, 3n, 4n, 5n] as const;
@@ -358,6 +359,7 @@ export function PointsDashboard() {
           </div>
 
           {address ? <MorphoCollateralCard wallet={address} /> : null}
+          {address ? <PendlePointsCard wallet={address} /> : null}
 
           <div className="panel mt-5 overflow-hidden">
             <div className="border-b border-line px-6 py-4">
