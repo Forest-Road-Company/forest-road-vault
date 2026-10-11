@@ -21,6 +21,7 @@ import {
   ADAPTIVE_CURVE_IRM,
   BLOCK_CHUNK,
   LOG_RESULT_LIMIT,
+  loadMorphoCollateralLeaderboard,
   loadMorphoCollateralPoints,
   MARKET_LLTV,
   MAX_CHUNKS_PER_REQUEST,
@@ -159,6 +160,8 @@ class FakeChain {
   walletShares = new Map<string, bigint>();
   /** Collateral a per-wallet position() read reports instead of the canonical value. */
   positionOverride = new Map<string, bigint>();
+  /** The same for position() reads inside a multicall (the reconcile and the leaderboard's checks). */
+  multicallPositionOverride = new Map<string, bigint>();
   /** Awaited inside the per-wallet position() read, so a test can hold one request mid-flight. */
   positionGate: ((owner: string) => Promise<void>) | null = null;
   /** A provider that silently returns at most this many logs per eth_getLogs answer. */
@@ -259,13 +262,20 @@ class FakeChain {
         this.multicalls.push({
           block: args.blockNumber ?? this.finalized,
           size: args.contracts.length,
-          owners: args.contracts.map((c) => (c.args![1] as string).toLowerCase()),
+          // Position reads carry the owner second; the leaderboard's other per-owner reads carry it first.
+          owners: args.contracts.map((c) => String(c.args?.[c.functionName === "position" ? 1 : 0] ?? "").toLowerCase()),
         });
         this.multicallsInFlight++;
         this.maxMulticallsInFlight = Math.max(this.maxMulticallsInFlight, this.multicallsInFlight);
         await new Promise((resolve) => setTimeout(resolve, 0)); // an RPC round trip others can overlap
         this.multicallsInFlight--;
-        return args.contracts.map((c) => this.read({...c, blockNumber: args.blockNumber}));
+        return args.contracts.map((c) => {
+          if (c.functionName === "position") {
+            const forced = this.multicallPositionOverride.get((c.args![1] as string).toLowerCase());
+            if (forced !== undefined) return [0n, 0n, forced];
+          }
+          return this.read({...c, blockNumber: args.blockNumber});
+        });
       },
       request: async (args: {method: string; params: [{address: Address; topics: (Hex | Hex[] | null)[]; fromBlock: Hex; toBlock: Hex}]}) => {
         if (args.method !== "eth_getLogs") throw new Error(`fake chain: unexpected ${args.method}`);
@@ -882,5 +892,159 @@ describe("the cost of reconciling with Morpho Blue (MORPHO-31)", () => {
     // Nothing was read twice: 101 epoch chunks and 91 collateral chunks in all.
     expect(chain.logCalls(POINTS)).toBe(101);
     expect(chain.logCalls(MORPHO_BLUE)).toBe(91);
+  });
+});
+
+describe("loadMorphoCollateralLeaderboard", () => {
+  it("lists every owner's points at the snapshot block exactly as the per-wallet answer credits them", async () => {
+    const board = await loadMorphoCollateralLeaderboard(deps());
+    if (!board.enabled) throw new Error("expected an enabled board");
+    expect(board.asOfBlock).toBe(200n);
+    expect(board.asOfTimestamp).toBe(timeOf(200n));
+    expect(board.withheld).toBe(0);
+    expect([...board.points.keys()].sort()).toEqual([ALICE.toLowerCase(), BOB.toLowerCase()].sort());
+    for (const owner of [ALICE, BOB]) {
+      const single = credited(await loadMorphoCollateralPoints(owner, deps()));
+      expect(board.points.get(owner.toLowerCase())).toBe(BigInt(single.points));
+      expect(board.points.get(owner.toLowerCase())).toBe(expectedPoints(owner, 200n));
+    }
+    // One batched read covered both owners' five checks.
+    const last = chain.multicalls.at(-1)!;
+    expect(last.block).toBe(200n);
+    expect(last.size).toBe(10);
+  });
+
+  it("leaves out protocol-exempt and jurisdiction-blocked owners, as the per-wallet answer credits them nothing", async () => {
+    chain.exempt.add(ALICE.toLowerCase());
+    chain.blocked.add(BOB.toLowerCase());
+    const board = await loadMorphoCollateralLeaderboard(deps());
+    if (!board.enabled) throw new Error("expected an enabled board");
+    expect(board.points.size).toBe(0);
+    expect(board.withheld).toBe(0);
+  });
+
+  it("withholds an owner whose ledger still tracks more shares than it holds, as the per-wallet answer does", async () => {
+    chain.tracked.set(ALICE.toLowerCase(), 5n);
+    chain.walletShares.set(ALICE.toLowerCase(), 4n);
+    const single = await loadMorphoCollateralPoints(ALICE, deps());
+    expect(single).toMatchObject({reconcileRequired: true});
+    const board = await loadMorphoCollateralLeaderboard(deps());
+    if (!board.enabled) throw new Error("expected an enabled board");
+    expect(board.withheld).toBe(1);
+    expect(board.points.has(ALICE.toLowerCase())).toBe(false);
+    expect(board.points.get(BOB.toLowerCase())).toBe(expectedPoints(BOB, 200n));
+    // Equal tracked and held shares credit the owner.
+    chain.walletShares.set(ALICE.toLowerCase(), 5n);
+    const cleared = await loadMorphoCollateralLeaderboard(deps());
+    if (!cleared.enabled) throw new Error("expected an enabled board");
+    expect(cleared.withheld).toBe(0);
+    expect(cleared.points.get(ALICE.toLowerCase())).toBe(expectedPoints(ALICE, 200n));
+  });
+
+  it("fails closed and drops the history when an owner's collateral disagrees with Morpho Blue", async () => {
+    await loadMorphoCollateralLeaderboard(deps()); // builds and keeps the snapshot at 200
+    chain.multicallPositionOverride.set(BOB.toLowerCase(), 1n);
+    await expect(loadMorphoCollateralLeaderboard(deps())).rejects.toBeInstanceOf(MorphoPointsIntegrityError);
+    // The history was dropped: the next request inside the backoff refuses rather than reuse it.
+    chain.multicallPositionOverride.clear();
+    await expect(loadMorphoCollateralLeaderboard(deps())).rejects.toBeInstanceOf(MorphoPointsNotReadyError);
+  });
+
+  it("is not ready before the market's creation block is finalized", async () => {
+    chain.finalized = FROM - 1n;
+    await expect(loadMorphoCollateralLeaderboard(deps())).rejects.toBeInstanceOf(MorphoPointsNotReadyError);
+  });
+});
+
+// ── From the independent server review of the leaderboard (11 October 2026). ──────────────────
+
+const DAVE: Address = "0x000000000000000000000000000000000000da7e";
+const ERIN: Address = "0x000000000000000000000000000000000000e214";
+const FRANK: Address = "0x000000000000000000000000000000000000f2a1";
+const GRACE: Address = "0x000000000000000000000000000000000000062a";
+const NOBODY: Address = "0x0000000000000000000000000000000000000bad";
+
+/** What the per-wallet answer credits, reduced to what the leaderboard can show. */
+async function perWallet(owner: Address): Promise<{points: bigint} | {withheld: true} | {excluded: true}> {
+  const answer = await loadMorphoCollateralPoints(owner, deps());
+  if (!answer.enabled) throw new Error("expected an enabled answer");
+  if ("reconcileRequired" in answer) return {withheld: true};
+  if ("excluded" in answer && answer.excluded) return {excluded: true};
+  return {points: BigInt((answer as {points: string}).points)};
+}
+
+describe("loadMorphoCollateralLeaderboard against the per-wallet answer, owner by owner", () => {
+  beforeEach(() => {
+    chain.changes = [
+      {block: 110n, logIndex: 3, kind: "supply", owner: ALICE, assets: 1_000n * SHARE},
+      {block: 120n, logIndex: 1, kind: "supply", owner: BOB, assets: 500n * SHARE},
+      {block: 125n, logIndex: 0, kind: "supply", owner: CAROL, assets: 70n * SHARE},
+      {block: 130n, logIndex: 2, kind: "withdraw", owner: ALICE, assets: 200n * SHARE},
+      {block: 135n, logIndex: 0, kind: "withdraw", owner: CAROL, assets: 70n * SHARE}, // CAROL: points, no collateral
+      {block: 140n, logIndex: 0, kind: "liquidate", owner: BOB, assets: 50n * SHARE},
+      {block: 150n, logIndex: 0, kind: "supply", owner: DAVE, assets: 10n * SHARE},
+      {block: 150n, logIndex: 1, kind: "withdraw", owner: DAVE, assets: 10n * SHARE}, // DAVE: nothing at all
+      {block: 160n, logIndex: 0, kind: "supply", owner: ERIN, assets: 5n * SHARE},
+      {block: 170n, logIndex: 0, kind: "supply", owner: FRANK, assets: 9n * SHARE},
+      {block: 200n, logIndex: 0, kind: "supply", owner: GRACE, assets: 3n * SHARE}, // GRACE: collateral, no points yet
+    ];
+    chain.exempt.add(ERIN.toLowerCase());
+    chain.blocked.add(FRANK.toLowerCase());
+    chain.tracked.set(BOB.toLowerCase(), 7n);
+    chain.walletShares.set(BOB.toLowerCase(), 6n); // BOB withheld
+    chain.tracked.set(CAROL.toLowerCase(), 4n);
+    chain.walletShares.set(CAROL.toLowerCase(), 4n); // CAROL credited (equal)
+  });
+
+  it("credits, withholds and excludes every owner exactly as the per-wallet answer does", async () => {
+    const board = await loadMorphoCollateralLeaderboard(deps());
+    if (!board.enabled) throw new Error("expected an enabled board");
+    let withheld = 0;
+    for (const owner of [ALICE, BOB, CAROL, DAVE, ERIN, FRANK, GRACE, NOBODY]) {
+      const single = await perWallet(owner);
+      const listed = board.points.get(owner.toLowerCase());
+      if ("points" in single && single.points > 0n) expect(listed).toBe(single.points);
+      else expect(listed).toBeUndefined();
+      if ("withheld" in single) withheld++;
+    }
+    expect(board.withheld).toBe(withheld);
+    expect(withheld).toBe(1);
+    expect([...board.points.keys()].sort()).toEqual([ALICE, CAROL].map((a) => a.toLowerCase()).sort());
+  });
+
+  it("M07: an owner with collateral but no points yet is still checked against Morpho Blue", async () => {
+    await loadMorphoCollateralLeaderboard(deps()); // snapshot at 200
+    chain.multicallPositionOverride.set(GRACE.toLowerCase(), 1n); // Morpho Blue disagrees for GRACE only
+    await expect(loadMorphoCollateralLeaderboard(deps())).rejects.toBeInstanceOf(MorphoPointsIntegrityError);
+  });
+
+  it("M09: every leaderboard read is taken at the snapshot's block, not a newer finalized head", async () => {
+    await loadMorphoCollateralLeaderboard(deps()); // snapshot at 200
+    chain.finalized = 195n; // a lagging node: the cached snapshot (200) is newer, and is served
+    const board = await loadMorphoCollateralLeaderboard(deps());
+    if (!board.enabled) throw new Error("expected an enabled board");
+    expect(board.asOfBlock).toBe(200n);
+    expect(chain.multicalls.at(-1)!.block).toBe(200n);
+  });
+
+  it("M08: a batched read that answers the wrong number of results fails closed", async () => {
+    await loadMorphoCollateralLeaderboard(deps()); // snapshot at 200, reused below
+    const base = chain.client();
+    const short = {
+      ...base,
+      multicall: async (args: never) => ((await (base.multicall as (a: never) => Promise<unknown[]>)(args)) as unknown[]).slice(1),
+    } as unknown as PublicClient;
+    await expect(loadMorphoCollateralLeaderboard(deps({client: short}))).rejects.toThrow(/wrong number of answers/);
+  });
+
+  it("checks an owner the replay holds at zero, so a supply the provider left out fails closed", async () => {
+    await loadMorphoCollateralLeaderboard(deps()); // history and snapshot at 200; DAVE nets to zero in chunk 1
+    // In chunk 2 the provider drops DAVE's re-supply. DAVE (owner index 3) is not touched there and is
+    // not on chunk 1's or chunk 2's zero-held grid (phases 1 and 2), so the history commits without it.
+    chain.changes.push({block: 9_200n, logIndex: 0, kind: "supply", owner: DAVE, assets: 2n * SHARE});
+    chain.hiddenLogs.add("9200:0");
+    chain.finalized = 9_300n;
+    // The leaderboard reads every known owner's position, DAVE's included, and refuses to serve.
+    await expect(loadMorphoCollateralLeaderboard(deps())).rejects.toBeInstanceOf(MorphoPointsIntegrityError);
   });
 });
