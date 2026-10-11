@@ -8,6 +8,8 @@ import {
   HighlightBox,
 } from "@/components/site/Blocks";
 import { PointsDashboard } from "@/components/app/PointsDashboard";
+import { PointsLeaderboard } from "@/components/app/PointsLeaderboard";
+import { IS_MAINNET } from "@/config/contracts";
 
 export const metadata: Metadata = {
   title: "Points | Forest Road Vault",
@@ -61,9 +63,24 @@ export default function PointsPage() {
       title="Participation, measured over time"
       lede="Points track sustained participation: USDfr held, sUSDfr staked, and curator first-loss capital, each accruing per unit over time at its own multiple. They are not a token, not a promise of one, and not an implied return: any future utility is discretionary and subject to counsel review."
     >
-      {/* ── Live wallet position. ───────────────────────────────────────── */}
+      {/* ── Live wallet position, then every wallet's. ──────────────────── */}
       <PageBody tone="light">
         <PointsDashboard />
+        {/* Mainnet only: the server answers "off" on a testnet build, which would leave this heading empty. */}
+        {IS_MAINNET ? (
+          <div id="leaderboard" className="mt-16 scroll-mt-24">
+            <h2 className="display text-[26px] leading-[1.15] md:text-[32px]">Leaderboard</h2>
+            <p className="mt-3 max-w-[64ch] text-[14px] leading-relaxed text-ink-muted">
+              Wallets ranked by their on-chain points plus the points Forest Road computes for sUSDfr and
+              USDfr held through Pendle and for sUSDfr posted as collateral on Morpho. Forest Road&apos;s own
+              wallets and the venue contracts that hold tokens for many people are not ranked: their points
+              are shown below the table instead. Jurisdiction-blocked wallets are not ranked either.
+            </p>
+            <div className="mt-6">
+              <PointsLeaderboard />
+            </div>
+          </div>
+        ) : null}
       </PageBody>
 
       {/* ── Accrual: prose against the ramp. ────────────────────────────── */}
@@ -141,10 +158,20 @@ export default function PointsPage() {
               </p>
             <div className="mt-8">
               <HighlightBox title="Leaderboard">
-                Individual wallet points are fully on-chain and shown above. A
-                global ranking requires an event indexer to discover the
-                participant set; no leaderboard is published until that index is
-                complete and independently reconcilable to PointsModule reads.
+                On-chain points are read for each wallet from the PointsModule.
+                The{" "}
+                {IS_MAINNET ? (
+                  <a href="#leaderboard" className="text-accent underline underline-offset-4">leaderboard</a>
+                ) : (
+                  "Ethereum leaderboard"
+                )}{" "}
+                finds its wallets from the tokens&apos; transfers, curator
+                first-loss postings and the PointsModule&apos;s own events, and is
+                shown only when the balances the PointsModule tracks for them add
+                up exactly to its own tracked totals at the block it reads. Pendle
+                and Morpho points are computed by Forest Road from those
+                markets&apos; events and added on top; they are not read from the
+                PointsModule.
               </HighlightBox>
             </div>
           </div>

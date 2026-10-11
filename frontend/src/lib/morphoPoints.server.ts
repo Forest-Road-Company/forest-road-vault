@@ -837,3 +837,90 @@ export async function loadMorphoCollateralPoints(
   }
   return {...base, points: (mine?.points ?? 0n).toString()};
 }
+
+/** Every credited owner's Morpho collateral points at one snapshot, for the points leaderboard. */
+export type MorphoLeaderboard =
+  | {enabled: false}
+  | {
+      enabled: true;
+      asOfBlock: bigint;
+      asOfTimestamp: bigint;
+      /** Lowercase owners credited with more than zero points, as the per-wallet answer credits them. */
+      points: Map<string, bigint>;
+      /** Owners whose points the per-wallet answer withholds until PointsModule.reconcile(owner). */
+      withheld: number;
+    };
+
+/** Reads one leaderboard owner needs, in this order, for the checks of `loadMorphoCollateralPoints`. */
+const OWNER_READS = 5;
+
+/**
+ * Every owner's points in the Forest Road Morpho market at one finalized snapshot, for the points
+ * leaderboard: the per-wallet answer's own checks, batched. Every owner the history has seen, even one
+ * the replay holds at zero, must have exactly its replayed collateral in Morpho Blue at the snapshot's
+ * block, or the history is dropped and nothing is served; a protocol-exempt or jurisdiction-blocked
+ * owner earns nothing; and an owner whose ledger still tracks more sUSDfr shares than the wallet holds
+ * is withheld, exactly as `loadMorphoCollateralPoints` withholds it. The same request budget applies.
+ */
+export async function loadMorphoCollateralLeaderboard(
+  injected?: MorphoPointsDeps,
+  arrivedAt?: number,
+): Promise<MorphoLeaderboard> {
+  const deps = injected ?? defaultDeps();
+  if (!deps) return {enabled: false};
+  const deadline = (arrivedAt ?? deps.now()) + REQUEST_BUDGET_MS;
+  const finalized = await deps.client.getBlock({blockTag: "finalized"});
+  if (finalized.number === null) throw new MorphoPointsNotReadyError("points: no finalized block");
+  if (finalized.number < deps.config.fromBlock) {
+    throw new MorphoPointsNotReadyError("points: the market's creation block is not finalized yet");
+  }
+  const snapshot = await snapshotAt(deps, {number: finalized.number, timestamp: finalized.timestamp}, deadline);
+  const block = snapshot.asOfBlock;
+  // Owners held at zero are checked too: a supply the provider left out would otherwise go uncounted
+  // here while the per-wallet answer, reading that owner's position, fails closed.
+  const owners = [...snapshot.owners.values()];
+  const points = new Map<string, bigint>();
+  let withheld = 0;
+  for (let i = 0; i < owners.length; i += RECONCILE_BATCH) {
+    const batch = owners.slice(i, i + RECONCILE_BATCH);
+    const calls = batch.flatMap((entry) => {
+      const owner = entry.owner as Address;
+      return [
+        {address: MORPHO_BLUE, abi: MORPHO_COLLATERAL_ABI, functionName: "position", args: [deps.config.marketId, owner]},
+        {address: deps.contracts.compliance, abi: OWNER_STATUS_ABI, functionName: "isProtocolExempt", args: [owner]},
+        {address: deps.contracts.compliance, abi: OWNER_STATUS_ABI, functionName: "isJurisdictionBlocked", args: [owner]},
+        {address: deps.contracts.points, abi: POINTS_ABI, functionName: "trackedBalances", args: [owner]},
+        {address: deps.contracts.susdfr, abi: ERC20_ABI, functionName: "balanceOf", args: [owner]},
+      ];
+    });
+    const reads = (await deps.client.multicall({
+      contracts: calls as never,
+      blockNumber: block,
+      allowFailure: false,
+      batchSize: RECONCILE_CALLDATA_BYTES,
+    })) as unknown[];
+    if (reads.length !== batch.length * OWNER_READS) {
+      throw new MorphoPointsIntegrityError("points: a leaderboard read returned the wrong number of answers");
+    }
+    batch.forEach((entry, j) => {
+      const [position, exempt, blocked, tracked, walletShares] = reads.slice(j * OWNER_READS, (j + 1) * OWNER_READS) as [
+        readonly [bigint, bigint, bigint],
+        boolean,
+        boolean,
+        readonly [bigint, bigint],
+        bigint,
+      ];
+      if (position[2] !== entry.collateral) {
+        dropHistory(deps, snapshot.history);
+        throw new MorphoPointsIntegrityError("points: replayed collateral disagrees with Morpho Blue");
+      }
+      if (exempt || blocked) return;
+      if (tracked[0] > walletShares) {
+        withheld += 1;
+        return;
+      }
+      if (entry.points > 0n) points.set(entry.owner.toLowerCase(), entry.points);
+    });
+  }
+  return {enabled: true, asOfBlock: block, asOfTimestamp: snapshot.asOfTimestamp, points, withheld};
+}

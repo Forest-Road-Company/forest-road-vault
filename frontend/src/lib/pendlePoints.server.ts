@@ -141,3 +141,75 @@ export async function loadPendlePoints(wallet: Address, fetcher: typeof fetch = 
   }
   return parsePendlePoints(body, wallet);
 }
+
+/** Every wallet's Pendle points, for the leaderboard (forestvault-whitelist, src/app/api/pendle-points/all). */
+export const PENDLE_LEADERBOARD_URL = "https://points.forestroadvault.com/api/pendle-points/all";
+/** The points site refuses to list more wallets than this, and so does this module. */
+export const PENDLE_LEADERBOARD_MAX_WALLETS = 5_000;
+/** Its answer replays every market once per stored block and reads each listed wallet's status. */
+const LEADERBOARD_TIMEOUT_MS = 20_000;
+
+export type PendleLeaderboardAnswer =
+  | {ok: true; enabled: false}
+  | {
+      ok: true;
+      enabled: true;
+      asOfBlock: bigint;
+      asOfTimestamp: number;
+      /** Lowercase wallets with more than zero raw points; exempt and blocked wallets are never listed. */
+      points: Map<string, bigint>;
+    };
+
+/** Validates the points site's every-wallet answer; anything unexpected is refused, never ranked. */
+export function parsePendleLeaderboard(body: unknown): PendleLeaderboardAnswer {
+  if (typeof body !== "object" || body === null) fail("the answer is not an object");
+  const b = body as Record<string, unknown>;
+  if (b.ok !== true) fail("the points site reported a failure");
+  if (b.enabled === false) return {ok: true, enabled: false};
+  if (b.enabled !== true) fail("enabled is not a boolean");
+  if (typeof b.asOfBlock !== "string" || !/^[1-9]\d{0,19}$/.test(b.asOfBlock)) fail("asOfBlock is not a block number");
+  if (typeof b.asOfTimestamp !== "number" || !Number.isSafeInteger(b.asOfTimestamp) || b.asOfTimestamp <= 0) {
+    fail("asOfTimestamp is not a time");
+  }
+  if (!Array.isArray(b.wallets) || b.wallets.length > PENDLE_LEADERBOARD_MAX_WALLETS) fail("wallets is not a bounded list");
+  const points = new Map<string, bigint>();
+  const seen = new Set<string>();
+  b.wallets.forEach((entry: unknown, index: number) => {
+    if (typeof entry !== "object" || entry === null) fail(`wallet ${index} is not an object`);
+    const row = entry as Record<string, unknown>;
+    if (typeof row.wallet !== "string" || !/^0x[0-9a-f]{40}$/.test(row.wallet)) fail(`wallet ${index} is not a lowercase address`);
+    const value = BigInt(raw(row.points, `wallet ${index} points`));
+    if (seen.has(row.wallet)) fail(`wallet ${index} is listed twice`);
+    seen.add(row.wallet);
+    // The points site lists every wallet whose points are above zero and rounds each to a millionth of a
+    // point, so a dust holder arrives as "0". It ranks nowhere; refusing it would take the board down.
+    if (value > 0n) points.set(row.wallet, value);
+  });
+  return {ok: true, enabled: true, asOfBlock: BigInt(b.asOfBlock), asOfTimestamp: b.asOfTimestamp, points};
+}
+
+/**
+ * Every wallet's Pendle points from the points site, for the leaderboard. Ethereum only: on a testnet
+ * build the Pendle markets do not exist, so it answers disabled without a request.
+ */
+export async function loadPendleLeaderboard(fetcher: typeof fetch = fetch): Promise<PendleLeaderboardAnswer> {
+  if (!IS_MAINNET) return {ok: true, enabled: false};
+  let response: Response;
+  try {
+    response = await fetcher(PENDLE_LEADERBOARD_URL, {
+      headers: {accept: "application/json"},
+      signal: AbortSignal.timeout(LEADERBOARD_TIMEOUT_MS),
+      cache: "no-store",
+    });
+  } catch {
+    fail("the points site did not answer");
+  }
+  if (!response.ok) fail(`the points site answered ${response.status}`);
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    fail("the answer is not JSON");
+  }
+  return parsePendleLeaderboard(body);
+}
