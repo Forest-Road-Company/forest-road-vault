@@ -31,7 +31,7 @@ export const DOCS: DocEntry[] = [
     title: "Live deployment status",
     eyebrow: "Ethereum V2",
     summary:
-      "The live loan book, the loss protection in place today, what has run on mainnet, governance in progress, and the operating limits that apply.",
+      "The live loan book, where the yield comes from, loss protection, exits, the open findings that matter to depositors, recent changes and operating limits.",
   },
   {
     slug: "guarantees",
