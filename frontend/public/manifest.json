@@ -1,0 +1,6 @@
+{
+  "name": "Forest Road · Borrow & lend",
+  "description": "Lend USDC and manage sUSDfr-backed borrowing in Forest Road's Ethereum market on Morpho.",
+  "iconPath": "/brand/vault-mark-navy.png",
+  "chainIds": [1]
+}

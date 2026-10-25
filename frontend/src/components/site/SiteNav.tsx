@@ -13,6 +13,7 @@ const links = [
   { href: "/transparency", label: "Transparency" },
   { href: "/docs", label: "Docs" },
   { href: "/points", label: "Points" },
+  { href: "/markets", label: "Borrow & lend" },
   { href: "/curators", label: "Curators" },
 ] as const;
 
@@ -61,7 +62,7 @@ export function SiteNav() {
           </span>
         </Link>
 
-        <div className="hidden items-center gap-7 lg:flex">
+        <div className="hidden items-center gap-4 lg:flex xl:gap-6">
           {links.map((l) => {
             const active = isActive(l.href);
             return (

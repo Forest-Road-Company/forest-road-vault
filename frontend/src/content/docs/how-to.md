@@ -88,7 +88,9 @@ KYC.
 
 ### sUSDfr to USDfr: the redemption queue
 
-There is no instant unstake. Every sUSDfr exit goes through the redemption queue.
+There is no instant unstake: the protocol's only way to redeem sUSDfr is the redemption queue below.
+**Any address** can instead sell sUSDfr for USDC on a third-party Uniswap pool, without the queue
+(see **Sell sUSDfr on Uniswap** below).
 
 1. In **Redeem**, choose **sUSDfr** and enter the amount. The minimum request is worth 1 USDfr.
 2. Tick the acknowledgement, press **Approve sUSDfr**, then press **Request redemption**.
@@ -108,6 +110,15 @@ Know before you request:
 - The card lists your recent requests. To find an older one, enter its request ID in
   **Find any request by ID** under **Your queue positions**.
 
+### Sell sUSDfr on Uniswap
+
+**Any address** can sell sUSDfr for USDC in a Uniswap v4 pool:
+[sUSDfr/USDC on Uniswap](https://app.uniswap.org/explore/pools/ethereum/0x1d8694445872d16931c729de06086ccbdc4089875ee73fb6119963a922c92d5a).
+This is a swap, not a redemption: it does not use the queue, it settles at once, and it pays
+USDC, not USDfr. Uniswap is independent of Forest Road. The pool's price is set by the market and
+can differ from the vault's exchange rate and from what the queue would pay, so check the quote and
+your slippage setting before you swap. The pool ID is on the [deployed-addresses page](/docs/addresses).
+
 ### USDfr to USDC
 
 **KYC-verified addresses** can redeem USDfr for USDC instantly in **Redeem → USDfr**. It pays 1:1
@@ -115,7 +126,7 @@ while USDfr is fully backed, and is limited to the idle USDC held in reserve. US
 decimals, so the amount is rounded down to the nearest 0.000001 USDC and any smaller remainder
 stays in your wallet as USDfr.
 
-**Any address** can instead sell USDfr on the Uniswap pool, at the market price.
+**Any address** can instead sell USDfr on the USDfr/USDC Uniswap pool, at the market price.
 
 ## 6. Track your position
 

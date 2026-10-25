@@ -104,6 +104,8 @@ export function useWriteFlow() {
       /** A buy that was broadcast must never become buyable again merely because receipt
        *  polling timed out or the read RPC failed. Keep its hash pending and retry. */
       keepPendingUntilReceipt?: boolean;
+      /** Last synchronous guard after all RPC work, immediately before wallet handoff. */
+      assertBeforeWallet?: () => void;
     }) => {
       if (!address) {
         setStatus({
@@ -191,6 +193,7 @@ export function useWriteFlow() {
           args: params.args as unknown[],
         });
         if (!isCurrentFlow()) return;
+        params.assertBeforeWallet?.();
         setCurrentStatus({phase: "signing"});
         // chainId makes wagmi assert the wallet is on the build-selected chain at submission time
         // (ChainMismatchError instead of a real tx on the wrong chain). Without it,
