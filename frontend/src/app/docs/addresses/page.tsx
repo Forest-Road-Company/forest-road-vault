@@ -11,7 +11,7 @@ import {
   PROTOCOL_DEPLOYMENT_BLOCK,
   type ContractName,
 } from "@/config/contracts";
-import {USDFR_USDC_POOL} from "@/config/markets";
+import {SUSDFR_USDC_POOL, USDFR_USDC_POOL} from "@/config/markets";
 import {PERMIT2} from "@/lib/uniswapV4Liquidity";
 import {UNIVERSAL_ROUTER, V4_QUOTER} from "@/lib/uniswapV4Swap";
 
@@ -220,6 +220,27 @@ export default function AddressesPage() {
                     Uniswap v4 PoolManager
                   </span>
                   <AddressLink address={USDFR_USDC_POOL.manager} />
+                </span>
+              </li>
+              <li className="grid gap-1.5 border-b border-line/60 py-4 md:grid-cols-[13rem_1fr_minmax(0,24rem)] md:gap-6">
+                <span className="text-[13.5px] font-medium text-ink">sUSDfr/USDC pool</span>
+                <span className="text-[13px] leading-relaxed text-ink-muted">
+                  A Uniswap v4 pool pairing sUSDfr with USDC (0.0375% fee, no hooks), where sUSDfr can be sold without
+                  the redemption queue. Uniswap is independent of Forest Road; its price can differ from the vault&apos;s
+                  rate and from what the queue would pay.{" "}
+                  <a href={SUSDFR_USDC_POOL.url} target="_blank" rel="noreferrer" className="u-link text-ink">
+                    View on Uniswap
+                  </a>
+                </span>
+                <span className="min-w-0 space-y-1">
+                  <span className="block text-[11px] uppercase tracking-[0.14em] text-ink-faint">Pool ID</span>
+                  <span className="block break-all font-mono text-[12px] leading-relaxed text-ink-muted">
+                    {SUSDFR_USDC_POOL.id}
+                  </span>
+                  <span className="block pt-1 text-[11px] uppercase tracking-[0.14em] text-ink-faint">
+                    Uniswap v4 PoolManager
+                  </span>
+                  <AddressLink address={SUSDFR_USDC_POOL.manager} />
                 </span>
               </li>
               <li className="grid gap-1.5 border-b border-line/60 py-4 md:grid-cols-[13rem_1fr_minmax(0,24rem)] md:gap-6">

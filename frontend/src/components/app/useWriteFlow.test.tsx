@@ -2,6 +2,7 @@ import {act, cleanup, renderHook, waitFor} from "@testing-library/react";
 import {parseAbi} from "viem";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {useWriteFlow} from "@/components/app/useWriteFlow";
+import {assertMarketQuoteCurrent} from "@/lib/morphoMarketProjection";
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const ASSET_ADDRESS = "0x2222222222222222222222222222222222222222" as const;
@@ -48,6 +49,35 @@ beforeEach(() => {
   harness.estimate.mockResolvedValue(500_000n);
   harness.write.mockResolvedValue(HASH);
   harness.invalidate.mockResolvedValue(undefined);
+});
+
+describe("Morpho quote guard at the actual wallet handoff", () => {
+  it.each(["simulation", "gas estimation"])("does not open the wallet when the quote expires during %s", async stage => {
+    vi.useFakeTimers({toFake: ["Date"]});vi.setSystemTime(1_000);
+    const quote = {issuedAt: 1_000, expiresAt: 301_000};
+    const delayed = stage === "simulation" ? harness.simulate : harness.estimate;
+    const original = delayed.getMockImplementation()!;
+    delayed.mockImplementation(async (...args) => {const result = await original(...args);vi.setSystemTime(301_000);return result;});
+    const guard = vi.fn(() => assertMarketQuoteCurrent(quote));
+    const {result} = renderHook(() => useWriteFlow());
+    await act(async () => {await result.current.run({...INPUT, assertBeforeWallet: guard});});
+    expect(harness.simulate).toHaveBeenCalledTimes(1);expect(harness.estimate).toHaveBeenCalledTimes(1);
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(guard.mock.invocationCallOrder[0]).toBeGreaterThan(harness.estimate.mock.invocationCallOrder[0]);
+    expect(harness.write).not.toHaveBeenCalled();expect(harness.wait).not.toHaveBeenCalled();
+    expect(result.current.status).toMatchObject({phase: "error", message: expect.stringMatching(/Quote expired/)});
+  });
+  it("allows the last live millisecond, without pretending expiry can cancel a handed-off request", async () => {
+    vi.useFakeTimers({toFake: ["Date"]});vi.setSystemTime(300_999);
+    const guard = vi.fn(() => assertMarketQuoteCurrent({issuedAt: 1_000, expiresAt: 301_000}));
+    harness.write.mockImplementation(async () => {vi.setSystemTime(301_001);return HASH;});
+    harness.wait.mockResolvedValue({status: "success", transactionHash: HASH});
+    const {result} = renderHook(() => useWriteFlow());
+    await act(async () => {await result.current.run({...INPUT, assertBeforeWallet: guard});});
+    expect(guard).toHaveBeenCalledTimes(1);expect(harness.write).toHaveBeenCalledTimes(1);
+    expect(guard.mock.invocationCallOrder[0]).toBeLessThan(harness.write.mock.invocationCallOrder[0]);
+    expect(result.current.status).toEqual({phase: "success", hash: HASH});
+  });
 });
 
 afterEach(() => {

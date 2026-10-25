@@ -161,8 +161,22 @@ export default function createNextConfig(phase: string): NextConfig {
     async headers() {
       return [
         {
-          source: "/(.*)",
+          source: "/((?!markets$).*)",
           headers: [...securityHeaders],
+        },
+        {
+          // Only the market screen may be embedded, and only by the canonical Safe app.
+          // Next also matches case/trailing-slash variants; those never widen the parent origin.
+          // X-Frame-Options has no supported single-origin mode; CSP enforces this allowance.
+          source: "/markets",
+          headers: securityHeaders.filter(header => header.key !== "X-Frame-Options").map(header =>
+            header.key === "Content-Security-Policy"
+              ? {...header, value: header.value.replace("frame-ancestors 'none'", "frame-ancestors https://app.safe.global")}
+              : header),
+        },
+        {
+          source: "/manifest.json",
+          headers: [{key: "Access-Control-Allow-Origin", value: "*"}],
         },
       ];
     },
