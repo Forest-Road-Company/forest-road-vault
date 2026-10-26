@@ -10,10 +10,11 @@ import {EXPECTED_CHAIN} from "@/lib/wagmi";
 import {ConnectControl} from "@/components/app/ConnectControl";
 import {NetworkBanner} from "@/components/app/NetworkBanner";
 import {PendlePointsCard} from "@/components/app/PendlePointsCard";
+import {ACCOUNT_POLL, POINTS_API_POLL} from "@/lib/polling";
 
 const BPS = 10_000n;
 const CLASS_IDS = [1n, 2n, 3n, 4n, 5n] as const;
-const POLL = {refetchInterval: 30_000} as const;
+const POLL = ACCOUNT_POLL;
 
 type Breakdown = readonly [bigint, bigint, bigint];
 type TrackedBalances = readonly [bigint, bigint];
@@ -124,7 +125,7 @@ export function MorphoCollateralCard({wallet}: {wallet: `0x${string}`}) {
       if (!response.ok || !body.ok) throw new Error("Morpho collateral points unavailable");
       return body;
     },
-    refetchInterval: 60_000,
+    ...POINTS_API_POLL,
   });
 
   if (!isError && (!data || !data.enabled)) return null;

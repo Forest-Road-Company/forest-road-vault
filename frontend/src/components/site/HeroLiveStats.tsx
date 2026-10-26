@@ -27,6 +27,7 @@ import {
 import { BRIDGE_ABI, ERC20_ABI, RESERVES_ABI } from "@/lib/abi";
 import { fmtAmount } from "@/lib/format";
 import { SECTORS } from "@/lib/verticals";
+import { PROTOCOL_POLL } from "@/lib/polling";
 
 const receivable = SECTORS.filter(
   (v) => v.collateralModel === "receivable",
@@ -41,7 +42,7 @@ const STRUCTURE = [
 
 export function HeroLiveStats() {
   const { data } = useReadContracts({
-    query: { refetchInterval: 60_000 },
+    query: PROTOCOL_POLL,
     contracts: [
       { address: CONTRACTS.USDfr!, abi: ERC20_ABI, functionName: "totalSupply" },
       {

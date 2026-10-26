@@ -37,6 +37,7 @@ import {VERTICALS} from "@/lib/verticals";
 import {useNowSeconds} from "@/components/app/useNowSeconds";
 import {useBookEconomics} from "@/components/app/useBookEconomics";
 import {useCollateralValue} from "@/components/app/useCollateralValue";
+import {PROTOCOL_POLL} from "@/lib/polling";
 
 const EXPLORER = EXPLORER_BASE_URL
   ? `${EXPLORER_BASE_URL}/address/`
@@ -59,9 +60,9 @@ type CreditPerformanceState =
   | {phase: "error"};
 
 export function TransparencyDashboard() {
-  // A "live" dashboard that freezes at page-load is dishonest, poll once a
-  // minute (a single multicall + one blockNumber call).
-  const POLL = {refetchInterval: 60_000} as const;
+  // A "live" dashboard that freezes at page-load is dishonest, so it polls, every
+  // five minutes (a single multicall + one blockNumber call; lib/polling.ts).
+  const POLL = PROTOCOL_POLL;
   const {data: blockNumber} = useBlockNumber({query: POLL});
   const [revenue, setRevenue] = useState<RevenueState>({phase: "loading"});
   const [creditPerformance, setCreditPerformance] =

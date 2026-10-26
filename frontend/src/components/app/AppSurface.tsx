@@ -21,9 +21,9 @@ import {GetUsdfrCard} from "@/components/app/GetUsdfrCard";
 import {StakeCard} from "@/components/app/StakeCard";
 import {RedeemCard} from "@/components/app/RedeemCard";
 import {YieldPositionPanel} from "@/components/app/YieldPositionPanel";
+import {ACCOUNT_POLL, RPC_ALIGNMENT_POLL_MS} from "@/lib/polling";
 
-const POLL = {refetchInterval: 30_000} as const;
-const RPC_ALIGNMENT_POLL_MS = 15_000;
+const POLL = ACCOUNT_POLL;
 
 /**
  * What to do when the wallet reports the right chain but its own RPC fails or disagrees. A

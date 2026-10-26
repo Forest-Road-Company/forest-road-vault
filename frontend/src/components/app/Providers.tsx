@@ -10,6 +10,7 @@ import {useState, type ReactNode} from "react";
 import {WagmiProvider} from "wagmi";
 import {QueryClient, QueryClientProvider} from "@tanstack/react-query";
 import {wagmiConfig} from "@/lib/wagmi";
+import {READ_STALE_MS} from "@/lib/polling";
 
 export function Providers({children}: {children: ReactNode}) {
   const [queryClient] = useState(
@@ -18,8 +19,9 @@ export function Providers({children}: {children: ReactNode}) {
         defaultOptions: {
           queries: {
             // On-chain reads: staleTime keeps bursts cheap; refetch-on-focus makes
-            // returning to the tab show current chain state (multicall-batched).
-            staleTime: 15_000,
+            // returning to the tab show current chain state (multicall-batched). The
+            // polling policy is in lib/polling.ts.
+            staleTime: READ_STALE_MS,
             refetchOnWindowFocus: true,
           },
         },

@@ -16,10 +16,11 @@ import {CONTROLLER_ABI, ERC20_ABI, TEST_STABLE_ABI} from "@/lib/abi";
 import {fmtAmount} from "@/lib/format";
 import {useWriteFlow} from "@/components/app/useWriteFlow";
 import {ActionButton, AmountInput, StatusLine, busyLabelFor} from "@/components/app/WriteBits";
+import {ACCOUNT_POLL} from "@/lib/polling";
 
 const STABLE_DECIMALS = 6;
 const FAUCET_AMOUNT = parseUnits("10000", STABLE_DECIMALS);
-const POLL = {refetchInterval: 30_000} as const;
+const POLL = ACCOUNT_POLL;
 
 export function MintCard({writesEnabled, chainOk}: {writesEnabled: boolean; chainOk: boolean}) {
   return (

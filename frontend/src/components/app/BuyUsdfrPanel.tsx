@@ -64,8 +64,9 @@ import {
 import {useWriteFlow} from "@/components/app/useWriteFlow";
 import {useNowSeconds} from "@/components/app/useNowSeconds";
 import {ActionButton, AmountInput, StatusLine, busyLabelFor} from "@/components/app/WriteBits";
+import {ACCOUNT_POLL} from "@/lib/polling";
 
-const POLL = {refetchInterval: 30_000} as const;
+const POLL = ACCOUNT_POLL;
 /** About one block: a quote older than this is replaced while the tab is open. */
 const QUOTE_REFRESH_MS = 12_000;
 const QUOTE_DEBOUNCE_MS = 350;
@@ -202,6 +203,8 @@ export function BuyUsdfrPanel({
     queryKey: ["usdfr-buy-quote", quotedAmount?.toString() ?? "none"],
     enabled: active && ROUTE_MATCHES_DEPLOYMENT && quotedAmount !== null && quotedAmount > 0n && Boolean(publicClient),
     refetchInterval: QUOTE_REFRESH_MS,
+    // Its own freshness, not the site-wide default (lib/polling.ts): a quote is never served from cache past a block.
+    staleTime: QUOTE_REFRESH_MS,
     retry: 1,
     queryFn: async () => {
       const amountIn = quotedAmount!;

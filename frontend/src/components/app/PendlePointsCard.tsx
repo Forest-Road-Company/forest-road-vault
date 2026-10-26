@@ -1,6 +1,7 @@
 "use client";
 import {useQuery} from "@tanstack/react-query";
 import {fmtAmount} from "@/lib/format";
+import {POINTS_API_POLL} from "@/lib/polling";
 
 /** What /api/points/pendle answers (lib/pendlePoints.server.ts validates it before it gets here). */
 type PendlePointsResponse =
@@ -31,7 +32,7 @@ export function PendlePointsCard({wallet}: {wallet: `0x${string}`}) {
       if (!response.ok || !body.ok) throw new Error("Pendle points unavailable");
       return body;
     },
-    refetchInterval: 60_000,
+    ...POINTS_API_POLL,
   });
 
   if (!isError && (!data || !data.enabled)) return null;

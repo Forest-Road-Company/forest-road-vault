@@ -16,8 +16,9 @@ import {
   DIGITAL_ASSETS_CLASS_ID,
   type CollateralPosition,
 } from "@/lib/book";
+import {PROTOCOL_POLL} from "@/lib/polling";
 
-const POLL = {refetchInterval: 60_000} as const;
+const POLL = PROTOCOL_POLL;
 const MAX_CLIENT_FACILITIES = 1_000n;
 
 function decodeValuation(result: unknown): {value: bigint; asOf: bigint} | null {
