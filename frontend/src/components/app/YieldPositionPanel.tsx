@@ -19,6 +19,7 @@ import {fmtAmount} from "@/lib/format";
 import {nextUnreadBlockRange, readBlockRangeChunked} from "@/lib/logs";
 import {formatBps, remainingDirectDepositBasis} from "@/lib/yield";
 import {useBookEconomics} from "@/components/app/useBookEconomics";
+import {ACCOUNT_POLL} from "@/lib/polling";
 
 type History = {
   recordedIncome: bigint;
@@ -41,7 +42,7 @@ type HistoryState =
   | {phase: "ready"; value: History}
   | {phase: "error"};
 
-const POLL = {refetchInterval: 60_000} as const;
+const POLL = ACCOUNT_POLL;
 
 function cursorValue(cursor: HistoryCursor): History {
   return {

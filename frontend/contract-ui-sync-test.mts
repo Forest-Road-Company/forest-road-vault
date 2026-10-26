@@ -10,7 +10,7 @@
  *  - the app, transparency, yield, and points surfaces must keep their complete
  *    dependency sets wired.
  */
-import {existsSync, readFileSync} from "node:fs";
+import {existsSync, readFileSync, readdirSync} from "node:fs";
 import {
   ATTESTATION_ORACLE_ABI,
   BRIDGE_ABI,
@@ -369,19 +369,19 @@ const readSurfaces: Array<[string, string, string[], string]> = [
     "app KYC",
     "./src/components/app/AppSurface.tsx",
     ["isAllowed"],
-    "refetchInterval: 30_000",
+    "const POLL = ACCOUNT_POLL;",
   ],
   [
     "mint state",
     "./src/components/app/MintCard.tsx",
     ["balanceOf", "allowance"],
-    "refetchInterval: 30_000",
+    "const POLL = ACCOUNT_POLL;",
   ],
   [
     "buy state",
     "./src/components/app/BuyUsdfrPanel.tsx",
     ["balanceOf", "allowance", "getSlot0", "canTransfer"],
-    "refetchInterval: 30_000",
+    "const POLL = ACCOUNT_POLL;",
   ],
   [
     "buy quote",
@@ -407,7 +407,7 @@ const readSurfaces: Array<[string, string, string[], string]> = [
       "managementFeeBps",
       "maxManagementFeeBps",
     ],
-    "refetchInterval: 30_000",
+    "const POLL = ACCOUNT_POLL;",
   ],
   [
     "redeem and queue state",
@@ -459,19 +459,19 @@ const readSurfaces: Array<[string, string, string[], string]> = [
       "feeExchangeRate",
       "lastFeeAccrual",
     ],
-    "refetchInterval: 60_000",
+    "const POLL = PROTOCOL_POLL;",
   ],
   [
     "book economics",
     "./src/components/app/useBookEconomics.ts",
     ["totalOriginated", "facility", "deployedTo", "protocolFeeBps"],
-    "refetchInterval: 60_000",
+    "const POLL = PROTOCOL_POLL;",
   ],
   [
     "collateral valuation",
     "./src/components/app/useCollateralValue.ts",
     ["facility", "deployedTo", "latestValuation", "classParams"],
-    "refetchInterval: 60_000",
+    "const POLL = PROTOCOL_POLL;",
   ],
   [
     "yield position",
@@ -487,7 +487,7 @@ const readSurfaces: Array<[string, string, string[], string]> = [
       "managementFeeBps",
       "maxManagementFeeBps",
     ],
-    "refetchInterval: 60_000",
+    "const POLL = ACCOUNT_POLL;",
   ],
   [
     "points",
@@ -504,7 +504,7 @@ const readSurfaces: Array<[string, string, string[], string]> = [
       "curatorPointsInClass",
       "curatorFreezeStatus",
     ],
-    "refetchInterval: 30_000",
+    "const POLL = ACCOUNT_POLL;",
   ],
 ];
 
@@ -538,6 +538,48 @@ check(
     transparency.includes("useEffect") &&
     transparency.includes('fetch("/api/transparency/history"'),
 );
+
+// The polling policy (lib/polling.ts): every open tab reads through the site's one public RPC key, whose provider
+// budget the protocol's own services share. Its values are pinned here, and no component may set its own numeric
+// refetchInterval except the Morpho market, whose snapshot must be under 30 s old to act on.
+const polling = source("./src/lib/polling.ts");
+for (const [name, value] of [
+  ["export const READ_STALE_MS = 60_000;", "stale time"],
+  ["export const ACCOUNT_POLL = {refetchInterval: 120_000} as const;", "account reads"],
+  ["export const QUEUE_POLL = {refetchInterval: 120_000} as const;", "queue reads"],
+  ["export const PROTOCOL_POLL = {refetchInterval: 300_000} as const;", "protocol-wide reads"],
+  ["export const POINTS_API_POLL = {refetchInterval: 300_000} as const;", "points API"],
+  ["export const EVENT_WATCH_POLL_MS = 60_000;", "event watcher"],
+  ["export const RPC_ALIGNMENT_POLL_MS = 60_000;", "RPC alignment"],
+] as const) {
+  check(`polling policy: ${value}`, polling.includes(name));
+}
+check("polling policy: the query client's stale time", source("./src/components/app/Providers.tsx").includes("staleTime: READ_STALE_MS,"));
+check("polling policy: the queue event watcher's interval", source("./src/components/app/RedeemCard.tsx").includes("pollingInterval: EVENT_WATCH_POLL_MS,"));
+check("polling policy: the queue reads", source("./src/components/app/RedeemCard.tsx").includes("query: QUEUE_POLL"));
+check("polling policy: the wallet RPC alignment check", source("./src/components/app/AppSurface.tsx").includes("}, RPC_ALIGNMENT_POLL_MS);"));
+check("polling policy: the buy quote keeps its own block-length freshness", source("./src/components/app/BuyUsdfrPanel.tsx").includes("refetchInterval: QUOTE_REFRESH_MS,\n    // Its own freshness, not the site-wide default (lib/polling.ts): a quote is never served from cache past a block.\n    staleTime: QUOTE_REFRESH_MS,"));
+check("polling policy: the hero stats", source("./src/components/site/HeroLiveStats.tsx").includes("query: PROTOCOL_POLL,"));
+for (const path of ["./src/components/app/PointsDashboard.tsx", "./src/components/app/PendlePointsCard.tsx"]) {
+  check(`polling policy: ${path} points API`, source(path).includes("...POINTS_API_POLL,"));
+}
+{
+  const fastPollAllowed = new Set(["./src/components/app/MorphoMarketSurface.tsx"]);
+  const pending = ["./src/components", "./src/app"];
+  const offenders: string[] = [];
+  while (pending.length > 0) {
+    const dir = pending.pop()!;
+    for (const entry of readdirSync(dir, {withFileTypes: true})) {
+      const path = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) pending.push(path);
+      else if (/\.(ts|tsx)$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name) && !fastPollAllowed.has(path)
+        && /refetchInterval:\s*\d|pollingInterval:\s*\d/.test(readFileSync(path, "utf8"))) {
+        offenders.push(path);
+      }
+    }
+  }
+  check("polling policy: no component sets its own numeric polling interval", offenders.length === 0, offenders.join(", "));
+}
 
 if (failures > 0) {
   console.error(`\n${failures}/${checks} contract↔frontend synchronization checks failed.`);

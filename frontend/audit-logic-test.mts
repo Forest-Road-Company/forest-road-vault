@@ -1445,8 +1445,9 @@ if (!existsSync(new URL("../contracts/src/interfaces/", import.meta.url))) {
   check(
     "redeem: external queue events refresh claim state without a page reload",
     redeemCard.includes("useWatchContractEvent") &&
+      redeemCard.includes("pollingInterval: EVENT_WATCH_POLL_MS,") &&
       redeemCard.includes("refetchScanned") &&
-      redeemCard.includes("refetchInterval: 60_000"),
+      redeemCard.includes("...QUEUE_POLL,"),
   );
   check(
     "redeem: older positions remain discoverable and claimable by request ID",

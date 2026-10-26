@@ -13,6 +13,7 @@ import {ConnectControl} from "@/components/app/ConnectControl";
 import {NetworkBanner} from "@/components/app/NetworkBanner";
 import {useWriteFlow} from "@/components/app/useWriteFlow";
 import {ActionButton, AmountInput, StatusLine, busyLabelFor} from "@/components/app/WriteBits";
+import {ACCOUNT_POLL} from "@/lib/polling";
 
 /**
  * The Ethereum curator's surface on /curators: first-loss capital posted per collateral class
@@ -33,7 +34,7 @@ import {ActionButton, AmountInput, StatusLine, busyLabelFor} from "@/components/
  */
 
 const CLASS_IDS = [1n, 2n, 3n, 4n, 5n] as const;
-const POLL = {refetchInterval: 30_000} as const;
+const POLL = ACCOUNT_POLL;
 const USDFR_DECIMALS = 18;
 
 export function EthereumCuratorPanel() {

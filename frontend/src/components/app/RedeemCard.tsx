@@ -20,13 +20,14 @@ import {secondsUntilEligible} from "@/lib/queue";
 import {useWriteFlow} from "@/components/app/useWriteFlow";
 import {useNowSeconds} from "@/components/app/useNowSeconds";
 import {ActionButton, AmountInput, StatusLine, busyLabelFor} from "@/components/app/WriteBits";
+import {ACCOUNT_POLL, EVENT_WATCH_POLL_MS, QUEUE_POLL} from "@/lib/polling";
 
 /** How many trailing queue requests to scan for this wallet's positions. One
  *  multicall regardless of size; on this testnet totalRequests stays far below
  *  this. If it's ever exceeded, the UI says so instead of silently hiding
  *  older (possibly claimable) positions. */
 const REQUEST_SCAN_WINDOW = 500n;
-const POLL = {refetchInterval: 30_000} as const;
+const POLL = ACCOUNT_POLL;
 
 type Mode = "instant" | "queue";
 type QueuePosition = {
@@ -64,7 +65,6 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
     args: address ? [address, queue] : undefined, query: {enabled: Boolean(address), ...POLL},
   });
   // Queue state changes without user action (epoch boundary, keeper closes), // poll it so the countdown and settle badge don't freeze at page-load.
-  const QUEUE_POLL = {refetchInterval: 60_000} as const;
   const {data: epochEndsAt, refetch: refetchEpochEndsAt} = useReadContract({
     address: queue, abi: QUEUE_ABI, functionName: "epochEndsAt", query: QUEUE_POLL,
   });
@@ -121,7 +121,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
     query: {
       enabled: scanIds.length > 0 && Boolean(address),
       // Fallback for transports that cannot maintain an event watcher.
-      refetchInterval: 60_000,
+      ...QUEUE_POLL,
     },
   });
 
@@ -148,6 +148,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   useWatchContractEvent({
     address: queue,
     abi: QUEUE_ABI,
+    pollingInterval: EVENT_WATCH_POLL_MS,
     onLogs: () => {
       void refetchEpochEndsAt();
       void refetchIsSettling();
