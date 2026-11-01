@@ -24,7 +24,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
     "The treasury does not hold enough idle USDC to fill this redemption right now. Try a smaller amount, or the sUSDfr redemption queue.",
   Queue_ZeroAmount: "Enter an amount greater than zero.",
   Controller_AmountTooSmall:
-    "Amount is below one whole unit of the stablecoin, too small to redeem without dust.",
+    "Amount is below one whole USDfr, too small to redeem without dust.",
   Controller_BackingInvariantViolated:
     "The mint would push USDfr supply above its backing, refused by the backing invariant.",
   Queue_BelowMinRedemption:

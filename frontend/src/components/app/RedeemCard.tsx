@@ -20,6 +20,7 @@ import {secondsUntilEligible} from "@/lib/queue";
 import {useWriteFlow} from "@/components/app/useWriteFlow";
 import {useNowSeconds} from "@/components/app/useNowSeconds";
 import {ActionButton, AmountInput, StatusLine, busyLabelFor} from "@/components/app/WriteBits";
+import {RedeemRouteVisual} from "@/components/app/ActionRouteVisuals";
 import {ACCOUNT_POLL, EVENT_WATCH_POLL_MS, QUEUE_POLL} from "@/lib/polling";
 
 /** How many trailing queue requests to scan for this wallet's positions. One
@@ -257,13 +258,18 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   const symbol = mode === "instant" ? "USDfr" : "sUSDfr";
 
   return (
-    <div className="panel flex h-full flex-col p-6">
+    <div className="panel app-action-card app-action-card--redeem flex flex-col p-6" data-viewport-replay="">
       <div className="flex items-baseline justify-between">
         <h3 className="font-display text-[16px] font-semibold tracking-tight">Redeem</h3>
-        <div className="flex gap-1 rounded-pill border border-line bg-surface p-0.5">
+        <div
+          className="flex gap-1 rounded-pill border border-line bg-surface p-0.5"
+          aria-label="Redemption route"
+        >
           {(["instant", "queue"] as const).map((m) => (
             <button
               key={m}
+              type="button"
+              aria-pressed={mode === m}
               // AUDIT FIX (RC-05): switching mode resets both flows, so it must be
               // unavailable while either has a write in flight, otherwise the
               // in-flight transaction is orphaned and its outcome never surfaces.
@@ -275,7 +281,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
                 flow.reset();
                 claimFlow.reset();
               }}
-              className={`rounded-pill px-3 py-1 text-[11px] font-semibold tracking-[0.02em] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${ mode === m ?"bg-accent text-raised" : "text-ink-faint hover:text-ink-muted"
+              className={`min-h-9 rounded-pill px-3.5 py-2 text-[12px] font-semibold tracking-[0.02em] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${ mode === m ?"bg-accent text-raised" : "text-ink-faint hover:text-ink-muted"
               }`}
             >
               {m === "instant" ? "USDfr" : "sUSDfr"}
@@ -289,6 +295,8 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
           ? `Redeem USDfr for ${STABLE_SYMBOL} 1:1 against idle reserves: instant, floored to a whole ${STABLE_SYMBOL} unit.`
           : "Unstake through the non-cancellable redemption queue. A request first completes its minimum hold, then fills FIFO as liquidity allows. Actual settlement can take longer."}
       </p>
+
+      <RedeemRouteVisual key={mode} mode={mode} stableSymbol={STABLE_SYMBOL} />
 
       {mode === "queue" ? (
         <div className="mt-3 space-y-1 font-mono text-[11px] text-ink-faint">
@@ -423,7 +431,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
             inputMode="numeric"
             pattern="[0-9]*"
             placeholder="e.g. 42"
-            className="mt-1.5 w-full rounded-input border border-line bg-surface px-3 py-2 font-mono text-[12px] text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent/60"
+            className="mt-1.5 w-full rounded-input border border-line bg-surface px-3 py-2 font-mono text-[16px] text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent/60"
           />
         </label>
         {lookupIsOutOfRange ? (
@@ -483,7 +491,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
                         })
                       }
                       disabled={!chainOk || claimFlow.busy}
-                      className="shrink-0 rounded-pill bg-accent px-3.5 py-1 text-[12px] font-medium text-raised transition-transform hover:scale-[1.02] disabled:opacity-50"
+                      className="min-h-9 shrink-0 rounded-pill bg-accent px-3.5 py-2 text-[12px] font-medium text-raised transition-transform hover:scale-[1.02] disabled:opacity-50"
                     >
                       Claim
                     </button>

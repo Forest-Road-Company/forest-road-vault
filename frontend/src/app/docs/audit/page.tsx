@@ -4,6 +4,7 @@ import { PageShell } from "@/components/site/PageShell";
 import { Section, SectionHead, KpiBand, HighlightBox } from "@/components/site/Blocks";
 import { SeverityMix } from "@/components/site/AuditFindings";
 import { AUDITS, openFindings, totalFindings } from "@/content/audits";
+import { ProtocolScene } from "@/components/site/ProtocolScene";
 
 export const metadata: Metadata = {
   title: "Audit Register | Forest Road Vault",
@@ -52,6 +53,7 @@ export default function AuditRegisterPage() {
       section="Assurance"
       title="Audit register"
       lede="Dated reviews, newest first. Each record states what was reviewed, how it was checked, its material findings and their current disposition. Large claim corpora remain available in the named full reports."
+      visual={<ProtocolScene scene="risk" />}
     >
       {/* ── The register in numbers, on navy. ───────────────────────────── */}
       <Section tone="navy">

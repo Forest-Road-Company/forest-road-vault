@@ -3,9 +3,9 @@
 /**
  * Deposit USDC and mint USDfr 1:1 through the USDC-only controller.
  *
- * `MintCard` is the standalone card a testnet shows. On mainnet the same form is the "Mint 1:1"
- * tab of the Get USDfr card, beside the Buy tab, and `onShowBuy` points addresses that are not
- * KYC-verified to that tab.
+ * `MintCard` remains available as a standalone wrapper for focused use and tests. In the app the
+ * same form is the "Mint 1:1" tab of the Get USDfr card, beside the default Buy tab, and
+ * `onShowBuy` points addresses that are not KYC-verified back to that route.
  */
 
 import {useState} from "react";
@@ -43,7 +43,7 @@ export function MintForm({
 }: {
   writesEnabled: boolean;
   chainOk: boolean;
-  /** Mainnet only: selects the Buy tab, the route for addresses the mint gate turns away. */
+  /** Selects the Buy tab, the route for addresses the mint gate turns away. */
   onShowBuy?: () => void;
 }) {
   const {address} = useAccount();
@@ -108,7 +108,7 @@ export function MintForm({
         Deposit {STABLE_SYMBOL}, mint USDfr 1:1. KYC-verified addresses only.
       </p>
       {/* The route for the addresses the mint gate turns away, so it never follows
-          writesEnabled. Only the mainnet tab passes it: the pool does not exist on a testnet. */}
+          writesEnabled. On testnet that tab is an explicit non-transactional preview. */}
       {onShowBuy ? (
         <p className="mt-1.5 text-[12px] leading-snug text-ink-faint">
           Not KYC-verified? Any address can{" "}
@@ -176,7 +176,7 @@ export function MintForm({
                 })
               }
               disabled={!chainOk || !address || faucet.busy}
-              className="shrink-0 rounded-pill border border-line-strong px-3.5 py-1.5 text-[11px] font-semibold tracking-[0.02em] text-ink-muted transition-colors hover:border-accent/60 hover:text-accent disabled:opacity-50"
+              className="min-h-9 shrink-0 rounded-pill border border-line-strong px-3.5 py-2 text-[11.5px] font-semibold tracking-[0.02em] text-ink-muted transition-colors hover:border-accent/60 hover:text-accent disabled:opacity-50"
             >
               {faucet.busy ? "Minting…" : "Get 10,000 tUSDC"}
             </button>

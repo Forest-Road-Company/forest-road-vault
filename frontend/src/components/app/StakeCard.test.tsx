@@ -82,6 +82,15 @@ afterEach(() => {
 });
 
 describe("StakeCard, deferred global performance fee", () => {
+  it("shows the USDfr-to-vault-to-sUSDfr route", () => {
+    reads = baseReads();
+    render(<StakeCard writesEnabled />);
+
+    expect(
+      screen.getByLabelText(/USDfr enters the sUSDfr vault and returns vault shares/i),
+    ).toBeInTheDocument();
+  });
+
   it("warns an entrant even when queued-exit impairment is zero", () => {
     reads = baseReads();
     render(<StakeCard writesEnabled />);

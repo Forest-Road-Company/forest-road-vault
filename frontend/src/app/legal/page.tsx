@@ -1,8 +1,13 @@
 import type { Metadata } from "next";
 import { PageShell } from "@/components/site/PageShell";
 import { IS_MAINNET } from "@/config/contracts";
+import { ProtocolScene } from "@/components/site/ProtocolScene";
 
-export const metadata: Metadata = { title: "Disclosures | Forest Road Vault" };
+export const metadata: Metadata = {
+  title: "Disclosures | Forest Road Vault",
+  description:
+    "Deployment status, eligibility, fees, governance, conflicts, risks, and legal disclosures for Forest Road Vault.",
+};
 
 export default function LegalPage() {
   return (
@@ -10,22 +15,27 @@ export default function LegalPage() {
       section="Legal"
       title="Disclosures"
       lede="The disclosures, stated plainly."
+      visual={<ProtocolScene scene="docs" />}
     >
       <div className="mt-10 max-w-3xl space-y-6 text-[14.5px] leading-relaxed text-ink-muted">
         <p>
-          Forest Road Vault is a KYC-gated, legally-wrapped real-world-asset
-          credit protocol.{" "}
+          Forest Road Vault is a credit protocol. References to Forest Road in
+          marketing copy mean The Forest Road Company, LLC.{" "}
           {IS_MAINNET ? (
             <>
-              The application connects to <span className="text-ink">Ethereum mainnet</span>.
-              Transactions involve real assets and are available only to eligible,
-              verified participants under the definitive onboarding agreements.
+              The application reads contracts deployed on{" "}
+              <span className="text-ink">Ethereum mainnet</span>. A contract
+              deployment is not, by itself, a public product launch or an offer.
+              Enabled transactions can involve real assets and remain subject to
+              the applicable eligibility controls and definitive agreements.
             </>
           ) : (
             <>
-              Everything on this site describes a system running on{" "}
-              <span className="text-ink">test networks only</span>, with no real capital,
-              no live instruments, and no offer of any kind.
+              This preview connects only to <span className="text-ink">Sepolia</span>;
+              its balances, addresses, and transactions use valueless test assets.
+              A separate Ethereum mainnet contract deployment exists. This preview
+              is not that application and does not evidence that a legal,
+              operational, or product-entry gate has closed.
             </>
           )}
         </p>
@@ -34,18 +44,20 @@ export default function LegalPage() {
           The protocol&apos;s instruments (USDfr, sUSDfr, GROVE, and sGROVE) have
           the characterization set out in the definitive legal materials; nothing
           on this site independently claims they are or are not securities.{" "}
-          {IS_MAINNET
-            ? "Production operation remains subject to the applicable legal wrapper, counsel-approved controls, external security review, and approved economic parameters."
-            : "External smart-contract audits are complete. A written securities-counsel opinion remains a hard, blocking gate before any mainnet deployment, alongside an executed off-chain legal wrapper and an economic review of protocol parameters."}
+          Securities-counsel review, definitive legal and onboarding documents,
+          external security review, and economic and operational approvals remain
+          gates for each relevant product or entry path until they are documented
+          as closed. Deploying contracts does not close those gates.
         </p>
         <p>
           <span className="text-ink">Yield is variable.</span> sUSDfr passes
           through the net performance of the loan book and reserves via its
-          exchange rate. A proposed share of gross interest (up to 10%) goes
-          to the protocol; sUSDfr then charges a performance fee of up to 20%
-          of protocol-wide high-water-mark profit and a management fee of up
-          to 2% annually, both prospective and timelocked. Final fees are set
-          in definitive documents and may vary by sector and facility.
+          exchange rate. The presently published configuration includes a 2%
+          origination fee, a 10% protocol share of recognized facility interest,
+          a 10% performance fee above one protocol-wide high-water mark, and a
+          0% management fee. Their timelocked caps are 10%, 20%, 20%, and 2%
+          annually, respectively. On-chain settings and definitive documents
+          govern and may change prospectively.
           Vault-level fees are paid through share dilution. The high-water mark
           is global, not personal to a participant&apos;s entry price, and
           crystallized fees are not clawed back after a later loss. No fixed

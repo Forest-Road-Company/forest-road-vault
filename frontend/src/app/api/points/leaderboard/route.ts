@@ -59,3 +59,11 @@ export async function GET(request: Request) {
     );
   }
 }
+
+/** Refuse mutation-shaped requests explicitly and prevent an intermediary from caching the 405. */
+export async function POST() {
+  return Response.json(
+    {ok: false, error: "Method not allowed."},
+    {status: 405, headers: {"cache-control": "no-store"}},
+  );
+}

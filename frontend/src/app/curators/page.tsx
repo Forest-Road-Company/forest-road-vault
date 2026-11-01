@@ -11,6 +11,7 @@ import {
 } from "@/components/site/Blocks";
 import { CuratorInterestForm } from "./CuratorInterestForm";
 import { CuratorVaultSection } from "./CuratorVaultSection";
+import { ProtocolScene } from "@/components/site/ProtocolScene";
 
 export const metadata: Metadata = {
   title: "Curators | Forest Road Vault",
@@ -87,6 +88,7 @@ export default function CuratorsPage() {
       section="Curators"
       title="Capital that stands first in line"
       lede="Curators commit capital that absorbs losses on the credit book before anyone else. Forest Road runs the programme under bilateral agreements with approved curators. This page describes it and takes registrations of interest; it is not an offer."
+      visual={<ProtocolScene scene="risk" />}
     >
       {/* ── The facts, as numbers. ──────────────────────────────────────── */}
       <Section tone="navy">

@@ -1,16 +1,18 @@
 # How to Use the App
 
-This guide walks through every action in the [app](/app): getting USDfr, staking it for yield,
-and getting back out. Every action is a transaction on Ethereum mainnet with real assets. Read the
-[risk disclosures](/risk) and the [terms](/terms) first. Nothing here is legal, tax or investment
-advice.
+This guide walks through every action in the [app](/app): getting USDfr, staking it into sUSDfr,
+and getting back out. The banner at the top of the app identifies the connected deployment:
+Sepolia preview actions use valueless test assets, while enabled Ethereum mainnet actions can
+involve real assets. Read the [risk disclosures](/risk) and the [terms](/terms) first. Nothing here
+is legal, tax or investment advice.
 
 ## The two tokens
 
-- **USDfr** is the stablecoin. It is minted 1:1 against USDC and can be redeemed for USDC. Holding
-  USDfr earns no yield, though it does earn [points](/points).
-- **sUSDfr** is the yield-bearing vault share. Stake USDfr to receive sUSDfr. Its exchange rate
-  rises as the loan book earns interest, net of fees. The rate is variable, never fixed, and it
+- **USDfr** is minted 1:1 against USDC and can be redeemed for USDC. Its recognized backing
+  includes idle reserves and deployed loan principal. Holding USDfr earns no yield, though it does
+  earn [points](/points).
+- **sUSDfr** is the staked vault share. Stake USDfr to receive sUSDfr. Its exchange rate reflects
+  the loan book's performance after fees and losses. The rate is variable, never fixed, and it
   can fall: a credit loss larger than the curator and sGROVE layers ahead of it reduces sUSDfr
   principal.
 
@@ -22,8 +24,9 @@ You need:
   WalletConnect.
 - **ETH for gas.** Minting, staking and requesting a redemption each take two transactions: an
   approval that lets the contract move exactly the amount you entered, then the action itself.
-- **USDC or USDfr.** Mint USDfr with USDC if your address is KYC-verified, or buy USDfr on the
-  third-party Uniswap pool described below.
+- **The configured USDC asset or USDfr.** Production uses canonical USDC; the Sepolia preview uses
+  tUSDC. A KYC-verified address can mint USDfr, while the production app also exposes the
+  third-party Uniswap route described below.
 
 Reading needs no wallet. Supply, backing, the vault rate, the queue and the loan book are public
 on the [transparency dashboard](/transparency).
@@ -33,8 +36,8 @@ on the [transparency dashboard](/transparency).
 Open the [app](/app) and press **Connect wallet**. Before it enables any action, the app checks
 three things:
 
-- **Network.** The app works only on Ethereum mainnet. If your wallet is on another network, a
-  banner offers **Switch to Ethereum mainnet**; approve the switch in your wallet.
+- **Network.** Use the deployment named in the banner: Ethereum mainnet in production or Sepolia
+  in the preview. If your wallet is elsewhere, the app offers to switch to its configured network.
 - **Wallet connection.** The app confirms that your wallet reads the same chain state it does. If
   your wallet uses a custom RPC or a fork, select the standard Ethereum network in your wallet
   and press **Check again**.
@@ -75,7 +78,7 @@ In **Stake**, enter a USDfr amount, press **Approve USDfr**, then press **Stake*
 The card shows the current exchange rate and how much sUSDfr you will receive. Staking needs no
 KYC.
 
-- Interest is recognized continuously as the loan book earns it, before the cash arrives.
+- Contractually accrued interest is recognized continuously before the cash arrives.
 - The protocol takes 10% of the interest each facility earns. The vault then charges a 10%
   performance fee on profit above one protocol-wide high-water mark, and no management fee.
   The vault's fees are paid by minting new sUSDfr shares, not by removing backing. The Stake card
@@ -122,7 +125,7 @@ your slippage setting before you swap. The pool ID is on the [deployed-addresses
 ### USDfr to USDC
 
 **KYC-verified addresses** can redeem USDfr for USDC instantly in **Redeem → USDfr**. It pays 1:1
-while USDfr is fully backed, and is limited to the idle USDC held in reserve. USDC has six
+while recognized backing remains at least equal to USDfr supply, and is limited to the idle USDC held in reserve. USDC has six
 decimals, so the amount is rounded down to the nearest 0.000001 USDC and any smaller remainder
 stays in your wallet as USDfr.
 

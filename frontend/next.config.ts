@@ -6,7 +6,11 @@ import {PHASE_PRODUCTION_BUILD} from "next/constants.js";
 const isDevelopment = process.env.NODE_ENV === "development";
 const isLocalFork = process.env.NEXT_PUBLIC_CHAIN_ID === "31337";
 const sourceRevision = process.env.VERCEL_GIT_COMMIT_SHA?.toLowerCase();
-if (process.env.VERCEL === "1" && !/^[0-9a-f]{40}$/.test(sourceRevision ?? "")) {
+if (
+  process.env.VERCEL === "1" &&
+  process.env.VERCEL_ENV !== "preview" &&
+  !/^[0-9a-f]{40}$/.test(sourceRevision ?? "")
+) {
   throw new Error("VERCEL_GIT_COMMIT_SHA must identify the exact source revision for a Vercel build");
 }
 /**
@@ -92,8 +96,9 @@ const securityHeaders = [
 
 export default function createNextConfig(phase: string): NextConfig {
   if (phase === PHASE_PRODUCTION_BUILD) {
-    // Any Vercel build, including a local `vercel build --prod`, reports where it came from;
-    // only production refuses. Plain local `next build` runs have no VERCEL_ENV and skip it.
+    // Git builds report where they came from. A CLI Preview upload has no commit metadata and is
+    // reported as such, but only Production refuses it. Plain local `next build` runs have no
+    // VERCEL_ENV and skip the source report entirely.
     if (process.env.VERCEL_ENV) {
       const source = evaluateDeploySource(process.env, checkoutHead());
       console.log(source.summary);

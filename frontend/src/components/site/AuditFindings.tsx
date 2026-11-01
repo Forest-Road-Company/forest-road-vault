@@ -88,7 +88,7 @@ export function AuditFindingsList({ findings }: { findings: AuditFinding[] }) {
       {findings.map((f) => (
         <li
           key={f.id}
-          className="rounded-card border border-line bg-raised/70 p-5"
+          className="min-w-0 rounded-card border border-line bg-raised/70 p-5 [overflow-wrap:anywhere]"
         >
           <div className="flex flex-wrap items-center gap-2">
             <span className="running-head">{f.id}</span>
@@ -98,10 +98,10 @@ export function AuditFindingsList({ findings }: { findings: AuditFinding[] }) {
               <DispositionPill disposition={f.disposition} />
             </span>
           </div>
-          <p className="mt-2.5 text-[15px] font-medium leading-snug text-ink">
+          <p className="mt-2.5 min-w-0 text-[15px] font-medium leading-snug text-ink">
             {f.title}
           </p>
-          <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-muted">
+          <p className="mt-1.5 min-w-0 text-[13.5px] leading-relaxed text-ink-muted">
             {f.note}
           </p>
           {f.assessed ? (
@@ -109,10 +109,10 @@ export function AuditFindingsList({ findings }: { findings: AuditFinding[] }) {
               <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
                 Forest Road assessment: {f.assessed.severity}
               </p>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-ink-muted">
+              <p className="mt-1.5 min-w-0 text-[13px] leading-relaxed text-ink-muted">
                 {f.assessed.why}
               </p>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-ink-muted">
+              <p className="mt-1.5 min-w-0 text-[13px] leading-relaxed text-ink-muted">
                 <span className="text-ink">Restores to {f.severity} when: </span>
                 {f.assessed.until}
               </p>

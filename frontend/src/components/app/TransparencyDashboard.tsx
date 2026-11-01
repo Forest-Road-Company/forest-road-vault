@@ -274,11 +274,22 @@ export function TransparencyDashboard() {
   };
 
   return (
-    <div className="mt-12">
+    <div className="transparency-console mt-12">
+      <div className="transparency-ledger-rail" aria-label="Live transparency reconciliation path" data-viewport-replay="" data-viewport-reveal="">
+        <div><span><i /> RPC head</span><strong>{blockNumber?.toLocaleString() ?? "reading"}</strong></div>
+        <b aria-hidden><i /></b>
+        <div><span>USDfr supply</span><strong>{fmtBand(supply)}</strong></div>
+        <b aria-hidden><i /></b>
+        <div><span>Backing</span><strong>${fmtBand(backing)}</strong></div>
+        <b aria-hidden><i /></b>
+        <div><span>Book exposure</span><strong>{bookExposure === undefined ? "—" : `$${fmtAmount(bookExposure, 18, 0)}`}</strong></div>
+        <b aria-hidden><i /></b>
+        <div><span>Queue</span><strong>{queuedShares === undefined ? "—" : fmtAmount(queuedShares, SHARE_DECIMALS, 0)}</strong></div>
+      </div>
       {/* ── Backing invariant ──────────────────────────────────────────
              The house KPI band: the figures a reader should leave with sit
              on navy, not in another white panel among eight. ───────────── */}
-      <div className="navy-band rounded-card p-7 md:p-9">
+      <div className="transparency-invariant navy-band rounded-card p-7 md:p-9" data-viewport-replay="" data-viewport-reveal="">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           {/* This already was the section's heading; it was only marked up as
               a paragraph, which left the page stepping h1 -> h3 at the first
@@ -299,7 +310,7 @@ export function TransparencyDashboard() {
         {/* min-w-0 on every cell: a grid track's default min-width is its content, so one long
             figure would otherwise widen its column and push the neighbouring figures into it
             (reported from a cached build showing pre-compact figures, 22 September). */}
-        <div className="mt-5 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 [&>div]:min-w-0">
+        <div className="transparency-invariant__metrics mt-5">
           <div>
             <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy-accent">USDfr supply</p>
             <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">{fmtBand(supply)}</p>
@@ -379,13 +390,35 @@ export function TransparencyDashboard() {
       </div>
 
       {/* ── Panels ────────────────────────────────────────────────────── */}
-      <div className="mt-5 gap-5 [column-fill:balance] md:columns-2 lg:columns-3">
-        <Panel title="Reserves" addr={CONTRACTS.ReserveManager!}>
-          <Row k="Idle stablecoin reserve" val={`$${fmt(idle)}`} />
+      <div className="transparency-modules mt-5">
+        <Panel title="Reserves" eyebrow="Liquidity" kind="reserves" addr={CONTRACTS.ReserveManager!}>
+          <Row k="Idle USDC reserve" val={`$${fmt(idle)}`} />
           <Row k="Deployed principal" val={`$${fmt(deployed)}`} />
         </Panel>
 
-        <Panel title="sUSDfr vault" addr={CONTRACTS.sUSDfr!}>
+        <Panel title="sGROVE backstop" eyebrow="Loss protection" kind="backstop" addr={CONTRACTS.sGROVE!}>
+          <Row k="Live callable reserve" val={`$${fmt(coverageCapacity)}`} />
+          <Row k="Funded coverage reserve" val={`$${fmt(coverageReserve)}`} />
+          <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
+            Each loss may call min(loss amount, live USDfr coverage reserve).
+            There is no per-event cap; draws share and deplete the same reserve.
+          </p>
+        </Panel>
+
+        <Panel title="Redemption queue" eyebrow="Redemptions" kind="queue" addr={CONTRACTS.RedemptionQueue!}>
+          <Row k="Current epoch" val={epoch?.toString() ?? "–"} />
+          <Row
+            k="Settlement status"
+            val={settlementStatusText}
+          />
+          <Row
+            k="Queued shares"
+            val={queuedShares !== undefined ? `${fmtAmount(queuedShares, SHARE_DECIMALS, 4)} sUSDfr` : "–"}
+          />
+          <Row k="Settlement liquidity" val={`$${fmt(queueLiquidity)}`} />
+        </Panel>
+
+        <Panel title="sUSDfr vault" eyebrow="Senior position" kind="vault" addr={CONTRACTS.sUSDfr!}>
           <Row k="Staked assets" val={`${fmt(vaultAssets)} USDfr`} />
           <Row k="Shares outstanding" val={vaultShares !== undefined ? fmtAmount(vaultShares, SHARE_DECIMALS) : "–"} />
           <Row
@@ -431,7 +464,7 @@ export function TransparencyDashboard() {
           </p>
         </Panel>
 
-        <Panel title="The book" addr={CONTRACTS.CollateralRegistry!}>
+        <Panel title="The book" eyebrow="Credit portfolio" kind="book" addr={CONTRACTS.CollateralRegistry!}>
           <Row k="Facilities originated" val={facilities?.toString() ?? "–"} />
           <Row k="Book exposure" val={`$${fmt(bookExposure)}`} />
           <Row
@@ -475,7 +508,7 @@ export function TransparencyDashboard() {
           </p>
         </Panel>
 
-        <Panel title="Historical credit performance" addr={CONTRACTS.DefaultManager!}>
+        <Panel title="Historical credit performance" eyebrow="Realised outcomes" kind="history" addr={CONTRACTS.DefaultManager!}>
           <Row
             k="Overall net default rate"
             val={
@@ -531,7 +564,7 @@ export function TransparencyDashboard() {
           ) : null}
         </Panel>
 
-        <Panel title="Protocol revenue" addr={CONTRACTS.WaterfallEngine!}>
+        <Panel title="Protocol revenue" eyebrow="Protocol economics" kind="revenue" addr={CONTRACTS.WaterfallEngine!}>
           <Row k="Revenue since deployment" val={`${fmt(totalRevenue, 4)} USDfr-equiv.`} />
           <Row
             k="Origination fees collected"
@@ -632,29 +665,7 @@ export function TransparencyDashboard() {
           ) : null}
         </Panel>
 
-        <Panel title="sGROVE backstop" addr={CONTRACTS.sGROVE!}>
-          <Row k="Live callable reserve" val={`$${fmt(coverageCapacity)}`} />
-          <Row k="Funded coverage reserve" val={`$${fmt(coverageReserve)}`} />
-          <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
-            Each loss may call min(loss amount, live USDfr coverage reserve).
-            There is no per-event cap; draws share and deplete the same reserve.
-          </p>
-        </Panel>
-
-        <Panel title="Redemption queue" addr={CONTRACTS.RedemptionQueue!}>
-          <Row k="Current epoch" val={epoch?.toString() ?? "–"} />
-          <Row
-            k="Settlement status"
-            val={settlementStatusText}
-          />
-          <Row
-            k="Queued shares"
-            val={queuedShares !== undefined ? `${fmtAmount(queuedShares, SHARE_DECIMALS, 4)} sUSDfr` : "–"}
-          />
-          <Row k="Settlement liquidity" val={`$${fmt(queueLiquidity)}`} />
-        </Panel>
-
-        <Panel title="Provenance" addr={CONTRACTS.MintRedeemController!}>
+        <Panel title="Provenance" eyebrow="Source & freshness" kind="provenance" addr={CONTRACTS.MintRedeemController!}>
           <Row k="Network" val={NETWORK_NAME} />
           <Row k="As of block" val={blockNumber?.toString() ?? "–"} />
           <Row k="History through block" val={historyBlock?.toString() ?? "–"} />
@@ -671,36 +682,64 @@ export function TransparencyDashboard() {
   );
 }
 
-function Panel({title, addr, children}: {title: string; addr: string; children: React.ReactNode}) {
+type TransparencyPanelKind =
+  | "reserves"
+  | "backstop"
+  | "queue"
+  | "vault"
+  | "book"
+  | "history"
+  | "revenue"
+  | "provenance";
+
+function Panel({
+  title,
+  eyebrow,
+  kind,
+  addr,
+  children,
+}: {
+  title: string;
+  eyebrow: string;
+  kind: TransparencyPanelKind;
+  addr: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="panel mb-5 break-inside-avoid p-6">
-      <div className="flex items-baseline justify-between gap-3">
-        <h3 className="font-display text-[15px] font-semibold tracking-tight">{title}</h3>
-        {EXPLORER ? (
-          <a
-            href={`${EXPLORER}${addr}`}
-            target="_blank"
-            rel="noreferrer"
-            className="u-link inline-flex min-h-[24px] items-center font-mono text-[11px] text-ink-faint hover:text-accent"
-          >
-            {addr.slice(0, 6)}…{addr.slice(-4)}
-          </a>
-        ) : (
-          <span className="font-mono text-[11px] text-ink-faint">
-            {addr.slice(0, 6)}…{addr.slice(-4)}
-          </span>
-        )}
-      </div>
-      <div className="mt-4">{children}</div>
-    </div>
+    <article className={`panel transparency-module transparency-module--${kind} p-6`} data-viewport-replay="">
+      <header className="transparency-module__head">
+        <div className="transparency-module__meta">
+          <p>{eyebrow}</p>
+          <span><i aria-hidden="true" /> Live read</span>
+        </div>
+        <div className="transparency-module__title">
+          <h3 className="font-display text-[17px] font-semibold tracking-tight">{title}</h3>
+          {EXPLORER ? (
+            <a
+              href={`${EXPLORER}${addr}`}
+              target="_blank"
+              rel="noreferrer"
+              className="u-link inline-flex min-h-[24px] items-center font-mono text-[11px] text-ink-faint hover:text-accent"
+            >
+              {addr.slice(0, 6)}…{addr.slice(-4)}
+            </a>
+          ) : (
+            <span className="font-mono text-[11px] text-ink-faint">
+              {addr.slice(0, 6)}…{addr.slice(-4)}
+            </span>
+          )}
+        </div>
+      </header>
+      <div className="transparency-module__body">{children}</div>
+    </article>
   );
 }
 
 function Row({k, val}: {k: string; val: string}) {
   return (
-    <div className="flex items-baseline justify-between gap-3 border-t border-line py-2 first:border-t-0">
-      <p className="text-[12.5px] text-ink-muted">{k}</p>
-      <p className="font-mono text-[12.5px] text-ink">{val}</p>
+    <div className="transparency-row">
+      <p className="transparency-row__label">{k}</p>
+      <p className="transparency-row__value">{val}</p>
     </div>
   );
 }

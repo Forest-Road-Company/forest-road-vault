@@ -119,6 +119,15 @@ export function AppSurface() {
        and motion that reports state rather than decorating. Declared in
        globals.css so the rules are not re-argued per component. */
     <div className="operate mt-10">
+      <div className="app-operation-map" aria-label="Vault operation flow" data-viewport-replay="" data-viewport-reveal="">
+        <div><span>01</span><strong>Reserve</strong><small>USDC enters</small></div>
+        <i aria-hidden><b /><b /></i>
+        <div><span>02</span><strong>USDfr</strong><small>minted 1:1</small></div>
+        <i aria-hidden><b /><b /></i>
+        <div><span>03</span><strong>sUSDfr</strong><small>book exposure</small></div>
+        <i aria-hidden><b /><b /></i>
+        <div><span>04</span><strong>Queue</strong><small>cash-paced exit</small></div>
+      </div>
       {/* ── Connect row: the surface's toolbar, on the second neutral layer so
              chrome reads as chrome against the white content panels. ────── */}
       <div className="op-toolbar flex flex-wrap items-center justify-between gap-4 px-5 py-4">
@@ -229,16 +238,21 @@ export function AppSurface() {
         </div>
       ) : null}
 
-      <YieldPositionPanel />
+      {/* Desktop keeps analytics before the transaction surface. On compact screens the
+          actions move first: the user has already seen the lifecycle in the page hero and
+          should not cross another large data panel before reaching the primary task. */}
+      <div className="app-surface-content">
+        <YieldPositionPanel />
 
-      {/* ── Write cards ──────────────────────────────────────────────── */}
-      <div className="mt-8 grid gap-5 lg:grid-cols-3">
-        {/* Mainnet: Buy through the Uniswap pool (any address, the default tab) or Mint 1:1
-            (KYC-verified). A testnet has no pool and shows the mint card alone. */}
-        <GetUsdfrCard writesEnabled={writesEnabled} chainOk={chainOk} />
-        {/* Staking is permissionless on-chain (2026-07-14), gate on network only, not KYC. */}
-        <StakeCard writesEnabled={chainOk} />
-        <RedeemCard writesEnabled={writesEnabled} chainOk={chainOk} />
+        {/* ── Write cards ────────────────────────────────────────────── */}
+        <div className="app-action-grid mt-8 grid gap-5">
+          {/* Mainnet: Buy through the Uniswap pool (any address, the default tab) or Mint 1:1
+              (KYC-verified). A testnet has no pool and shows the mint card alone. */}
+          <GetUsdfrCard writesEnabled={writesEnabled} chainOk={chainOk} />
+          {/* Staking is permissionless on-chain (2026-07-14), gate on network only, not KYC. */}
+          <StakeCard writesEnabled={chainOk} />
+          <RedeemCard writesEnabled={writesEnabled} chainOk={chainOk} />
+        </div>
       </div>
 
       <p className="mt-8 text-[12px] leading-relaxed text-ink-faint">

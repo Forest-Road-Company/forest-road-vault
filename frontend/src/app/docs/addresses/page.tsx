@@ -14,6 +14,7 @@ import {
 import {SUSDFR_USDC_POOL, USDFR_USDC_POOL} from "@/config/markets";
 import {PERMIT2} from "@/lib/uniswapV4Liquidity";
 import {UNIVERSAL_ROUTER, V4_QUOTER} from "@/lib/uniswapV4Swap";
+import {ProtocolScene} from "@/components/site/ProtocolScene";
 
 export const metadata: Metadata = {
   title: "Deployed Addresses | Forest Road Vault",
@@ -30,7 +31,7 @@ export const metadata: Metadata = {
  */
 const ROLE: Record<ContractName, string> = {
   USDfr:
-    "The stablecoin. Minted 1:1 against USDC and redeemable back to USDC. Holding USDfr earns no yield by itself.",
+    "Minted 1:1 against USDC and redeemable back to USDC. Recognized backing includes idle reserves and deployed loan principal. Holding USDfr earns no yield by itself.",
   sUSDfr:
     "The yield vault (ERC-4626). Stake USDfr to receive sUSDfr, whose exchange rate rises as loan interest is earned. Exits go through the redemption queue.",
   GROVE:
@@ -132,13 +133,14 @@ export default function AddressesPage() {
       section="Deployed addresses"
       title="Every contract, and what it does."
       lede={`Generated from the same typed configuration the application itself uses, so nothing here can drift from what the site actually calls. Network: ${NETWORK_NAME} (chain ${CHAIN_ID}).`}
+      visual={<ProtocolScene scene="docs" />}
     >
       <div className="mt-10 rounded-card border border-line bg-accent-faint/60 p-5">
         <p className="text-[13.5px] leading-relaxed text-ink-muted">
           {IS_TESTNET ? (
             <>
               <strong className="text-ink">Test deployment.</strong> These are{" "}
-              {NETWORK_NAME} addresses. The tokens have no value: the stablecoin is a test
+              {NETWORK_NAME} addresses. The tokens have no value: USDfr is a test
               token, and nothing here is a production deployment. A mainnet build publishes
               its own addresses in this same table.
             </>

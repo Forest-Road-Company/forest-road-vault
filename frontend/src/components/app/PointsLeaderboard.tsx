@@ -44,6 +44,16 @@ const pts = (raw: string) => {
 };
 const unit = (raw: string) => (["1", "<1"].includes(pts(raw)) ? "point" : "points");
 const ptsLabel = (raw: string) => `${pts(raw)} ${unit(raw)}`;
+/** A source's share of one wallet's total, used inside that wallet's bar. */
+const compositionWidth = (part: string, total: string) => {
+  const denominator = BigInt(total);
+  return denominator === 0n ? 0 : Number((BigInt(part) * 10_000n) / denominator) / 100;
+};
+/** One wallet's total relative to rank #1, so bar length carries a comparable quantity. */
+const relativeWidth = (value: string, maximum: string) => {
+  const denominator = BigInt(maximum);
+  return denominator === 0n ? 0 : Number((BigInt(value) * 10_000n) / denominator) / 100;
+};
 const count = (n: number, one: string, many: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
 const utc = (seconds: number) => `${new Date(seconds * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 const explorer = (address: string) => (EXPLORER_BASE_URL ? `${EXPLORER_BASE_URL}/address/${address}` : null);
@@ -68,13 +78,13 @@ function WalletLink({wallet}: {wallet: string}) {
  * venue contracts that hold tokens for many people are reported below the table, never ranked. Hidden
  * on a testnet build, where the server answers that it is off.
  */
-export function PointsLeaderboard() {
+export function PointsLeaderboard({endpoint = "/api/points/leaderboard"}: {endpoint?: string} = {}) {
   const {address} = useAccount();
   const [shown, setShown] = useState(LEADERBOARD_STEP);
   const {data, error, isError} = useQuery({
-    queryKey: ["points-leaderboard"],
+    queryKey: ["points-leaderboard", endpoint],
     queryFn: async (): Promise<LeaderboardResponse> => {
-      const response = await fetch("/api/points/leaderboard");
+      const response = await fetch(endpoint);
       if (response.status === 503) throw new LeaderboardCatchingUp("Leaderboard catching up");
       if (!response.ok) throw new LeaderboardRefused("Leaderboard unavailable");
       const body = (await response.json()) as LeaderboardResponse | {ok: false};
@@ -90,7 +100,7 @@ export function PointsLeaderboard() {
   if (data && !data.enabled) return null;
   if (isError && !data) {
     return (
-      <div className="panel p-6" role="status">
+      <div className="panel p-6" role="status" data-viewport-replay="" data-viewport-reveal="">
         <p className="text-[13px] leading-relaxed text-ink-muted">
           {error instanceof LeaderboardCatchingUp
             ? "The leaderboard is catching up with the chain and will appear here shortly. No ranking is shown from a partial view."
@@ -101,7 +111,7 @@ export function PointsLeaderboard() {
   }
   if (!data) {
     return (
-      <div className="panel p-6" aria-busy="true" role="status">
+      <div className="panel p-6" aria-busy="true" role="status" data-viewport-replay="" data-viewport-reveal="">
         <p className="text-[13px] leading-relaxed text-ink-muted">Loading the leaderboard…</p>
       </div>
     );
@@ -116,15 +126,26 @@ export function PointsLeaderboard() {
   const showPendle = data.pendle.enabled;
   const showMorpho = data.morpho.enabled;
   const withheld = data.morpho.withheld;
+  // The response is integrity-checked in descending order by the server. Keeping this
+  // scale anchored to its first row makes every visible bar directly comparable.
+  const maximumPoints = data.rows[0]?.points ?? "0";
 
   return (
-    <div className="panel p-6">
+    <div className="panel points-board-panel p-6" data-viewport-replay="" data-viewport-reveal="">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
           {count(data.ranked, "wallet ranked", "wallets ranked")}
         </h3>
         <span className="font-mono text-[11px] text-accent">{sources.join(" · ")}</span>
       </div>
+      {data.rows.length > 0 ? (
+        <div className="main-board-key" aria-label="Leaderboard bar key">
+          <span>Bar length = total points relative to #1</span>
+          <span><i className="is-onchain" /> On-chain</span>
+          {showPendle ? <span><i className="is-pendle" /> Pendle</span> : null}
+          {showMorpho ? <span><i className="is-morpho" /> Morpho</span> : null}
+        </div>
+      ) : null}
       {showPendle ? null : (
         <p className="mt-2 text-[12px] leading-relaxed text-ink-muted" data-testid="leaderboard-pendle-off">
           Pendle points are not included in this ranking right now, so wallets holding sUSDfr or USDfr through Pendle
@@ -185,9 +206,27 @@ export function PointsLeaderboard() {
                     aria-current={isMe ? "true" : undefined}
                   >
                     <td className="py-1.5 pr-3 font-mono text-ink-muted">{row.rank}</td>
-                    <td className="py-1.5 pr-3">
+                    <td className="py-2.5 pr-3">
                       <WalletLink wallet={row.wallet} />
                       {isMe ? <span className="ml-2 text-[11px] font-semibold text-accent">You</span> : null}
+                      <span
+                        className="main-board-meter"
+                        role="img"
+                        aria-label={`${ptsLabel(row.points)} total, scaled against the top-ranked wallet`}
+                        data-testid="leaderboard-bar"
+                      >
+                        <span
+                          className="main-board-composition"
+                          style={{
+                            width: `${relativeWidth(row.points, maximumPoints)}%`,
+                            minWidth: BigInt(row.points) > 0n ? "2px" : undefined,
+                          }}
+                        >
+                          <i className="is-onchain" style={{width: `${compositionWidth(row.onchain, row.points)}%`}} />
+                          {showPendle ? <i className="is-pendle" style={{width: `${compositionWidth(row.pendle, row.points)}%`}} /> : null}
+                          {showMorpho ? <i className="is-morpho" style={{width: `${compositionWidth(row.morpho, row.points)}%`}} /> : null}
+                        </span>
+                      </span>
                     </td>
                     <td className="py-1.5 pr-3 text-right font-mono text-ink">{pts(row.points)}</td>
                     <td className="hidden py-1.5 pr-3 text-right font-mono text-ink-muted md:table-cell">{pts(row.onchain)}</td>

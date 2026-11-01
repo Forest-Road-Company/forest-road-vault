@@ -25,7 +25,7 @@ export type Vertical = {
 export const VERTICALS: Vertical[] = [
   {
     slug: "media",
-    name: "Media & entertainment",
+    name: "Media",
     financed:
       "Senior secured lending against tax credits and other contracted receivables, financing film and television. A production borrows today against payments it is contractually owed, so repayment does not depend on box-office performance.",
     claimType:
@@ -43,7 +43,7 @@ export const VERTICALS: Vertical[] = [
   },
   {
     slug: "renewable-energy",
-    name: "Renewable energy",
+    name: "Renewables",
     financed:
       "Loans to small and mid-market renewable projects, against transferable ITC/PTC tax credits and project cashflows, for borrowers underserved by community banks and capital markets.",
     claimType:
@@ -94,7 +94,7 @@ export const VERTICALS: Vertical[] = [
   },
   {
     slug: "digital-assets",
-    name: "Digital assets",
+    name: "Digital Assets",
     financed:
       "Secured lending to Forest Road's digital-assets trading subsidiary, financing the desk's trading book. It is a related-party facility.",
     claimType:
@@ -129,8 +129,8 @@ export const VERTICALS: Vertical[] = [
 ];
 
 /**
- * The sectors the site markets: media & entertainment, renewable energy and
- * digital assets. App surfaces (transparency, points) keep reading VERTICALS,
+ * The sectors the site markets: Media, Renewables and Digital Assets. App
+ * surfaces (transparency, points) keep reading VERTICALS,
  * whose array order is the on-chain class-ID mapping.
  */
 export const SECTORS: Vertical[] = VERTICALS.filter((v) => !v.siteHidden);

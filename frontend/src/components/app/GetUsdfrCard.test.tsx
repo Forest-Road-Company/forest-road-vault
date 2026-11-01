@@ -27,7 +27,7 @@ import {
 } from "@/lib/uniswapV4Swap";
 
 /**
- * The Get USDfr card as a visitor meets it: which tab opens, what a testnet shows, how the tabs
+ * The Get USDfr card as a visitor meets it: which tab opens, how a testnet previews Buy, how the tabs
  * work from the keyboard, what the Buy tab says about a quote, and what it hands the shared
  * write flow. The wallet, the chain reads and the write flow are stubbed; the encoding module is
  * real, so the arguments asserted below are the bytes the router would receive.
@@ -169,15 +169,22 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Get USDfr card: which tab a visitor sees", () => {
-  it("shows a testnet the mint card alone: no tabs, no Buy, no pool", () => {
+  it("opens on an honest Buy preview on testnet and keeps the usable mint flow beside it", async () => {
     harness.testnet = true;
     renderCard({writesEnabled: true});
-    // Reach: the testnet mint card itself, faucet and all.
-    expect(screen.getByRole("heading", {name: "Deposit & mint"})).toBeInTheDocument();
+    const buy = screen.getByRole("tab", {name: "Buy"});
+    const mint = screen.getByRole("tab", {name: "Mint 1:1"});
+    expect(buy).toHaveAttribute("aria-selected", "true");
+    expect(within(buyPanel()).getByLabelText(/USDC routes through the Uniswap v4 pool/)).toBeInTheDocument();
+    expect(within(buyPanel()).getByRole("button", {name: "Buy available on Ethereum mainnet"})).toBeDisabled();
+    expect(within(buyPanel()).getByText(/never redirects a testnet transaction to mainnet/)).toBeInTheDocument();
+    expect(harness.calls).toHaveLength(0);
+    expect(harness.run).not.toHaveBeenCalled();
+
+    await userEvent.setup().click(mint);
+    expect(mint).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText(/Need test funds\?/)).toBeInTheDocument();
-    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", {name: "Buy"})).not.toBeInTheDocument();
-    expect(screen.queryByText(/Uniswap/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "Get 10,000 tUSDC"})).toBeInTheDocument();
   });
 
   it("opens on Buy on mainnet, with Mint 1:1 beside it", () => {

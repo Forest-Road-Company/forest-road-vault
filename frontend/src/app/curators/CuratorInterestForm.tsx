@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
  * Registration of interest for the curator programme. It records a contact and
@@ -25,7 +25,7 @@ const SIZES = [
 ] as const;
 
 const field =
-  "op-field mt-2 flex w-full items-center px-4 py-3 text-[14.5px] text-ink";
+  "op-field mt-2 flex w-full items-center px-4 py-3 text-[16px] text-ink sm:text-[14.5px]";
 const control =
   "w-full bg-transparent outline-none placeholder:text-ink-faint";
 const label = "block text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-muted";
@@ -41,6 +41,14 @@ export function CuratorInterestForm() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The server-rendered form must not fall back to a native GET if somebody clicks before React
+  // has attached `submit`. Enable it one task after hydration; the initial server and client
+  // markup stay identical, and every accepted click goes through the JSON validation path below.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    const task = setTimeout(() => setHydrated(true), 0);
+    return () => clearTimeout(task);
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -180,7 +188,7 @@ export function CuratorInterestForm() {
             autoComplete="off"
             value={wallet}
             onChange={(e) => setWallet(e.target.value)}
-            className={`${control} font-mono text-[13.5px]`}
+            className={`${control} font-mono sm:text-[13.5px]`}
           />
         </div>
       </div>
@@ -208,7 +216,7 @@ export function CuratorInterestForm() {
       ) : null}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <button type="submit" disabled={busy} className="op-action whitespace-nowrap px-6 py-2.5 text-[13.5px]">
+        <button type="submit" disabled={!hydrated || busy} className="op-action whitespace-nowrap px-6 py-2.5 text-[13.5px]">
           {busy ? "Sending…" : "Register interest"}
         </button>
         <p className="text-[12.5px] leading-relaxed text-ink-faint">

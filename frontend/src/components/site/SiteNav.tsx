@@ -37,7 +37,10 @@ export function SiteNav() {
     pathname === href || pathname.startsWith(`${href}/`);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-line bg-bg/88 backdrop-blur-xl">
+    <header
+      className="site-nav sticky top-0 z-40 border-b border-line bg-bg/80 backdrop-blur-xl"
+      style={{ viewTransitionName: "site-header" }}
+    >
       <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-5 sm:gap-6">
         <Link
           href="/"
@@ -94,7 +97,7 @@ export function SiteNav() {
             <Link
               href="/app"
               onClick={() => setOpen(false)}
-              className="hidden rounded-pill bg-navy px-4 py-1.5 text-[13px] font-semibold text-on-navy transition-colors hover:bg-navy-raised min-[360px]:block"
+              className="hidden rounded-pill bg-navy px-4 py-1.5 text-[13px] font-semibold text-on-navy transition-colors hover:bg-navy-raised sm:block"
             >
               Enter App
             </Link>
@@ -168,7 +171,7 @@ export function SiteNav() {
               <Link
                 href="/app"
                 onClick={() => setOpen(false)}
-                className="mt-3 flex items-center justify-center rounded-pill bg-navy px-4 py-2.5 text-[15px] font-semibold text-on-navy min-[360px]:hidden"
+                className="mt-3 flex items-center justify-center rounded-pill bg-navy px-4 py-2.5 text-[15px] font-semibold text-on-navy sm:hidden"
               >
                 Enter App
               </Link>

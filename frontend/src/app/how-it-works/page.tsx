@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { PageShell } from "@/components/site/PageShell";
+import { ProtocolScene } from "@/components/site/ProtocolScene";
 import {
   Section,
   SectionHead,
@@ -15,7 +16,7 @@ const depositorSteps = [
   { label: "Connect & verify", body: "Connect a wallet. Minting USDfr and redeeming it for USDC are KYC-gated; holding, transferring and staking are open to any wallet that is not sanctions- or jurisdiction-blocked." },
   { label: "Mint USDfr", body: "Deposit USDC, receive USDfr 1:1. Idle reserves are held as USDC and earn nothing until lent." },
   { label: "Stake to sUSDfr", body: "Deposit USDfr into the ERC-4626 vault and receive sUSDfr shares at the current exchange rate." },
-  { label: "Net performance accrues", body: "Interest the loan book earns enters the exchange rate continuously as it accrues, net of protocol fees. Credit losses can lower the per-share rate. Yield is variable." },
+  { label: "Net performance accrues", body: "Recognized loan interest affects the exchange rate as it accrues, after protocol fees. Credit losses can lower the per-share rate. Returns are variable." },
   { label: "Redeem via the queue", body: "Request redemption. Each request waits out a 21-day minimum hold, cannot be cancelled, then fills first in, first out in daily settlements as idle cash allows. Claim the USDfr, then redeem it for USDC." },
 ];
 
@@ -43,12 +44,13 @@ export default function HowItWorksPage() {
       section="How it works"
       title="How the Vault works"
       lede="Depositors provide capital through two tokens. Borrowers are financed against specific, named collateral. Between them sits a dual record: legally enforceable off-chain, visible on-chain, kept in sync."
+      visual={<ProtocolScene scene="lifecycle" />}
     >
       {/* ── Depositor flow: numbered rows on the light field. ───────────── */}
       <Section tone="surface">
         <SectionHead
-          title="How depositors earn"
-          lede="Two tokens keep the stable dollar separate from the investment. Hold USDfr as a dollar, or stake it into sUSDfr and get invested in the loan book."
+          title="How net performance reaches sUSDfr"
+          lede="USDfr is backed by reserves and deployed loan principal. Stake USDfr into sUSDfr for exposure to the Vault's net book performance after fees and losses."
         />
         <NumberedRows
           heading="The depositor path, end to end."

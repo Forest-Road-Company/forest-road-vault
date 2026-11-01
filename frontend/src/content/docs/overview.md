@@ -1,9 +1,9 @@
 # Protocol Overview
 
 Forest Road Vault is an on-chain credit protocol for specialty finance receivables. It
-brings three sectors of Forest Road's credit book on-chain under a single reserve:
-media & entertainment (tax credits and contracted receivables), renewable energy, and a
-marked-to-market digital-assets sector. The on-chain CollateralRegistry also carries
+records the Vault's loans under a single reserve across three sectors:
+Media (tax credits and contracted receivables), Renewables, and a
+marked-to-market Digital Assets sector. The on-chain CollateralRegistry also carries
 life-sciences and real-estate collateral classes that are not currently marketed as
 sectors.
 
@@ -17,7 +17,7 @@ sectors.
   invariant. An extreme loss that exhausts all three loss-bearing layers can leave a
   sub-USDC-unit rounding remainder; value-sensitive operations then fail closed until an
   exact, rate-limited recapitalization restores the inequality.
-- **sUSDfr**: the yield-bearing ERC-4626 vault share. Deposit USDfr, receive sUSDfr at
+- **sUSDfr**: the staked ERC-4626 vault share. Deposit USDfr, receive sUSDfr at
   the current exchange rate. Earned cash and PIK interest stream into NAV before receipt;
   explicit credit losses and evented fee-share mints can lower the per-share rate. Holder
   redemption of sUSDfr uses an epoch-based FIFO queue.

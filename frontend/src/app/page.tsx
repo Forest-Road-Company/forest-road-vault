@@ -3,6 +3,8 @@ import Link from "next/link";
 import { Section, SectionHead } from "@/components/site/Blocks";
 import { CascadeDiagram } from "@/components/site/CascadeDiagram";
 import { HeroLiveStats } from "@/components/site/HeroLiveStats";
+import { PageAtlas } from "@/components/site/PageAtlas";
+import { HeroCapitalTrace, HomeTransparencyPreview, OperateCards, TokenMechanics } from "@/components/site/HomeVisuals";
 import { IS_MAINNET } from "@/config/contracts";
 
 export default function Landing() {
@@ -26,18 +28,19 @@ export default function Landing() {
           aria-hidden
         />
         <div className="hero-grade" aria-hidden />
+        <HeroCapitalTrace />
 
         <div className="stage relative z-10 mx-auto w-full max-w-6xl px-5 pb-20 pt-24 md:pb-24">
           <h1 className="display max-w-[19ch] text-[clamp(2.6rem,7vw,4.6rem)] leading-[1.04] text-on-navy">
-            The dollar built on{" "}
-            <span className="display-accent">working credit</span>.
+            Working credit, with an{" "}
+            <span className="display-accent">on-chain record</span>.
           </h1>
 
           <p className="mt-8 max-w-[54ch] text-[17px] leading-relaxed text-on-navy-muted">
-            Forest Road&apos;s specialty finance book is on-chain. Deposit
-            USDC to mint USDfr, stake it into sUSDfr, and earn what the
-            loan book earns. Its sectors are media &amp; entertainment,
-            renewable energy, and digital assets.
+            Forest Road Vault records loans Forest Road originates, underwrites,
+            and services on-chain. USDfr is backed by reserve assets and deployed
+            loan principal; sUSDfr reflects net book performance after fees and
+            losses. The Vault covers Media, Renewables, and Digital Assets.
           </p>
 
           <div className="mt-10 flex flex-wrap items-center gap-x-4 gap-y-3">
@@ -70,17 +73,19 @@ export default function Landing() {
         <div className="mx-auto flex max-w-6xl flex-col items-baseline justify-between gap-5 px-5 py-14 md:flex-row">
           <p className="display max-w-[46ch] text-[19px] leading-snug">
             Originated, underwritten, and serviced in-house by{" "}
-            <span className="text-accent">The Forest Road Company</span>,
-            a specialty finance investment firm lending against real claims
+            <span className="text-accent">Forest Road</span>,
+            a specialty finance company lending against real claims
             since 2018.
           </p>
           <div className="flex flex-wrap gap-x-8 gap-y-2">
-            <span className="running-head">Investment firm</span>
+            <span className="running-head">Specialty finance company</span>
             <span className="running-head">Three sectors</span>
-            <span className="running-head">On-chain loan book</span>
+            <span className="running-head">The Vault&apos;s on-chain book</span>
           </div>
         </div>
       </section>
+
+      <PageAtlas />
 
       {/* ── The two-token model. A pair of panels, differentiated by the
              field they sit on rather than by a coloured edge. ──────────── */}
@@ -89,72 +94,19 @@ export default function Landing() {
             sentence, the cascade and the audit claim. Used in every heading it
             stops being emphasis and becomes the section's default voice. */}
         <SectionHead
-          title="One stable dollar. One way to earn."
-          lede="USDfr is the dollar; sUSDfr puts it to work in loans Forest Road originates, underwrites, and services."
+          title="One credit-backed unit. One staked position."
+          lede="USDfr is backed by reserves and deployed loan principal. sUSDfr is a staked position whose value reflects the Vault's net book performance after fees and losses."
         />
 
-        <div className="mt-16 grid gap-6 md:grid-cols-2">
-          <div className="flex h-full flex-col rounded-card border border-line bg-raised p-8 md:p-9">
-            <div className="flex items-baseline justify-between gap-3">
-              <p className="display text-[19px]">USDfr</p>
-              <p className="running-head">The stablecoin</p>
-            </div>
-            <div className="mt-6 h-px w-full bg-line" />
-            <p className="display mt-6 text-[25px] leading-snug">
-              Fully backed, and verifiable on-chain.
-            </p>
-            <ul className="mt-6 space-y-3.5 text-[15px] leading-relaxed text-ink-muted">
-              <li>
-                Minted 1:1 from USDC via a KYC-gated controller.
-              </li>
-              <li>
-                Backing is USDC held in reserve plus outstanding loans and the
-                interest they have earned. Check it on-chain at any time.
-              </li>
-              <li>It is a dollar claim and earns nothing on its own.</li>
-            </ul>
+        <TokenMechanics />
+      </Section>
 
-            {/* The panel's third beat: the invariant it exists to state, and
-                where a reader goes to check it against live state. Without
-                this the pair's equal heights leave the white panel hollow. */}
-            <div className="mt-auto pt-8">
-              <div className="h-px w-full bg-line" />
-              <p className="mt-5 text-[15px] leading-relaxed text-ink">
-                Never more supply than backing, enforced on every mint.
-              </p>
-              <Link
-                href="/transparency"
-                className="u-link mt-2 inline-flex min-h-[24px] items-center text-[13px] font-medium text-accent"
-              >
-                Check it live →
-              </Link>
-            </div>
-          </div>
-
-          <div className="navy-band-deep flex h-full flex-col rounded-card border border-navy-border p-8 md:p-9">
-            <div className="flex items-baseline justify-between gap-3">
-              <p className="display text-[19px] text-on-navy-accent">sUSDfr</p>
-              <p className="running-head">The yield-bearing vault</p>
-            </div>
-            <div className="mt-6 h-px w-full bg-on-navy-line" />
-            <p className="display mt-6 text-[25px] leading-snug">
-              Variable yield, from the book&apos;s actual performance.
-            </p>
-            <ul className="mt-6 space-y-3.5 text-[14.5px] leading-relaxed text-on-navy-muted">
-              <li>
-                Stake USDfr to get it; its value can fall if loans lose money.
-              </li>
-              <li>
-                Exits wait out a 21-day minimum hold, then fill first in,
-                first out as cash allows.
-              </li>
-              <li>
-                Fees come only out of what the book actually earns, at
-                capped, disclosed rates.
-              </li>
-            </ul>
-          </div>
+      <Section tone="light" id="operate">
+        <div className="flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
+          <SectionHead title="A purpose-built surface for every move." lede="The interface follows the same path as the capital. Each action simulates against current chain state before the wallet opens." />
+          <Link href="/app" className="u-link flex-none text-[12px] font-semibold uppercase tracking-[.14em] text-accent">Open the app →</Link>
         </div>
+        <OperateCards />
       </Section>
 
       {/* ── Loss absorption, on the deepest field. The one thing a depositor
@@ -190,6 +142,10 @@ export default function Landing() {
         </div>
       </Section>
 
+      <Section tone="navy">
+        <HomeTransparencyPreview />
+      </Section>
+
       {/* ── Close. White ground, navy carrying the primary action instead
              of the field, the page's own material rule applied to its own
              foot. ────────────────────────────────────────────────────── */}
@@ -198,13 +154,13 @@ export default function Landing() {
           <div>
             <h2 className="display max-w-[22ch] text-[31px] leading-[1.12] md:text-[46px]">
               {IS_MAINNET
-                ? "Live on mainnet. Check everything."
-                : "Built, tested, and audited."}
+                ? "Contracts deployed. Status stays explicit."
+                : "A preview, not a launch claim."}
             </h2>
             <p className="mt-6 max-w-[58ch] text-[17px] leading-relaxed text-ink-muted">
               {IS_MAINNET
-                ? "Review the verified contracts, live protocol state, current risks, and production disclosures before interacting."
-                : "The remaining operational, recovery and legal launch gates are listed where they can be checked."}
+                ? "Review the verified contracts and on-chain state together with current entry switches, eligibility requirements, legal disclosures, and risks. A mainnet deployment does not mean every product or transaction path is open."
+                : "This Sepolia preview uses valueless test assets. A separate Ethereum mainnet contract deployment exists, but legal, operational, and product-entry status must be checked independently."}
             </p>
           </div>
 

@@ -3,9 +3,11 @@
 /**
  * Get USDfr: the first write card on /app.
  *
- * On Ethereum mainnet it has two tabs. Buy (the default for every address, KYC-verified or not)
- * swaps USDC for USDfr through the third-party Uniswap pool on this page; Mint 1:1 is the
- * KYC-gated primary mint, unchanged. A testnet has no pool, so it keeps the mint card alone.
+ * It always has two tabs so the staging design and the production application share the same
+ * information architecture. Buy is the default for every address. On Ethereum mainnet it swaps
+ * USDC for USDfr through the third-party Uniswap pool on this page; on a testnet the same tab is
+ * an explicit, non-transactional preview because no Sepolia pool exists. Mint 1:1 remains the
+ * KYC-gated primary mint and is the usable route on testnet.
  *
  * Both panels stay mounted and the inactive one is hidden, so switching tabs never orphans a
  * write in flight or discards what was typed.
@@ -14,7 +16,7 @@
 import {useId, useRef, useState, type KeyboardEvent} from "react";
 import {IS_TESTNET} from "@/config/contracts";
 import {BuyUsdfrPanel} from "@/components/app/BuyUsdfrPanel";
-import {MintCard, MintForm} from "@/components/app/MintCard";
+import {MintForm} from "@/components/app/MintCard";
 
 type GetUsdfrTab = "buy" | "mint";
 
@@ -24,8 +26,58 @@ const TABS: readonly {id: GetUsdfrTab; label: string}[] = [
 ];
 
 export function GetUsdfrCard({writesEnabled, chainOk}: {writesEnabled: boolean; chainOk: boolean}) {
-  if (IS_TESTNET) return <MintCard writesEnabled={writesEnabled} chainOk={chainOk} />;
   return <GetUsdfrTabs writesEnabled={writesEnabled} chainOk={chainOk} />;
+}
+
+function TestnetBuyPreview({onShowMint}: {onShowMint: () => void}) {
+  return (
+    <>
+      <p className="mt-3 text-[13px] leading-relaxed text-ink-muted">
+        Buy USDfr with USDC through the USDfr/USDC Uniswap v4 pool. Open to any eligible address;
+        KYC is not required for the secondary-market route.
+      </p>
+
+      <div
+        className="action-card-route action-card-route--buy mt-5"
+        aria-label="USDC routes through the Uniswap v4 pool and returns USDfr"
+      >
+        <span><b>USDC</b><small>you pay</small></span>
+        <i aria-hidden><em /></i>
+        <span className="action-card-route__core"><b>v4</b><small>Uniswap pool</small></span>
+        <i aria-hidden><em /></i>
+        <span><b>USDfr</b><small>you receive</small></span>
+      </div>
+
+      <div className="op-field mt-5 px-4 py-3" data-disabled="true">
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-mono text-[15px] text-ink-faint">0.00</span>
+          <span className="text-[12.5px] font-semibold text-ink-faint">USDC</span>
+        </div>
+      </div>
+      <dl className="mt-3 space-y-2 border-y border-line py-3 text-[11.5px] text-ink-faint">
+        <div className="flex items-center justify-between gap-4">
+          <dt>Live pool quote</dt><dd className="font-mono text-ink-muted">Ethereum mainnet</dd>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <dt>Route</dt><dd className="font-mono text-ink-muted">USDC → USDfr</dd>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <dt>Execution</dt><dd className="font-mono text-ink-muted">Uniswap v4</dd>
+        </div>
+      </dl>
+
+      <button type="button" disabled className="op-action mt-4 w-full px-5 py-2.5 text-[13.5px]">
+        Buy available on Ethereum mainnet
+      </button>
+      <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
+        This design-staging build reads Sepolia, where the production pool does not exist. It never
+        redirects a testnet transaction to mainnet or presents an illustrative quote as live.
+      </p>
+      <button type="button" onClick={onShowMint} className="u-link mt-auto min-h-10 pt-4 text-left text-[12px] text-ink">
+        Use the Sepolia Mint 1:1 flow instead →
+      </button>
+    </>
+  );
 }
 
 function GetUsdfrTabs({writesEnabled, chainOk}: {writesEnabled: boolean; chainOk: boolean}) {
@@ -58,7 +110,7 @@ function GetUsdfrTabs({writesEnabled, chainOk}: {writesEnabled: boolean; chainOk
   };
 
   return (
-    <div className="panel flex h-full flex-col p-6">
+    <div className="panel app-action-card app-action-card--mint flex flex-col p-6" data-viewport-replay="">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <h3 id={titleId} className="font-display text-[16px] font-semibold tracking-tight">
           Get USDfr
@@ -80,7 +132,7 @@ function GetUsdfrTabs({writesEnabled, chainOk}: {writesEnabled: boolean; chainOk
                 tabIndex={selected ? 0 : -1}
                 onClick={() => select(candidate.id)}
                 onKeyDown={onTabKeyDown}
-                className={`rounded-pill px-3 py-1 text-[11px] font-semibold tracking-[0.02em] transition-colors ${
+                className={`min-h-9 rounded-pill px-3.5 py-2 text-[12px] font-semibold tracking-[0.02em] transition-colors ${
                   selected ? "bg-accent text-raised" : "text-ink-faint hover:text-ink-muted"
                 }`}
               >
@@ -98,7 +150,11 @@ function GetUsdfrTabs({writesEnabled, chainOk}: {writesEnabled: boolean; chainOk
         hidden={tab !== "buy"}
         className={tab === "buy" ? "flex flex-1 flex-col" : undefined}
       >
-        <BuyUsdfrPanel chainOk={chainOk} active={tab === "buy"} onShowMint={() => select("mint")} />
+        {IS_TESTNET ? (
+          <TestnetBuyPreview onShowMint={() => select("mint")} />
+        ) : (
+          <BuyUsdfrPanel chainOk={chainOk} active={tab === "buy"} onShowMint={() => select("mint")} />
+        )}
       </div>
       <div
         role="tabpanel"

@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
+import { ViewTransition } from "react";
 import { Merriweather, Inter_Tight, Azeret_Mono } from "next/font/google";
 import "./globals.css";
+import { AmbientBackdrop } from "@/components/site/AmbientBackdrop";
+import { ViewportReplayController } from "@/components/site/ViewportReplayController";
 import { SiteNav } from "@/components/site/SiteNav";
 import { SiteFooter } from "@/components/site/SiteFooter";
 import { TestnetBanner } from "@/components/site/TestnetBanner";
@@ -32,46 +35,46 @@ const azeretMono = Azeret_Mono({
   display: "swap",
 });
 
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+  (process.env.VERCEL_ENV === "preview"
+    ? "https://forest-road-vault-design-staging.vercel.app"
+    : "https://forestroadvault.com");
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: "Forest Road Vault | specialty finance credit, on-chain",
   description:
-    `On-chain access to Forest Road's specialty finance credit across media & entertainment, renewable energy, and digital assets, through USDfr, a fully backed stablecoin, and sUSDfr, its staked yield-bearing position.${IS_TESTNET ? " Testnet build." : ""}`,
+    `Forest Road Vault records specialty-finance credit across Media, Renewables, and Digital Assets on-chain. USDfr backing includes reserves and deployed loan principal; sUSDfr reflects net book performance after fees and losses.${IS_TESTNET ? " Testnet preview." : ""}`,
+  openGraph: {
+    type: "website",
+    siteName: "Forest Road Vault",
+    title: "Forest Road Vault | specialty finance credit, on-chain",
+    description:
+      "The Vault's on-chain credit book: USDfr backing includes reserves and deployed loan principal; sUSDfr reflects net performance after fees and losses.",
+    images: [
+      {
+        url: "/share/default.png",
+        width: 1200,
+        height: 630,
+        alt: "Forest Road Vault — specialty finance credit, on-chain",
+        type: "image/png",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Forest Road Vault | specialty finance credit, on-chain",
+    description:
+      "The Vault's on-chain credit book: USDfr backing includes reserves and deployed loan principal; sUSDfr reflects net performance after fees and losses.",
+    images: [
+      {
+        url: "/share/default.png",
+        alt: "Forest Road Vault — specialty finance credit, on-chain",
+      },
+    ],
+  },
 };
-
-/* The direction contract for this build. It ships in the emitted markup so
-   the render can be audited against what was committed to. */
-const DIRECTION_CONTRACT = `<!--
-IMPECCABLE DIRECTION CONTRACT, seed f1401973
-
-THESIS: The arrangement an allocator already expects from an on-chain credit
-protocol, executed at the craft level of Ethena, Sky, Morpho and Maple. It
-refuses the FRAM slide deck ported to the web: eyebrow, keyline, uniform card
-grid, one section per slide.
-
-OWN-WORLD: White ground, navy elements. #ffffff ground, #f4f6f9 alternating
-band, white panels, hairline rules. Navy (#1c2d48, #0f1a2e) is placed ON the
-field as material, never as background: the nav mark, the primary action, the
-figure band, table headers, the hero, the cascade, and the interior pages'
-closing bands. The landing closes on the white field instead, with navy
-carrying only its primary action.
-Merriweather 600 display with its italic as the only emphasis device; Inter
-Tight for UI and body; mono for on-chain strings only. No gradient washes.
-
-STORY: This dollar is backed by identified, lien-perfected credit; the yield is
-that book's actual performance and nothing more; it is on testnet; enter the
-app.
-
-FIRST VIEWPORT: Full-bleed navy graded over brand photography, ending on a hard
-edge against the white field. Headline bottom-anchored at the left, the figure
-strip beneath it on a rule that draws in, Enter App as the primary action
-beside How it works, testnet caveat inline.
-
-FORM: Canon, the standing exit, chosen deliberately over the dealt roll and
-its three challengers. Seed key f1401973.
-
-FINISH: unreviewed and undocumented is unfinished; this build ends with the
-finish review, the verdict, and DESIGN.md
--->`;
 
 export default function RootLayout({
   children,
@@ -83,13 +86,18 @@ export default function RootLayout({
       lang="en"
       className={`${merriweather.variable} ${interTight.variable} ${azeretMono.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col">
-        <div hidden dangerouslySetInnerHTML={{ __html: DIRECTION_CONTRACT }} />
+      <body className="min-h-full">
+        <AmbientBackdrop />
+        <ViewportReplayController />
         <Providers>
-          <TestnetBanner />
-          <SiteNav />
-          <main className="flex-1">{children}</main>
-          <SiteFooter />
+          <div className="site-stack flex min-h-dvh flex-col">
+            <TestnetBanner />
+            <SiteNav />
+            <ViewTransition name="page-content" default="page-crossfade">
+              <main className="site-main flex-1">{children}</main>
+            </ViewTransition>
+            <SiteFooter />
+          </div>
         </Providers>
       </body>
     </html>

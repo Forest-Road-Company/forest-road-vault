@@ -8,8 +8,18 @@ import {
   HighlightBox,
 } from "@/components/site/Blocks";
 import {IS_MAINNET} from "@/config/contracts";
+import { socialMetadata } from "@/lib/shareCards";
+import { ProtocolScene } from "@/components/site/ProtocolScene";
 
-export const metadata: Metadata = { title: "Risk factors | Forest Road Vault" };
+export const metadata: Metadata = {
+  title: "Risk factors | Forest Road Vault",
+  description: "Understand the credit, liquidity, contract, regulatory and collateral risks before interacting with Forest Road Vault.",
+  ...socialMetadata({
+    card: "risk",
+    title: "Risk factors | Forest Road Vault",
+    description: "The material assumptions and failure modes to understand before interacting with Forest Road Vault.",
+  }),
+};
 
 /**
  * Risk copy is disclosure material and is reproduced verbatim. The grouping
@@ -54,14 +64,14 @@ const protocolRisks = [
 const classRisks = [
   {
     title: "Per-sector asset risk",
-    body: "Media & entertainment receivables carry payment-timing, audit/clawback, obligor-counterparty, and secondary-price risk. Renewables carry construction/completion risk.",
+    body: "Media receivables carry payment-timing, audit/clawback, obligor-counterparty, and secondary-price risk. Renewables carry construction/completion risk.",
   },
   {
-    title: "Related-party exposure (digital assets sector)",
+    title: "Related-party exposure (Digital Assets sector)",
     body: `The digital-assets sector lends to Forest Road's own trading subsidiary. Forest Road is simultaneously originator, servicer, and borrower-affiliate for that sector, a structural conflict of interest. It is mitigated by arm's-length terms, on-chain concentration caps, conservative dynamic LTV with margin-call/liquidation mechanics, and plain disclosure. ${IS_MAINNET ? "Its launch approval does not eliminate the conflict; it remains subject to ongoing review." : "It must be expressly considered in the launch economic review."}`,
   },
   {
-    title: "Crypto-collateral volatility (digital assets sector)",
+    title: "Crypto-collateral volatility (Digital Assets sector)",
     body: "Unlike the receivable-backed sectors, the digital-assets sector is secured by liquid, price-volatile crypto positions that can gap through margin levels faster than remedies execute. Valuation freshness rules, conservative LTV, and rapid liquidation paths reduce, but do not eliminate, this risk.",
   },
 ];
@@ -73,6 +83,8 @@ export default function RiskPage() {
       section="Risk"
       title="Risk factors"
       lede="These are the material risks. The documentation covers each one in depth."
+      heroTone="forest"
+      visual={<ProtocolScene scene="risk" />}
     >
       {/* ── The primary trust assumption, given its own band. ───────────── */}
       {/* The callout sits under the headline in the left column rather than

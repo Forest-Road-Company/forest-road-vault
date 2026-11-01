@@ -6,6 +6,7 @@ export const REQUIRED_REOWN_ORIGINS = Object.freeze([
   "https://forestroadvault.com",
   "https://www.forestroadvault.com",
   "https://forest-road-vault.vercel.app",
+  "https://forest-road-vault-design-staging.vercel.app",
 ]);
 
 function originUrl(value, label) {

@@ -17,8 +17,8 @@ the same day.
 
 | Sector | Facilities | Principal (USDfr) | Outstanding with accrued interest | Rate | Loan-to-value | Next payment | Maturity |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Renewable energy | 10: five USD 1m tranches to one borrower, each booked as a cash leg and a PIK leg | 5,000,000 | 5,040,624 | 16.75% fixed | 55% | 31 Dec 2026 (30 Sep paid), then every 92 days | 29 May 2029 |
-| Digital assets (related party) | 1 | 20 | 20.16 | 12.5% fixed | Under 0.01%: collateral valued at USD 18.61m on 14 Oct | 20 Dec 2026 (its first), then every 90 days | 21 Sep 2027 |
+| Renewables | 10: five USD 1m tranches to one borrower, each booked as a cash leg and a PIK leg | 5,000,000 | 5,040,624 | 16.75% fixed | 55% | 31 Dec 2026 (30 Sep paid), then every 92 days | 29 May 2029 |
+| Digital Assets (related party) | 1 | 20 | 20.16 | 12.5% fixed | Under 0.01%: collateral valued at USD 18.61m on 14 Oct | 20 Dec 2026 (its first), then every 90 days | 21 Sep 2027 |
 
 The per-borrower limit is 15%, measured against the larger of the book and a USD 100 million
 bootstrap floor. While the book is small, that allows up to USD 15 million per borrower.
@@ -67,11 +67,11 @@ on sUSDfr holders.
 
 | Layer | Capital on 14 October | How it works |
 | --- | --- | --- |
-| 1. Curator first-loss, posted by Forest Road | 500,000 USDfr in Renewable Energy; 1 USDfr in Digital Assets | Absorbs losses in its own class only |
+| 1. Curator first-loss, posted by Forest Road | 500,000 USDfr in Renewables; 1 USDfr in Digital Assets | Absorbs losses in its own class only |
 | 2. sGROVE coverage reserve | 10,000 USDfr, deposited by Forest Road at 12:37 UTC | Shared by every class; a single loss can use all of it |
 | 3. sUSDfr holders | 2,375,217 USDfr of vault assets | Bears every loss the first two layers do not cover |
 
-In Renewable Energy, Forest Road's own first-loss capital equals 10% of principal, at least an
+In Renewables, Forest Road's own first-loss capital equals 10% of principal, at least an
 order of magnitude more than the default rate we expect on these facilities. We believe depositors
 can be very confident in that protection. Digital Assets relies mainly on its collateral,
 described above.

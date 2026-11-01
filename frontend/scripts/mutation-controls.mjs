@@ -181,12 +181,12 @@ const cases = [
     replacement: '  const [tab, setTab] = useState<GetUsdfrTab>("mint");',
   },
   {
-    name: "a testnet shows the Buy tab",
+    name: "a testnet mounts the live mainnet Buy flow",
     file: "src/components/app/GetUsdfrCard.tsx",
     testFile: "src/components/app/GetUsdfrCard.test.tsx",
-    test: "shows a testnet the mint card alone: no tabs, no Buy, no pool",
-    needle: "  if (IS_TESTNET) return <MintCard writesEnabled={writesEnabled} chainOk={chainOk} />;",
-    replacement: "  if (false && IS_TESTNET) return <MintCard writesEnabled={writesEnabled} chainOk={chainOk} />;",
+    test: "opens on an honest Buy preview on testnet and keeps the usable mint flow beside it",
+    needle: "        {IS_TESTNET ? (",
+    replacement: "        {false && IS_TESTNET ? (",
   },
   {
     name: "the 0.99 warning stays silent just below the floor",

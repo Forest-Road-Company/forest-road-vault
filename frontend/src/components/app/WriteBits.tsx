@@ -67,14 +67,14 @@ export function AmountInput({
         /* min-w-0: an input's intrinsic width is ~20 characters, and as a flex
            child that became the card's minimum width, which pushed the whole
            /app page 34px wider than a 320px phone. */
-        className="w-full min-w-0 bg-transparent font-mono text-[15px] text-ink outline-none placeholder:text-ink-faint disabled:cursor-not-allowed disabled:text-ink-faint"
+        className="w-full min-w-0 bg-transparent font-mono text-[16px] text-ink outline-none placeholder:text-ink-faint disabled:cursor-not-allowed disabled:text-ink-faint"
       />
       {onMax ? (
         <button
           type="button"
           onClick={onMax}
           disabled={disabled}
-          className="rounded-pill border border-line-strong px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted transition-colors hover:border-accent hover:text-accent active:bg-accent-faint disabled:cursor-not-allowed disabled:border-line disabled:text-ink-faint"
+          className="min-h-9 rounded-pill border border-line-strong px-3 py-1.5 text-[11.5px] font-semibold uppercase tracking-[0.12em] text-ink-muted transition-colors hover:border-accent hover:text-accent active:bg-accent-faint disabled:cursor-not-allowed disabled:border-line disabled:text-ink-faint"
         >
           max
         </button>

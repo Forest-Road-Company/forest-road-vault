@@ -23,6 +23,7 @@ describe("Reown release origin policy", () => {
   it("reproduces the live custom-domain-only configuration gap", () => {
     expect(missingReownOrigins(CUSTOM_DOMAINS_ONLY)).toEqual([
       "https://forest-road-vault.vercel.app",
+      "https://forest-road-vault-design-staging.vercel.app",
     ]);
   });
 
@@ -55,7 +56,7 @@ describe("Reown release origin policy", () => {
       write,
     });
     expect(result.checked).toBe(true);
-    expect(write).toHaveBeenCalledWith(expect.stringContaining("3 public origins"));
+    expect(write).toHaveBeenCalledWith(expect.stringContaining("4 public origins"));
     expect(JSON.stringify(result)).not.toContain(PROJECT_ID);
   });
 

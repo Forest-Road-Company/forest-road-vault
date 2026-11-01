@@ -346,12 +346,12 @@ export function YieldPositionPanel() {
       : null;
 
   return (
-    <section className="mt-8 overflow-hidden rounded-card bg-navy-deepest text-on-navy shadow-[0_24px_55px_-28px_rgba(15,26,46,0.7)]">
+    <section className="yield-position-instrument mt-8 overflow-hidden rounded-card bg-navy-deepest text-on-navy shadow-[0_24px_55px_-28px_rgba(15,26,46,0.7)]" data-viewport-replay="" data-viewport-reveal="">
       <div className="grid gap-px bg-white/10 lg:grid-cols-[1.05fr_1fr]">
-        <div className="bg-navy-deepest p-7 sm:p-8">
+        <div className="yield-position-card yield-position-card--income bg-navy-deepest p-7 sm:p-8">
           {/* The panel's heading, and the h2 that keeps /app from stepping
               h1 -> h3 at the first write card. Styling is unchanged. */}
-          <h2 className="text-[10.5px] font-semibold uppercase tracking-[0.2em] text-on-navy/55">
+          <h2 className="text-[12px] font-semibold uppercase tracking-[0.18em] text-on-navy/65">
             Projected position income
           </h2>
           {/* A bare em dash at display scale reads as a redaction bar, not as
@@ -429,8 +429,8 @@ export function YieldPositionPanel() {
           </div>
         </div>
 
-        <div className="bg-navy-deep p-7 sm:p-8">
-          <h2 className="text-[11px] font-semibold tracking-[0.04em] text-on-navy/55">
+        <div className="yield-position-card yield-position-card--wallet bg-navy-deep p-7 sm:p-8">
+          <h2 className="text-[12.5px] font-semibold tracking-[0.035em] text-on-navy/65">
             Your sUSDfr position
           </h2>
           {address ? (
@@ -571,13 +571,13 @@ export function YieldPositionPanel() {
 function DarkMetric({label, value, note}: {label: string; value: string; note: string}) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-on-navy/40">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-on-navy/65">
         {label}
       </p>
       {/* Carries words ("Immediate") as well as figures, so this is the body face with
           tabular numerals rather than mono. */}
       <p className="tnum mt-1 text-[15px] font-medium text-on-navy">{value}</p>
-      <p className="mt-1 text-[10.5px] leading-snug text-on-navy/40">{note}</p>
+      <p className="mt-1 text-[10.5px] leading-snug text-on-navy/65">{note}</p>
     </div>
   );
 }

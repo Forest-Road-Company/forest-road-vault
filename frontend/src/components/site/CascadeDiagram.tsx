@@ -14,8 +14,8 @@ const layers = [
     note: "absorbs first",
   },
   {
-    label: "2 · Backstop reserve",
-    sub: "a USDfr reserve held by sGROVE, ahead of depositors",
+    label: "2 · Backstop reserve (sGROVE)",
+    sub: "a separate USDfr coverage reserve held by the sGROVE contract",
     note: "absorbs second",
   },
   {
@@ -29,9 +29,11 @@ export function CascadeDiagram({ tone = "light" }: { tone?: "light" | "navy" }) 
   const dark = tone === "navy";
   return (
     <figure
-      className={`relative overflow-hidden rounded-card p-8 md:p-10 ${
+      className={`cascade-diagram relative overflow-hidden rounded-card p-8 md:p-10 ${
         dark ? "border border-navy-border bg-navy-deep" : "panel"
       }`}
+      data-viewport-replay=""
+      data-viewport-reveal=""
     >
       <div className="pointer-events-none absolute left-1/2 top-0 hidden h-full -translate-x-1/2 md:block">
         <svg
@@ -65,7 +67,7 @@ export function CascadeDiagram({ tone = "light" }: { tone?: "light" | "navy" }) 
         {layers.map((l, i) => (
           <div
             key={l.label}
-            className={`relative rounded-card px-6 py-5 transition-colors ${
+            className={`cascade-layer cascade-layer--${i + 1} relative overflow-hidden rounded-card px-6 py-5 transition-colors ${
               dark
                 ? "border border-navy-border bg-navy hover:border-on-navy-accent/50"
                 : "border border-line bg-surface hover:border-accent/45"

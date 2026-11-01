@@ -12,7 +12,7 @@ export function SiteFooter() {
   return (
     /* A visible rule at the seam: the closing anchor above is also navy, and
        without it the two bands read as one dark mass at a glance. */
-    <footer className="navy-band-deep border-t border-white/20">
+    <footer className="site-footer navy-band-deep border-t border-white/20" style={{ viewTransitionName: "site-footer" }}>
       <div className="mx-auto max-w-6xl px-5 py-14">
         <div className="flex flex-col gap-10 lg:flex-row lg:justify-between">
           <div className="max-w-md space-y-4">
@@ -24,10 +24,10 @@ export function SiteFooter() {
               className="h-9 w-auto"
             />
             <p className="text-[13px] leading-relaxed text-on-navy-faint">
-              A KYC-gated credit protocol bringing Forest
-              Road&apos;s specialty finance book on-chain. Yield is variable and
-              reflects the actual performance of the loan book. Nothing here
-              promises a fixed return. Token characterization is a
+              Forest Road Vault records loans Forest Road originates,
+              underwrites, and services on-chain. sUSDfr reflects net book
+              performance after fees and losses; returns are variable and
+              capital is at risk. Token characterization is a
               matter for counsel; nothing on this site is legal, tax, or
               investment advice, or an offer of securities.
             </p>
@@ -104,8 +104,8 @@ export function SiteFooter() {
           </p>
           <p className="max-w-3xl text-[11px] leading-relaxed text-on-navy-faint md:text-right">
             {IS_TESTNET
-              ? "TESTNET ONLY: this build reads Sepolia and its test assets have no value. The protocol is live on Ethereum mainnet; see Docs, Addresses."
-              : "ETHEREUM MAINNET: smart-contract, liquidity, credit, legal, oracle, governance, and operational risks remain. Review all disclosures; nothing here is legal, tax, or investment advice."}
+              ? "SEPOLIA PREVIEW: test assets have no value. A separate Ethereum mainnet contract deployment exists; this preview does not establish that any product or entry path is open."
+              : "ETHEREUM CONTRACTS DEPLOYED: deployment does not mean every product or entry path is open. Smart-contract, liquidity, credit, legal, oracle, governance, and operational risks remain."}
           </p>
         </div>
       </div>

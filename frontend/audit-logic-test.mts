@@ -697,10 +697,39 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
   const unreported = productionFrom("main", undefined, reported);
   check("deploy source: a production build with no reported commit is refused", unreported.enforced && !unreported.allowed, unreported.summary);
   const preview = evaluateDeploySource(
-    {VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "feature", VERCEL_GIT_COMMIT_SHA: reported},
+    {VERCEL_ENV: "preview"},
     null,
   );
-  check("deploy source: preview builds are reported and never blocked", !preview.enforced && preview.summary.includes("reported only"), preview.summary);
+  check(
+    "deploy source: commit-less CLI previews are reported and never blocked",
+    !preview.enforced && preview.summary.includes("no commit SHA") && preview.summary.includes("reported only"),
+    preview.summary,
+  );
+  const previewConfigLoad = spawnSync(
+    process.execPath,
+    [
+      "--experimental-strip-types",
+      "--input-type=module",
+      "-e",
+      'await import("./next.config.ts"); console.log("PREVIEW-CONFIG-LOADED");',
+    ],
+    {
+      cwd: new URL(".", import.meta.url),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        VERCEL: "1",
+        VERCEL_ENV: "preview",
+        VERCEL_GIT_COMMIT_REF: "",
+        VERCEL_GIT_COMMIT_SHA: "",
+      },
+    },
+  );
+  check(
+    "deploy source: a commit-less CLI preview can load the build configuration",
+    previewConfigLoad.status === 0 && previewConfigLoad.stdout.includes("PREVIEW-CONFIG-LOADED"),
+    previewConfigLoad.stdout + previewConfigLoad.stderr,
+  );
   const blockedBuild = spawnSync(
     process.execPath,
     [
@@ -778,6 +807,7 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
       manifestExporter.includes("verifyReownOriginPolicy") &&
       reownOriginPolicy.includes("https://api.web3modal.org/projects/v1/origins") &&
       reownOriginPolicy.includes("https://forest-road-vault.vercel.app") &&
+      reownOriginPolicy.includes("https://forest-road-vault-design-staging.vercel.app") &&
       reownOriginPolicy.includes("NEXT_PUBLIC_WALLETCONNECT_REQUIRED_ORIGINS") &&
       reownOriginPolicy.includes("dashboard.reown.com before releasing this build"),
   );
