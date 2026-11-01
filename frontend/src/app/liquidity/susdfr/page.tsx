@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import {SusdfrLiquidityOperation} from "@/components/app/SusdfrLiquidityOperation";
 import {PageShell} from "@/components/site/PageShell";
+import {ProtocolScene} from "@/components/site/ProtocolScene";
 
 export const metadata: Metadata = {
   title: "sUSDfr / USDC liquidity | Forest Road Vault",
@@ -15,6 +16,7 @@ export default function SusdfrLiquidityPage() {
       section="Treasury operation"
       title="sUSDfr / USDC liquidity"
       lede="A wallet-bound, two-step Uniswap v4 flow: initialize and verify a 50 USDC in-range seed, then add the USDC-only 0.85–0.95 buy wall."
+      visual={<ProtocolScene scene="markets" />}
     >
       <SusdfrLiquidityOperation />
       <p className="mx-auto mt-8 max-w-4xl text-[13px] text-ink-muted">

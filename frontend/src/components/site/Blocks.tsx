@@ -37,12 +37,12 @@ export function Section({
 }) {
   const bg =
     tone === "navy"
-      ? "navy-band"
+      ? "navy-band section-motion section-motion--dark"
       : tone === "navy-deep"
-        ? "navy-band-deep"
+        ? "navy-band-deep section-motion section-motion--dark"
         : tone === "surface"
-          ? "bg-surface"
-          : "bg-raised";
+          ? "section-surface section-motion"
+          : "section-light section-motion";
   return (
     <section id={id} className={`${bg} ${className}`}>
       <div
@@ -183,7 +183,7 @@ export function CardDeck({
   };
 
   return (
-    <div className={`mt-14 grid gap-x-8 gap-y-11 ${cols[columns]}`}>
+    <div className={`card-deck mt-14 grid gap-5 ${cols[columns]}`}>
       {items.map((it, i) => {
         const inner = (
           <>
@@ -216,11 +216,11 @@ export function CardDeck({
         );
 
         return it.href ? (
-          <Link key={it.title} href={it.href} className="group block h-full">
+          <Link key={it.title} href={it.href} className={`story-card group block h-full ${dark ? "story-card--dark" : ""}`} data-viewport-replay="">
             {inner}
           </Link>
         ) : (
-          <div key={it.title} className="h-full">
+          <div key={it.title} className={`story-card h-full ${dark ? "story-card--dark" : ""}`} data-viewport-replay="">
             {inner}
           </div>
         );
@@ -250,7 +250,7 @@ export function NumberedRows({
 }) {
   const dark = isDark(tone);
   return (
-    <div className="mt-14 flex flex-col gap-10 lg:flex-row lg:gap-16">
+    <div className="numbered-flow mt-14 flex flex-col gap-10 lg:flex-row lg:gap-16">
       {heading ? (
         <div className="lg:w-[3.2in] lg:flex-none">
           <p className="display text-[25px] leading-tight">{heading}</p>
@@ -267,11 +267,11 @@ export function NumberedRows({
           ) : null}
         </div>
       ) : null}
-      <div className="flex-1">
+      <div className="numbered-flow__list flex-1" data-viewport-replay="" data-viewport-reveal="">
         {rows.map((r, i) => (
           <div
             key={r.label}
-            className={`flex flex-col gap-2 py-6 sm:flex-row sm:gap-6 ${
+            className={`numbered-flow__row flex flex-col gap-2 py-6 sm:flex-row sm:gap-6 ${
               i === 0
                 ? ""
                 : dark

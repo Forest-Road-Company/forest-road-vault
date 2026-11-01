@@ -4,6 +4,7 @@ import { PageShell } from "@/components/site/PageShell";
 import { Section, SectionHead } from "@/components/site/Blocks";
 import { ADDRESSES_SECTION, AUDIT_SECTION, DOCS } from "@/content/docs";
 import {IS_TESTNET, NETWORK_NAME} from "@/config/contracts";
+import { ProtocolScene } from "@/components/site/ProtocolScene";
 
 export const metadata: Metadata = {
   title: "Docs | Forest Road Vault",
@@ -21,6 +22,7 @@ export default function DocsIndex() {
       section="Docs"
       title="Documentation"
       lede={`For depositors, reviewers and integrators. This build reads the ${NETWORK_NAME} deployment.${IS_TESTNET ? " Test tokens have no value." : ""}`}
+      visual={<ProtocolScene scene="docs" />}
     >
       {/* ── The written record: a contents register, which is what it is.
              An odd number of documents never divides into a card grid. ─── */}
@@ -30,12 +32,12 @@ export default function DocsIndex() {
           lede="Start with the overview, then the how-to guide if you plan to use the app. The rest cover live status, the protocol's guarantees, who can change what, how defaults are priced at exit, how the system is tested, and how to integrate."
         />
 
-        <div className="mt-14">
+        <div className="docs-register mt-14" data-viewport-replay="" data-viewport-reveal="">
           {DOCS.map((d, i) => (
             <Link
               key={d.slug}
               href={`/docs/${d.slug}`}
-              className={`group flex flex-col gap-4 py-7 transition-all hover:translate-x-1 hover:border-t-accent lg:flex-row lg:items-baseline lg:gap-12 ${
+              className={`docs-register__row group flex flex-col gap-4 py-7 transition-all hover:translate-x-1 hover:border-t-accent lg:flex-row lg:items-baseline lg:gap-12 ${
                 i === 0 ? "border-t border-line-strong" : "border-t border-row"
               }`}
             >

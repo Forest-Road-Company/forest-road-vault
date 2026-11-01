@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { PageShell } from "@/components/site/PageShell";
 import { IS_MAINNET } from "@/config/contracts";
+import { ProtocolScene } from "@/components/site/ProtocolScene";
 
 export const metadata: Metadata = { title: "Terms | Forest Road Vault" };
 
@@ -11,14 +12,15 @@ export default function TermsPage() {
       title="Terms of use"
       lede={
         IS_MAINNET
-          ? "Use of the Ethereum mainnet application involves real assets and is limited to eligible, verified participants under the definitive agreements accepted during onboarding."
-          : "Placeholder terms for the testnet preview. Definitive terms of use require counsel approval before any production launch."
+          ? "The Ethereum mainnet application reads deployed contracts and may involve real assets. Any available interaction remains subject to its applicable eligibility controls and definitive agreements."
+          : "Terms for the Sepolia preview. A separate Ethereum mainnet contract deployment exists and is governed by its own definitive terms, eligibility controls, and launch status."
       }
+      visual={<ProtocolScene scene="docs" />}
     >
       <div className="mt-10 max-w-3xl space-y-6 text-[14.5px] leading-relaxed text-ink-muted">
         <p>
           {IS_MAINNET
-            ? "Access is KYC-gated. Your use remains subject to the definitive legal agreements, eligibility restrictions, risk disclosures, and any jurisdictional limits presented during onboarding. This page summarizes the application posture and does not replace those agreements."
+            ? "Primary-market minting and instant redemption are KYC-gated on-chain. Other interactions may have different controls. Your use remains subject to the definitive legal agreements, eligibility restrictions, risk disclosures, and jurisdictional limits presented for the relevant path. This page does not replace those agreements."
             : "This site and the associated testnet deployment are provided for demonstration and development review only, as-is, without warranty of any kind. No feature of this site constitutes an offer, solicitation, or financial service."}
         </p>
         <p>

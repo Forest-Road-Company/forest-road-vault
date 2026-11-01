@@ -76,6 +76,20 @@ afterEach(() => {
 });
 
 describe("RedeemCard, queue disclosure (FRV-FS-02)", () => {
+  it("changes the route diagram with the selected redemption path", async () => {
+    reads = baseReads();
+    const user = userEvent.setup();
+    render(<RedeemCard writesEnabled chainOk />);
+
+    expect(
+      screen.getByLabelText(/USDfr is burned against idle reserves/i),
+    ).toBeInTheDocument();
+    await openQueueMode(user);
+    expect(
+      screen.getByLabelText(/sUSDfr completes its minimum hold.*FIFO queue/i),
+    ).toBeInTheDocument();
+  });
+
   it("discloses the live minimum hold, not just the epoch countdown", async () => {
     reads = baseReads();
     const user = userEvent.setup();

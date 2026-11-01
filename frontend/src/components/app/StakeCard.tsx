@@ -19,6 +19,7 @@ import {fmtAmount} from "@/lib/format";
 import {formatBps} from "@/lib/yield";
 import {useWriteFlow} from "@/components/app/useWriteFlow";
 import {ActionButton, AmountInput, StatusLine, busyLabelFor} from "@/components/app/WriteBits";
+import {StakeRouteVisual} from "@/components/app/ActionRouteVisuals";
 import {ACCOUNT_POLL} from "@/lib/polling";
 
 const POLL = ACCOUNT_POLL;
@@ -183,7 +184,7 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
 
   return (
     // `stake-card` is the target of the Buy tab's "stake it" pointer after a purchase.
-    <div id="stake-card" className="panel flex h-full scroll-mt-6 flex-col p-6">
+    <div id="stake-card" className="panel app-action-card app-action-card--stake flex scroll-mt-24 flex-col p-6" data-viewport-replay="">
       <div className="flex items-baseline justify-between">
         <h3 className="font-display text-[16px] font-semibold tracking-tight">Stake</h3>
         <p className="text-[11px] font-semibold tracking-[0.03em] text-ink-faint">
@@ -197,6 +198,8 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
           ? "simulate all fees due at this block."
           : "reflect this legacy Sepolia deployment, which predates vault-level fees."}
       </p>
+
+      <StakeRouteVisual />
 
       {/* Same balance vocabulary as the other two write cards: an absent wallet
           says so in words rather than as a dash. */}

@@ -527,7 +527,7 @@ export function BuyUsdfrPanel({
             onChange={(event) => {
               if (/^\d{0,2}(\.\d{0,2})?$/.test(event.target.value)) setSlippageText(event.target.value);
             }}
-            className="w-full min-w-0 bg-transparent text-right font-mono text-[12.5px] text-ink outline-none disabled:cursor-not-allowed disabled:text-ink-faint"
+            className="w-full min-w-0 bg-transparent text-right font-mono text-[16px] text-ink outline-none disabled:cursor-not-allowed disabled:text-ink-faint"
           />
           <span className="text-[12px] text-ink-faint">%</span>
         </div>

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { PageShell } from "@/components/site/PageShell";
 import { Section } from "@/components/site/Blocks";
 import { VERTICALS } from "@/lib/verticals";
+import { ProtocolScene } from "@/components/site/ProtocolScene";
 
 export function generateStaticParams() {
   return VERTICALS.map((v) => ({ slug: v.slug }));
@@ -45,6 +46,7 @@ export default async function VerticalPage({
       section="Collateral class"
       title={v.name}
       lede={v.financed}
+      visual={<ProtocolScene scene="sectors" />}
     >
       <Section tone="surface">
         <p

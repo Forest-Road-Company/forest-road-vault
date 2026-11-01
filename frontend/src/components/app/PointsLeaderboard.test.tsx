@@ -106,6 +106,18 @@ describe("PointsLeaderboard", () => {
     expect(screen.getByText(/must add up exactly to its own tracked totals at that block/)).toBeInTheDocument();
   });
 
+  it("scales each bar to the top wallet while preserving its source composition", async () => {
+    renderBoard(board());
+    await screen.findByText("3 wallets ranked");
+    const bars = screen.getAllByTestId("leaderboard-bar");
+    const fills = bars.map((bar) => bar.querySelector<HTMLElement>(".main-board-composition")!);
+
+    expect(fills.map((fill) => fill.style.width)).toEqual(["100%", "57.14%", "28.57%"]);
+    expect(fills[0].querySelector<HTMLElement>(".is-onchain")?.style.width).toBe("28.57%");
+    expect(fills[0].querySelector<HTMLElement>(".is-pendle")?.style.width).toBe("71.42%");
+    expect(screen.getByText("Bar length = total points relative to #1")).toBeInTheDocument();
+  });
+
   it("links each wallet to its explorer page", async () => {
     renderBoard(board());
     await screen.findByText("3 wallets ranked");

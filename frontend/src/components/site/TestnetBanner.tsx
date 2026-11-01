@@ -5,13 +5,9 @@ import { IS_TESTNET } from "@/config/contracts";
  * functional status colour, not decoration: the label carries the meaning
  * on its own, so the hue is never the only signal.
  *
- * MERGE NOTE (2026-08-28). Structure, tone and contrast come from the FRAM
- * design system. The testnet COPY does not: the design-system version read
- * "No mainnet deployment, no real value", which was true when that branch was
- * cut and has been false since 2026-08-16. Commit 3ff5183 fixed exactly that
- * claim, and it is preserved here. A testnet build must say the mainnet
- * deployment exists and point at it, because a visitor on the Sepolia build
- * otherwise concludes there is no live protocol.
+ * A testnet build distinguishes this Sepolia preview from the separate
+ * Ethereum contract deployment. Contract deployment is a technical fact, not
+ * a claim that every legal, operational or product-entry gate is closed.
  */
 export function TestnetBanner() {
   return (
@@ -28,12 +24,12 @@ export function TestnetBanner() {
             IS_TESTNET ? "text-warn" : "text-on-navy-accent"
           }`}
         >
-          {IS_TESTNET ? "Testnet build" : "Ethereum mainnet"}
+          {IS_TESTNET ? "Sepolia preview" : "Ethereum contracts deployed"}
         </span>
         <span className={IS_TESTNET ? "text-ink-muted" : "text-on-navy-muted"}>
           {IS_TESTNET
-            ? "This site reads Sepolia. Test assets have no value, and nothing here is an offer or a live financial product. The contracts are separately deployed to Ethereum mainnet; see Docs, Addresses."
-            : "Transactions use real assets. Access is KYC-gated; review the legal and risk disclosures before transacting."}
+            ? "This build reads Sepolia and its test assets have no value. A separate Ethereum mainnet contract deployment exists; this preview is not that application and does not show that every launch gate is closed."
+            : "Transactions may use real assets. Primary-market minting and instant redemption are KYC-gated; deployment does not mean every product or entry path is open. Review the legal and risk disclosures."}
         </span>
       </p>
     </div>

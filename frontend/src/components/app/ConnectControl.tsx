@@ -58,7 +58,7 @@ export function ConnectControl() {
         </span>
         <button
           onClick={() => disconnect()}
-          className="rounded-pill border border-line-strong px-3.5 py-1.5 text-[12.5px] text-ink-muted transition-colors hover:border-danger/50 hover:text-danger"
+          className="min-h-10 rounded-pill border border-line-strong px-3.5 py-2 text-[12.5px] text-ink-muted transition-colors hover:border-danger/50 hover:text-danger"
         >
           Disconnect
         </button>
@@ -85,7 +85,7 @@ export function ConnectControl() {
             choices.length === 1 ? connect({connector: choices[0]}) : setChooserOpen(true)
           }
           disabled={isPending}
-          className="rounded-pill bg-accent px-5 py-2 text-[13.5px] font-medium text-raised transition-transform hover:scale-[1.02] hover:bg-accent-strong disabled:opacity-60"
+          className="min-h-11 rounded-pill bg-accent px-5 py-2.5 text-[13.5px] font-medium text-raised transition-transform hover:scale-[1.02] hover:bg-accent-strong disabled:opacity-60"
         >
           {isPending ? "Connecting…" : "Connect wallet"}
         </button>
@@ -104,14 +104,14 @@ export function ConnectControl() {
             setChooserOpen(false);
           }}
           disabled={isPending}
-          className="rounded-pill border border-line-strong bg-raised px-4 py-1.5 text-[13px] text-ink transition-colors hover:border-accent/60 disabled:opacity-60"
+          className="min-h-10 rounded-pill border border-line-strong bg-raised px-4 py-2 text-[13px] text-ink transition-colors hover:border-accent/60 disabled:opacity-60"
         >
           {c.name}
         </button>
       ))}
       <button
         onClick={() => setChooserOpen(false)}
-        className="px-2 text-[12px] text-ink-faint hover:text-ink-muted"
+        className="min-h-10 px-3 text-[12px] text-ink-faint hover:text-ink-muted"
       >
         cancel
       </button>

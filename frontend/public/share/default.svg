@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <pattern id="grid" width="34" height="34" patternUnits="userSpaceOnUse">
+      <path d="M34 0H0V34" fill="none" stroke="#b8cbe0" stroke-opacity=".28" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fbfe"/>
+      <stop offset="1" stop-color="#eaf2f9"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".68"/>
+      <stop offset=".5" stop-color="#dbe9f5" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#fff" stop-opacity=".46"/>
+    </linearGradient>
+    <linearGradient id="liquid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#679bf0"/>
+      <stop offset="1" stop-color="#2f5b9e"/>
+    </linearGradient>
+    <filter id="shadow" x="-40%" y="-30%" width="180%" height="190%">
+      <feDropShadow dx="0" dy="20" stdDeviation="22" flood-color="#355f8c" flood-opacity=".16"/>
+    </filter>
+    <clipPath id="vessel-a"><rect x="849" y="138" width="118" height="344" rx="28"/></clipPath>
+    <clipPath id="vessel-b"><rect x="1005" y="96" width="118" height="386" rx="28"/></clipPath>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#paper)"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <circle cx="1080" cy="110" r="230" fill="#dbeafd" opacity=".4"/>
+  <circle cx="740" cy="610" r="300" fill="#eef7ff" opacity=".65"/>
+
+  <image href="../brand/vault-lockup-navy.png" x="59" y="55" width="356" height="60" preserveAspectRatio="xMinYMid meet"/>
+
+  <text x="62" y="258" fill="#152a48" font-family="Georgia, 'Times New Roman', serif" font-size="64" font-weight="600" letter-spacing="-2">
+    Specialty finance
+  </text>
+  <text x="62" y="326" fill="#568ee3" font-family="Georgia, 'Times New Roman', serif" font-size="64" font-weight="600" font-style="italic" letter-spacing="-2">
+    credit, on-chain.
+  </text>
+  <text x="63" y="382" fill="#40536b" font-family="Arial, Helvetica, sans-serif" font-size="20">
+    USDfr is backed by reserves and deployed loan principal.
+  </text>
+  <text x="63" y="414" fill="#40536b" font-family="Arial, Helvetica, sans-serif" font-size="20">
+    sUSDfr reflects net performance after fees and losses.
+  </text>
+
+  <g filter="url(#shadow)">
+    <rect x="849" y="138" width="118" height="344" rx="28" fill="url(#glass)" stroke="#fff" stroke-opacity=".88" stroke-width="2"/>
+    <path d="M849 274C880 261 926 287 967 270V482H849Z" fill="url(#liquid)" clip-path="url(#vessel-a)" opacity=".88"/>
+    <path d="M866 159V451" stroke="#fff" stroke-opacity=".42" stroke-width="7" stroke-linecap="round"/>
+    <rect x="1005" y="96" width="118" height="386" rx="28" fill="url(#glass)" stroke="#fff" stroke-opacity=".9" stroke-width="2"/>
+    <path d="M1005 216C1040 202 1084 229 1123 211V482H1005Z" fill="url(#liquid)" clip-path="url(#vessel-b)"/>
+    <path d="M1022 117V449" stroke="#fff" stroke-opacity=".45" stroke-width="7" stroke-linecap="round"/>
+  </g>
+  <path d="M812 482H1158" stroke="#6f88a1" stroke-opacity=".55"/>
+  <text x="865" y="523" fill="#294261" font-family="monospace" font-size="14" letter-spacing="1">USDfr</text>
+  <text x="1017" y="523" fill="#294261" font-family="monospace" font-size="14" letter-spacing="1">sUSDfr</text>
+
+  <path d="M62 560H430" stroke="#294261" stroke-opacity=".26"/>
+  <text x="62" y="586" fill="#294261" font-family="Arial, Helvetica, sans-serif" font-size="17" letter-spacing=".4">forestroadvault.com</text>
+</svg>

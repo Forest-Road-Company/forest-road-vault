@@ -1,11 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageShell } from "@/components/site/PageShell";
+import { ProtocolScene } from "@/components/site/ProtocolScene";
 import { Section, SectionHead } from "@/components/site/Blocks";
 import { SECTORS } from "@/lib/verticals";
+import { socialMetadata } from "@/lib/shareCards";
 
 export const metadata: Metadata = {
   title: "Sectors | Forest Road Vault",
+  description: "Explore Forest Road Vault credit across Media, Renewables, and Digital Assets.",
+  ...socialMetadata({
+    card: "sectors",
+    title: "The three sectors | Forest Road Vault",
+    description: "Receivable-backed specialty finance and marked-to-market Digital Assets, recorded on-chain for the Vault.",
+  }),
 };
 
 /* One authored line-icon per sector, drawn to the same stroke and weight
@@ -55,6 +63,7 @@ export default function SectorsPage() {
       section="Sectors"
       title="The three sectors"
       lede="Each sector sets its own terms: an LTV cap, a maturity profile, concentration limits, and a default-remedy path. Interest rates are signed per facility, not set by sector. Sector parameters are enforced on-chain by the CollateralRegistry."
+      visual={<ProtocolScene scene="sectors" />}
     >
       {/* ── The sectors: an icon-led, colour-committed grid rather than a
              register: accent tint for receivable-backed lending, warn tint
@@ -78,18 +87,21 @@ export default function SectorsPage() {
               <Link
                 key={v.slug}
                 href={`/sectors/${v.slug}`}
-                className={`group flex h-full flex-col p-7 transition-opacity hover:opacity-90 ${
-                  mtm ? "bg-warn-faint" : "bg-accent-faint"
-                }`}
+                className={`sector-story-card group flex h-full flex-col p-7 ${mtm ? "sector-story-card--mtm" : ""}`}
+                data-viewport-replay=""
               >
-                <div className="flex items-center gap-4">
+                <div className="sector-story-card__stage">
                   <div
-                    className={`flex h-11 w-11 flex-none items-center justify-center rounded-full ${
+                    className={`sector-story-card__icon flex h-14 w-14 flex-none items-center justify-center rounded-full ${
                       mtm ? "bg-warn text-on-navy" : "bg-accent text-on-navy"
                     }`}
                   >
                     <SectorIcon slug={v.slug} />
                   </div>
+                  <span className="sector-story-card__trace"><i /><i /></span>
+                  <span className="sector-story-card__asset">{mtm ? "live collateral" : "assigned claim"}</span>
+                </div>
+                <div className="mt-6 flex items-center gap-4">
                   <h3 className="display text-[19px] leading-tight">
                     {v.name}
                   </h3>
@@ -108,7 +120,7 @@ export default function SectorsPage() {
                   className={`mt-5 h-px w-full ${mtm ? "bg-warn/25" : "bg-accent/20"}`}
                 />
                 <p
-                  className={`running-head mt-4 leading-relaxed ${
+                  className={`mt-4 text-[11px] font-semibold uppercase leading-relaxed tracking-[0.14em] ${
                     mtm ? "text-warn" : "text-accent"
                   }`}
                 >

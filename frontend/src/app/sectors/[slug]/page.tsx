@@ -5,6 +5,7 @@ import { PageShell } from "@/components/site/PageShell";
 import { Section } from "@/components/site/Blocks";
 import { SECTORS } from "@/lib/verticals";
 import { IS_TESTNET } from "@/config/contracts";
+import { ProtocolScene } from "@/components/site/ProtocolScene";
 
 export function generateStaticParams() {
   return SECTORS.map((v) => ({ slug: v.slug }));
@@ -46,6 +47,7 @@ export default async function SectorPage({
       section="Sector"
       title={v.name}
       lede={v.financed}
+      visual={<ProtocolScene scene="sectors" />}
     >
       <Section tone="surface">
         <p

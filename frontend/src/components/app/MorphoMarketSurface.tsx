@@ -179,8 +179,8 @@ export function MorphoMarketSurface() {
   }
 
   const borrowApr = snapshot ? apr(snapshot.rate) : "—";
-  return <div className="space-y-8">
-    <section aria-label="Market overview" className="border-y border-line-strong py-6">
+  return <div className="market-console space-y-8">
+    <section aria-label="Market overview" className="market-console__overview border-y border-line-strong py-6" data-viewport-replay="" data-viewport-reveal="">
       <div className="flex flex-wrap items-start justify-between gap-5">
         <div><h2 className="font-display text-2xl font-semibold">USDC / sUSDfr</h2>
           <p className="mt-2 text-sm text-ink-muted">Ethereum · Morpho Blue · 86% liquidation LTV</p></div>
@@ -199,7 +199,7 @@ export function MorphoMarketSurface() {
     {marketQuery.isError ? <div role="alert" className="text-sm text-danger">Market data could not be verified. No balances have been assumed. <button type="button" className="u-link" onClick={() => void marketQuery.refetch()}>Retry</button></div> : null}
     {safe.error ? <p role="alert" className="text-sm text-danger">{safe.error}</p> : null}
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-      <section className="panel min-w-0 p-6 sm:p-8" aria-label="Manage market position">
+      <section className="market-console__action panel min-w-0 p-6 sm:p-8" aria-label="Manage market position">
         <div className="flex flex-wrap gap-2 border-b border-line pb-5" aria-label="Market actions">
           {(Object.keys(titles) as MarketAction[]).map(key => <button type="button" key={key} disabled={busy} aria-pressed={key === action}
             onClick={() => switchAction(key)} className={`rounded-pill border px-3 py-2 text-xs transition-colors ${key === action ? "border-navy bg-navy text-on-navy" : "border-line text-ink-muted hover:border-accent"}`}>{titles[key]}</button>)}
@@ -258,7 +258,7 @@ export function MorphoMarketSurface() {
         </div> : null}
         {treasury ? <SafeInstructions /> : null}
       </section>
-      <aside className="min-w-0 space-y-7">
+      <aside className="market-console__aside min-w-0 space-y-7">
         <section className="border-t border-line-strong pt-6"><h3 className="font-display text-lg font-semibold">Your position</h3>
           <dl className="mt-5 grid grid-cols-2 gap-6">
             <Metric label="USDC lent" value={account ? fmtAmount(account.values.supplied, 6, 6) : "—"} />
