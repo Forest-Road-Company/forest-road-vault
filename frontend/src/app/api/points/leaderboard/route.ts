@@ -27,6 +27,17 @@ function describe(error: unknown): string {
   return `${error instanceof Error ? error.name : "UnknownError"}${detail}`;
 }
 
+/**
+ * How the CDN holds a whole answer: fresh for five minutes, then served while a newer one is read
+ * (stale-while-revalidate) or in place of an error (stale-if-error) for at most ten minutes more.
+ * Every cached answer therefore stays within fifteen minutes of being served, the same bound the
+ * server applies to its own last whole answer (ANSWER_STALE_IF_ERROR_MS): a failing loader, an
+ * integrity failure included, is never hidden for longer than that.
+ */
+const FRESH_CACHE = "public, s-maxage=300, stale-while-revalidate=600, stale-if-error=600";
+/** How soon the page should ask again after a 503: the instance keeps its discovery progress. */
+const CATCHING_UP_RETRY_SECONDS = 10;
+
 /** The public points leaderboard. It takes no parameters, so the CDN holds one answer. */
 export async function GET(request: Request) {
   const arrivedAt = Date.now();
@@ -42,9 +53,7 @@ export async function GET(request: Request) {
       console.error(`points.leaderboard failed, serving the last whole answer: ${describe(served.error)}`);
       return Response.json(served.answer, {headers: {"cache-control": "public, s-maxage=60"}});
     }
-    return Response.json(served.answer, {
-      headers: {"cache-control": "public, s-maxage=300, stale-while-revalidate=600"},
-    });
+    return Response.json(served.answer, {headers: {"cache-control": FRESH_CACHE}});
   } catch (error) {
     console.error(`points.leaderboard failed: ${describe(error)}`);
     const catchingUp = error instanceof LeaderboardNotReadyError || error instanceof MorphoPointsNotReadyError;
@@ -52,10 +61,15 @@ export async function GET(request: Request) {
       {
         ok: false,
         error: catchingUp
-          ? "The leaderboard is catching up with the chain. Try again in a minute."
+          ? "The leaderboard is catching up with the chain. Try again in a few seconds."
           : "The leaderboard is temporarily unavailable.",
       },
-      {status: catchingUp ? 503 : 502, headers: {"cache-control": "no-store"}},
+      {
+        status: catchingUp ? 503 : 502,
+        headers: catchingUp
+          ? {"cache-control": "no-store", "retry-after": String(CATCHING_UP_RETRY_SECONDS)}
+          : {"cache-control": "no-store"},
+      },
     );
   }
 }

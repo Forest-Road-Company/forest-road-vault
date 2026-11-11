@@ -44,7 +44,7 @@ export function NetworkBanner({
         </button>
       </div>
       {!isPending && error ? (
-        <p className="mt-2 text-[12px] text-danger">
+        <p className="mt-2 text-[13px] text-danger">
           Switch failed: {error.message.split("\n")[0]}. Switch to {NETWORK_NAME} manually in your wallet.
         </p>
       ) : null}

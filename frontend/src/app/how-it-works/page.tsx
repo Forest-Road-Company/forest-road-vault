@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/shareCards";
 import { PageShell } from "@/components/site/PageShell";
 import { ProtocolScene } from "@/components/site/ProtocolScene";
 import {
@@ -8,9 +9,12 @@ import {
   FramTable,
 } from "@/components/site/Blocks";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "How it works | Forest Road Vault",
-};
+  description:
+    "How Forest Road Vault works: depositors provide capital through USDfr and sUSDfr, borrowers are financed against specific, named collateral, and each loan is kept in sync between its legal record and the chain.",
+  socialTitle: "How the Vault works | Forest Road Vault",
+});
 
 const depositorSteps = [
   { label: "Connect & verify", body: "Connect a wallet. Minting USDfr and redeeming it for USDC are KYC-gated; holding, transferring and staking are open to any wallet that is not sanctions- or jurisdiction-blocked." },

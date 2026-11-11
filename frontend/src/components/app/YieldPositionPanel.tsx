@@ -385,7 +385,7 @@ export function YieldPositionPanel() {
               >
                 {fmtAmount(metrics.projectedPositionIncome, 18, 4)}
               </p>
-              <p className="pb-1 text-[11px] font-semibold tracking-[0.03em] text-on-navy/50">
+              <p className="pb-1 text-[11px] font-semibold tracking-[0.03em] text-on-navy/70">
                 USDfr / year
               </p>
             </div>
@@ -403,7 +403,7 @@ export function YieldPositionPanel() {
             composition of the book; it is indicative, not guaranteed.
           </p>
           {observedDays !== null && observedDays < 30 ? (
-            <p className="mt-3 text-[11.5px] leading-relaxed text-warn">
+            <p className="mt-3 text-[13px] leading-relaxed text-warn">
               Short history: only {observedDays < 1 ? "<1" : Math.floor(observedDays)} day
               {observedDays >= 2 ? "s" : ""} observed, so historical income covers only a
               limited window.
@@ -559,7 +559,7 @@ export function YieldPositionPanel() {
                   }
                 />
               </div>
-              <p className="mt-6 border-t border-white/10 pt-4 text-[11.5px] leading-relaxed text-on-navy/45">
+              <p className="mt-6 border-t border-white/10 pt-4 text-[13px] leading-relaxed text-on-navy/70">
                 Position gain is not lifetime tax P&amp;L: it covers shares still in this
                 wallet and uses proportional direct-deposit cost basis. Queue positions,
                 exited shares, and externally transferred-in shares are excluded.
@@ -578,7 +578,7 @@ export function YieldPositionPanel() {
         </div>
       </div>
       {history.phase === "error" ? (
-        <p className="border-t border-warn/30 bg-warn/10 px-7 py-3 text-[11.5px] text-on-navy/65">
+        <p className="border-t border-warn/30 bg-warn/10 px-7 py-3 text-[13px] text-on-navy/65">
           Historical event reads are unavailable from the configured RPC. Historical income,
           realized yield, and direct-deposit gain are unavailable; projected position income
           and live balances remain direct contract reads.
@@ -597,7 +597,7 @@ function DarkMetric({label, value, note}: {label: string; value: string; note: s
       {/* Carries words ("Immediate") as well as figures, so this is the body face with
           tabular numerals rather than mono. */}
       <p className="tnum mt-1 text-[15px] font-medium text-on-navy">{value}</p>
-      <p className="mt-1 text-[10.5px] leading-snug text-on-navy/65">{note}</p>
+      <p className="mt-1 text-[11px] leading-snug text-on-navy/65">{note}</p>
     </div>
   );
 }

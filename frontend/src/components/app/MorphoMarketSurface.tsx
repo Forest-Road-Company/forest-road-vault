@@ -192,7 +192,7 @@ export function MorphoMarketSurface() {
         <Metric label="Lending APR · variable" value={snapshot ? apr(snapshot.supplyRate) : "—"} />
         <Metric label="Borrowing APR · variable" value={borrowApr} />
       </dl>
-      <p className="mt-5 text-xs text-ink-faint">{fresh ? `Read at Ethereum block ${snapshot!.block.toLocaleString()}. Displayed rates are averages since the market's last update and change with utilization.` : "Current market figures are unavailable. Refresh before making a decision."}</p>
+      <p className="mt-5 text-[13px] text-ink-faint">{fresh ? `Read at Ethereum block ${snapshot!.block.toLocaleString()}. Displayed rates are averages since the market's last update and change with utilization.` : "Current market figures are unavailable. Refresh before making a decision."}</p>
     </section>
     {networkReason ? <div role="status" className="border-l-2 border-accent pl-4 text-sm text-ink-muted">{networkReason}
       {IS_MAINNET && wallet && !correctNetwork && !safe.context ? <button type="button" className="u-link ml-2 text-accent" onClick={() => switchChain({chainId: 1})}>Switch to Ethereum</button> : null}</div> : null}
@@ -215,12 +215,12 @@ export function MorphoMarketSurface() {
               : action === "withdraw" && account.position.supplyShares > 0n && account.values.supplied <= snapshot!.liquidity;
             setAll(close); setAmount(close ? "" : formatUnits(maximum, decimals));
           } : undefined} />}
-        {account ? <p className="mt-3 text-xs text-ink-muted">Wallet: {fmtAmount(account.usdc, 6, 6)} USDC · {fmtAmount(account.collateral, MORPHO_MARKET.collateralDecimals, 6)} sUSDfr</p> : null}
-        {action === "borrow" || action === "withdrawCollateral" ? <p className="mt-2 text-xs text-ink-muted">Typed amounts and Max retain an 80% LTV buffer. Max also leaves interest headroom until quote expiry, covering head age and read latency without assuming a collateral price increase. This is a page-level limit, not protection from liquidation. The on-chain threshold is 86%; collateral value and interest can change.</p> : null}
+        {account ? <p className="mt-3 text-[13px] text-ink-muted">Wallet: {fmtAmount(account.usdc, 6, 6)} USDC · {fmtAmount(account.collateral, MORPHO_MARKET.collateralDecimals, 6)} sUSDfr</p> : null}
+        {action === "borrow" || action === "withdrawCollateral" ? <p className="mt-2 text-[13px] text-ink-muted">Typed amounts and Max retain an 80% LTV buffer. Max also leaves interest headroom until quote expiry, covering head age and read latency without assuming a collateral price increase. This is a page-level limit, not protection from liquidation. The on-chain threshold is 86%; collateral value and interest can change.</p> : null}
         {(action === "repay" || action === "withdraw") && !treasurySeed ? <label className="mt-4 flex items-center gap-2 text-sm">
           <input type="checkbox" checked={all} disabled={busy} onChange={e => setAll(e.target.checked)} />
           {action === "repay" ? "Repay all debt, including accrued interest" : "Withdraw all lending shares"}</label> : null}
-        {repayAll ? <p className="mt-2 text-xs leading-relaxed text-ink-muted">The balance and allowance checks cover five minutes from quote issuance, including head age, read latency, rising rates and a small rounding margin. A new approval adds 0.1% to that estimate. Only the actual debt is repaid; unused allowance may remain. Other market transactions can require a fresh quote.</p> : null}
+        {repayAll ? <p className="mt-2 text-[13px] leading-relaxed text-ink-muted">The balance and allowance checks cover five minutes from quote issuance, including head age, read latency, rising rates and a small rounding margin. A new approval adds 0.1% to that estimate. Only the actual debt is repaid; unused allowance may remain. Other market transactions can require a fresh quote.</p> : null}
         {displayedQuote ? <div role="status" className="mt-3 space-y-1 text-xs leading-relaxed text-ink-muted">
           <p>{quoteExpired ? "Quote expired. Refresh and review again before signing." : "Quote valid for five minutes from issuance."} Expires {new Date(displayedQuote.expiresAt).toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC")}.</p>
           <p>This is not an on-chain deadline. Expiry cannot cancel a wallet request or Safe proposal already handed over. After expiry, refresh and review before signing; later execution is not protected.</p>
@@ -236,7 +236,7 @@ export function MorphoMarketSurface() {
         <ActionButton label={treasurySeed ? "Review 50,000-USDC supply in Safe" : safe.context ? `Review ${titles[action].toLowerCase()} in Safe` : needsApproval ? `Approve ${symbol}` : titles[action]}
           busyLabel={safeStatus.phase === "proposed" ? "Awaiting Safe execution…" : safeStatus.phase === "review" ? "Review in Safe…" : safeStatus.phase === "simulating" ? "Simulating Safe batch…" : busyLabelFor(flow.status)}
           busy={busy} disabled={!!disabledReason} onClick={() => void submit()} />
-        {disabledReason ? <p role="status" className="mt-3 text-xs leading-relaxed text-ink-muted">{disabledReason}</p> : null}
+        {disabledReason ? <p role="status" className="mt-3 text-[13px] leading-relaxed text-ink-muted">{disabledReason}</p> : null}
         {flow.status.phase === "pending" ? <p role="status" className="mt-4 text-sm text-ink-muted">
           Transaction submitted; its outcome is still being checked. Check your wallet before submitting again.{" "}
           <a href={`https://etherscan.io/tx/${flow.status.hash}`} className="u-link text-accent" target="_blank" rel="noreferrer">View transaction</a>

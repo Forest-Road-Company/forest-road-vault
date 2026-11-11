@@ -18,7 +18,7 @@ export function TestnetBanner() {
           : "border-line bg-navy-deepest"
       }`}
     >
-      <p className="mx-auto flex max-w-6xl flex-wrap items-baseline justify-center gap-x-2 gap-y-1 text-center text-[11.5px] leading-snug">
+      <p className="mx-auto flex max-w-6xl flex-wrap items-baseline justify-center gap-x-2 gap-y-1 text-center text-[13px] leading-snug">
         <span
           className={`font-semibold uppercase tracking-[0.14em] ${
             IS_TESTNET ? "text-warn" : "text-on-navy-accent"

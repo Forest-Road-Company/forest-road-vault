@@ -102,7 +102,7 @@ export function SiteFooter() {
           <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-on-navy-faint">
             Forest Road Vault
           </p>
-          <p className="max-w-3xl text-[11px] leading-relaxed text-on-navy-faint md:text-right">
+          <p className="max-w-3xl text-[13px] leading-relaxed text-on-navy-faint md:text-right">
             {IS_TESTNET
               ? "SEPOLIA PREVIEW: test assets have no value. A separate Ethereum mainnet contract deployment exists; this preview does not establish that any product or entry path is open."
               : "ETHEREUM CONTRACTS DEPLOYED: deployment does not mean every product or entry path is open. Smart-contract, liquidity, credit, legal, oracle, governance, and operational risks remain."}

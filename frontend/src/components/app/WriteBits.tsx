@@ -182,7 +182,7 @@ export function StatusLine({status}: {status: WriteStatus}) {
     <Line tone="err">
       {status.message}
       {status.errorName ? (
-        <span className="ml-1.5 font-mono text-[10.5px] text-ink-faint">({status.errorName})</span>
+        <span className="ml-1.5 font-mono text-[11px] text-ink-faint">({status.errorName})</span>
       ) : null}
     </Line>
   );

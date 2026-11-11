@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/shareCards";
 import Link from "next/link";
 import { PageShell } from "@/components/site/PageShell";
 import { Section, SectionHead } from "@/components/site/Blocks";
@@ -6,11 +7,12 @@ import { ADDRESSES_SECTION, AUDIT_SECTION, DOCS } from "@/content/docs";
 import {IS_TESTNET, NETWORK_NAME} from "@/config/contracts";
 import { ProtocolScene } from "@/components/site/ProtocolScene";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Docs | Forest Road Vault",
   description:
     "Protocol documentation: overview, a how-to guide, live status, the safety-spec guarantees, governance, exit pricing, security, integration notes and deployed addresses.",
-};
+  socialTitle: "Documentation | Forest Road Vault",
+});
 
 const evidence = [AUDIT_SECTION, ADDRESSES_SECTION];
 const EVIDENCE_CTA = ["Browse the rounds", "View the table"];

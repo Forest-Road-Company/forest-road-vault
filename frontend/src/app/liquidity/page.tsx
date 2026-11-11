@@ -1,12 +1,14 @@
 import type {Metadata} from "next";
+import { pageMetadata } from "@/lib/shareCards";
 import {LiquidityOperation} from "@/components/app/LiquidityOperation";
 import {PageShell} from "@/components/site/PageShell";
 import {ProtocolScene} from "@/components/site/ProtocolScene";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Treasury liquidity operation | Forest Road Vault",
+  description: "A wallet-bound execution screen for Forest Road's USDfr / USDC Uniswap v4 liquidity position.",
   robots: {index: false, follow: false},
-};
+});
 
 export default function LiquidityPage() {
   return (

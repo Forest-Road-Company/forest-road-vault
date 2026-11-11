@@ -8,7 +8,7 @@ import remarkGfm from "remark-gfm";
 import { ProtocolScene, type ProtocolSceneName } from "@/components/site/ProtocolScene";
 import { PageShell } from "@/components/site/PageShell";
 import { AUDIT_SECTION, DOCS, docBySlug } from "@/content/docs";
-import { socialMetadata, type ShareCard } from "@/lib/shareCards";
+import { pageMetadata, type ShareCard } from "@/lib/shareCards";
 
 export function generateStaticParams() {
   return DOCS.map((d) => ({ slug: d.slug }));
@@ -26,11 +26,7 @@ export async function generateMetadata({
   const card: ShareCard | undefined =
     slug === "overview" ? "overview" : slug === "how-to" ? "how-to" : undefined;
 
-  return {
-    title,
-    description: doc.summary,
-    ...(card ? socialMetadata({ card, title, description: doc.summary }) : {}),
-  };
+  return pageMetadata({ title, description: doc.summary, card });
 }
 
 function readDoc(file: string): string {

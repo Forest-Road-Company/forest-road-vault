@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/shareCards";
 import Link from "next/link";
 import { PageShell } from "@/components/site/PageShell";
 import {
@@ -13,11 +14,12 @@ import { CuratorInterestForm } from "./CuratorInterestForm";
 import { CuratorVaultSection } from "./CuratorVaultSection";
 import { ProtocolScene } from "@/components/site/ProtocolScene";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Curators | Forest Road Vault",
   description:
     "Curator capital stands first in line for losses on the Forest Road Vault credit book. How the programme works, what it earns in points, and how to register interest.",
-};
+  socialTitle: "Capital that stands first in line | Forest Road Vault",
+});
 
 /* COPY RULES. This page describes a programme run under bilateral agreements with Forest Road.
    It states no rate, no yield and no return, and it does not characterise any instrument; the

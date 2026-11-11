@@ -247,7 +247,7 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
 
       {exitImpaired && parsed !== null && previewExitAssets !== undefined ? (
         <div className="mt-3 rounded-card border border-warn/40 bg-warn/10 px-4 py-3">
-          <p className="text-[12.5px] leading-relaxed text-ink">
+          <p className="text-[13px] leading-relaxed text-ink">
             <span className="font-medium">Queued exit NAV is currently impaired.</span>{" "}
             <span className="text-ink-muted">
               This deposit mints at realized NAV, but the shares would currently queue-exit for
@@ -264,7 +264,7 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
 
       {deferredPerformanceFeeExposure ? (
         <div className="mt-3 rounded-card border border-warn/40 bg-warn/10 px-4 py-3">
-          <p className="text-[12.5px] leading-relaxed text-ink">
+          <p className="text-[13px] leading-relaxed text-ink">
             <span className="font-medium">Global performance-fee exposure is deferred.</span>{" "}
             <span className="text-ink-muted">
               {performanceNavBelowHurdle ? (
@@ -294,7 +294,7 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
       />
       <StatusLine status={flow.status} />
 
-      <p className="mt-auto border-t border-line pt-4 text-[12px] leading-snug text-ink-faint">
+      <p className="mt-auto border-t border-line pt-4 text-[13px] leading-snug text-ink-faint">
         Exits are not instant: unstaking goes through the epoch-based redemption queue
         (see Redeem).{" "}
         {SUPPORTS_VAULT_FEE_ACCOUNTING ? (

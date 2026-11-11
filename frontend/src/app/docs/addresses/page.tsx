@@ -1,4 +1,5 @@
 import type {Metadata} from "next";
+import { pageMetadata } from "@/lib/shareCards";
 import Link from "next/link";
 import {PageShell} from "@/components/site/PageShell";
 import {
@@ -16,11 +17,11 @@ import {PERMIT2} from "@/lib/uniswapV4Liquidity";
 import {UNIVERSAL_ROUTER, V4_QUOTER} from "@/lib/uniswapV4Swap";
 import {ProtocolScene} from "@/components/site/ProtocolScene";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Deployed Addresses | Forest Road Vault",
   description:
     "Every Forest Road Vault contract address, what each contract does, and the USDfr/USDC market, with block-explorer links.",
-};
+});
 
 /**
  * What each contract does, in a reader's terms.

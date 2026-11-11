@@ -63,7 +63,7 @@ export function PendlePointsCard({wallet}: {wallet: `0x${string}`}) {
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
             points computed from Pendle events
           </p>
-          <div className="mt-4 border-t border-line pt-3 font-mono text-[10.5px] leading-relaxed text-ink-faint">
+          <div className="mt-4 border-t border-line pt-3 font-mono text-[11px] leading-relaxed text-ink-faint">
             <p>
               Earning:{" "}
               <span className="text-ink-muted">{fmtAmount(BigInt(data.pointsPerDay), 18, 2)} a day</span> at the
@@ -84,7 +84,7 @@ export function PendlePointsCard({wallet}: {wallet: `0x${string}`}) {
           </div>
         </>
       )}
-      <p className="mt-3 max-w-[80ch] text-[11.5px] leading-relaxed text-ink-faint">
+      <p className="mt-3 max-w-[80ch] text-[13px] leading-relaxed text-ink-faint">
         sUSDfr or USDfr deposited into its market on Pendle moves to Pendle&apos;s contracts, and
         the on-chain ledger above records its points against them rather than against you. Forest Road
         credits you instead, from the markets&apos; own events: YT earns the underlying&apos;s points on your

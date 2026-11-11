@@ -298,11 +298,11 @@ export function TransparencyDashboard() {
             The backing invariant: supply ≤ backing, enforced in-contract
           </h2>
           {backingOk === undefined ? null : backingOk ? (
-            <span className="rounded-pill border border-on-navy-line bg-white/10 px-3 py-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-on-navy">
+            <span className="rounded-pill border border-on-navy-line bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-navy">
               holding
             </span>
           ) : (
-            <span className="rounded-pill border border-danger bg-danger px-3 py-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white">
+            <span className="rounded-pill border border-danger bg-danger px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white">
               violated: this should be impossible
             </span>
           )}
@@ -312,17 +312,17 @@ export function TransparencyDashboard() {
             (reported from a cached build showing pre-compact figures, 22 September). */}
         <div className="transparency-invariant__metrics mt-5">
           <div>
-            <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy-accent">USDfr supply</p>
+            <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy-muted">USDfr supply</p>
             <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">{fmtBand(supply)}</p>
             <Reconcile addr={CONTRACTS.USDfr!} fn="totalSupply" />
           </div>
           <div>
-            <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-on-navy-accent">Backing value</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-on-navy-muted">Backing value</p>
             <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">${fmtBand(backing)}</p>
             <Reconcile addr={CONTRACTS.ReserveManager!} fn="totalBackingValue" />
           </div>
           <div>
-            <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-on-navy-accent">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-on-navy-muted">
               Gross collateral &amp; reserves
             </p>
             <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">
@@ -330,7 +330,7 @@ export function TransparencyDashboard() {
                 ? `$${fmtBand(grossCollateralAndReserves)}`
                 : "–"}
             </p>
-            <p className="mt-1 text-[10.5px] text-on-navy-faint">
+            <p className="mt-1 text-[13px] text-on-navy-muted">
               {/* A mark past its freshness window still stands until the next one arrives
                   (owner direction, 2026-09-24), so the figure stays up and says how old the
                   mark behind it is. Only a loan with no mark at all withholds the figure. */}
@@ -346,33 +346,33 @@ export function TransparencyDashboard() {
             </p>
           </div>
           <div>
-            <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-on-navy-accent">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-on-navy-muted">
               Curator first-loss capital
             </p>
             <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">
               {curatorCapital !== undefined ? `$${fmtBand(curatorCapital)}` : "–"}
             </p>
-            <p className="mt-1 text-[10.5px] text-on-navy-faint">
+            <p className="mt-1 text-[13px] text-on-navy-muted">
               {curatorCapitalBps !== null
                 ? `${formatBps(curatorCapitalBps)} of outstanding loans`
                 : "sum of all sector pools"}
             </p>
           </div>
           <div>
-            <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy-accent">
+            <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy-muted">
               sGROVE total backstop
             </p>
             <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">
               {coverageReserve !== undefined ? `$${fmtBand(coverageReserve)}` : "–"}
             </p>
-            <p className="mt-1 text-[10.5px] text-on-navy-faint">
+            <p className="mt-1 text-[13px] text-on-navy-muted">
               {backstopReserveBps !== null
                 ? `${formatBps(backstopReserveBps)} of loans · $${fmtBand(coverageCapacity)} live callable reserve`
                 : `$${fmtBand(coverageCapacity)} live callable reserve`}
             </p>
           </div>
         </div>
-        <p className="mt-7 max-w-4xl border-t border-on-navy-line pt-5 text-[11.5px] leading-relaxed text-on-navy-faint">
+        <p className="mt-7 max-w-4xl border-t border-on-navy-line pt-5 text-[13px] leading-relaxed text-on-navy-muted">
           Backing is the protocol&apos;s accounting claim: idle reserves plus
           outstanding loan principal. Gross collateral &amp; reserves replaces loan
           principal with the broader collateral reference: receivables scale their
@@ -399,7 +399,7 @@ export function TransparencyDashboard() {
         <Panel title="sGROVE backstop" eyebrow="Loss protection" kind="backstop" addr={CONTRACTS.sGROVE!}>
           <Row k="Live callable reserve" val={`$${fmt(coverageCapacity)}`} />
           <Row k="Funded coverage reserve" val={`$${fmt(coverageReserve)}`} />
-          <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
+          <p className="mt-3 text-[13px] leading-relaxed text-ink-faint">
             Each loss may call min(loss amount, live USDfr coverage reserve).
             There is no per-event cap; draws share and deplete the same reserve.
           </p>
@@ -457,7 +457,7 @@ export function TransparencyDashboard() {
                   : "Not deployed"
             }
           />
-          <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
+          <p className="mt-3 text-[13px] leading-relaxed text-ink-faint">
             {SUPPORTS_VAULT_FEE_ACCOUNTING
               ? "The displayed exchange rate simulates fees due now. Gross marked fee NAV is the conservative impairment-netted rate tested against the global HWM before fee shares are minted."
               : "The configured legacy testnet vault predates ADR-0031. Fee selectors are disabled and no performance, management, HWM, or fee-checkpoint values are inferred."}
@@ -501,7 +501,7 @@ export function TransparencyDashboard() {
             k="Non-performing principal"
             val={bookYield ? `$${fmt(bookYield.nonPerformingPrincipal)}` : "–"}
           />
-          <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
+          <p className="mt-3 text-[13px] leading-relaxed text-ink-faint">
             Gross contractual tiers, weighted by live outstanding principal. The
             performing rate includes only Active and Amortizing loans; it is not
             realized cash yield or an sUSDfr return.
@@ -551,14 +551,14 @@ export function TransparencyDashboard() {
               />
             );
           })}
-          <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
+          <p className="mt-3 text-[13px] leading-relaxed text-ink-faint">
             Cumulative principal written off after cash recoveries, divided by
             cumulative principal actually funded. Full recoveries contribute zero.
             Unresolved defaults remain in live risk metrics and are not counted as
             historical loss until realized.
           </p>
           {creditPerformance.phase === "error" ? (
-            <p className="mt-2 text-[11.5px] text-warn">
+            <p className="mt-2 text-[13px] text-warn">
               Historical credit data is temporarily unavailable.
             </p>
           ) : null}
@@ -648,18 +648,18 @@ export function TransparencyDashboard() {
             k="Vault recipient"
             val={vaultFeeRecipient ? shortAddress(vaultFeeRecipient) : "–"}
           />
-          <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
+          <p className="mt-3 text-[13px] leading-relaxed text-ink-faint">
             {SUPPORTS_VAULT_FEE_ACCOUNTING
               ? "Event-summed fees at receipt or crystallization. Performance and management amounts are denominated in USDfr at the checkpoint but paid as sUSDfr shares, whose later value can change. Recipient wallet balances are not used because fee assets/shares can be transferred. Principal repayments and depositor income are excluded. The HWM is protocol-wide, not personal cost-basis accounting."
               : "The configured legacy testnet vault has only the Waterfall fee model. Switch to an ADR-0031-compatible vault and ABI version 1 before vault fee reads or claims are shown."}
           </p>
           {feeRecipientsMatch === false ? (
-            <p className="mt-2 text-[11.5px] font-medium text-danger">
+            <p className="mt-2 text-[13px] font-medium text-danger">
               Alert: Waterfall and vault fee recipients do not match.
             </p>
           ) : null}
           {revenue.phase === "error" ? (
-            <p className="mt-2 text-[11.5px] text-warn">
+            <p className="mt-2 text-[13px] text-warn">
               Historical revenue data is temporarily unavailable.
             </p>
           ) : null}
@@ -669,7 +669,7 @@ export function TransparencyDashboard() {
           <Row k="Network" val={NETWORK_NAME} />
           <Row k="As of block" val={blockNumber?.toString() ?? "–"} />
           <Row k="History through block" val={historyBlock?.toString() ?? "–"} />
-          <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
+          <p className="mt-3 text-[13px] leading-relaxed text-ink-faint">
             Every figure on this page is a direct contract read
             {EXPLORER
               ? ". Click any panel's address to reconcile it on Etherscan. "
@@ -752,7 +752,7 @@ function Reconcile({addr, fn}: {addr: string; fn: string}) {
       href={`${EXPLORER}${addr}#readProxyContract`}
       target="_blank"
       rel="noreferrer"
-      className="u-link mt-1 inline-flex min-h-[24px] items-center font-mono text-[11px] text-on-navy-faint hover:text-on-navy"
+      className="u-link mt-1 inline-flex min-h-[24px] items-center font-mono text-[11px] text-on-navy-muted hover:text-on-navy"
     >
       {fn}() on Etherscan →
     </a>

@@ -45,24 +45,17 @@ export function SiteNav() {
         <Link
           href="/"
           onClick={() => setOpen(false)}
-          className="flex flex-none items-center gap-2.5"
+          className="flex flex-none items-center"
         >
+          {/* The brand lockup as supplied: the tree, FOREST ROAD, a rule, VAULT. */}
           <Image
-            src="/brand/vault-mark-navy.png"
-            alt=""
-            width={220}
-            height={187}
+            src="/brand/vault-lockup-navy.png"
+            alt="Forest Road Vault"
+            width={3023}
+            height={510}
             priority
-            className="h-7 w-auto"
+            className="h-7 w-auto sm:h-8"
           />
-          <span className="flex items-baseline gap-1.5">
-            <span className="text-[15.5px] font-semibold tracking-[-0.01em] text-ink">
-              Forest Road
-            </span>
-            <span className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-accent">
-              Vault
-            </span>
-          </span>
         </Link>
 
         <div className="hidden items-center gap-4 lg:flex xl:gap-6">

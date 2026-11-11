@@ -420,7 +420,7 @@ export function BuyUsdfrPanel({
         any address, KYC-verified or not.
       </p>
       {!ROUTE_MATCHES_DEPLOYMENT ? (
-        <p role="alert" className="mt-3 text-[12.5px] leading-relaxed text-danger">
+        <p role="alert" className="mt-3 text-[13px] leading-relaxed text-danger">
           Buying is disabled: this build&apos;s USDfr or USDC address does not match the pool&apos;s.
         </p>
       ) : null}
@@ -452,7 +452,7 @@ export function BuyUsdfrPanel({
         }
       />
       {exceedsBalance ? (
-        <p className="mt-2 text-[12px] text-danger">This is more than the wallet&apos;s USDC balance.</p>
+        <p className="mt-2 text-[13px] text-danger">This is more than the wallet&apos;s USDC balance.</p>
       ) : null}
 
       {parsed !== null && parsed > 0n ? (
@@ -502,7 +502,7 @@ export function BuyUsdfrPanel({
         </>
       ) : null}
       {quoteFailed ? (
-        <p role="status" aria-live="polite" className="mt-2 text-[12px] leading-relaxed text-danger">
+        <p role="status" aria-live="polite" className="mt-2 text-[13px] leading-relaxed text-danger">
           {describeQuoteFailure(quote.error)}
         </p>
       ) : null}
@@ -540,7 +540,7 @@ export function BuyUsdfrPanel({
 
       {belowFloor ? (
         <div className="mt-3 rounded-card border border-warn/40 bg-warn/10 px-4 py-3">
-          <p className="text-[12.5px] leading-relaxed text-ink">
+          <p className="text-[13px] leading-relaxed text-ink">
             <span className="font-medium">This quote is below 0.99 USDfr per USDC.</span>{" "}
             <span className="text-ink-muted">
               KYC-verified addresses can mint USDfr 1:1 with USDC in the{" "}
@@ -568,18 +568,18 @@ export function BuyUsdfrPanel({
       />
       {/* Shown while the approval is pending too: it says what the wallet is being asked for. */}
       {needsApproval ? (
-        <p className="mt-2 text-[11.5px] leading-snug text-ink-faint">
+        <p className="mt-2 text-[13px] leading-snug text-ink-faint">
           {APPROVE_EXPLANATION} Permit2: <span className="break-all font-mono">{PERMIT2}</span>.
         </p>
       ) : displayedRouterAllowance ? (
-        <p className="mt-2 text-[11.5px] leading-snug text-ink-faint">
+        <p className="mt-2 text-[13px] leading-snug text-ink-faint">
           Your wallet already lets Uniswap&apos;s router <span className="break-all font-mono">{UNIVERSAL_ROUTER}</span>{" "}
           spend {routerAllowanceLimit(displayedRouterAllowance.amount)} through Permit2 until{" "}
           {allowanceExpiry(displayedRouterAllowance.expiration)}. This buy can reuse that allowance without a new signature.
         </p>
       ) : null}
       {!needsApproval ? (
-        <p className="mt-2 text-[11.5px] leading-snug text-ink-muted">
+        <p className="mt-2 text-[13px] leading-snug text-ink-muted">
           If a new Permit2 signature is not applied, this buy may instead use another allowance you granted to
           Uniswap&apos;s router. Any remainder can stay available until that allowance expires. This swap cannot spend
           more than the USDC amount above.
@@ -617,7 +617,7 @@ export function BuyUsdfrPanel({
         <StatusLine status={flow.status} />
       )}
       {busy && lockedQuote && prep.phase !== "permit" ? (
-        <p className="mt-1 text-[11.5px] leading-snug text-ink-faint">
+        <p className="mt-1 text-[13px] leading-snug text-ink-faint">
           This buy reverts if it would receive less than {fmtAmount(lockedQuote.minimum, USDFR_DECIMALS, 4)} USDfr.
         </p>
       ) : null}
@@ -627,7 +627,7 @@ export function BuyUsdfrPanel({
         </button>
       ) : null}
       {bought && flow.status.phase === "success" ? (
-        <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-muted">
+        <p className="mt-1.5 text-[13px] leading-relaxed text-ink-muted">
           The USDfr is in your wallet.{" "}
           <a href="#stake-card" className="u-link font-medium text-accent">
             Stake it to earn the sUSDfr rate
@@ -636,7 +636,7 @@ export function BuyUsdfrPanel({
         </p>
       ) : null}
 
-      <p className="mt-auto border-t border-line pt-4 text-[12px] leading-snug text-ink-faint">
+      <p className="mt-auto border-t border-line pt-4 text-[13px] leading-snug text-ink-faint">
         Third-party pool: Uniswap&apos;s USDfr/USDC market is not Forest Road&apos;s, and its price is
         set by the market.{" "}
         <a href={USDFR_USDC_POOL.url} target="_blank" rel="noopener noreferrer" className="u-link text-ink">
@@ -660,7 +660,7 @@ function QuoteRow({term, children}: {term: string; children: React.ReactNode}) {
 /** A pre-transaction step, announced like the write flow's own status lines. */
 function PrepNote({children}: {children: React.ReactNode}) {
   return (
-    <p role="status" aria-live="polite" className="mt-3 text-[12.5px] leading-relaxed text-ink-muted">
+    <p role="status" aria-live="polite" className="mt-3 text-[13px] leading-relaxed text-ink-muted">
       {children}
     </p>
   );

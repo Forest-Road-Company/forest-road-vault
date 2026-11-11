@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/shareCards";
 import { PageShell } from "@/components/site/PageShell";
 import { IS_MAINNET } from "@/config/contracts";
 import { ProtocolScene } from "@/components/site/ProtocolScene";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Disclosures | Forest Road Vault",
   description:
     "Deployment status, eligibility, fees, governance, conflicts, risks, and legal disclosures for Forest Road Vault.",
-};
+});
 
 export default function LegalPage() {
   return (

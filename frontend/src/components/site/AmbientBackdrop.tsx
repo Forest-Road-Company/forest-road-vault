@@ -31,8 +31,8 @@ export function AmbientBackdrop() {
           <circle cx="414" cy="620" r="4" />
         </g>
       </svg>
-      <span className="ambient-continuum__ledger ambient-continuum__ledger--one">SUPPLY ≤ BACKING</span>
-      <span className="ambient-continuum__ledger ambient-continuum__ledger--two">OFF-CHAIN ↔ ON-CHAIN</span>
+      <span className="ambient-continuum__ledger ambient-continuum__ledger--one" data-label="SUPPLY ≤ BACKING" />
+      <span className="ambient-continuum__ledger ambient-continuum__ledger--two" data-label="OFF-CHAIN ↔ ON-CHAIN" />
     </div>
   );
 }

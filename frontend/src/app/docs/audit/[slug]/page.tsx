@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/shareCards";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
@@ -20,10 +21,10 @@ export async function generateMetadata({
   const { slug } = await params;
   const audit = auditBySlug(slug);
   if (!audit) return { title: "Audit | Forest Road Vault" };
-  return {
-    title: `${audit.title}, Forest Road Vault`,
+  return pageMetadata({
+    title: `${audit.title} | Forest Road Vault`,
     description: audit.summary,
-  };
+  });
 }
 
 function readAudit(file: string): string {
