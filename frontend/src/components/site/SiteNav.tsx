@@ -47,14 +47,15 @@ export function SiteNav() {
           onClick={() => setOpen(false)}
           className="flex flex-none items-center"
         >
-          {/* The brand lockup as supplied: the tree, FOREST ROAD, a rule, VAULT. */}
+          {/* The current brand lockup (owner, 11 November 2026): the tree, FOREST ROAD, a rule, VAULT.
+              It is tightly cropped (about 13.9:1), so it is sized by width. */}
           <Image
-            src="/brand/vault-lockup-navy.png"
+            src="/brand/forest-road-vault-lockup-navy.png"
             alt="Forest Road Vault"
-            width={3023}
-            height={510}
+            width={2400}
+            height={173}
             priority
-            className="h-7 w-auto sm:h-8"
+            className="h-auto w-[168px] sm:w-[208px]"
           />
         </Link>
 

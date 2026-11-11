@@ -17,11 +17,11 @@ export function SiteFooter() {
         <div className="flex flex-col gap-10 lg:flex-row lg:justify-between">
           <div className="max-w-md space-y-4">
             <Image
-              src="/brand/vault-lockup-white.png"
+              src="/brand/forest-road-vault-lockup-white.png"
               alt="Forest Road Vault"
-              width={3023}
-              height={510}
-              className="h-9 w-auto"
+              width={2400}
+              height={173}
+              className="h-auto w-[208px]"
             />
             <p className="text-[13px] leading-relaxed text-on-navy-faint">
               Forest Road Vault records loans Forest Road originates,
