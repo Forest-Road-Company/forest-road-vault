@@ -10,6 +10,7 @@
 
 import type {Address} from "viem";
 import {isLocalRpcUrl} from "@/lib/rpcAlignment";
+import {RPC_PROXY_PATH} from "@/lib/rpcProxyShared";
 import {resolveVaultFeeAbi} from "@/config/vaultFeeAbi";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -40,6 +41,12 @@ export const NETWORK_NAME = IS_MAINNET
     : "Sepolia testnet";
 export const STABLE_SYMBOL = IS_MAINNET ? "USDC" : "tUSDC";
 export const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL ?? "";
+/**
+ * Proxy mode: the browser reads through the site's own same-origin route, which forwards to the
+ * server-only RPC_PROXY_UPSTREAM_URL. No provider URL, and so no provider key, reaches the
+ * bundle. Selected only by the exact literal, never by a prefix or an absolute URL to the route.
+ */
+export const RPC_PROXY_MODE = RPC_URL === RPC_PROXY_PATH;
 export const EXPLORER_BASE_URL = IS_LOCAL_FORK
   ? null
   : IS_MAINNET
@@ -61,8 +68,13 @@ if (!IS_LOCAL_FORK && isLocalRpcUrl(RPC_URL)) {
     "A loopback RPC must use the dedicated local-fork chain ID 31337, never Ethereum or Sepolia's live chain ID.",
   );
 }
-if (IS_MAINNET && !RPC_URL) {
-  throw new Error("NEXT_PUBLIC_RPC_URL is required for a mainnet build.");
+// Every NEXT_PUBLIC_ value is compiled into the browser bundle, so a provider URL here publishes
+// its key. A mainnet build therefore accepts nothing but the proxy literal (owner decision,
+// 6 November 2026), and a keyed URL can never return to the bundle by a configuration change.
+if (IS_MAINNET && !RPC_PROXY_MODE) {
+  throw new Error(
+    `A mainnet build requires NEXT_PUBLIC_RPC_URL to be exactly ${RPC_PROXY_PATH}: the browser reads through the site's own RPC proxy, so no provider key ships in the bundle. Put the provider URL in the server-only RPC_PROXY_UPSTREAM_URL.`,
+  );
 }
 
 const deploymentBlock = process.env.NEXT_PUBLIC_PROTOCOL_DEPLOYMENT_BLOCK;

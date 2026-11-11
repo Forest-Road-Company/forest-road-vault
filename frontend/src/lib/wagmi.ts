@@ -13,6 +13,7 @@ import {createConfig, custom, fallback, http, type Config} from "wagmi";
 import {injected} from "wagmi/connectors/injected";
 import {walletConnect} from "wagmi/connectors/walletConnect";
 import {CHAIN_ID, IS_LOCAL_FORK, RPC_URL} from "@/config/contracts";
+import {appTransport} from "@/lib/appRpc";
 import {EXPECTED_CHAIN, LOCAL_SEPOLIA_FORK} from "@/lib/chain";
 import {walletMetadata} from "@/lib/walletMetadata";
 import {mainnet, sepolia} from "wagmi/chains";
@@ -33,6 +34,20 @@ if (
 
 export const WALLETCONNECT_CONFIGURED = Boolean(walletConnectProjectId);
 
+/**
+ * WalletConnect's storage namespace for this site's sessions.
+ *
+ * WalletConnect saves a session's namespaces, including the read RPC URL Wagmi hands it (`rpcMap`),
+ * and on reload rebuilds the session's read connection from that saved copy; a later configuration
+ * does not replace it. The RPC proxy cutover changes that URL (from the provider's keyed URL to this
+ * site's `/api/rpc`), so sessions saved under the old namespace (`forest-road-vault`) would keep
+ * reading through the old key, and break once it is deleted. A new namespace means no pre-cutover
+ * session is ever restored here, and an older deployment (a rollback) never restores a session made
+ * on this one. The cost: each WalletConnect user reconnects once. Change it again whenever the read
+ * URL changes.
+ */
+export const WALLETCONNECT_STORAGE_PREFIX = "forest-road-vault-rpc-proxy-2026-11";
+
 function productionConnectors() {
   return [
     injected(),
@@ -41,7 +56,7 @@ function productionConnectors() {
           walletConnect({
             projectId: walletConnectProjectId,
             showQrModal: true,
-            customStoragePrefix: "forest-road-vault",
+            customStoragePrefix: WALLETCONNECT_STORAGE_PREFIX,
             metadata: walletMetadata(),
           }),
         ]
@@ -101,7 +116,8 @@ export const wagmiConfig =
     ? createConfig({
         chains: [mainnet],
         connectors: productionConnectors(),
-        transports: {[mainnet.id]: http(RPC_URL)},
+        // Always the same-origin proxy on mainnet (contracts.ts refuses anything else).
+        transports: {[mainnet.id]: appTransport()},
         ssr: true,
       })
     : IS_LOCAL_FORK
@@ -109,6 +125,6 @@ export const wagmiConfig =
     : createConfig({
         chains: [sepolia],
         connectors: productionConnectors(),
-        transports: {[sepolia.id]: http(RPC_URL || undefined)},
+        transports: {[sepolia.id]: appTransport()},
         ssr: true,
       });

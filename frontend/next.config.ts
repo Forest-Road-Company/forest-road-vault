@@ -52,6 +52,46 @@ export function evaluateDeploySource(
   };
 }
 
+/**
+ * The browser reads mainnet through the site's own `/api/rpc` proxy (owner decision, 6 November
+ * 2026), which forwards to the server-only RPC_PROXY_UPSTREAM_URL. A Vercel mainnet build without
+ * that variable would deploy a site whose every read answers 503, so it stops here instead, while
+ * the previous deployment stays live. Only the variable's presence and scheme are checked, and its
+ * value is never printed; the manifest gate then verifies the endpoint itself against chain 1.
+ * Server-only build code: nothing here reaches the client bundle.
+ */
+export function evaluateRpcProxyBuild(
+  env: Readonly<Record<string, string | undefined>>,
+): {enforced: boolean; problem: string | null} {
+  const enforced = env.VERCEL === "1" && env.NEXT_PUBLIC_CHAIN_ID === "1";
+  if (!enforced) return {enforced, problem: null};
+  if (env.NEXT_PUBLIC_RPC_URL !== "/api/rpc") {
+    return {
+      enforced,
+      problem: "A Vercel mainnet build requires NEXT_PUBLIC_RPC_URL=/api/rpc, so no provider key ships in the browser bundle.",
+    };
+  }
+  const upstream = env.RPC_PROXY_UPSTREAM_URL?.trim();
+  if (!upstream) {
+    return {
+      enforced,
+      problem:
+        "RPC_PROXY_UPSTREAM_URL is not set: the site's RPC proxy would answer 503 to every read. " +
+        "Set it as a Sensitive variable for this environment before building.",
+    };
+  }
+  let scheme = "";
+  try {
+    scheme = new URL(upstream).protocol;
+  } catch {
+    scheme = "";
+  }
+  if (scheme !== "https:") {
+    return {enforced, problem: "RPC_PROXY_UPSTREAM_URL must be an https URL (its value is not printed)."};
+  }
+  return {enforced, problem: null};
+}
+
 function checkoutHead(): string | null {
   try {
     return execFileSync("git", ["-c", "safe.directory=*", "rev-parse", "HEAD"], {
@@ -109,6 +149,8 @@ export default function createNextConfig(phase: string): NextConfig {
         );
       }
     }
+    const rpcProxy = evaluateRpcProxyBuild(process.env);
+    if (rpcProxy.problem) throw new Error(`RPC proxy build gate: ${rpcProxy.problem}`);
     // This runs from Next's own production-build phase, so `next build` cannot
     // bypass the receipt-bound deployment verifier by skipping npm lifecycle hooks.
     execFileSync(

@@ -9,6 +9,7 @@ import {
   CONTRACTS,
   IS_MAINNET,
   PROTOCOL_DEPLOYMENT_BLOCK,
+  RPC_PROXY_MODE,
   RPC_URL,
 } from "@/config/contracts";
 import {EXPECTED_CHAIN} from "@/lib/chain";
@@ -20,9 +21,18 @@ import {
   type TransparencyHistoryWire,
 } from "@/lib/transparencyHistory";
 
-/** The archive RPC for server-side history reads; required on mainnet, HTTPS or loopback only. */
+/**
+ * The archive RPC for server-side history reads; required on mainnet, HTTPS or loopback only.
+ *
+ * A testnet build without it falls back to the browser RPC, but never to the proxy path: in proxy
+ * mode NEXT_PUBLIC_RPC_URL is `/api/rpc`, which is not a URL a server can read from. That case
+ * fails loudly by name rather than as an unparseable URL, and does not borrow the proxy's upstream.
+ */
 export function archiveRpcUrl(): string {
   const configured = process.env.ETHEREUM_ARCHIVE_RPC_URL?.trim();
+  if (!configured && !IS_MAINNET && RPC_PROXY_MODE) {
+    throw new Error("ETHEREUM_ARCHIVE_RPC_URL is required when the browser RPC is the same-origin proxy");
+  }
   const value = configured || (IS_MAINNET ? "" : RPC_URL);
   if (!value) throw new Error("ETHEREUM_ARCHIVE_RPC_URL is required on mainnet");
   const url = new URL(value);

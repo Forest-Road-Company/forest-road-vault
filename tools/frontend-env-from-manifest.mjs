@@ -139,21 +139,21 @@ function requireMainnetRpcUrl(value, variable = "NEXT_PUBLIC_RPC_URL") {
   return parsed.toString();
 }
 
-/* The browser origin the released site is served from, the same constant the
-   wallet metadata carries (frontend/src/lib/walletMetadata.ts). The client RPC
-   key is a public key restricted by domain allowlist at the provider, so a
-   request without this origin is refused, and the gate has to present the
-   origin a browser would rather than call as an anonymous server. */
-const CANONICAL_ORIGIN = "https://forestroadvault.com";
+/* The browser no longer holds an RPC URL: a mainnet build sets NEXT_PUBLIC_RPC_URL to the literal
+   below, and the site's /api/rpc route forwards to the server-only RPC_PROXY_UPSTREAM_URL (owner
+   decision, 6 November 2026). The upstream is called from a server with no Origin header, so this
+   gate verifies it the same way: as an anonymous server, never presenting a browser origin. */
+const RPC_PROXY_PATH = "/api/rpc";
+const RPC_PROXY_UPSTREAM_PLACEHOLDER = "<SERVER_ONLY_MAINNET_RPC_URL>";
 
 let rpcRequestId = 0;
-async function rpcCall(rpcUrl, method, params = [], headers = {}) {
+async function rpcCall(rpcUrl, method, params = []) {
   let response;
   const requestId = ++rpcRequestId;
   try {
     response = await fetch(rpcUrl, {
       method: "POST",
-      headers: {"content-type": "application/json", ...headers},
+      headers: {"content-type": "application/json"},
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: requestId,
@@ -163,8 +163,9 @@ async function rpcCall(rpcUrl, method, params = [], headers = {}) {
       signal: AbortSignal.timeout(10_000),
     });
   } catch (error) {
+    // The error's name only: fetch error text and its cause can carry the URL, and with it the key.
     throw new Error(
-      `Mainnet RPC ${method} request failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      `Mainnet RPC ${method} request failed: ${error instanceof Error ? error.name : "unknown error"}`,
     );
   }
   if (!response.ok) {
@@ -184,29 +185,26 @@ async function rpcCall(rpcUrl, method, params = [], headers = {}) {
   return payload.result;
 }
 
-async function verifyMainnetRpc(rpcUrl, deployment, addressMappings) {
-  /* Every call in this function goes out as the released origin: this is the
-     key the browser bundle ships, and it is only usable from the allowlisted
-     domains. Verifying it as an anonymous server would prove nothing about
-     the endpoint the site actually uses, and fails outright behind an
-     allowlist. */
-  const browser = {origin: CANONICAL_ORIGIN, referer: `${CANONICAL_ORIGIN}/`};
-  const chainIdRaw = await rpcCall(rpcUrl, "eth_chainId", [], browser);
+async function verifyMainnetRpc(rpcUrl, deployment, addressMappings, variable = "RPC_PROXY_UPSTREAM_URL") {
+  /* The endpoint every browser read reaches through the proxy. Verified as the proxy calls it: from
+     a server, with no Origin header. A key restricted to browser origins fails here, as it would
+     fail every proxied read. */
+  const chainIdRaw = await rpcCall(rpcUrl, "eth_chainId", []);
   if (
     typeof chainIdRaw !== "string" ||
     !/^0x[0-9a-fA-F]+$/.test(chainIdRaw) ||
     BigInt(chainIdRaw) !== 1n
   ) {
-    throw new Error("NEXT_PUBLIC_RPC_URL does not report Ethereum mainnet chain ID 1");
+    throw new Error(`${variable} does not report Ethereum mainnet chain ID 1`);
   }
 
-  const blockNumberRaw = await rpcCall(rpcUrl, "eth_blockNumber", [], browser);
+  const blockNumberRaw = await rpcCall(rpcUrl, "eth_blockNumber", []);
   if (
     typeof blockNumberRaw !== "string" ||
     !/^0x[0-9a-fA-F]+$/.test(blockNumberRaw) ||
     BigInt(blockNumberRaw) < BigInt(deployment.deployedAtBlock)
   ) {
-    throw new Error("NEXT_PUBLIC_RPC_URL has not reached the manifest deployment block");
+    throw new Error(`${variable} has not reached the manifest deployment block`);
   }
 
   // Limit concurrency so a correct but rate-limited release RPC is not rejected
@@ -215,13 +213,13 @@ async function verifyMainnetRpc(rpcUrl, deployment, addressMappings) {
     const group = addressMappings.slice(i, i + 4);
     await Promise.all(
       group.map(async ([, key]) => {
-        const code = await rpcCall(rpcUrl, "eth_getCode", [deployment[key], "latest"], browser);
+        const code = await rpcCall(rpcUrl, "eth_getCode", [deployment[key], "latest"]);
         if (
           typeof code !== "string" ||
           !/^0x[0-9a-fA-F]*$/.test(code) ||
           /^0x0*$/i.test(code)
         ) {
-          throw new Error(`NEXT_PUBLIC_RPC_URL has no deployed code at manifest .${key}`);
+          throw new Error(`${variable} has no deployed code at manifest .${key}`);
         }
       }),
     );
@@ -540,7 +538,8 @@ const mappings = [
 
 const lines = [
   `NEXT_PUBLIC_CHAIN_ID=${deployment.chainId}`,
-  "NEXT_PUBLIC_RPC_URL=<PUBLIC_RPC_URL>",
+  `NEXT_PUBLIC_RPC_URL=${RPC_PROXY_PATH}`,
+  `RPC_PROXY_UPSTREAM_URL=${RPC_PROXY_UPSTREAM_PLACEHOLDER}`,
   `NEXT_PUBLIC_PROTOCOL_DEPLOYMENT_BLOCK=${deployment.deployedAtBlock}`,
   "NEXT_PUBLIC_SUSDFR_FEE_ABI_VERSION=1",
 ];
@@ -581,10 +580,19 @@ if (verifyBuildEnv) {
     const expected = line.slice(separator + 1);
     const actual = process.env[name];
     if (name === "NEXT_PUBLIC_RPC_URL") {
-      if (!actual || actual.trim() === "" || actual === "<PUBLIC_RPC_URL>") {
-        throw new Error("NEXT_PUBLIC_RPC_URL must be a real public mainnet RPC URL");
+      // Never a provider URL: every NEXT_PUBLIC_ value ships in the browser bundle.
+      if (actual !== RPC_PROXY_PATH) {
+        throw new Error(
+          `NEXT_PUBLIC_RPC_URL must be exactly ${RPC_PROXY_PATH} for a mainnet build: the browser reads through the site's RPC proxy so no provider key ships in the bundle`,
+        );
       }
-      mainnetRpcUrl = requireMainnetRpcUrl(actual);
+      continue;
+    }
+    if (name === "RPC_PROXY_UPSTREAM_URL") {
+      if (!actual || actual.trim() === "" || actual === RPC_PROXY_UPSTREAM_PLACEHOLDER) {
+        throw new Error("RPC_PROXY_UPSTREAM_URL is required for a mainnet build: it is the server-only endpoint behind /api/rpc");
+      }
+      mainnetRpcUrl = requireMainnetRpcUrl(actual.trim(), "RPC_PROXY_UPSTREAM_URL");
       continue;
     }
     const addressField = /^NEXT_PUBLIC_.*_ADDRESS$/.test(name);

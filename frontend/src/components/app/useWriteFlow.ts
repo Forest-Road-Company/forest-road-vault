@@ -16,10 +16,11 @@ import {
 } from "wagmi";
 import {getConnection} from "wagmi/actions";
 import {useQueryClient} from "@tanstack/react-query";
-import {createPublicClient, custom, type Abi, type Address} from "viem";
+import {createPublicClient, custom, type Abi, type Address, type WaitForTransactionReceiptParameters} from "viem";
 import {IS_LOCAL_FORK} from "@/config/contracts";
 import {decodeWriteError, type DecodedError} from "@/lib/errors";
 import {probeRpcAlignment, type RpcRequest} from "@/lib/rpcAlignment";
+import {ReceiptStatusUnknownError, waitForReceiptRobustly} from "@/lib/receiptWait";
 import {EXPECTED_CHAIN} from "@/lib/wagmi";
 
 const RECEIPT_TIMEOUT_MS = 90_000;
@@ -60,6 +61,8 @@ export type WriteStatus =
   | {phase: "signing"}
   | {phase: "pending"; hash: `0x${string}`; delayed?: boolean; stopped?: boolean}
   | {phase: "success"; hash: `0x${string}`}
+  /** Sent, but its receipt could not be read: possibly mined, never shown as failed. */
+  | {phase: "unknown"; hash: `0x${string}`}
   | {phase: "error"; message: string; errorName: string | null};
 
 export function useWriteFlow() {
@@ -211,13 +214,20 @@ export function useWriteFlow() {
         for (;;) {
           if (!isCurrentFlow()) return;
           try {
-            receipt = await executionClient.waitForTransactionReceipt({
+            const waitArgs: WaitForTransactionReceiptParameters = {
               hash,
               timeout: RECEIPT_TIMEOUT_MS,
               onReplaced: ({reason}) => {
                 replacement.reason = reason;
               },
-            });
+            };
+            // A Buy already keeps checking through any wait error (below). Every other write restarts
+            // after a failed block or receipt read instead of reporting a failure: a block over the
+            // RPC proxy's size budget, or any transient RPC error, is not evidence that the
+            // transaction failed (see receiptWait.ts).
+            receipt = params.keepPendingUntilReceipt
+              ? await executionClient.waitForTransactionReceipt(waitArgs)
+              : await waitForReceiptRobustly(executionClient, waitArgs);
             break;
           } catch (waitError) {
             if (!params.keepPendingUntilReceipt) throw waitError;
@@ -268,6 +278,12 @@ export function useWriteFlow() {
         setCurrentStatus({phase: "success", hash: minedHash});
         if (isCurrentFlow()) params.onSuccess?.();
       } catch (err) {
+        if (err instanceof ReceiptStatusUnknownError) {
+          // Sent and possibly mined: never "failed", which would invite a duplicate submission.
+          setCurrentStatus({phase: "unknown", hash: err.hash});
+          if (isCurrentFlow()) void queryClient.invalidateQueries();
+          return;
+        }
         const decoded = (params.decodeError ?? decodeWriteError)(err);
         setCurrentStatus({
           phase: "error",

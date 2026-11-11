@@ -12,7 +12,7 @@
 
 import {useMemo, useState} from "react";
 import {parseUnits} from "viem";
-import {useAccount, useReadContract, useReadContracts, useWatchContractEvent} from "wagmi";
+import {useAccount, useReadContract, useReadContracts} from "wagmi";
 import {CONTRACTS, IS_TESTNET, STABLE_SYMBOL} from "@/config/contracts";
 import {CONTROLLER_ABI, ERC20_ABI, QUEUE_ABI, SHARE_DECIMALS, VAULT_ABI} from "@/lib/abi";
 import {fmtAmount, fmtCountdown} from "@/lib/format";
@@ -21,6 +21,7 @@ import {useWriteFlow} from "@/components/app/useWriteFlow";
 import {useNowSeconds} from "@/components/app/useNowSeconds";
 import {ActionButton, AmountInput, StatusLine, busyLabelFor} from "@/components/app/WriteBits";
 import {RedeemRouteVisual} from "@/components/app/ActionRouteVisuals";
+import {RestartingEventWatcher} from "@/components/app/RestartingEventWatcher";
 import {ACCOUNT_POLL, EVENT_WATCH_POLL_MS, QUEUE_POLL} from "@/lib/polling";
 
 /** How many trailing queue requests to scan for this wallet's positions. One
@@ -145,20 +146,17 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   // invalidation cannot see it. Refresh on any queue event: RequestFilled makes
   // the Claim button appear, Claimed removes it, and the request/epoch events
   // keep the bounded scan and countdown current. HTTP transports poll logs, so
-  // this works for the local Anvil fork as well as public Sepolia RPCs.
-  useWatchContractEvent({
-    address: queue,
-    abi: QUEUE_ABI,
-    pollingInterval: EVENT_WATCH_POLL_MS,
-    onLogs: () => {
-      void refetchEpochEndsAt();
-      void refetchIsSettling();
-      void refetchTotalRequests();
-      void refetchRedeemCooldown();
-      void refetchScanned();
-      if (lookupId !== undefined) void refetchLookedUpRequest();
-    },
-  });
+  // this works for the local Anvil fork as well as public Sepolia RPCs. The
+  // watcher restarts from the current block after a failed read (see
+  // RestartingEventWatcher), so a long sleep cannot stop it for good.
+  const onQueueLogs = () => {
+    void refetchEpochEndsAt();
+    void refetchIsSettling();
+    void refetchTotalRequests();
+    void refetchRedeemCooldown();
+    void refetchScanned();
+    if (lookupId !== undefined) void refetchLookedUpRequest();
+  };
 
   const myRequests = useMemo(() => {
     if (!address) return [] as QueuePosition[];
@@ -259,6 +257,13 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
 
   return (
     <div className="panel app-action-card app-action-card--redeem flex flex-col p-6" data-viewport-replay="">
+      <RestartingEventWatcher
+        label="redeem.queue_watcher"
+        address={queue}
+        abi={QUEUE_ABI}
+        pollingInterval={EVENT_WATCH_POLL_MS}
+        onLogs={onQueueLogs}
+      />
       <div className="flex items-baseline justify-between">
         <h3 className="font-display text-[16px] font-semibold tracking-tight">Redeem</h3>
         <div

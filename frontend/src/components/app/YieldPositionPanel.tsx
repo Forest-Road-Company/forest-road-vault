@@ -16,7 +16,12 @@ import {
   WATERFALL_HISTORY_ABI,
 } from "@/lib/abi";
 import {fmtAmount} from "@/lib/format";
-import {nextUnreadBlockRange, readBlockRangeChunked} from "@/lib/logs";
+import {
+  BROWSER_HISTORY_CONCURRENCY,
+  DEFAULT_BLOCK_CHUNK,
+  nextUnreadBlockRange,
+  readBlockRangeChunked,
+} from "@/lib/logs";
 import {formatBps, remainingDirectDepositBasis} from "@/lib/yield";
 import {useBookEconomics} from "@/components/app/useBookEconomics";
 import {ACCOUNT_POLL} from "@/lib/polling";
@@ -131,35 +136,50 @@ export function YieldPositionPanel() {
         abi: VAULT_HISTORY_ABI,
       } as const;
       const [incomeLogs, depositLogs, incomingLogs] = await Promise.all([
-        readBlockRangeChunked(fromBlock, toBlock, (chunkFrom, chunkTo) =>
-          publicClient.getContractEvents({
-            address: waterfall,
-            abi: WATERFALL_HISTORY_ABI,
-            eventName: "Distributed",
-            fromBlock: chunkFrom,
-            toBlock: chunkTo,
-          }),
+        readBlockRangeChunked(
+          fromBlock,
+          toBlock,
+          (chunkFrom, chunkTo) =>
+            publicClient.getContractEvents({
+              address: waterfall,
+              abi: WATERFALL_HISTORY_ABI,
+              eventName: "Distributed",
+              fromBlock: chunkFrom,
+              toBlock: chunkTo,
+            }),
+          DEFAULT_BLOCK_CHUNK,
+          BROWSER_HISTORY_CONCURRENCY,
         ),
         address
-          ? readBlockRangeChunked(fromBlock, toBlock, (chunkFrom, chunkTo) =>
-              publicClient.getContractEvents({
-                ...vaultCommon,
-                eventName: "Deposit",
-                args: {owner: address},
-                fromBlock: chunkFrom,
-                toBlock: chunkTo,
-              }),
+          ? readBlockRangeChunked(
+              fromBlock,
+              toBlock,
+              (chunkFrom, chunkTo) =>
+                publicClient.getContractEvents({
+                  ...vaultCommon,
+                  eventName: "Deposit",
+                  args: {owner: address},
+                  fromBlock: chunkFrom,
+                  toBlock: chunkTo,
+                }),
+              DEFAULT_BLOCK_CHUNK,
+              BROWSER_HISTORY_CONCURRENCY,
             )
           : Promise.resolve([]),
         address
-          ? readBlockRangeChunked(fromBlock, toBlock, (chunkFrom, chunkTo) =>
-              publicClient.getContractEvents({
-                ...vaultCommon,
-                eventName: "Transfer",
-                args: {to: address},
-                fromBlock: chunkFrom,
-                toBlock: chunkTo,
-              }),
+          ? readBlockRangeChunked(
+              fromBlock,
+              toBlock,
+              (chunkFrom, chunkTo) =>
+                publicClient.getContractEvents({
+                  ...vaultCommon,
+                  eventName: "Transfer",
+                  args: {to: address},
+                  fromBlock: chunkFrom,
+                  toBlock: chunkTo,
+                }),
+              DEFAULT_BLOCK_CHUNK,
+              BROWSER_HISTORY_CONCURRENCY,
             )
           : Promise.resolve([]),
       ]);

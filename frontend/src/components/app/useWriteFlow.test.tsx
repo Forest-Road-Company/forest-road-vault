@@ -140,3 +140,48 @@ describe("the real write-flow hook after a Buy broadcast", () => {
     expect(result.current.busy, "another Buy remains locked while the original hash is unresolved").toBe(true);
   });
 });
+
+describe("a non-Buy write whose receipt cannot be read (review F4)", () => {
+  const STAKE = {...INPUT, keepPendingUntilReceipt: false};
+  const tooBig = () => Object.assign(new Error("Response is too big for the RPC proxy: narrow the request"), {code: -32008});
+
+  it("restarts the wait after a failed block read and reports the mined receipt", async () => {
+    vi.useFakeTimers();
+    harness.wait.mockRejectedValueOnce(tooBig()).mockResolvedValueOnce({status: "success", transactionHash: HASH});
+    const {result} = renderHook(() => useWriteFlow());
+    let running!: Promise<void>;
+    act(() => { running = result.current.run(STAKE); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(12_000); await running; });
+    expect(harness.wait).toHaveBeenCalledTimes(2);
+    expect(result.current.status).toEqual({phase: "success", hash: HASH});
+  });
+
+  it("shows status unknown, never failed, when every restart fails", async () => {
+    vi.useFakeTimers();
+    harness.wait.mockRejectedValue(tooBig());
+    const {result} = renderHook(() => useWriteFlow());
+    let running!: Promise<void>;
+    act(() => { running = result.current.run(STAKE); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3 * 12_000); await running; });
+    expect(harness.wait).toHaveBeenCalledTimes(4);
+    expect(result.current.status).toEqual({phase: "unknown", hash: HASH});
+    expect(result.current.busy).toBe(false);
+    expect(harness.invalidate).toHaveBeenCalled();
+  });
+
+  it("still reports a real revert as a revert", async () => {
+    harness.wait.mockResolvedValue({status: "reverted", transactionHash: HASH});
+    const {result} = renderHook(() => useWriteFlow());
+    await act(async () => { await result.current.run(STAKE); });
+    expect(harness.wait).toHaveBeenCalledTimes(1);
+    expect(result.current.status).toEqual({phase: "error", message: "Transaction reverted on-chain.", errorName: null});
+  });
+
+  it("keeps the overall wait timeout as it was: not restarted, not called unknown", async () => {
+    harness.wait.mockRejectedValue(Object.assign(new Error("timed out"), {name: "WaitForTransactionReceiptTimeoutError"}));
+    const {result} = renderHook(() => useWriteFlow());
+    await act(async () => { await result.current.run(STAKE); });
+    expect(harness.wait).toHaveBeenCalledTimes(1);
+    expect(result.current.status.phase).toBe("error");
+  });
+});
