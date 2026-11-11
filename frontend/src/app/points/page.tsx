@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/shareCards";
 import Image from "next/image";
 import { PointsDashboard } from "@/components/app/PointsDashboard";
 import { PointsLeaderboard } from "@/components/app/PointsLeaderboard";
 import { PointsHeroStage, PointsMaturityLab, PointsRuleExperiments } from "@/components/site/PointsVisuals";
 import { IS_MAINNET } from "@/config/contracts";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Points | Forest Road Vault",
   description: "Points measure sustained participation in USDfr, sUSDfr and curator first-loss capital over time.",
-};
+  socialTitle: "Participation, measured over time | Forest Road Vault",
+});
 
 const positions = [
   { name: "sUSDfr staked", range: "1× → 2×", copy: "Stakers already receive the vault’s variable income." },
@@ -30,7 +32,7 @@ export default function PointsPage() {
               <a href="#wallet-ledger" className="rounded-pill bg-navy px-6 py-3 text-[13px] font-semibold text-white transition-transform hover:-translate-y-0.5">Check my points</a>
               <a href="#accrual" className="u-link text-[13px] font-semibold text-ink">See how points accrue →</a>
             </div>
-            <p className="mt-4 text-[11.5px] text-ink-faint">Read-only. Connecting never requests a transaction.</p>
+            <p className="mt-4 text-[13px] text-ink-faint">Read-only. Connecting never requests a transaction.</p>
           </div>
           <PointsHeroStage />
         </div>
@@ -97,7 +99,7 @@ export default function PointsPage() {
         <div className="points-disclosure__grade" aria-hidden />
         <div className="relative z-10 mx-auto grid max-w-6xl gap-10 px-5 py-20 lg:grid-cols-[1.25fr_.75fr] md:py-24">
           <div><p className="running-head text-on-navy-accent">Plain-language disclosure</p><h2 className="display mt-5 text-[clamp(2.5rem,5vw,4.2rem)] text-white">What points are not.</h2><p className="mt-6 max-w-[65ch] text-[15px] leading-relaxed text-on-navy-muted">Points are not a token, a security, a yield, or a claim on one. Nothing here promises conversion to any asset, and no conversion rate, date or allocation exists. Any future use would be discretionary and subject to securities-counsel review.</p><strong className="mt-6 block text-white">Anyone telling you otherwise is not speaking for the protocol.</strong></div>
-          <div className="points-disclosure__card"><p className="running-head text-on-navy-accent">Community points</p><h3 className="display mt-4 text-[29px] leading-tight text-white">Participation beyond the on-chain ledger.</h3><p className="mt-5 text-[13px] leading-relaxed text-on-navy-muted">Verified X tasks, qualified referrals and the weekly race live in the points app.</p><a href="https://points.forestroadvault.com/enter" className="u-link mt-7 inline-flex text-[12px] font-semibold text-white">Open the app →</a></div>
+          <div className="points-disclosure__card"><p className="running-head text-on-navy-accent">Community points</p><h3 className="display mt-4 text-[29px] leading-tight text-white">Participation beyond the on-chain ledger.</h3><p className="mt-5 text-[13px] leading-relaxed text-on-navy-muted">Verified X tasks, qualified referrals and the weekly race live in the points app.</p><a href="https://points.forestroadvault.com/enter" className="u-link mt-7 inline-flex text-[13px] font-semibold text-white">Open the app →</a></div>
         </div>
       </section>
     </div>

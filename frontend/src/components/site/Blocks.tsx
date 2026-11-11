@@ -188,7 +188,7 @@ export function CardDeck({
         const inner = (
           <>
             {ordered ? (
-              <div className="running-head tabular-nums text-accent">
+              <div className={`running-head tabular-nums ${dark ? "text-on-navy-accent" : "text-accent"}`}>
                 {String(i + 1).padStart(2, "0")}
               </div>
             ) : null}
@@ -256,10 +256,10 @@ export function NumberedRows({
           <p className="display text-[25px] leading-tight">{heading}</p>
           {aside ? (
             <div
-              className={`mt-5 border-t pt-5 text-[13.5px] leading-relaxed ${
+              className={`mt-5 border-t pt-5 text-[14px] leading-relaxed ${
                 dark
-                  ? "border-on-navy-line text-on-navy-faint"
-                  : "border-line text-ink-faint"
+                  ? "border-on-navy-line text-on-navy-muted"
+                  : "border-line text-ink-value"
               }`}
             >
               {aside}
@@ -279,7 +279,11 @@ export function NumberedRows({
                   : "border-t border-row"
             }`}
           >
-            <span className="w-6 flex-none pt-0.5 text-[11px] font-semibold tabular-nums text-accent">
+            <span
+              className={`w-6 flex-none pt-0.5 text-[11px] font-semibold tabular-nums ${
+                dark ? "text-on-navy-accent" : "text-accent"
+              }`}
+            >
               {String(i + 1).padStart(2, "0")}
             </span>
             <span className="display flex-none text-[15.5px] leading-snug sm:w-[2.5in]">

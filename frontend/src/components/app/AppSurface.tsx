@@ -134,7 +134,7 @@ export function AppSurface() {
         <ConnectControl />
         {isConnected ? (
           rightNetwork && !rpcReady ? (
-            <span className="rounded-pill border border-line-strong px-3.5 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
+            <span className="rounded-pill border border-line-strong px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
               {rpcAlignment.phase === "checking" ? "checking RPC…" : "RPC check required"}
             </span>
           ) : (
@@ -143,17 +143,17 @@ export function AppSurface() {
               checking KYC…
             </span>
           ) : kycAllowed === true ? (
-            <span className="rounded-pill border border-accent/30 bg-accent-faint px-3.5 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-accent">
+            <span className="rounded-pill border border-accent/30 bg-accent-faint px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">
               KYC verified
             </span>
           ) : kycAllowed === false ? (
-            <span className="rounded-pill border border-warn/40 bg-warn/10 px-3.5 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-warn">
+            <span className="rounded-pill border border-warn/40 bg-warn/10 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-warn">
               not KYC-verified
             </span>
           ) : kycError ? (
             // A failed read is NOT a verdict, never assert non-verification we
             // haven't determined.
-            <span className="rounded-pill border border-line-strong px-3.5 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
+            <span className="rounded-pill border border-line-strong px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
               KYC check unavailable
             </span>
           ) : null
@@ -188,7 +188,7 @@ export function AppSurface() {
             </button>
           </div>
           {rpcAlignment.reason === "wallet" || rpcAlignment.reason === "state" ? (
-            <p className="mt-2 text-[12px] leading-relaxed text-ink-muted">{WALLET_RPC_GUIDANCE}</p>
+            <p className="mt-2 text-[13px] leading-relaxed text-ink-muted">{WALLET_RPC_GUIDANCE}</p>
           ) : null}
         </div>
       ) : null}
@@ -255,7 +255,7 @@ export function AppSurface() {
         </div>
       </div>
 
-      <p className="mt-8 text-[12px] leading-relaxed text-ink-faint">
+      <p className="mt-8 text-[13px] leading-relaxed text-ink-faint">
         Every action simulates against live chain state before your wallet opens; failures
         surface the contract&apos;s own error, decoded.{" "}
         {IS_TESTNET

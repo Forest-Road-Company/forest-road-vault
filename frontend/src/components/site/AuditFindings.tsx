@@ -106,7 +106,7 @@ export function AuditFindingsList({ findings }: { findings: AuditFinding[] }) {
           </p>
           {f.assessed ? (
             <div className="mt-3 rounded-card border border-line bg-surface/60 p-3.5">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
                 Forest Road assessment: {f.assessed.severity}
               </p>
               <p className="mt-1.5 min-w-0 text-[13px] leading-relaxed text-ink-muted">

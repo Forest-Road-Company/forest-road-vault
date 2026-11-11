@@ -57,7 +57,7 @@ export default function Landing() {
               How it works
             </Link>
             {!IS_MAINNET && (
-              <p className="text-[12.5px] leading-snug text-on-navy-faint">
+              <p className="text-[13px] leading-snug text-on-navy-faint">
                 Testnet build: test assets, no real value.
               </p>
             )}

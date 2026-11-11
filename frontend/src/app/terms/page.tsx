@@ -1,9 +1,15 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/shareCards";
 import { PageShell } from "@/components/site/PageShell";
 import { IS_MAINNET } from "@/config/contracts";
 import { ProtocolScene } from "@/components/site/ProtocolScene";
 
-export const metadata: Metadata = { title: "Terms | Forest Road Vault" };
+export const metadata: Metadata = pageMetadata({
+  title: "Terms | Forest Road Vault",
+  description:
+    "Terms of use for the Forest Road Vault website and application, and how they relate to the definitive agreements, eligibility controls and risk disclosures for each path.",
+  socialTitle: "Terms of use | Forest Road Vault",
+});
 
 export default function TermsPage() {
   return (

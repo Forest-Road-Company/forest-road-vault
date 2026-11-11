@@ -71,7 +71,7 @@ function SourceCard({
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
         points accrued
       </p>
-      <div className="mt-4 border-t border-line pt-3 font-mono text-[10.5px] leading-relaxed text-ink-faint">
+      <div className="mt-4 border-t border-line pt-3 font-mono text-[11px] leading-relaxed text-ink-faint">
         <p>
           Tracked:{" "}
           <span className="text-ink-muted">
@@ -85,7 +85,7 @@ function SourceCard({
           </span>
         </p>
       </div>
-      <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">{note}</p>
+      <p className="mt-3 text-[13px] leading-relaxed text-ink-faint">{note}</p>
     </div>
   );
 }
@@ -164,7 +164,7 @@ export function MorphoCollateralCard({wallet}: {wallet: `0x${string}`}) {
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
             points computed from Morpho events
           </p>
-          <div className="mt-4 border-t border-line pt-3 font-mono text-[10.5px] leading-relaxed text-ink-faint">
+          <div className="mt-4 border-t border-line pt-3 font-mono text-[11px] leading-relaxed text-ink-faint">
             <p>
               Collateral:{" "}
               <span className="text-ink-muted">{fmtAmount(BigInt(data.collateral), SHARE_DECIMALS, 4)} sUSDfr</span>
@@ -175,7 +175,7 @@ export function MorphoCollateralCard({wallet}: {wallet: `0x${string}`}) {
           </div>
         </>
       )}
-      <p className="mt-3 max-w-[80ch] text-[11.5px] leading-relaxed text-ink-faint">
+      <p className="mt-3 max-w-[80ch] text-[13px] leading-relaxed text-ink-faint">
         sUSDfr posted as collateral in the Forest Road USDC/sUSDfr market on Morpho moves to the Morpho
         Blue contract, and the on-chain ledger above records its points against that contract rather
         than against you. This card shows the points the same collateral earns under the same formula
@@ -254,7 +254,7 @@ export function PointsDashboard() {
     <div className="mt-12">
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-card border border-line bg-raised/70 px-5 py-4">
         <ConnectControl />
-        <span className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
           live on-chain ledger · refreshes every 30 seconds
         </span>
       </div>

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/shareCards";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageShell } from "@/components/site/PageShell";
@@ -18,7 +19,12 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const v = SECTORS.find((x) => x.slug === slug);
-  return { title: v ? `${v.name} | Forest Road Vault` : "Sectors" };
+  if (!v) return { title: "Sectors | Forest Road Vault" };
+  return pageMetadata({
+    title: `${v.name} | Forest Road Vault`,
+    description: v.financed,
+    socialTitle: `${v.name} sector | Forest Road Vault`,
+  });
 }
 
 export default async function SectorPage({

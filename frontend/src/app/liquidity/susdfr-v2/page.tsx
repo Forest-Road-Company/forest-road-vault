@@ -1,13 +1,15 @@
 import type {Metadata} from "next";
+import { pageMetadata } from "@/lib/shareCards";
 
 import {SusdfrV2LiquidityOperation} from "@/components/app/SusdfrV2LiquidityOperation";
 import {PageShell} from "@/components/site/PageShell";
 import {ProtocolScene} from "@/components/site/ProtocolScene";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "sUSDfr / USDC V2 liquidity | Forest Road Vault",
+  description: "A wallet-bound execution screen for Forest Road's full-range sUSDfr / USDC Uniswap V2 liquidity.",
   robots: {index: false, follow: false},
-};
+});
 
 export default function SusdfrV2LiquidityPage() {
   return (

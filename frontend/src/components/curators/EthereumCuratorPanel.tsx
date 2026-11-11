@@ -202,7 +202,7 @@ export function EthereumCuratorPanel() {
   };
 
   const banner = IS_TESTNET ? (
-    <p className="mb-5 rounded-md border border-line bg-surface px-4 py-2.5 text-[12.5px] text-ink-muted">
+    <p className="mb-5 rounded-md border border-line bg-surface px-4 py-2.5 text-[13px] text-ink-muted">
       <span className="font-semibold text-ink">{NETWORK_NAME} build.</span> This surface is wired to the
       CuratorModule on {NETWORK_NAME}. Nothing here has value.
     </p>
@@ -300,14 +300,14 @@ export function EthereumCuratorPanel() {
           governance after eligibility checks and a signed agreement; register interest below and
           Forest Road will be in touch. There is nothing to post from this page until then.
         </p>
-        <p className="mt-3 text-[12.5px] leading-relaxed text-ink-faint">
+        <p className="mt-3 text-[13px] leading-relaxed text-ink-faint">
           Forest Road&apos;s position belongs to the AnchorCurator Safe. A Safe owner&apos;s personal
           wallet does not display or control that position; open this surface through the Safe or
           submit the calls from its transaction builder.
         </p>
         <div className="mt-5 border-t border-line pt-5">
           <p className="text-[13px] font-semibold text-ink">Previously posted capital?</p>
-          <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-muted">
+          <p className="mt-1.5 text-[13px] leading-relaxed text-ink-muted">
             A position carried through several closed pool rounds can quote as zero until its old
             shares are settled forward. Choose its class and settle it here. This moves no funds;
             repeat only if the position crossed more rounds than one transaction can process.
@@ -384,7 +384,7 @@ export function EthereumCuratorPanel() {
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-[12px] leading-relaxed text-ink-faint">
+      <p className="mt-2 text-[13px] leading-relaxed text-ink-faint">
         Your posting is your share of the class pool as the module values it now; it falls when the
         pool absorbs a loss. Withdrawable is your posting capped by the capital the class holds above
         what its live facilities require, and nothing while a facility in the class is in default.
@@ -421,7 +421,7 @@ export function EthereumCuratorPanel() {
           </p>
         )}
         {selectedClassDisappeared ? (
-          <p role="alert" className="mt-3 text-[12.5px] leading-relaxed text-danger">
+          <p role="alert" className="mt-3 text-[13px] leading-relaxed text-danger">
             The selected class is no longer available to this wallet. Choose a current class before
             posting or withdrawing.
           </p>
@@ -435,10 +435,10 @@ export function EthereumCuratorPanel() {
         ) : null}
         {current ? (() => {
           const notice = classNotice(current);
-          return notice ? <p className="mt-3 text-[12.5px] leading-relaxed text-ink-muted">{notice}</p> : null;
+          return notice ? <p className="mt-3 text-[13px] leading-relaxed text-ink-muted">{notice}</p> : null;
         })() : null}
         {current && !current.approved ? (
-          <p className="mt-3 text-[12.5px] leading-relaxed text-ink-muted">
+          <p className="mt-3 text-[13px] leading-relaxed text-ink-muted">
             Approval for new postings in this class has been withdrawn. Your existing capital and
             withdrawal rights are unchanged and remain subject to the class&apos;s ordinary safeguards.
           </p>
@@ -474,7 +474,7 @@ export function EthereumCuratorPanel() {
           />
         </div>
         {parsed !== null && parsed > withdrawable && parsed > 0n && current ? (
-          <p className="mt-2 text-[12px] text-ink-faint">
+          <p className="mt-2 text-[13px] text-ink-faint">
             Withdraw is limited to {fmtAmount(withdrawable, USDFR_DECIMALS)} USDfr in this class right now.
           </p>
         ) : null}
@@ -489,7 +489,7 @@ export function EthereumCuratorPanel() {
             Settle the closed round
           </button>
         ) : null}
-        <p className="mt-4 text-[12px] leading-relaxed text-ink-faint">
+        <p className="mt-4 text-[13px] leading-relaxed text-ink-faint">
           Posting moves USDfr from this wallet into the class pool, where it absorbs realised losses
           on facilities in the class before any other capital does. Withdrawal returns pool capital
           the class does not currently require. The agreement you signed governs; this page shows the
@@ -497,7 +497,7 @@ export function EthereumCuratorPanel() {
         </p>
       </div>
 
-      <p className="mt-6 text-[12px] leading-relaxed text-ink-faint">
+      <p className="mt-6 text-[13px] leading-relaxed text-ink-faint">
         CuratorModule{" "}
         {explorer(curatorModule) ? (
           <a href={explorer(curatorModule)!} target="_blank" rel="noreferrer" className="text-accent underline-offset-4 hover:underline">

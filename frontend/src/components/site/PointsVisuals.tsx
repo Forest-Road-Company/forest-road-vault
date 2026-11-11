@@ -37,12 +37,20 @@ export function PointsMaturityLab() {
         <div><p>Maturity multiplier</p><strong>Day {day} of 365</strong></div>
         <div>{[[0,"Day 0"],[142,"Example"],[365,"Day 365"]].map(([value,label])=><button key={label} type="button" onClick={()=>setDay(Number(value))} aria-pressed={day===value}>{label}</button>)}</div>
       </div>
-      <svg viewBox="0 0 640 290" role="img" aria-label={`At day ${day}, sUSDfr earns ${factors[0].toFixed(2)} times, USDfr earns ${factors[1].toFixed(2)} times and curator capital earns ${factors[2].toFixed(2)} times`}>
-        {[0,2,4,6,8,10].map((tick)=><g key={tick}><line x1="54" x2="590" y1={y(tick)} y2={y(tick)} /><text x="44" y={y(tick)+4} textAnchor="end">{tick}×</text></g>)}
-        {[1,3,5].map((base,index)=><g key={base}><path d={`M54 ${y(base)} L${x} ${y(factors[index])}`} style={{stroke:colors[index]}} /><circle cx={x} cy={y(factors[index])} r="4" style={{fill:colors[index]}} /></g>)}
-        <line className="points-maturity-lab__cursor" x1={x} x2={x} y1="38" y2="254" />
-        <text x="54" y="279">0</text><text x="590" y="279" textAnchor="end">365 days</text>
-      </svg>
+      {/* The axis labels are HTML over the drawing rather than SVG text: the drawing scales with its
+          column, and on a phone SVG text would shrink with it to about half its size. */}
+      <div className="points-maturity-lab__chart">
+        <svg viewBox="0 0 640 290" role="img" aria-label={`At day ${day}, sUSDfr earns ${factors[0].toFixed(2)} times, USDfr earns ${factors[1].toFixed(2)} times and curator capital earns ${factors[2].toFixed(2)} times`}>
+          {[0,2,4,6,8,10].map((tick)=><line key={tick} x1="54" x2="590" y1={y(tick)} y2={y(tick)} />)}
+          {[1,3,5].map((base,index)=><g key={base}><path d={`M54 ${y(base)} L${x} ${y(factors[index])}`} style={{stroke:colors[index]}} /><circle cx={x} cy={y(factors[index])} r="4" style={{fill:colors[index]}} /></g>)}
+          <line className="points-maturity-lab__cursor" x1={x} x2={x} y1="38" y2="254" />
+        </svg>
+        <div className="points-maturity-lab__axis" aria-hidden>
+          {[0,2,4,6,8,10].map((tick)=><span key={tick} style={{right: `${100 - (44 / 640) * 100}%`, top: `${(y(tick) / 290) * 100}%`}}>{tick}×</span>)}
+          <span style={{left: `${(54 / 640) * 100}%`, top: `${(275 / 290) * 100}%`}}>0</span>
+          <span style={{right: `${100 - (590 / 640) * 100}%`, top: `${(275 / 290) * 100}%`}}>365 days</span>
+        </div>
+      </div>
       <label><span>Move through the first year</span><input type="range" min="0" max="365" value={day} onChange={(event)=>setDay(Number(event.target.value))} /></label>
       <dl>{[["sUSDfr",factors[0]],["USDfr",factors[1]],["Curator",factors[2]]].map(([label,value])=><div key={String(label)}><dt>{label}</dt><dd>{Number(value).toFixed(2)}×</dd></div>)}</dl>
     </div>

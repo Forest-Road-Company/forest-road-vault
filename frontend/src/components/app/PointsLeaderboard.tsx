@@ -1,9 +1,10 @@
 "use client";
-import {useState} from "react";
+import {useEffect, useState} from "react";
 import {useQuery} from "@tanstack/react-query";
 import {useAccount} from "wagmi";
 import {EXPLORER_BASE_URL} from "@/config/contracts";
 import {fmtAmount, shortAddress} from "@/lib/format";
+import {useNowSeconds} from "@/components/app/useNowSeconds";
 
 type Row = {rank: number; wallet: `0x${string}`; points: string; onchain: string; pendle: string; morpho: string};
 
@@ -28,13 +29,54 @@ export type LeaderboardResponse =
 
 /** Rows shown at first, and added by each "Show more". */
 export const LEADERBOARD_STEP = 25;
-/** How soon a failed answer is asked for again (the server answers 503 while a cold instance indexes). */
+/** How soon a failed answer is asked for again. */
 export const LEADERBOARD_RETRY_MS = 60_000;
+/** How soon a 503 is asked for again when the server names no delay: its instance keeps its progress. */
+export const LEADERBOARD_CATCHING_UP_RETRY_MS = 10_000;
+/** The bounds on a server-named retry delay. */
+const RETRY_FLOOR_MS = 3_000;
+const RETRY_CEILING_MS = 60_000;
+/** How long the first load may take before the page says why it is taking a while. */
+export const LEADERBOARD_SLOW_MS = 4_000;
+/**
+ * A board whose block is older than this is shown with a note while a newer one is read, and asked
+ * for again sooner. A fresh answer is read at the finalized block, itself some 13 minutes behind.
+ */
+export const LEADERBOARD_STALE_SECONDS = 45 * 60;
+export const LEADERBOARD_STALE_REFRESH_MS = 30_000;
 
 /** The server answered with a failure: each answer is a full load on it, so it is not asked again at once. */
-class LeaderboardRefused extends Error {}
+class LeaderboardRefused extends Error {
+  constructor(
+    message: string,
+    readonly retryMs: number = LEADERBOARD_RETRY_MS,
+  ) {
+    super(message);
+  }
+}
 /** The server's 503: a cold instance is still discovering participants and will answer shortly. */
 class LeaderboardCatchingUp extends LeaderboardRefused {}
+
+/** The server's Retry-After in milliseconds, within bounds, or the fallback when it names none. */
+function retryAfterMs(response: Response, fallback: number): number {
+  const seconds = Number(response.headers.get("retry-after"));
+  if (!Number.isFinite(seconds) || seconds <= 0) return fallback;
+  return Math.min(RETRY_CEILING_MS, Math.max(RETRY_FLOOR_MS, seconds * 1_000));
+}
+
+/** True once a load has been pending for `ms`; false again when it is not pending. */
+function useSlow(pending: boolean, ms: number): boolean {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!pending) return;
+    const id = setTimeout(() => setSlow(true), ms);
+    return () => {
+      clearTimeout(id);
+      setSlow(false);
+    };
+  }, [pending, ms]);
+  return slow;
+}
 
 const ONE_POINT = 10n ** 18n;
 /** Whole points, truncated and never rounded up; a holding under one point reads "<1", not a ranked "0". */
@@ -55,6 +97,13 @@ const relativeWidth = (value: string, maximum: string) => {
   return denominator === 0n ? 0 : Number((BigInt(value) * 10_000n) / denominator) / 100;
 };
 const count = (n: number, one: string, many: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
+/** A rough age for a note: minutes, then hours, then days. */
+const age = (seconds: number) => {
+  const minutes = Math.max(1, Math.floor(seconds / 60));
+  if (minutes < 120) return count(minutes, "minute", "minutes");
+  const hours = Math.floor(minutes / 60);
+  return hours < 48 ? count(hours, "hour", "hours") : count(Math.floor(hours / 24), "day", "days");
+};
 const utc = (seconds: number) => `${new Date(seconds * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 const explorer = (address: string) => (EXPLORER_BASE_URL ? `${EXPLORER_BASE_URL}/address/${address}` : null);
 
@@ -81,21 +130,34 @@ function WalletLink({wallet}: {wallet: string}) {
 export function PointsLeaderboard({endpoint = "/api/points/leaderboard"}: {endpoint?: string} = {}) {
   const {address} = useAccount();
   const [shown, setShown] = useState(LEADERBOARD_STEP);
+  const nowSeconds = useNowSeconds(30_000);
   const {data, error, isError} = useQuery({
     queryKey: ["points-leaderboard", endpoint],
     queryFn: async (): Promise<LeaderboardResponse> => {
       const response = await fetch(endpoint);
-      if (response.status === 503) throw new LeaderboardCatchingUp("Leaderboard catching up");
+      if (response.status === 503) {
+        throw new LeaderboardCatchingUp("Leaderboard catching up", retryAfterMs(response, LEADERBOARD_CATCHING_UP_RETRY_MS));
+      }
       if (!response.ok) throw new LeaderboardRefused("Leaderboard unavailable");
       const body = (await response.json()) as LeaderboardResponse | {ok: false};
       if (!body.ok) throw new LeaderboardRefused("Leaderboard unavailable");
       return body;
     },
-    refetchInterval: (query) => (query.state.status === "error" ? LEADERBOARD_RETRY_MS : 300_000),
+    refetchInterval: (query) => {
+      if (query.state.status === "error") {
+        const failure = query.state.error;
+        return failure instanceof LeaderboardRefused ? failure.retryMs : LEADERBOARD_RETRY_MS;
+      }
+      const answer = query.state.data;
+      const asOf = answer?.enabled ? Number(answer.asOfTimestamp) : NaN;
+      // An older board (a stand-in while the server catches up) is asked for again sooner.
+      return Date.now() / 1000 - asOf > LEADERBOARD_STALE_SECONDS ? LEADERBOARD_STALE_REFRESH_MS : 300_000;
+    },
     // The interval above asks a failing server again; only a request that never reached it is retried at once.
     retry: (failures, failure) => failures < 1 && !(failure instanceof LeaderboardRefused),
     refetchOnWindowFocus: false,
   });
+  const slow = useSlow(!data && !isError, LEADERBOARD_SLOW_MS);
 
   if (data && !data.enabled) return null;
   if (isError && !data) {
@@ -112,10 +174,15 @@ export function PointsLeaderboard({endpoint = "/api/points/leaderboard"}: {endpo
   if (!data) {
     return (
       <div className="panel p-6" aria-busy="true" role="status" data-viewport-replay="" data-viewport-reveal="">
-        <p className="text-[13px] leading-relaxed text-ink-muted">Loading the leaderboard…</p>
+        <p className="text-[13px] leading-relaxed text-ink-muted">
+          {slow
+            ? "Reading the ranking from the chain. After a quiet spell this can take up to a minute; no ranking is shown from a partial view."
+            : "Loading the leaderboard…"}
+        </p>
       </div>
     );
   }
+  const stale = nowSeconds !== null && nowSeconds - Number(data.asOfTimestamp) > LEADERBOARD_STALE_SECONDS;
 
   const me = address?.toLowerCase();
   const myIndex = me ? data.rows.findIndex((row) => row.wallet.toLowerCase() === me) : -1;
@@ -147,7 +214,7 @@ export function PointsLeaderboard({endpoint = "/api/points/leaderboard"}: {endpo
         </div>
       ) : null}
       {showPendle ? null : (
-        <p className="mt-2 text-[12px] leading-relaxed text-ink-muted" data-testid="leaderboard-pendle-off">
+        <p className="mt-2 text-[13px] leading-relaxed text-ink-muted" data-testid="leaderboard-pendle-off">
           Pendle points are not included in this ranking right now, so wallets holding sUSDfr or USDfr through Pendle
           rank on their other points only.
         </p>
@@ -175,8 +242,13 @@ export function PointsLeaderboard({endpoint = "/api/points/leaderboard"}: {endpo
         </p>
       ) : null}
       {isError ? (
-        <p className="mt-2 text-[12px] leading-relaxed text-ink-faint" role="status">
+        <p className="mt-2 text-[13px] leading-relaxed text-ink-faint" role="status">
           The latest refresh failed; this board still stands as of block {data.asOfBlock}.
+        </p>
+      ) : stale && nowSeconds !== null ? (
+        <p className="mt-2 text-[13px] leading-relaxed text-ink-faint" role="status" data-testid="leaderboard-stale">
+          This ranking was read at block {data.asOfBlock}, {age(nowSeconds - Number(data.asOfTimestamp))} ago. A newer one
+          is being read from the chain and will replace it here.
         </p>
       ) : null}
 
@@ -245,13 +317,13 @@ export function PointsLeaderboard({endpoint = "/api/points/leaderboard"}: {endpo
             <button
               type="button"
               onClick={() => setShown((n) => n + LEADERBOARD_STEP)}
-              className="mt-3 text-[12px] font-semibold text-accent underline-offset-4 hover:underline"
+              className="mt-3 text-[13px] font-semibold text-accent underline-offset-4 hover:underline"
             >
               Show more
             </button>
           ) : null}
           {data.truncated ? (
-            <p className="mt-2 text-[12px] text-ink-faint">
+            <p className="mt-2 text-[13px] text-ink-faint">
               The list holds the top {data.rows.length.toLocaleString("en-US")} of {data.ranked.toLocaleString("en-US")} ranked wallets.
             </p>
           ) : null}
@@ -260,7 +332,7 @@ export function PointsLeaderboard({endpoint = "/api/points/leaderboard"}: {endpo
 
       <div className="mt-5 border-t border-line pt-3">
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">Not ranked</p>
-        <ul className="mt-2 space-y-1.5 text-[12px] leading-relaxed text-ink-faint">
+        <ul className="mt-2 space-y-1.5 text-[13px] leading-relaxed text-ink-faint">
           {data.forestRoad.wallets > 0 ? (
             <li>
               Forest Road wallets ({data.forestRoad.wallets}):{" "}
@@ -271,7 +343,7 @@ export function PointsLeaderboard({endpoint = "/api/points/leaderboard"}: {endpo
             <li key={venue.key}>
               {venue.label} (<WalletLink wallet={venue.address} />):{" "}
               <span className="font-mono text-ink-muted">{pts(venue.points)}</span> {unit(venue.points)}
-              <span className="block text-[11px]">{venue.note}</span>
+              <span className="block text-[13px]">{venue.note}</span>
             </li>
           ))}
           {data.notRanked.jurisdictionBlocked > 0 ? (
@@ -282,14 +354,14 @@ export function PointsLeaderboard({endpoint = "/api/points/leaderboard"}: {endpo
           ) : null}
         </ul>
         {withheld > 0 ? (
-          <p className="mt-2 text-[11.5px] leading-relaxed text-ink-faint">
+          <p className="mt-2 text-[13px] leading-relaxed text-ink-faint">
             Morpho points are held back for {count(withheld, "wallet", "wallets")} until the PointsModule is reconciled
             for {withheld === 1 ? "it" : "them"}; {withheld === 1 ? "its" : "their"} other points still count.
           </p>
         ) : null}
       </div>
 
-      <p className="mt-4 max-w-[80ch] text-[11.5px] leading-relaxed text-ink-faint">
+      <p className="mt-4 max-w-[80ch] text-[13px] leading-relaxed text-ink-faint">
         On-chain points are each wallet&apos;s points as the PointsModule reports them at finalized block{" "}
         <span className="text-ink-muted">{data.asOfBlock}</span> ({utc(Number(data.asOfTimestamp))}), read directly from
         the contract. Before anything is shown, the sUSDfr, USDfr and first-loss balances the PointsModule tracks for

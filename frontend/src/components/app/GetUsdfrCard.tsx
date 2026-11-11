@@ -69,7 +69,7 @@ function TestnetBuyPreview({onShowMint}: {onShowMint: () => void}) {
       <button type="button" disabled className="op-action mt-4 w-full px-5 py-2.5 text-[13.5px]">
         Buy available on Ethereum mainnet
       </button>
-      <p className="mt-3 text-[11.5px] leading-relaxed text-ink-faint">
+      <p className="mt-3 text-[13px] leading-relaxed text-ink-faint">
         This design-staging build reads Sepolia, where the production pool does not exist. It never
         redirects a testnet transaction to mainnet or presents an illustrative quote as live.
       </p>

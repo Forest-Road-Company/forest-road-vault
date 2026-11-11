@@ -417,7 +417,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
       <StatusLine status={flow.status} />
 
       <div className="mt-auto border-t border-line pt-4">
-        <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
           Your queue positions
         </p>
         {totalRequests !== undefined && totalRequests > REQUEST_SCAN_WINDOW ? (
@@ -447,7 +447,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
           </p>
         ) : null}
         {myRequests.length === 0 ? (
-          <p className="mt-2 text-[12px] text-ink-faint">
+          <p className="mt-2 text-[13px] text-ink-faint">
             No positions found in the latest scan or by request ID.
           </p>
         ) : (

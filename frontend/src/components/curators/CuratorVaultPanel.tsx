@@ -397,7 +397,7 @@ export function CuratorVaultPanel() {
   // ── render ────────────────────────────────────────────────────────────
 
   const banner = CURATOR_VAULT.isDevnet ? (
-    <p className="mb-5 rounded-md border border-line bg-surface px-4 py-2.5 text-[12.5px] text-ink-muted">
+    <p className="mb-5 rounded-md border border-line bg-surface px-4 py-2.5 text-[13px] text-ink-muted">
       <span className="font-semibold text-ink">Devnet rehearsal.</span> This surface is wired to the
       Solana devnet program and a test mint. Nothing here has value. The mainnet program is wired
       only after the audit and the deployment ceremony.
@@ -618,7 +618,7 @@ export function CuratorVaultPanel() {
             />
             <span className="text-[12.5px] font-semibold text-ink-faint">USDC</span>
           </div>
-          <p className="mt-1.5 text-[12px] text-ink-faint">
+          <p className="mt-1.5 text-[13px] text-ink-faint">
             {usdcBalance === null
               ? "This wallet has no token account for the vault's mint yet; receive some first to deposit."
               : `Wallet balance ${formatUnits(usdcBalance, DECIMALS)} USDC`}
@@ -656,10 +656,10 @@ export function CuratorVaultPanel() {
             </button>
           </div>
           {parsedAmount !== null && usdcBalance !== null && parsedAmount > usdcBalance && !revoked ? (
-            <p className="mt-2 text-[12px] text-ink-faint">Deposit cannot exceed this wallet&apos;s USDC balance.</p>
+            <p className="mt-2 text-[13px] text-ink-faint">Deposit cannot exceed this wallet&apos;s USDC balance.</p>
           ) : null}
           {parsedAmount !== null && parsedAmount > withdrawablePrincipal ? (
-            <p className="mt-2 text-[12px] text-ink-faint">
+            <p className="mt-2 text-[13px] text-ink-faint">
               Withdrawal cannot exceed {formatUnits(withdrawablePrincipal, DECIMALS)} USDC of principal currently held in the vault.
             </p>
           ) : null}
@@ -704,7 +704,7 @@ export function CuratorVaultPanel() {
           >
             {busy === "Coupon claim" ? "Confirm in wallet…" : `Claim ${formatUnits(view.claimable, DECIMALS)} USDC`}
           </button>
-          <p className="text-[12px] leading-relaxed text-ink-faint">
+          <p className="text-[13px] leading-relaxed text-ink-faint">
             Coupons are payable once per calendar month for accrual through the last UTC month
             boundary, from a pool Forest Road funds. If the pool is short, the claim is refused
             and the amount stays owed.
@@ -765,12 +765,12 @@ export function CuratorVaultPanel() {
               </tbody>
             </table>
             {historyTruncated ? (
-              <p className="mt-2 text-[12px] text-ink-faint">Showing the coupons in the {HISTORY_LIMIT} most recent transactions on this position.</p>
+              <p className="mt-2 text-[13px] text-ink-faint">Showing the coupons in the {HISTORY_LIMIT} most recent transactions on this position.</p>
             ) : null}
           </div>
         )}
       </div>
-      <p className="mt-6 text-[12px] leading-relaxed text-ink-faint">
+      <p className="mt-6 text-[13px] leading-relaxed text-ink-faint">
         Program{" "}
         <a href={CURATOR_VAULT.explorer(CURATOR_VAULT.programId)} target="_blank" rel="noreferrer" className="text-accent underline-offset-4 hover:underline">
           {short(CURATOR_VAULT.programId)}

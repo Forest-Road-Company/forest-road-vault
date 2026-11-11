@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/shareCards";
 import Link from "next/link";
 import { PageShell } from "@/components/site/PageShell";
 import { Section, SectionHead, KpiBand, HighlightBox } from "@/components/site/Blocks";
@@ -6,11 +7,11 @@ import { SeverityMix } from "@/components/site/AuditFindings";
 import { AUDITS, openFindings, totalFindings } from "@/content/audits";
 import { ProtocolScene } from "@/components/site/ProtocolScene";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Audit Register | Forest Road Vault",
   description:
     "Dated reviews of Forest Road Vault, with scope, material findings, remediation history, and review limits.",
-};
+});
 
 /** Reviews run by a party other than Forest Road are labelled external. */
 const isExternal = (eyebrow: string) => eyebrow.toLowerCase().includes("external");

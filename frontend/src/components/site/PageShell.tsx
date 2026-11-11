@@ -41,13 +41,13 @@ export function PageShell({
           <Link
             href="/"
             className={`running-head inline-flex min-h-[24px] items-center transition-colors ${
-              dark ? "text-on-navy-faint hover:text-white" : "hover:text-ink"
+              dark ? "text-on-navy-muted hover:text-white" : "text-ink-value hover:text-ink"
             }`}
           >
             Forest Road Vault
           </Link>
         </li>
-        <li aria-hidden className={`running-head ${dark ? "text-on-navy-faint" : ""}`}>
+        <li aria-hidden className={`running-head ${dark ? "text-on-navy-muted" : "text-ink-value"}`}>
           /
         </li>
         <li>

@@ -10,6 +10,7 @@ import { SiteFooter } from "@/components/site/SiteFooter";
 import { TestnetBanner } from "@/components/site/TestnetBanner";
 import { Providers } from "@/components/app/Providers";
 import { IS_TESTNET } from "@/config/contracts";
+import { pageMetadata } from "@/lib/shareCards";
 
 /* The parent brand's faces, read off forestroad.com: Merriweather 600/700
    sets every headline there (its italic is the emphasis device), and Inter
@@ -42,39 +43,16 @@ const SITE_URL =
     ? "https://forest-road-vault-design-staging.vercel.app"
     : "https://forestroadvault.com");
 
+/* The homepage's own title, description and share text. Every other route sets its own (see
+   lib/shareCards.ts), because a page that set only a description would otherwise inherit these. */
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "Forest Road Vault | specialty finance credit, on-chain",
-  description:
-    `Forest Road Vault records specialty-finance credit across Media, Renewables, and Digital Assets on-chain. USDfr backing includes reserves and deployed loan principal; sUSDfr reflects net book performance after fees and losses.${IS_TESTNET ? " Testnet preview." : ""}`,
-  openGraph: {
-    type: "website",
-    siteName: "Forest Road Vault",
+  ...pageMetadata({
     title: "Forest Road Vault | specialty finance credit, on-chain",
-    description:
+    description: `Forest Road Vault records specialty-finance credit across Media, Renewables, and Digital Assets on-chain. USDfr backing includes reserves and deployed loan principal; sUSDfr reflects net book performance after fees and losses.${IS_TESTNET ? " Testnet preview." : ""}`,
+    socialDescription:
       "The Vault's on-chain credit book: USDfr backing includes reserves and deployed loan principal; sUSDfr reflects net performance after fees and losses.",
-    images: [
-      {
-        url: "/share/default.png",
-        width: 1200,
-        height: 630,
-        alt: "Forest Road Vault — specialty finance credit, on-chain",
-        type: "image/png",
-      },
-    ],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Forest Road Vault | specialty finance credit, on-chain",
-    description:
-      "The Vault's on-chain credit book: USDfr backing includes reserves and deployed loan principal; sUSDfr reflects net performance after fees and losses.",
-    images: [
-      {
-        url: "/share/default.png",
-        alt: "Forest Road Vault — specialty finance credit, on-chain",
-      },
-    ],
-  },
+  }),
 };
 
 export default function RootLayout({

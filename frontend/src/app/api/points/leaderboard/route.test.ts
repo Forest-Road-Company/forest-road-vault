@@ -62,7 +62,12 @@ describe("GET /api/points/leaderboard", () => {
     const response = await call();
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ok: true, enabled: false});
-    expect(response.headers.get("cache-control")).toBe("public, s-maxage=300, stale-while-revalidate=600");
+    // Fresh for five minutes; stale-while-revalidate and stale-if-error add at most ten more, so no
+    // cached answer outlives the server's own fifteen-minute stand-in rule.
+    expect(response.headers.get("cache-control")).toBe(
+      "public, s-maxage=300, stale-while-revalidate=600, stale-if-error=600",
+    );
+    expect(response.headers.get("retry-after")).toBeNull();
     const arrivedAt = serve.mock.calls[0]?.[0] as number;
     expect(arrivedAt).toBeGreaterThanOrEqual(before);
     expect(arrivedAt).toBeLessThanOrEqual(Date.now());
@@ -91,6 +96,7 @@ describe("GET /api/points/leaderboard", () => {
     const response = await call();
     expect(response.status).toBe(503);
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("retry-after")).toBe("10");
     expect(((await response.json()) as {error: string}).error).toMatch(/catching up/);
   });
 
@@ -102,6 +108,7 @@ describe("GET /api/points/leaderboard", () => {
     const response = await call();
     expect(response.status).toBe(502);
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("retry-after")).toBeNull();
     expect(logged.join("\n")).toMatch(message);
   });
 

@@ -219,7 +219,7 @@ export function CuratorInterestForm() {
         <button type="submit" disabled={!hydrated || busy} className="op-action whitespace-nowrap px-6 py-2.5 text-[13.5px]">
           {busy ? "Sending…" : "Register interest"}
         </button>
-        <p className="text-[12.5px] leading-relaxed text-ink-faint">
+        <p className="text-[13px] leading-relaxed text-ink-faint">
           Registering commits nothing. Eligibility, terms and any agreement are
           settled with Forest Road directly.
         </p>

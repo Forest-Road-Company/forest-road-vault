@@ -248,8 +248,44 @@ describe("PointsLeaderboard", () => {
   });
 
   it("says it is catching up when the server is still indexing", async () => {
-    renderBoard({ok: false, error: "The leaderboard is catching up with the chain. Try again in a minute."}, 503);
+    renderBoard({ok: false, error: "The leaderboard is catching up with the chain. Try again in a few seconds."}, 503);
     expect(await screen.findByText(/catching up with the chain and will appear here shortly/)).toBeInTheDocument();
+  });
+
+  it("asks again after the delay a catching-up server names, and shows the whole board when it is ready", async () => {
+    const answers = vi.fn<() => Promise<Response>>()
+      .mockImplementationOnce(async () =>
+        new Response(JSON.stringify({ok: false, error: "catching up"}), {status: 503, headers: {"retry-after": "3"}}),
+      )
+      .mockImplementation(async () => json(board()));
+    vi.stubGlobal("fetch", answers);
+    mount();
+    expect(await screen.findByText(/catching up with the chain and will appear here shortly/)).toBeInTheDocument();
+    expect(answers).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("3 wallets ranked", {}, {timeout: 5_000})).toBeInTheDocument();
+    expect(answers).toHaveBeenCalledTimes(2);
+  }, 10_000);
+
+  it("says why the first load is taking a while, without showing anything partial", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+    mount();
+    expect(screen.getByText("Loading the leaderboard…")).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Reading the ranking from the chain\. After a quiet spell this can take up to a minute; no ranking is shown from a partial view\./, {}, {timeout: 6_000}),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  }, 10_000);
+
+  it("notes when the board it shows is an older whole ranking, and not when it is recent", async () => {
+    renderBoard(board());
+    expect(await screen.findByTestId("leaderboard-stale")).toHaveTextContent(
+      /^This ranking was read at block 26170000, \d+ days ago\. A newer one is being read from the chain and will replace it here\.$/,
+    );
+    vi.unstubAllGlobals();
+    document.body.innerHTML = "";
+    renderBoard(board({asOfTimestamp: String(Math.floor(Date.now() / 1000) - 15 * 60)}));
+    await screen.findByText("3 wallets ranked");
+    expect(screen.queryByTestId("leaderboard-stale")).not.toBeInTheDocument();
   });
 
   it("does not ask again at once after a failure the server answered", async () => {

@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/shareCards";
 import { PageShell } from "@/components/site/PageShell";
 import { AppSurface } from "@/components/app/AppSurface";
 import { ProtocolScene } from "@/components/site/ProtocolScene";
 import {IS_LOCAL_FORK, NETWORK_NAME} from "@/config/contracts";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "App | Forest Road Vault",
-};
+  description:
+    "Mint USDfr with USDC, stake it for sUSDfr and exit through the redemption queue. Every write simulates before you sign; minting and instant redemption are KYC-gated on-chain.",
+  socialTitle: "Deposit, stake, redeem | Forest Road Vault",
+});
 
 export default function AppPage() {
   return (

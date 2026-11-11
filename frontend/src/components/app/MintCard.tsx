@@ -110,7 +110,7 @@ export function MintForm({
       {/* The route for the addresses the mint gate turns away, so it never follows
           writesEnabled. On testnet that tab is an explicit non-transactional preview. */}
       {onShowBuy ? (
-        <p className="mt-1.5 text-[12px] leading-snug text-ink-faint">
+        <p className="mt-1.5 text-[13px] leading-snug text-ink-faint">
           Not KYC-verified? Any address can{" "}
           <button type="button" onClick={onShowBuy} className="u-link text-ink">
             buy USDfr in the Buy tab
@@ -162,7 +162,7 @@ export function MintForm({
       {IS_TESTNET ? (
         <div className="mt-auto border-t border-line pt-4">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[12px] leading-snug text-ink-faint">
+            <p className="text-[13px] leading-snug text-ink-faint">
               Need test funds? The testnet mock stable has an open faucet.
             </p>
             <button
@@ -184,7 +184,7 @@ export function MintForm({
           <StatusLine status={faucet.status} />
         </div>
       ) : (
-        <p className="mt-auto border-t border-line pt-4 text-[12px] leading-snug text-ink-faint">
+        <p className="mt-auto border-t border-line pt-4 text-[13px] leading-snug text-ink-faint">
           Mainnet uses canonical Ethereum USDC. There is no faucet or alternate reserve asset.
         </p>
       )}
