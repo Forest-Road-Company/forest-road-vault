@@ -4,6 +4,7 @@ import { Merriweather, Inter_Tight, Azeret_Mono } from "next/font/google";
 import "./globals.css";
 import { AmbientBackdrop } from "@/components/site/AmbientBackdrop";
 import { ViewportReplayController } from "@/components/site/ViewportReplayController";
+import { SiteAnalytics } from "@/components/site/SiteAnalytics";
 import { SiteNav } from "@/components/site/SiteNav";
 import { SiteFooter } from "@/components/site/SiteFooter";
 import { TestnetBanner } from "@/components/site/TestnetBanner";
@@ -99,6 +100,7 @@ export default function RootLayout({
             <SiteFooter />
           </div>
         </Providers>
+        <SiteAnalytics />
       </body>
     </html>
   );

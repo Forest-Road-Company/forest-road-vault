@@ -4,6 +4,7 @@ import {useCallback, useEffect, useMemo, useState} from "react";
 import {formatUnits, type Address, type Hash} from "viem";
 import {mainnet} from "viem/chains";
 import {useAccount, usePublicClient, useWalletClient} from "wagmi";
+import {waitForReceiptRobustly} from "@/lib/receiptWait";
 
 import {ConnectControl} from "@/components/app/ConnectControl";
 import {CHAIN_ID, CONTRACTS, EXPLORER_BASE_URL} from "@/config/contracts";
@@ -326,7 +327,7 @@ export function SusdfrV2LiquidityOperation() {
           gas: V2_APPROVAL_GAS,
         });
         setStatus({phase: "pending", message: `${symbol} approval is pending.`, hash});
-        const receipt = await publicClient.waitForTransactionReceipt({hash, timeout: RECEIPT_TIMEOUT});
+        const receipt = await waitForReceiptRobustly(publicClient, {hash, timeout: RECEIPT_TIMEOUT});
         if (receipt.status !== "success") throw new Error(`${symbol} approval reverted.`);
         await loadSnapshot();
         setStatus({phase: "success", message: `${symbol} approval confirmed.`, hash});
@@ -400,7 +401,7 @@ export function SusdfrV2LiquidityOperation() {
       };
       writeStoredMint(stored);
       setStatus({phase: "pending", message: "Transaction submitted. Verifying the fresh pair and LP tokens…", hash});
-      const receipt = await publicClient.waitForTransactionReceipt({hash, timeout: RECEIPT_TIMEOUT});
+      const receipt = await waitForReceiptRobustly(publicClient, {hash, timeout: RECEIPT_TIMEOUT});
       if (receipt.status !== "success") throw new Error("The V2 liquidity transaction reverted.");
       const evidence = verifyV2MintReceipt({
         logs: receipt.logs as readonly V2ReceiptLog[],

@@ -757,6 +757,76 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
     blockedBuild.stdout + blockedBuild.stderr,
   );
 
+  // The browser reads mainnet only through /api/rpc (owner decision, 6 November 2026). A Vercel
+  // mainnet build without the proxy's server-only upstream would ship a site whose every read
+  // answers 503, so the build stops instead and the live deployment stays up.
+  const {evaluateRpcProxyBuild} = await import("./next.config.ts");
+  const vercelMainnet = {VERCEL: "1", NEXT_PUBLIC_CHAIN_ID: "1", NEXT_PUBLIC_RPC_URL: "/api/rpc"};
+  const proxyReady = evaluateRpcProxyBuild({...vercelMainnet, RPC_PROXY_UPSTREAM_URL: "https://rpc.example.net/v2/k"});
+  check("rpc proxy build: a Vercel mainnet build with an https upstream proceeds", proxyReady.enforced && proxyReady.problem === null);
+  for (const [label, upstreamValue] of [["unset", undefined], ["blank", "   "]] as const) {
+    const verdict = evaluateRpcProxyBuild({...vercelMainnet, RPC_PROXY_UPSTREAM_URL: upstreamValue});
+    check(
+      `rpc proxy build: a Vercel mainnet build with the upstream ${label} is refused`,
+      verdict.enforced && Boolean(verdict.problem?.includes("RPC_PROXY_UPSTREAM_URL is not set")),
+      String(verdict.problem),
+    );
+  }
+  const httpUpstream = evaluateRpcProxyBuild({...vercelMainnet, RPC_PROXY_UPSTREAM_URL: "http://rpc.example.net/v2/SECRETK"});
+  check(
+    "rpc proxy build: a non-https upstream is refused without printing its value",
+    Boolean(httpUpstream.problem?.includes("must be an https URL")) && !httpUpstream.problem?.includes("SECRETK"),
+    String(httpUpstream.problem),
+  );
+  const directOnVercel = evaluateRpcProxyBuild({...vercelMainnet, NEXT_PUBLIC_RPC_URL: "https://rpc.example.net/v2/k", RPC_PROXY_UPSTREAM_URL: "https://rpc.example.net/v2/k"});
+  check(
+    "rpc proxy build: a Vercel mainnet build with a direct browser RPC is refused",
+    Boolean(directOnVercel.problem?.includes("NEXT_PUBLIC_RPC_URL=/api/rpc")),
+    String(directOnVercel.problem),
+  );
+  for (const [label, env] of [
+    ["a local mainnet build", {NEXT_PUBLIC_CHAIN_ID: "1", NEXT_PUBLIC_RPC_URL: "/api/rpc"}],
+    ["a Vercel Sepolia build", {VERCEL: "1", NEXT_PUBLIC_CHAIN_ID: "11155111", NEXT_PUBLIC_RPC_URL: "/api/rpc"}],
+  ] as const) {
+    const verdict = evaluateRpcProxyBuild(env);
+    check(`rpc proxy build: ${label} is not this gate's to refuse`, !verdict.enforced && verdict.problem === null);
+  }
+  const proxyBlockedBuild = spawnSync(
+    process.execPath,
+    [
+      "--experimental-strip-types",
+      "--input-type=module",
+      "-e",
+      'const {default: createConfig} = await import("./next.config.ts"); try { createConfig("phase-production-build"); console.log("BUILD-PROCEEDED"); } catch (error) { console.log(error.message); }',
+    ],
+    {
+      cwd: new URL(".", import.meta.url),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        VERCEL: "1",
+        VERCEL_ENV: "preview",
+        VERCEL_GIT_COMMIT_REF: "",
+        VERCEL_GIT_COMMIT_SHA: "",
+        NEXT_PUBLIC_CHAIN_ID: "1",
+        NEXT_PUBLIC_RPC_URL: "/api/rpc",
+        RPC_PROXY_UPSTREAM_URL: "",
+      },
+    },
+  );
+  check(
+    "rpc proxy build: a Vercel mainnet build without the upstream stops before the manifest gate",
+    proxyBlockedBuild.stdout.includes("RPC proxy build gate: RPC_PROXY_UPSTREAM_URL is not set") &&
+      !proxyBlockedBuild.stdout.includes("BUILD-PROCEEDED") &&
+      !proxyBlockedBuild.stdout.includes("Frontend manifest gate"),
+    proxyBlockedBuild.stdout + proxyBlockedBuild.stderr,
+  );
+  check(
+    "mainnet config: the browser RPC must be the same-origin proxy literal",
+    contractConfig.includes("IS_MAINNET && !RPC_PROXY_MODE") &&
+      contractConfig.includes("RPC_URL === RPC_PROXY_PATH"),
+  );
+
   check("markdown: raw HTML is discarded", /<ReactMarkdown skipHtml[\s>]/.test(docsPage));
   check("markdown: no raw HTML injection remains", !docsPage.includes("dangerouslySetInnerHTML"));
   check(
@@ -823,6 +893,11 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
       yieldPositionPanel.includes("incrementalHistoryInFlight"),
   );
   check(
+    "history: all three yield-history streams read with bounded concurrency through the proxy",
+    yieldPositionPanel.split("readBlockRangeChunked(").length - 1 === 3 &&
+      (yieldPositionPanel.match(/DEFAULT_BLOCK_CHUNK,\s*BROWSER_HISTORY_CONCURRENCY,\s*\)/g) ?? []).length === 3,
+  );
+  check(
     "mainnet build: npm and direct Next builds invoke the receipt-bound verifier",
     packageJson.includes(
       '"prebuild": "node ../tools/frontend-env-from-manifest.mjs --verify-build-env"',
@@ -830,6 +905,10 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
       nextConfig.includes("PHASE_PRODUCTION_BUILD") &&
       nextConfig.includes("--verify-build-env") &&
       nextConfig.includes("execFileSync"),
+  );
+  check(
+    "every npm build, Vercel's included, scans its own output for the RPC key before it can deploy",
+    packageJson.includes('"build": "next build --webpack && node scripts/check-bundle-rpc-secrets.mjs"'),
   );
   if (ciWorkflow === null) {
     skip("CI: every push and pull request runs contract and frontend release gates");
@@ -856,6 +935,15 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
       frontendFoundrySetup >= 0 &&
         frontendForgeBuild > frontendFoundrySetup &&
         frontendNpmTest > frontendForgeBuild,
+    );
+    const frontendBuild = frontendCiJob.indexOf("run: npm run build");
+    const bundleScan = frontendCiJob.indexOf("run: node scripts/check-bundle-rpc-secrets.mjs --expect-proxy");
+    check(
+      "CI: the frontend builds in RPC proxy mode with a sentinel upstream, then scans the bundle for it",
+      frontendBuild >= 0 &&
+        bundleScan > frontendBuild &&
+        frontendCiJob.slice(0, frontendBuild).includes("NEXT_PUBLIC_RPC_URL: /api/rpc") &&
+        frontendCiJob.slice(0, frontendBuild).includes("SENTINELKEY"),
     );
   }
   if (manifestExporter === null) {
@@ -1053,8 +1141,21 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
   manifest.mainnetApprovedDeploymentHash = deploymentHash;
   writeFileSync(
     mockRpcModule,
-    `globalThis.fetch = async (_url, init) => {
+    `globalThis.fetch = async (url, init) => {
   const request = JSON.parse(String(init.body));
+  // Every gate call is server-side: the proxy upstream and the archive alike carry no browser Origin.
+  if (Object.keys(init.headers ?? {}).some((name) => ["origin", "referer"].includes(name.toLowerCase()))) {
+    throw new Error("Unexpected browser header on a server-side RPC verification");
+  }
+  if (process.env.FRV_TEST_RPC_THROW_WITH_URL) {
+    throw new TypeError("fetch failed: getaddrinfo ENOTFOUND " + String(url));
+  }
+  // Tip and contract-code checks belong to the proxy upstream alone (the archive check reads logs).
+  if (process.env.FRV_TEST_RPC_REQUIRE_UPSTREAM_HOST &&
+      (request.method === "eth_blockNumber" || request.method === "eth_getCode") &&
+      new URL(String(url)).host !== process.env.FRV_TEST_RPC_REQUIRE_UPSTREAM_HOST) {
+    throw new Error("Mainnet verification read from a host other than the proxy upstream");
+  }
   let result;
   if (request.method === "eth_chainId") {
     result = process.env.FRV_TEST_RPC_CHAIN_ID ?? "0x1";
@@ -1117,6 +1218,8 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
     check(
       "manifest export: a receipt-bound production fixture is accepted",
       validExport.status === 0 &&
+        validExport.stdout.includes("NEXT_PUBLIC_RPC_URL=/api/rpc\n") &&
+        validExport.stdout.includes("RPC_PROXY_UPSTREAM_URL=<SERVER_ONLY_MAINNET_RPC_URL>\n") &&
         validExport.stdout.includes(`NEXT_PUBLIC_MAINNET_DEPLOYMENT_HASH=${deploymentHash}`) &&
         validExport.stdout.includes("NEXT_PUBLIC_SUSDFR_FEE_ABI_VERSION=1") &&
         validExport.stdout.includes("NEXT_PUBLIC_MAINNET_MANIFEST_SHA256="),
@@ -1149,7 +1252,9 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
           env: {
             ...process.env,
             ...exportedEnv,
-            NEXT_PUBLIC_RPC_URL: "https://rpc.ankr.com/eth",
+            NEXT_PUBLIC_RPC_URL: "/api/rpc",
+            RPC_PROXY_UPSTREAM_URL: "https://rpc.ankr.com/eth",
+            FRV_TEST_RPC_REQUIRE_UPSTREAM_HOST: "rpc.ankr.com",
             ETHEREUM_ARCHIVE_RPC_URL: "https://eth-mainnet.g.alchemy.com/v2/test-key",
             MAINNET_APPROVED_DEPLOYMENT_HASH: deploymentHash,
             MAINNET_APPROVED_MANIFEST_SHA256: createHash("sha256")
@@ -1232,10 +1337,10 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
       archiveReadRejected.stderr,
     );
     const insecureRpc = runBuildGuard({
-      NEXT_PUBLIC_RPC_URL: "http://rpc.example.net/eth",
+      RPC_PROXY_UPSTREAM_URL: "http://rpc.example.net/eth",
     });
     check(
-      "mainnet build: an insecure HTTP RPC is rejected",
+      "mainnet build: an insecure HTTP proxy upstream is rejected",
       insecureRpc.status !== 0 &&
         insecureRpc.stderr.includes("must use HTTPS"),
       insecureRpc.stderr,
@@ -1259,13 +1364,54 @@ check("logs: zero chunk size is rejected", rejectedBadChunk);
       unsetBuildChain.stderr,
     );
     const loopbackRpc = runBuildGuard({
-      NEXT_PUBLIC_RPC_URL: "https://[::1]/eth",
+      RPC_PROXY_UPSTREAM_URL: "https://[::1]/eth",
     });
     check(
-      "mainnet build: an HTTPS loopback RPC is rejected",
+      "mainnet build: an HTTPS loopback proxy upstream is rejected",
       loopbackRpc.status !== 0 &&
         loopbackRpc.stderr.includes("real remote mainnet endpoint"),
       loopbackRpc.stderr,
+    );
+    // Owner decision, 6 November 2026: the browser reads mainnet only through /api/rpc, so a
+    // provider URL, keyed or not, can never return to the bundle through the release gate either.
+    for (const [label, browserRpc] of [
+      ["a keyed provider URL", "https://eth-mainnet.g.alchemy.com/v2/test-key"],
+      ["a keyless provider URL", "https://rpc.ankr.com/eth"],
+      ["an absolute URL to the proxy", "https://forestroadvault.com/api/rpc"],
+      ["an unset value", ""],
+    ] as const) {
+      const directBrowserRpc = runBuildGuard({NEXT_PUBLIC_RPC_URL: browserRpc});
+      check(
+        `mainnet build: ${label} as NEXT_PUBLIC_RPC_URL is refused`,
+        directBrowserRpc.status !== 0 &&
+          directBrowserRpc.stderr.includes("NEXT_PUBLIC_RPC_URL must be exactly /api/rpc"),
+        directBrowserRpc.stderr,
+      );
+    }
+    for (const [label, upstreamValue] of [
+      ["unset", ""],
+      ["the exporter placeholder", "<SERVER_ONLY_MAINNET_RPC_URL>"],
+    ] as const) {
+      const missingUpstream = runBuildGuard({RPC_PROXY_UPSTREAM_URL: upstreamValue});
+      check(
+        `mainnet build: a proxy upstream that is ${label} is refused`,
+        missingUpstream.status !== 0 &&
+          missingUpstream.stderr.includes("RPC_PROXY_UPSTREAM_URL is required for a mainnet build"),
+        missingUpstream.stderr,
+      );
+    }
+    const upstreamFetchFailure = runBuildGuard({
+      RPC_PROXY_UPSTREAM_URL: "https://unreachable.example.net/v2/SECRETPATHKEY123",
+      FRV_TEST_RPC_REQUIRE_UPSTREAM_HOST: "",
+      FRV_TEST_RPC_THROW_WITH_URL: "1",
+    });
+    check(
+      "mainnet build: a failed upstream call names the method, never the URL or its key",
+      upstreamFetchFailure.status !== 0 &&
+        upstreamFetchFailure.stderr.includes("Mainnet RPC eth_chainId request failed: TypeError") &&
+        !upstreamFetchFailure.stderr.includes("SECRETPATHKEY123") &&
+        !upstreamFetchFailure.stderr.includes("unreachable.example.net"),
+      upstreamFetchFailure.stderr,
     );
 
     const zeroAddress = {...manifest, usdfr: addr(0)};
@@ -1472,12 +1618,18 @@ if (!existsSync(new URL("../contracts/src/interfaces/", import.meta.url))) {
     new URL("./src/components/app/RedeemCard.tsx", import.meta.url),
     "utf8",
   );
+  const restartingWatcher = readFileSync(
+    new URL("./src/components/app/RestartingEventWatcher.tsx", import.meta.url),
+    "utf8",
+  );
   check(
     "redeem: external queue events refresh claim state without a page reload",
-    redeemCard.includes("useWatchContractEvent") &&
-      redeemCard.includes("pollingInterval: EVENT_WATCH_POLL_MS,") &&
+    redeemCard.includes("<RestartingEventWatcher") &&
+      redeemCard.includes("pollingInterval={EVENT_WATCH_POLL_MS}") &&
+      redeemCard.includes("onLogs={onQueueLogs}") &&
       redeemCard.includes("refetchScanned") &&
-      redeemCard.includes("...QUEUE_POLL,"),
+      redeemCard.includes("...QUEUE_POLL,") &&
+      restartingWatcher.includes("useWatchContractEvent({...props, onError});"),
   );
   check(
     "redeem: older positions remain discoverable and claimable by request ID",

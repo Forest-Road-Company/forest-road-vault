@@ -5,6 +5,7 @@
 
 import type {WriteStatus} from "@/components/app/useWriteFlow";
 import {EXPLORER_BASE_URL} from "@/config/contracts";
+import {RECEIPT_STATUS_UNKNOWN_MESSAGE} from "@/lib/receiptWait";
 
 export const EXPLORER_TX = EXPLORER_BASE_URL
   ? `${EXPLORER_BASE_URL}/tx/`
@@ -139,6 +140,20 @@ export function StatusLine({status}: {status: WriteStatus}) {
           : status.delayed
             ? "Your transaction was submitted and may still go through. Check your wallet's activity before buying again; this page is still checking its receipt."
           : "Transaction pending…"}
+        {EXPLORER_TX ? (
+          <>
+            {" "}
+            <a className="u-link text-accent" href={`${EXPLORER_TX}${status.hash}`} target="_blank" rel="noreferrer">
+              view on Etherscan
+            </a>
+          </>
+        ) : null}
+      </Line>
+    );
+  if (status.phase === "unknown")
+    return (
+      <Line tone="muted">
+        <span className="font-medium">Status unknown.</span> {RECEIPT_STATUS_UNKNOWN_MESSAGE}
         {EXPLORER_TX ? (
           <>
             {" "}

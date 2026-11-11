@@ -11,6 +11,7 @@ import {
 } from "viem";
 import {mainnet} from "viem/chains";
 import {useAccount, usePublicClient, useWalletClient} from "wagmi";
+import {waitForReceiptRobustly} from "@/lib/receiptWait";
 
 import {ConnectControl} from "@/components/app/ConnectControl";
 import {CHAIN_ID, CONTRACTS, EXPLORER_BASE_URL} from "@/config/contracts";
@@ -424,7 +425,7 @@ export function LiquidityOperation() {
           gas: TOKEN_APPROVAL_GAS,
         });
         setStatus({phase: "pending", message: `${symbol} approval is pending.`, hash});
-        const receipt = await publicClient.waitForTransactionReceipt({
+        const receipt = await waitForReceiptRobustly(publicClient, {
           hash,
           timeout: RECEIPT_TIMEOUT,
         });
@@ -561,7 +562,7 @@ export function LiquidityOperation() {
           hash,
         });
         const receipt: TransactionReceipt =
-          await publicClient.waitForTransactionReceipt({
+          await waitForReceiptRobustly(publicClient, {
             hash,
             timeout: RECEIPT_TIMEOUT,
           });

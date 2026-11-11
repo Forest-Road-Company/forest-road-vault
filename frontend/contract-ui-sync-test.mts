@@ -423,7 +423,7 @@ const readSurfaces: Array<[string, string, string[], string]> = [
       "convertToAssets",
       "request",
     ],
-    "useWatchContractEvent",
+    "<RestartingEventWatcher",
   ],
   [
     "transparency headline",
@@ -555,7 +555,7 @@ for (const [name, value] of [
   check(`polling policy: ${value}`, polling.includes(name));
 }
 check("polling policy: the query client's stale time", source("./src/components/app/Providers.tsx").includes("staleTime: READ_STALE_MS,"));
-check("polling policy: the queue event watcher's interval", source("./src/components/app/RedeemCard.tsx").includes("pollingInterval: EVENT_WATCH_POLL_MS,"));
+check("polling policy: the queue event watcher's interval", source("./src/components/app/RedeemCard.tsx").includes("pollingInterval={EVENT_WATCH_POLL_MS}"));
 check("polling policy: the queue reads", source("./src/components/app/RedeemCard.tsx").includes("query: QUEUE_POLL"));
 check("polling policy: the wallet RPC alignment check", source("./src/components/app/AppSurface.tsx").includes("}, RPC_ALIGNMENT_POLL_MS);"));
 check("polling policy: the buy quote keeps its own block-length freshness", source("./src/components/app/BuyUsdfrPanel.tsx").includes("refetchInterval: QUOTE_REFRESH_MS,\n    // Its own freshness, not the site-wide default (lib/polling.ts): a quote is never served from cache past a block.\n    staleTime: QUOTE_REFRESH_MS,"));

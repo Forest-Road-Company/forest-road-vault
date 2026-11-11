@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import {spawnSync} from "node:child_process";
-import {readFileSync, writeFileSync} from "node:fs";
+import {mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import {dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -585,17 +585,33 @@ const args = process.argv.slice(2);
 if (args.some(arg => arg !== "--morpho")) throw new Error("Only --morpho or the default full gate is supported.");
 const selected = args.includes("--morpho") ? cases.filter(c => /morpho(Market|Safe|Treasury)|MorphoMarketSurface|useMorphoSafe/.test(c.file) || c.name.startsWith("Morpho ")) : cases;
 const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-function runTests(files, name) {
+function runTests(files, name, diagnosticLabel) {
   const result = spawnSync(join(root, "node_modules/.bin/vitest"),
     ["run", ...files, "--reporter=json", ...(name ? ["-t", escapeRegex(name)] : [])],
     {cwd: root, encoding: "utf8", timeout: 120_000, maxBuffer: 16 * 1024 * 1024});
+  const diagnosticDirectory = process.env.MORPHO_MUTATION_DIAGNOSTICS_DIR;
+  if (diagnosticDirectory && diagnosticLabel) {
+    mkdirSync(diagnosticDirectory, {recursive: true});
+    writeFileSync(join(diagnosticDirectory, `${diagnosticLabel}.stdout.json`), result.stdout ?? "", {flag: "wx"});
+    writeFileSync(join(diagnosticDirectory, `${diagnosticLabel}.stderr.log`), result.stderr ?? "", {flag: "wx"});
+    writeFileSync(join(diagnosticDirectory, `${diagnosticLabel}.process.json`), JSON.stringify({
+      status: result.status, signal: result.signal, error: result.error?.message,
+    }, null, 2) + "\n", {flag: "wx"});
+  }
   let report;
   try {report = JSON.parse(result.stdout);} catch {throw new Error(`Test runner did not return a JSON report (exit ${result.status}). ${result.stderr ?? ""}`);}
   return {result, assertions: report.testResults.flatMap(suite => suite.assertionResults)};
 }
 // A mutant cannot be counted as killed by an already-failing or missing test.
-const baseline = runTests([...new Set(selected.map(c => c.testFile))]);
-if (baseline.result.status !== 0) throw new Error("The unmodified baseline failed; no mutation controls were counted.");
+const baseline = runTests([...new Set(selected.map(c => c.testFile))], undefined, "baseline");
+if (baseline.result.status !== 0) {
+  const failed = baseline.assertions.filter(test => test.status !== "passed");
+  process.stderr.write(JSON.stringify({phase: "unmodified baseline", status: baseline.result.status,
+    signal: baseline.result.signal, failedTests: failed.map(test => ({
+      name: test.fullName, status: test.status, failureMessages: test.failureMessages,
+    }))}) + "\n");
+  throw new Error("The unmodified baseline failed; no mutation controls were counted.");
+}
 for (const control of selected) {
   const assertions = baseline.assertions.filter(test => test.fullName.includes(control.test));
   if (!assertions.length || assertions.some(test => test.status !== "passed")) throw new Error(`${control.name}: its exact baseline test was not passed`);
