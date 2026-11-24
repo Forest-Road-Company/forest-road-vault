@@ -88,6 +88,264 @@ export type AuditReport = {
 /** Newest first. This is the order the register renders. */
 export const AUDITS: AuditReport[] = [
   {
+    slug: "2026-11-24-lmv-protocol-delta-reaudit-corrovera",
+    file: "audits/2026-11-24-lmv-protocol-delta-reaudit-corrovera.md",
+    title: "Corrovera re-audit of the LMV protocol remediation candidate (ee9b228a)",
+    eyebrow: "External review",
+    date: "2026-11-24",
+    dateLabel: "24 November 2026",
+    external: true,
+    baseline:
+      "Candidate ee9b228ad05e5a5888c1aa496ea53318036d37a3 (tree dbb0bb1c94e7f1581736d4ba8eed8feae5cde269); parent 58e651f1; cumulative base 74ac92a7; ETH fork pin 26,398,000; BSC fork pin 133,131,151",
+    scope:
+      "Delta re-audit of the 58e651f1 to ee9b228a fixes in CuratorModule.sol, RedemptionQueue.sol, regression tests and CI tooling pins, plus byte-identity verification of DefaultManager.sol and DefaultLossLib.sol against 58e651f1. It reviews the staged LMV upgrade candidate; live Ethereum proxies remain on pre-LMV implementations until Stage 2 governance executes, and off-chain bots and cross-chain bridges were outside this delta scope.",
+    method:
+      "Independent Corrovera verification of all five prior delta findings (CORR-DELTA-01 through CORR-DELTA-05), ten compiled delta mutation controls (all ten killed, including prior survivor Mutant M3), 366 official offline Foundry tests, 143 pinned mainnet/BSC fork tests, offline and live-fork adversarial PoCs, storage-layout and ABI diffs, multi-model review panel, and read-only hosted CI observation. Explicit gaps recorded: two open-weight OSS panel stages hit upstream HTTP 502 (compensated by frontier + Kimi + Forge PoC coverage) and local Slither 0.11.6 skewed against the 0.11.5 baseline with zero added findings.",
+    archive: "audit-reports/corrovera-protocol-delta-ee9b228a-2026-11-24/",
+    summary:
+      "Delta remediation verdict: PASS. All five findings from the 23 November delta review (CORR-DELTA-01 through CORR-DELTA-05) and prior survivor Mutant M3 are closed, with zero new or regressed Solidity defects. Initial CONDITIONAL-GO depended on completing hosted CI Security gates Run #753 (CORR-REAUDIT-04, subsequently resolved when Run #753 Attempt 2 completed 66/66 green alongside Run #664) and owner disposition on pre-existing touched-file findings (Medium CORR-REAUDIT-01, Lows CORR-REAUDIT-02 and CORR-REAUDIT-03, and carried-forward Lows CORR-DELTA-06 and CORR-DELTA-07), which were explicitly accepted/deferred under operational controls. All 38 new Stage 2 contracts and libraries from ee9b228a were deployed to Ethereum mainnet and verified exact_match on Sourcify on 24 November 2026; activation awaits Stage 1 and Stage 2 governance execution.",
+    findings: [
+      {
+        id: "CORR-REAUDIT-04",
+        severity: "High",
+        title:
+          "Hosted CI Security gates Run #753 had a transient queue-keeper mutation RUN-ERROR and 12 jobs in progress at audit snapshot",
+        disposition: "Remediated",
+        note:
+          "At the audit sealing snapshot (08:20 UTC, 24 November 2026), exact-commit Run #753 (45341869384) had 52/65 jobs green, 12 still running and 1 transient RUN-ERROR on untouched queue-keeper (139/140 killed, 0 survivors, 0 diff from 58e651f1/74ac92a7). After the remaining jobs passed, a targeted failed-job rerun (Run #753 Attempt 2) completed at 11:45 UTC on 24 November with 66/66 jobs PASS (0 failed, 0 skipped) alongside green Persisted counterexample gate Run #664.",
+      },
+      {
+        id: "CORR-REAUDIT-01",
+        severity: "Medium",
+        title:
+          "Pre-existing RedemptionQueue open settlement can wedge via budget min-ratchet and Queue_NoLiquidity rollback even after liquidity recovers",
+        disposition: "Deferred",
+        note:
+          "Pre-existing from 74ac92a7/58e651f1 and not introduced or worsened by ee9b228a. Confirmed offline: if a partial chunk commits below settlementMinValue, a subsequent liquidity dip clamps settlementBudget to exact need, and conservative rounding then triggers the abandon revert, rolling back the settling reset leaves isSettling() true until a share-rate shift or UUPS upgrade. Zero fund loss and pre-settled claims remain claimable. Under owner Option A (24 November 2026), ee9b228a remains frozen to preserve the Corrovera delta PASS, queue-keeper keeps normal batch sizing (up to 25 requests per call rather than 1), and bounded open-settlement budget-refresh / abort recovery is deferred to the next scheduled RedemptionQueue upgrade.",
+      },
+      {
+        id: "CORR-REAUDIT-02",
+        severity: "Low",
+        title:
+          "Pre-existing unbounded uint64 epochDuration in setEpochDuration can overflow closeEpoch or set a far-future deadline",
+        disposition: "Deferred",
+        note:
+          "Carried forward from CORR-DELTA-08 (RedemptionQueue.sol:444,452-456). Admin/Timelock-only setter; arithmetic overflow is recoverable via setEpochDuration. Deferred to the next scheduled RedemptionQueue upgrade to enforce MAX_EPOCH_DURATION.",
+      },
+      {
+        id: "CORR-REAUDIT-03",
+        severity: "Low",
+        title:
+          "Pre-existing CuratorModule._markedFirstLoss uses unchecked addition on external book reads and direct lossAbsorber() call",
+        disposition: "Deferred",
+        note:
+          "Pre-existing in CuratorModule.sol:1514-1527. Unreachable on conforming ReserveManager/DefaultManager principals (far below 2^256); requires governance to wire a malformed mock book. Deferred to the next scheduled CuratorModule upgrade for bounded staticcall and saturating addition.",
+      },
+      {
+        id: "CORR-DELTA-06",
+        severity: "Low",
+        title:
+          "Carried-forward RedemptionQueue stopReason-2 abandon guard rolls back an impaired eligible FIFO prefix below floor behind a cooling request",
+        disposition: "Accepted",
+        note:
+          "Retains the 23 November acceptance: deliberate ADR-0022/A1 heartbeat protection on stopReason == 2, with documented keeper prefix-sizing expectation around open settlements followed by cooling requests.",
+      },
+      {
+        id: "CORR-DELTA-07",
+        severity: "Low",
+        title:
+          "Carried-forward reverting ReserveManager.custodyLossUnabsorbed() blocks CuratorModule.setReserveManager replacement",
+        disposition: "Deferred",
+        note:
+          "Pre-existing governance recovery edge case in CuratorModule.sol:775-783,972-986. Timelock retains UUPS upgrade authority; bounded staticcall replacement path deferred to the next CuratorModule upgrade.",
+      },
+    ],
+  },
+  {
+    slug: "2026-11-23-lmv-protocol-delta-corrovera",
+    file: "audits/2026-11-23-lmv-protocol-delta-corrovera.md",
+    title: "Corrovera delta audit of the LMV protocol repair candidate (58e651f1)",
+    eyebrow: "External review",
+    date: "2026-11-23",
+    dateLabel: "23 November 2026",
+    external: true,
+    baseline:
+      "Candidate 58e651f1c20f8c8cd965c622de17a3779293dc85 (tree 4f8ffe527713e2a2e6adf5d4922103f833693197); base 74ac92a7; ETH fork pin 26,398,000; BSC fork pin 133,131,151",
+    scope:
+      "Focused delta audit of the 74ac92a7 to 58e651f1 protocol repair diff across CuratorModule.sol, RedemptionQueue.sol, DefaultManager.sol, DefaultLossLib.sol and associated test/tooling suites, plus read-only observation of hosted CI Run #752. It did not re-audit unchanged files outside the delta closure.",
+    method:
+      "Independent Corrovera verification comprising 317 official offline Foundry tests, 143 pinned Ethereum/BSC fork tests, 8 targeted delta mutations (7 killed, 1 survivor M3), offline and live-fork adversarial PoCs (confirming A1 and A2 on Ethereum block 26,398,000), multi-model review panel, storage-layout checks and hosted CI inspection.",
+    archive: "audit-reports/corrovera-protocol-delta-58e651f1-2026-11-23/",
+    summary:
+      "Verdict: NO-GO. The review blocked release on two High findings (hosted link-binding/origination CI failures and caller-starved gas silently skipping CuratorModule stake-change points hooks), one Medium lookahead defect in RedemptionQueue omitting redeemCooldown checks, one Low surviving mutant (M3), and one Low multi-hop claimClosedRound points-maturity reset. All five (CORR-DELTA-01 through CORR-DELTA-05) were remediated in commit ee9b228a and verified CLOSED in the 24 November re-audit. Four pre-existing Low/Informational items (CORR-DELTA-06 through CORR-DELTA-09) were explicitly accepted or deferred.",
+    findings: [
+      {
+        id: "CORR-DELTA-01",
+        severity: "High",
+        title:
+          "Candidate commit failed hosted deployment-ceremony link-binding gate and origination CI checks",
+        disposition: "Remediated",
+        note:
+          "Extracting drawForSeniorExit into DefaultLossLib increased DefaultManager link references from 3 to 4 while tools/library-link-binding.test.mjs asserted 3; tools/origination/ci-scope.test.mjs also needed FullAuditRepairRegressionFork appended, and CI invariants shard 1 had a hosted runner disconnect. Remediated in ee9b228a and verified CLOSED in the 24 November re-audit and 66/66 green Run #753.",
+      },
+      {
+        id: "CORR-DELTA-02",
+        severity: "High",
+        title:
+          "CuratorModule._callPoints silently failed open on caller-starved gas in withdrawFirstLoss, enabling phantom curator points",
+        disposition: "Remediated",
+        note:
+          "Reproduced offline and on live Ethereum fork block 26,398,000. Remediated in ee9b228a by splitting stake vs. loss hook policy: _notifyPoints now enforces PointsHookGas.hookGasLimit() and PointsHookGas.requireSafeFailure() on stake changes while keeping onCuratorLoss unconditionally fail-open. Verified CLOSED offline and on live fork in the 24 November re-audit.",
+      },
+      {
+        id: "CORR-DELTA-03",
+        severity: "Medium",
+        title:
+          "RedemptionQueue._canReachSettlementFloor omitted redeemCooldown checks, latching open settlements across cooling heads",
+        disposition: "Remediated",
+        note:
+          "Reproduced offline and on live Ethereum fork block 26,398,000. Remediated in ee9b228a by removing the blind previewRedeem(budgetShares) shortcut and enforcing redeemCooldown checks across the bounded lookahead cursor. Verified CLOSED offline and on live fork in the 24 November re-audit.",
+      },
+      {
+        id: "CORR-DELTA-04",
+        severity: "Low",
+        title:
+          "Mutation gap: zero-value later-head guard in RedemptionQueue._canReachSettlementFloor survived unit tests (Mutant M3)",
+        disposition: "Remediated",
+        note:
+          "Remediated in ee9b228a with deterministic regression test_CORR_DELTA_04_zeroValueIntermediateHeadStopsLookaheadAndKillsMutantM3 in QueueRoundTripReachability.t.sol; Mutant M3 verified KILLED in the 24 November re-audit.",
+      },
+      {
+        id: "CORR-DELTA-05",
+        severity: "Low",
+        title:
+          "CuratorModule.claimClosedRound ignored incomplete 32-hop _settleStaleRound completion before notifying points",
+        disposition: "Remediated",
+        note:
+          "Remediated in ee9b228a by gating _notifyPoints on `if (_settleStaleRound(...))` in claimClosedRound so partial multi-hop settlements do not emit a zero posted-balance update. Verified CLOSED and mutant M13 killed in the 24 November re-audit.",
+      },
+      {
+        id: "CORR-DELTA-06",
+        severity: "Low",
+        title:
+          "RedemptionQueue stopReason-2 abandon guard rolls back impaired eligible FIFO prefix below floor behind a cooling request",
+        disposition: "Superseded",
+        note:
+          "Accepted on 23 November as deliberate ADR-0022/A1 heartbeat protection (with CORR-DELTA-03 preventing closeEpoch(1) from latching behind a cooling head). Carried forward into the 24 November 2026 re-audit under CORR-DELTA-06, which holds the active Accepted disposition so the register does not double-count it.",
+      },
+      {
+        id: "CORR-DELTA-07",
+        severity: "Low",
+        title:
+          "Reverting ReserveManager.custodyLossUnabsorbed() blocks CuratorModule.setReserveManager replacement",
+        disposition: "Superseded",
+        note:
+          "Pre-existing governance edge case deferred on 23 November (Timelock retains UUPS upgrade authority). Carried forward into the 24 November 2026 re-audit under CORR-DELTA-07, which holds the active Deferred disposition.",
+      },
+      {
+        id: "CORR-DELTA-08",
+        severity: "Low",
+        title:
+          "Unbounded uint64 epochDuration can overflow closeEpoch or set a far-future deadline",
+        disposition: "Superseded",
+        note:
+          "Pre-existing Timelock/admin parameter deferred on 23 November. Carried forward into the 24 November 2026 re-audit under CORR-REAUDIT-02, which holds the active Deferred disposition.",
+      },
+      {
+        id: "CORR-DELTA-09",
+        severity: "Informational",
+        title:
+          "DefaultLossLib.coverFromBackstop unconditionally delegatecalls CommitmentLedger at zero residual",
+        disposition: "Accepted",
+        note:
+          "Pre-existing; CommitmentLedger is always initialized in mainnet deployments and the revert path terminates cleanly without state corruption. Skipped to leave DefaultLossLib and DefaultManager unchanged.",
+      },
+    ],
+  },
+  {
+    slug: "2026-11-21-lmv-full-system-corrovera",
+    file: "audits/2026-11-21-lmv-full-system-corrovera.md",
+    title: "Corrovera full-system pre-upgrade audit of the LMV release candidate (1a26a72b)",
+    eyebrow: "External review",
+    date: "2026-11-21",
+    dateLabel: "21 November 2026",
+    external: true,
+    baseline:
+      "Audit commit d41427113944533a19dfc81ce0f08d95f3302933; catalog source 1a26a72bd3a181ce4f8055463e83aace477e02a2; preliminary bundle sha256 79a630b4...; ETH block 26,461,456; BSC block 134,837,033",
+    scope:
+      "22-workstream dual-prong review covering all 98 production Ethereum V2 Solidity files in the 1a26a72b LMV release candidate, the Stage 1 preliminary release-monitor bundle, BSC bridge contracts, off-chain keepers, a saved snapshot of the deployed Railway liquidation-bot image, and frontend logic/sync checks. Explicit evidence limits recorded: the automated 7-pass pilot was labelled incomplete after one degraded pass slot and an offline Slither pipeline crash, offline frontend render tests had 6 unbundled optional-import failures, and live Railway environment secrets were not inspected.",
+    method:
+      "Dual-prong Corrovera engagement combining an automated 7-pass engine pilot (38 calls, 11 adjudicated claims) with independent manual/fork verification: 5 independent Foundry fork suites (26 tests), 42 supplied Foundry regressions, 3 isolated mutation controls, 160 Python tooling checks, disposable Postgres 16 integration tests, and off-chain keeper/bot suites. Verified 11 prior remediation targets (including LMV-09 and LMV-18 in candidate code) and challenged 24 reachability hypotheses.",
+    archive: "audit-reports/corrovera-frv-full-audit-2026-11-21/",
+    summary:
+      "Verdict: CONDITIONAL_GO_WITH_OPERATIONAL_AND_LOW_MEDIUM_FIXES. Zero Critical and zero High findings across all 22 workstreams. Confirmed two Medium findings — double points-hook gas exhaustion under the 16.78M transaction gas cap (FRV-NEW-01) and production Railway liquidation-bot rollout lag missing HV-01 and JO-08 fixes (FRV-NEW-02) — plus five Low contract findings (FRV-NEW-03 through FRV-NEW-07) and nine carried-forward prior/accepted items. All six contract findings (FRV-NEW-01 and FRV-NEW-03 through FRV-NEW-07) were remediated in successor candidate commits 74ac92a7 and ee9b228a (pending Stage 2 governance activation); FRV-NEW-02 remains Open pending live liquidation-bot rollout and runtime verification.",
+    findings: [
+      {
+        id: "FRV-NEW-01",
+        severity: "Medium",
+        title:
+          "Double points-hook token paths (VAULT.deposit and QUEUE.closeEpoch) failed closed under the 16,777,216 tx gas cap if a replaced hook exhausted gas",
+        disposition: "Remediated",
+        note:
+          "Required governance/Timelock replacement of PointsModule with a gas-burning hook (not reachable on the healthy PointsModule). Remediated in candidate commits 74ac92a7 and ee9b228a by bounding per-hook gas forwarding and accounting conservatively for EIP-150 63/64 forwarding and downstream hooks; verified in subsequent delta audits. Activates on-chain when Stage 2 governance executes.",
+      },
+      {
+        id: "FRV-NEW-02",
+        severity: "Medium",
+        title:
+          "Deployed Railway liquidation-bot image (2026-11-05) lacks HV-01 coldReliefGasOverride() and JO-08 per-marked-leg gas scaling",
+        disposition: "Open",
+        note:
+          "Confirmed by byte-level diff between candidate src-core/liquidation-bot (576 tests) and the deployed 2026-11-05 Railway image snapshot (572 tests): the live image omits coldReliefGasOverride() on gas estimation and uses a flat 1.4M gas-per-mark prefunding warning rather than 2.3M + 25k per marked leg. Remains Open pending controlled rollout of the reviewed liquidation-bot image and live runtime/image verification before Stage 2 release clearance.",
+      },
+      {
+        id: "FRV-NEW-03",
+        severity: "Low",
+        title:
+          "RedemptionQueue.closeEpoch emitted SettlementWithheld under the prior filled requestId when the next head quoted zero assets",
+        disposition: "Remediated",
+        note:
+          "No asset loss; event attribution defect only. Remediated in candidate commits 74ac92a7 and ee9b228a by tracking the exact withheld requestId in PricingBatch. Activates on-chain when Stage 2 governance executes.",
+      },
+      {
+        id: "FRV-NEW-04",
+        severity: "Low",
+        title:
+          "RedemptionQueue chunk-2 could enter a Queue_NoLiquidity wedge after a sub-floor partial chunk if liquidity dropped",
+        disposition: "Remediated",
+        note:
+          "Remediated in candidate commits 74ac92a7 and ee9b228a (paired with CORR-DELTA-03 cooldown lookahead fix). A narrower pre-existing budget min-ratchet subcase identified in re-audit is tracked separately as CORR-REAUDIT-01 (Deferred). Activates on-chain when Stage 2 governance executes.",
+      },
+      {
+        id: "FRV-NEW-05",
+        severity: "Low",
+        title:
+          "Partial dormant PIK repayment via ReserveAccrualLifecycleLib.repay advanced internal nextCapitalization without syncing ClaimBridge.nextPaymentDue",
+        disposition: "Remediated",
+        note:
+          "Remediated in candidate commits 74ac92a7 and ee9b228a by syncing IAccrualBridge.setAccruedPaymentDue inside repay when nextDue advances. Activates on-chain when Stage 2 governance executes.",
+      },
+      {
+        id: "FRV-NEW-06",
+        severity: "Low",
+        title:
+          "PointsHookGas.requireSafeFailure reconstructed pre-call gas without accounting for EIP-150 63/64 forwarding reduction",
+        disposition: "Remediated",
+        note:
+          "Discovered by the Corrovera 7-pass pilot and confirmed in source. Remediated alongside FRV-NEW-01 in candidate commits 74ac92a7 and ee9b228a using conservative forwarded-gas bounds. Activates on-chain when Stage 2 governance executes.",
+      },
+      {
+        id: "FRV-NEW-07",
+        severity: "Low",
+        title:
+          "RedemptionQueue._safeBatchFill rejected an affordable full-head completion when nominal remainingBudgetShares quoted zero",
+        disposition: "Remediated",
+        note:
+          "Discovered by the Corrovera 7-pass pilot and confirmed in source. Remediated in candidate commits 74ac92a7 and ee9b228a so completedAggregate affordability governs full-head completion. Activates on-chain when Stage 2 governance executes.",
+      },
+    ],
+  },
+  {
     slug: "2026-09-20-curator-vault-corrovera",
     file: "audits/2026-09-20-curator-vault-corrovera.md",
     title: "Corrovera review of the Solana curator vault",
