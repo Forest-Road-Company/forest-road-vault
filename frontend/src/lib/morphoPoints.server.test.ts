@@ -30,6 +30,7 @@ import {
   MorphoPointsIntegrityError,
   MorphoPointsNotReadyError,
   POINTS_MODULE_IMPLEMENTATION,
+  STAGE2_POINTS_MODULE_IMPLEMENTATION,
   REQUEST_BUDGET_MS,
   resetMorphoPointsCache,
   ZERO_HELD_GRID_CHUNKS,
@@ -166,6 +167,9 @@ class FakeChain {
   positionGate: ((owner: string) => Promise<void>) | null = null;
   /** A provider that silently returns at most this many logs per eth_getLogs answer. */
   resultCap: number | null = null;
+  /** Optional override for eth_getBlockReceipts (null simulates a broken/short receipts answer). */
+  blockReceiptsOverride: ((block: bigint) => unknown) | null = null;
+  getBlockReceiptsCalls = 0;
   getLogsCalls = 0;
   readonly getLogsByAddress = new Map<string, number>();
 
@@ -277,9 +281,19 @@ class FakeChain {
           return this.read({...c, blockNumber: args.blockNumber});
         });
       },
-      request: async (args: {method: string; params: [{address: Address; topics: (Hex | Hex[] | null)[]; fromBlock: Hex; toBlock: Hex}]}) => {
-        if (args.method !== "eth_getLogs") throw new Error(`fake chain: unexpected ${args.method}`);
-        return this.logs(args.params[0]);
+      request: async (args: {method: string; params: unknown[]}) => {
+        if (args.method === "eth_getLogs") {
+          return this.logs(args.params[0] as {address: Address; topics: (Hex | Hex[] | null)[]; fromBlock: Hex; toBlock: Hex});
+        }
+        if (args.method === "eth_getBlockReceipts") {
+          this.getBlockReceiptsCalls++;
+          const block = BigInt(args.params[0] as Hex);
+          if (this.blockReceiptsOverride) return this.blockReceiptsOverride(block);
+          const all: RawLog[] = [...this.changes.map(collateralLog), ...this.epochs.map((e, i) => epochLog(BigInt(i), e.block, e.rate))];
+          const logs = all.filter((log) => BigInt(log.blockNumber) === block && !this.hiddenLogs.has(`${block}:${BigInt(log.logIndex)}`));
+          return [{logs}];
+        }
+        throw new Error(`fake chain: unexpected ${args.method}`);
       },
     };
     return client as unknown as PublicClient;
@@ -497,7 +511,7 @@ describe("history that nets back to the same end balance (MORPHO-12)", () => {
     expect(BigInt(served.points)).toBe(expectedPoints(ALICE, chain.finalized));
   });
 
-  it("fails closed when one block alone reaches the result limit", async () => {
+  it("falls back to eth_getBlockReceipts when one block alone reaches the result limit (H2)", async () => {
     chain.changes = Array.from({length: LOG_RESULT_LIMIT}, (_, i) => ({
       block: FROM + 5n,
       logIndex: i,
@@ -505,7 +519,34 @@ describe("history that nets back to the same end balance (MORPHO-12)", () => {
       owner: ALICE,
       assets: SHARE,
     }));
-    await expect(loadMorphoCollateralPoints(ALICE, deps())).rejects.toThrow(/too many logs/);
+    const served = credited(await loadMorphoCollateralPoints(ALICE, deps()));
+    expect(chain.getBlockReceiptsCalls).toBe(1);
+    expect(served.collateral).toBe((BigInt(LOG_RESULT_LIMIT) * SHARE).toString());
+    expect(BigInt(served.points)).toBe(expectedPoints(ALICE, chain.finalized));
+  });
+
+  it("fails closed when eth_getBlockReceipts returns fewer logs than the capped eth_getLogs answer", async () => {
+    chain.changes = Array.from({length: LOG_RESULT_LIMIT}, (_, i) => ({
+      block: FROM + 5n,
+      logIndex: i,
+      kind: "supply" as const,
+      owner: ALICE,
+      assets: SHARE,
+    }));
+    chain.blockReceiptsOverride = () => [{logs: []}];
+    await expect(loadMorphoCollateralPoints(ALICE, deps())).rejects.toThrow(/fewer logs/);
+  });
+
+  it("caches and coalesces per-wallet answers when wallet cache is enabled", async () => {
+    const [first, second] = await Promise.all([
+      loadMorphoCollateralPoints(ALICE, deps(), undefined, {useWalletCache: true}),
+      loadMorphoCollateralPoints(ALICE, deps(), undefined, {useWalletCache: true}),
+    ]);
+    expect(first).toEqual(second);
+    const callsAfterFirst = chain.getLogsCalls;
+    const cached = await loadMorphoCollateralPoints(ALICE, deps(), undefined, {useWalletCache: true});
+    expect(cached).toEqual(first);
+    expect(chain.getLogsCalls).toBe(callsAfterFirst);
   });
 });
 
@@ -605,6 +646,10 @@ describe("loadMorphoCollateralPoints refuses history it cannot trust", () => {
   it("an upgraded PointsModule, or a vault wired to another one", async () => {
     chain.implementation = "0x0000000000000000000000000000000000001234";
     await rejects(/implementation changed/);
+    resetMorphoPointsCache();
+    // Reviewed Stage 2 implementation (audited commit ee9b228a) is accepted seamlessly.
+    chain.implementation = STAGE2_POINTS_MODULE_IMPLEMENTATION;
+    expect(await loadMorphoCollateralPoints(ALICE, deps())).toMatchObject({collateral: (800n * SHARE).toString()});
     resetMorphoPointsCache();
     chain.implementation = POINTS_MODULE_IMPLEMENTATION;
     chain.vaultPointsModule = "0x0000000000000000000000000000000000001234";

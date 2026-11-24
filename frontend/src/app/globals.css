@@ -1749,8 +1749,6 @@ table,
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
-  display: block;
-  overflow-x: auto;
 }
 .doc-prose th,
 .doc-prose td {

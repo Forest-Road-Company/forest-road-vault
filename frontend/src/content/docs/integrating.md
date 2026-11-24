@@ -42,35 +42,32 @@ PIK in NAV while its on-chain principal does not change until the scheduled boun
 Quotes should be read at one block and should not be cached across a lifecycle transaction,
 default declaration or keeper checkpoint.
 
-## Every balance change requires 500,000 gas *available*
+## Every balance change carries a fail-closed points hook (`PointsHookGas`)
 
-`USDfr` and `sUSDfr` both run a participation-points hook inside `_update`. Before calling it, the
-token requires `gasleft() >= 500,000` and reverts with `PointsHook_InsufficientGas` otherwise. This
-applies to **every** mint, burn and plain ERC-20 transfer.
+`USDfr` and `sUSDfr` both run a participation-points hook inside `_update`. Governance proposal
+FRV-007 (executed 30 September 2026) replaced the earlier fixed 500,000-gas floor with
+`PointsHookGas`:
 
-This is a deliberate control: without a floor, a caller could supply just enough gas to commit the
-transfer while starving the hook's accounting, so the requirement fails closed against
-caller-selected underfunding.
+- **Epilogue reserve (`30,000` gas):** the token reserves `30,000` gas for its own post-hook
+  epilogue and forwards the remaining budget (subject to EIP-150's 63/64 rule) to `PointsModule`.
+  If less than `30,000` gas remains when entering the hook, the transfer reverts with
+  `PointsHook_InsufficientGas`.
+- **Empty-failure classifier (`2,000,000` gas):** if the points hook fails with empty return data
+  (out-of-gas), the token classifies the failure as caller gas starvation and reverts with
+  `PointsHook_InsufficientGas` whenever the forwarded budget was below `2,000,000` gas. Genuine
+  typed reverts from `PointsModule`—or empty failures with at least `2,000,000` gas forwarded—emit
+  `PointsHookFailed` and allow the transfer to complete so a degraded points module cannot freeze
+  ERC-20 transfers.
 
-The practical consequence, which is easy to miss:
+The practical consequence for integrators:
 
-- **Ordinary wallets are fine.** `eth_estimateGas` binary-searches for a limit at which the call
-  *succeeds*, so it naturally returns one that clears the floor.
-- **You will break if you size gas from observed consumption.** A transfer consumes far less than
-  500,000; provisioning from a measured or simulated figure and applying a percentage buffer will
-  under-provision and revert. This is not proportional to the transfer's cost: the floor is an
-  absolute constant, so the cheaper your call, the larger the multiple you need.
-- **Bounded gas stipends will fail.** Any pattern that forwards a fixed sub-500,000 stipend to a
-  transfer cannot succeed.
-- **Multi-hop routes need headroom.** A route that touches these tokens needs 500,000 spare at that
-  hop, on top of everything else in the transaction.
-
-If you hardcode a gas limit anywhere near these tokens, set it from the floor, not from consumption.
-
-Governance proposal FRV-007 has received the Treasury's For vote and remains in voting until
-10:20:11 UTC on 28 September 2026. If it passes, it must then be queued and wait a separate two-day
-Timelock before upgrading both tokens. Until it executes, the floor applies; this section will
-change after the live proxy implementations change.
+- **Ordinary wallets and standard routers are fine.** `eth_estimateGas` sizes gas to clear the
+  points hook normally (no fixed 500,000-gas overhead on simple transfers).
+- **Tight fixed stipends can still revert.** Any wrapper that caps subcall gas tightly enough to
+  starve `PointsModule` will revert with `PointsHook_InsufficientGas` instead of silently dropping
+  points accounting.
+- **Multi-hop routes should pass full available gas** rather than hardcoded small stipends on
+  `USDfr` or `sUSDfr` hops.
 
 ## Transfers are permissionless but jurisdiction-screened
 
@@ -102,7 +99,7 @@ deviation rather than a documented design choice.
 It is reachable only in a degraded state: the protocol provides
 `clearUnreadableImpairmentSource()` to recover, but if you price off `convertToAssets()`, handle
 the revert rather than assuming a number. In particular, an adapter that derives an exchange rate
-from `convertToAssets(1e18)` will propagate the failure to everything downstream of it.
+from `convertToAssets(1e24)` (one full 24-decimal share) will propagate the failure to everything downstream of it.
 
 `totalAssets()` and `totalSupply()` do **not** touch that path and cannot revert for this reason.
 

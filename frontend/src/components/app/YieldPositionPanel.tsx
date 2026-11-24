@@ -13,7 +13,6 @@ import {
   SHARE_DECIMALS,
   VAULT_ABI,
   VAULT_HISTORY_ABI,
-  WATERFALL_HISTORY_ABI,
 } from "@/lib/abi";
 import {fmtAmount} from "@/lib/format";
 import {
@@ -22,58 +21,48 @@ import {
   nextUnreadBlockRange,
   readBlockRangeChunked,
 } from "@/lib/logs";
-import {formatBps, remainingDirectDepositBasis} from "@/lib/yield";
+import {parseTransparencyHistoryResponse} from "@/lib/transparencyHistory";
+import {
+  applyShareBasisEvents,
+  formatBps,
+  INITIAL_SHARE_BASIS_STATE,
+  walletDirectDepositBasis,
+  type ShareBasisEvent,
+  type ShareBasisState,
+} from "@/lib/yield";
 import {useBookEconomics} from "@/components/app/useBookEconomics";
 import {ACCOUNT_POLL} from "@/lib/polling";
 
-type History = {
-  recordedIncome: bigint;
-  observedSeconds: bigint;
-  directDepositAssets: bigint;
-  directDepositShares: bigint;
-  hasExternalShareTransfer: boolean;
-};
+type ProtocolHistoryState =
+  | {phase: "loading"}
+  | {phase: "ready"; recordedIncome: bigint; observedSeconds: bigint}
+  | {phase: "error"};
 
-type HistoryDelta = Omit<History, "observedSeconds">;
-
-type HistoryCursor = HistoryDelta & {
-  startTimestamp: bigint;
-  lastTimestamp: bigint;
+type WalletHistoryCursor = {
+  basisState: ShareBasisState;
   lastScannedBlock: bigint;
 };
 
-type HistoryState =
+type WalletHistoryState =
+  | {phase: "idle"}
   | {phase: "loading"}
-  | {phase: "ready"; value: History}
+  | {phase: "ready"; value: ShareBasisState}
   | {phase: "error"};
 
 const POLL = ACCOUNT_POLL;
-
-function cursorValue(cursor: HistoryCursor): History {
-  return {
-    recordedIncome: cursor.recordedIncome,
-    observedSeconds:
-      cursor.lastTimestamp > cursor.startTimestamp
-        ? cursor.lastTimestamp - cursor.startTimestamp
-        : 0n,
-    directDepositAssets: cursor.directDepositAssets,
-    directDepositShares: cursor.directDepositShares,
-    hasExternalShareTransfer: cursor.hasExternalShareTransfer,
-  };
-}
 
 export function YieldPositionPanel() {
   const {address} = useAccount();
   const publicClient = usePublicClient();
   const {data: blockNumber} = useBlockNumber({query: POLL});
-  const [history, setHistory] = useState<HistoryState>({phase: "loading"});
-  const historyCursor = useRef<HistoryCursor | null>(null);
+  const [protocolHistory, setProtocolHistory] = useState<ProtocolHistoryState>({phase: "loading"});
+  const [walletHistory, setWalletHistory] = useState<WalletHistoryState>({phase: "idle"});
+  const historyCursor = useRef<WalletHistoryCursor | null>(null);
   const historyGeneration = useRef(0);
   const pendingHistoryBlock = useRef<bigint | null>(null);
   const incrementalHistoryInFlight = useRef(false);
   const {projectedSeniorIncome, protocolFeeBps} = useBookEconomics();
   const vault = CONTRACTS.sUSDfr;
-  const waterfall = CONTRACTS.WaterfallEngine;
 
   const {data} = useReadContracts({
     query: POLL,
@@ -126,89 +115,164 @@ export function YieldPositionPanel() {
   });
   const walletExitAssets = positionAssets?.[0]?.result as bigint | undefined;
 
-  const readHistoryDelta = useCallback(
-    async (fromBlock: bigint, toBlock: bigint): Promise<HistoryDelta> => {
-      if (!publicClient || !vault || !waterfall) {
-        throw new Error("History reader is unavailable.");
+  // Protocol-wide cumulative senior income comes from the CDN/server-cached
+  // `/api/transparency/history` route instead of scanning deployment-to-tip WaterfallEngine
+  // logs in every visitor's browser.
+  useEffect(() => {
+    if (!publicClient) return;
+    const client = publicClient;
+    const controller = new AbortController();
+
+    async function loadProtocolHistory() {
+      try {
+        const response = await fetch("/api/transparency/history", {
+          headers: {accept: "application/json"},
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`history endpoint returned ${response.status}`);
+        const parsed = parseTransparencyHistoryResponse(await response.json());
+        if (controller.signal.aborted) return;
+        const [startBlock, endBlock] = await Promise.all([
+          client.getBlock({blockNumber: PROTOCOL_DEPLOYMENT_BLOCK}),
+          client.getBlock({blockNumber: parsed.asOfBlock}),
+        ]);
+        if (controller.signal.aborted) return;
+        const observedSeconds =
+          endBlock.timestamp > startBlock.timestamp ? endBlock.timestamp - startBlock.timestamp : 0n;
+        setProtocolHistory({
+          phase: "ready",
+          recordedIncome: parsed.seniorIncome ?? 0n,
+          observedSeconds,
+        });
+      } catch {
+        if (controller.signal.aborted) return;
+        setProtocolHistory((prev) => (prev.phase === "ready" ? prev : {phase: "error"}));
+      }
+    }
+
+    void loadProtocolHistory();
+    return () => {
+      controller.abort();
+    };
+  }, [blockNumber, publicClient]);
+
+  const readWalletBasisEvents = useCallback(
+    async (fromBlock: bigint, toBlock: bigint): Promise<ShareBasisEvent[]> => {
+      if (!publicClient || !vault || !address) {
+        throw new Error("Wallet history reader is unavailable.");
       }
       const vaultCommon = {
         address: vault,
         abi: VAULT_HISTORY_ABI,
       } as const;
-      const [incomeLogs, depositLogs, incomingLogs] = await Promise.all([
+      const [depositLogs, incomingLogs, outgoingLogs] = await Promise.all([
         readBlockRangeChunked(
           fromBlock,
           toBlock,
           (chunkFrom, chunkTo) =>
             publicClient.getContractEvents({
-              address: waterfall,
-              abi: WATERFALL_HISTORY_ABI,
-              eventName: "Distributed",
+              ...vaultCommon,
+              eventName: "Deposit",
+              args: {owner: address},
               fromBlock: chunkFrom,
               toBlock: chunkTo,
             }),
           DEFAULT_BLOCK_CHUNK,
           BROWSER_HISTORY_CONCURRENCY,
         ),
-        address
-          ? readBlockRangeChunked(
-              fromBlock,
-              toBlock,
-              (chunkFrom, chunkTo) =>
-                publicClient.getContractEvents({
-                  ...vaultCommon,
-                  eventName: "Deposit",
-                  args: {owner: address},
-                  fromBlock: chunkFrom,
-                  toBlock: chunkTo,
-                }),
-              DEFAULT_BLOCK_CHUNK,
-              BROWSER_HISTORY_CONCURRENCY,
-            )
-          : Promise.resolve([]),
-        address
-          ? readBlockRangeChunked(
-              fromBlock,
-              toBlock,
-              (chunkFrom, chunkTo) =>
-                publicClient.getContractEvents({
-                  ...vaultCommon,
-                  eventName: "Transfer",
-                  args: {to: address},
-                  fromBlock: chunkFrom,
-                  toBlock: chunkTo,
-                }),
-              DEFAULT_BLOCK_CHUNK,
-              BROWSER_HISTORY_CONCURRENCY,
-            )
-          : Promise.resolve([]),
+        readBlockRangeChunked(
+          fromBlock,
+          toBlock,
+          (chunkFrom, chunkTo) =>
+            publicClient.getContractEvents({
+              ...vaultCommon,
+              eventName: "Transfer",
+              args: {to: address},
+              fromBlock: chunkFrom,
+              toBlock: chunkTo,
+            }),
+          DEFAULT_BLOCK_CHUNK,
+          BROWSER_HISTORY_CONCURRENCY,
+        ),
+        readBlockRangeChunked(
+          fromBlock,
+          toBlock,
+          (chunkFrom, chunkTo) =>
+            publicClient.getContractEvents({
+              ...vaultCommon,
+              eventName: "Transfer",
+              args: {from: address},
+              fromBlock: chunkFrom,
+              toBlock: chunkTo,
+            }),
+          DEFAULT_BLOCK_CHUNK,
+          BROWSER_HISTORY_CONCURRENCY,
+        ),
       ]);
 
-      return {
-        recordedIncome: incomeLogs.reduce(
-          (sum, log) => sum + (log.args.toVault ?? 0n),
-          0n,
-        ),
-        directDepositAssets: depositLogs.reduce(
-          (sum, log) => sum + (log.args.assets ?? 0n),
-          0n,
-        ),
-        directDepositShares: depositLogs.reduce(
-          (sum, log) => sum + (log.args.shares ?? 0n),
-          0n,
-        ),
-        hasExternalShareTransfer: incomingLogs.some(
-          (log) =>
-            (log.args.from as Address | undefined)?.toLowerCase() !==
-            zeroAddress.toLowerCase(),
-        ),
-      };
+      const events: ShareBasisEvent[] = [];
+      // Count minted shares paired with a Deposit in each transaction so unmatched zero-address
+      // mints (e.g. fee shares minted directly without Deposit) are treated as external transfers.
+      const depositMintCounts = new Map<string, number>();
+      for (const log of depositLogs) {
+        if (log.blockNumber === null || log.logIndex === null) continue;
+        const assets = log.args.assets ?? 0n;
+        const shares = log.args.shares ?? 0n;
+        events.push({
+          kind: "deposit",
+          blockNumber: log.blockNumber,
+          logIndex: log.logIndex,
+          assets,
+          shares,
+        });
+        const key = `${log.transactionHash ?? ""}:${shares.toString()}`;
+        depositMintCounts.set(key, (depositMintCounts.get(key) ?? 0) + 1);
+      }
+
+      const ownerLower = address.toLowerCase();
+      const zeroLower = zeroAddress.toLowerCase();
+      for (const log of incomingLogs) {
+        if (log.blockNumber === null || log.logIndex === null) continue;
+        const from = (log.args.from as Address | undefined)?.toLowerCase();
+        const to = (log.args.to as Address | undefined)?.toLowerCase();
+        const shares = log.args.value ?? 0n;
+        if (!from || from === to) continue; // ignore self-transfers
+        if (from === zeroLower) {
+          const key = `${log.transactionHash ?? ""}:${shares.toString()}`;
+          const remaining = depositMintCounts.get(key) ?? 0;
+          if (remaining > 0) {
+            depositMintCounts.set(key, remaining - 1);
+            continue;
+          }
+        }
+        events.push({
+          kind: "transfer_in",
+          blockNumber: log.blockNumber,
+          logIndex: log.logIndex,
+          shares,
+        });
+      }
+
+      for (const log of outgoingLogs) {
+        if (log.blockNumber === null || log.logIndex === null) continue;
+        const to = (log.args.to as Address | undefined)?.toLowerCase();
+        const shares = log.args.value ?? 0n;
+        if (to === ownerLower) continue; // ignore self-transfers
+        events.push({
+          kind: "transfer_out",
+          blockNumber: log.blockNumber,
+          logIndex: log.logIndex,
+          shares,
+        });
+      }
+
+      return events;
     },
-    [address, publicClient, vault, waterfall],
+    [address, publicClient, vault],
   );
 
-  // The expensive deployment-to-tip sweep runs only when the wallet/client context
-  // changes. Minute polling below advances this cursor over unseen blocks only.
+  // The deployment-to-tip sweep runs only for a connected wallet when the wallet/client context
+  // changes. Polling below advances this cursor over unseen blocks only.
   useEffect(() => {
     const generation = ++historyGeneration.current;
     historyCursor.current = null;
@@ -216,36 +280,35 @@ export function YieldPositionPanel() {
     incrementalHistoryInFlight.current = false;
 
     async function loadInitialHistory() {
-      if (!publicClient || !vault || !waterfall) return;
-      setHistory({phase: "loading"});
+      if (!address) {
+        setWalletHistory({phase: "idle"});
+        return;
+      }
+      if (!publicClient || !vault) return;
+      setWalletHistory({phase: "loading"});
       try {
         const latestBlockNumber = await publicClient.getBlockNumber();
         if (latestBlockNumber < PROTOCOL_DEPLOYMENT_BLOCK) {
           if (generation === historyGeneration.current) {
-            setHistory({phase: "error"});
+            setWalletHistory({phase: "error"});
           }
           return;
         }
 
-        const [startBlock, endBlock, delta] = await Promise.all([
-          publicClient.getBlock({blockNumber: PROTOCOL_DEPLOYMENT_BLOCK}),
-          publicClient.getBlock({blockNumber: latestBlockNumber}),
-          readHistoryDelta(PROTOCOL_DEPLOYMENT_BLOCK, latestBlockNumber),
-        ]);
+        const events = await readWalletBasisEvents(PROTOCOL_DEPLOYMENT_BLOCK, latestBlockNumber);
         if (generation !== historyGeneration.current) return;
 
-        const cursor: HistoryCursor = {
-          ...delta,
-          startTimestamp: startBlock.timestamp,
-          lastTimestamp: endBlock.timestamp,
+        const basisState = applyShareBasisEvents(INITIAL_SHARE_BASIS_STATE, events);
+        const cursor: WalletHistoryCursor = {
+          basisState,
           lastScannedBlock: latestBlockNumber,
         };
         historyCursor.current = cursor;
         pendingHistoryBlock.current = latestBlockNumber;
-        setHistory({phase: "ready", value: cursorValue(cursor)});
+        setWalletHistory({phase: "ready", value: basisState});
       } catch {
         if (generation === historyGeneration.current) {
-          setHistory({phase: "error"});
+          setWalletHistory({phase: "error"});
         }
       }
     }
@@ -256,10 +319,10 @@ export function YieldPositionPanel() {
         historyGeneration.current += 1;
       }
     };
-  }, [publicClient, readHistoryDelta, vault, waterfall]);
+  }, [address, publicClient, readWalletBasisEvents, vault]);
 
   useEffect(() => {
-    if (!publicClient || !vault || !waterfall || blockNumber === undefined) return;
+    if (!publicClient || !vault || !address || blockNumber === undefined) return;
     if (
       pendingHistoryBlock.current === null ||
       blockNumber > pendingHistoryBlock.current
@@ -268,7 +331,6 @@ export function YieldPositionPanel() {
     }
     if (!historyCursor.current || incrementalHistoryInFlight.current) return;
 
-    const client = publicClient;
     const generation = historyGeneration.current;
     incrementalHistoryInFlight.current = true;
 
@@ -280,10 +342,7 @@ export function YieldPositionPanel() {
           if (!cursor || latestBlock === null) return;
           const range = nextUnreadBlockRange(cursor.lastScannedBlock, latestBlock);
           if (!range) return;
-          const [endBlock, delta] = await Promise.all([
-            client.getBlock({blockNumber: range.toBlock}),
-            readHistoryDelta(range.fromBlock, range.toBlock),
-          ]);
+          const events = await readWalletBasisEvents(range.fromBlock, range.toBlock);
           if (
             generation !== historyGeneration.current ||
             historyCursor.current !== cursor
@@ -291,25 +350,16 @@ export function YieldPositionPanel() {
             return;
           }
 
-          const next: HistoryCursor = {
-            recordedIncome: cursor.recordedIncome + delta.recordedIncome,
-            directDepositAssets:
-              cursor.directDepositAssets + delta.directDepositAssets,
-            directDepositShares:
-              cursor.directDepositShares + delta.directDepositShares,
-            hasExternalShareTransfer:
-              cursor.hasExternalShareTransfer || delta.hasExternalShareTransfer,
-            startTimestamp: cursor.startTimestamp,
-            lastTimestamp: endBlock.timestamp,
+          const nextState = applyShareBasisEvents(cursor.basisState, events);
+          const next: WalletHistoryCursor = {
+            basisState: nextState,
             lastScannedBlock: range.toBlock,
           };
           historyCursor.current = next;
-          setHistory({phase: "ready", value: cursorValue(next)});
+          setWalletHistory({phase: "ready", value: nextState});
         }
       } catch {
-        if (generation === historyGeneration.current) {
-          setHistory({phase: "error"});
-        }
+        // Keep last-good wallet basis state across transient incremental poll failures.
       } finally {
         if (generation === historyGeneration.current) {
           incrementalHistoryInFlight.current = false;
@@ -318,19 +368,13 @@ export function YieldPositionPanel() {
     }
 
     void advanceHistory();
-  }, [blockNumber, publicClient, readHistoryDelta, vault, waterfall]);
+  }, [address, blockNumber, publicClient, readWalletBasisEvents, vault]);
 
   const metrics = useMemo(() => {
     const basis =
-      history.phase !== "ready" ||
-      history.value.hasExternalShareTransfer ||
-      positionShares === undefined
+      walletHistory.phase !== "ready" || positionShares === undefined
         ? null
-        : remainingDirectDepositBasis(
-            history.value.directDepositAssets,
-            history.value.directDepositShares,
-            positionShares,
-          );
+        : walletDirectDepositBasis(walletHistory.value, positionShares);
     return {
       basis,
       positionPnl:
@@ -352,17 +396,17 @@ export function YieldPositionPanel() {
     };
   }, [
     address,
-    history,
     outstandingAssets,
     outstandingShares,
     positionShares,
     projectedSeniorIncome,
     walletExitAssets,
+    walletHistory,
   ]);
 
   const observedDays =
-    history.phase === "ready"
-      ? Number(history.value.observedSeconds) / 86_400
+    protocolHistory.phase === "ready"
+      ? Number(protocolHistory.observedSeconds) / 86_400
       : null;
 
   return (
@@ -414,8 +458,8 @@ export function YieldPositionPanel() {
             <DarkMetric
               label="Historical income"
               value={
-                history.phase === "ready"
-                  ? `${fmtAmount(history.value.recordedIncome, 18, 4)} USDfr`
+                protocolHistory.phase === "ready"
+                  ? `${fmtAmount(protocolHistory.recordedIncome, 18, 4)} USDfr`
                   : "–"
               }
               note="after interest fee; before vault fees"
@@ -502,24 +546,28 @@ export function YieldPositionPanel() {
                 <DarkMetric
                   label="Historical position gain"
                   value={
-                    metrics?.positionPnl !== null &&
-                    metrics?.positionPnl !== undefined
-                      ? `${metrics.positionPnl < 0n ? "−" : "+"}${fmtAmount(
-                          metrics.positionPnl < 0n
-                            ? -metrics.positionPnl
-                            : metrics.positionPnl,
-                          18,
-                          4,
-                        )} USDfr`
-                      : "Unavailable"
+                    walletHistory.phase === "loading"
+                      ? "Loading…"
+                      : metrics?.positionPnl !== null &&
+                          metrics?.positionPnl !== undefined
+                        ? `${metrics.positionPnl < 0n ? "−" : "+"}${fmtAmount(
+                            metrics.positionPnl < 0n
+                              ? -metrics.positionPnl
+                              : metrics.positionPnl,
+                            18,
+                            4,
+                          )} USDfr`
+                        : "Unavailable"
                   }
                   note={
-                    history.phase === "ready" &&
-                    history.value.hasExternalShareTransfer
-                      ? "incoming shares have no on-chain cost basis"
-                      : SUPPORTS_VAULT_FEE_ACCOUNTING
-                        ? "fee-net exit value vs direct-deposit basis"
-                        : "legacy exit value vs direct-deposit basis"
+                    walletHistory.phase === "loading"
+                      ? "reading direct-deposit history"
+                      : walletHistory.phase === "ready" &&
+                          walletHistory.value.hasExternalShareTransfer
+                        ? "incoming shares have no on-chain cost basis"
+                        : SUPPORTS_VAULT_FEE_ACCOUNTING
+                          ? "fee-net exit value vs direct-deposit basis"
+                          : "legacy exit value vs direct-deposit basis"
                   }
                 />
                 <DarkMetric
@@ -577,7 +625,7 @@ export function YieldPositionPanel() {
           )}
         </div>
       </div>
-      {history.phase === "error" ? (
+      {protocolHistory.phase === "error" || walletHistory.phase === "error" ? (
         <p className="border-t border-warn/30 bg-warn/10 px-7 py-3 text-[13px] text-on-navy/65">
           Historical event reads are unavailable from the configured RPC. Historical income,
           realized yield, and direct-deposit gain are unavailable; projected position income

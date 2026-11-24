@@ -13,6 +13,7 @@ const request = (secret = SECRET) => new Request(
 
 beforeEach(() => {
   process.env.CRON_SECRET = SECRET;
+  process.env.BLOB_READ_WRITE_TOKEN = "test-blob-token";
   blob.del.mockReset().mockResolvedValue(undefined);
   blob.list.mockReset().mockResolvedValue({
     blobs: [],
@@ -23,12 +24,20 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.CRON_SECRET;
+  delete process.env.BLOB_READ_WRITE_TOKEN;
 });
 
 describe("curator admission-gate cleanup", () => {
-  it("requires the Vercel cron bearer secret", async () => {
-    expect((await GET(request("wrong"))).status).toBe(401);
+  it("requires the Vercel cron bearer secret and sets no-store on failures", async () => {
+    const unauthorized = await GET(request("wrong"));
+    expect(unauthorized.status).toBe(401);
+    expect(unauthorized.headers.get("cache-control")).toBe("no-store");
     expect(blob.list).not.toHaveBeenCalled();
+
+    delete process.env.BLOB_READ_WRITE_TOKEN;
+    const unconfigured = await GET(request());
+    expect(unconfigured.status).toBe(503);
+    expect(unconfigured.headers.get("cache-control")).toBe("no-store");
   });
 
   it("deletes only expired rate gates and follows pagination", async () => {

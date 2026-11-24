@@ -132,6 +132,8 @@ export function MintForm({
           <span className="text-ink-muted">
             {fmtAmount(balance, STABLE_DECIMALS)} {STABLE_SYMBOL}
           </span>
+        ) : address ? (
+          <span>unavailable</span>
         ) : (
           <span>wallet not connected</span>
         )}

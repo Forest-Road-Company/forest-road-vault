@@ -24,6 +24,7 @@ export async function generateMetadata({
     title: `${v.name} | Forest Road Vault`,
     description: v.financed,
     socialTitle: `${v.name} sector | Forest Road Vault`,
+    path: `/sectors/${slug}`,
   });
 }
 

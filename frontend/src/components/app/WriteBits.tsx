@@ -13,10 +13,10 @@ export const EXPLORER_TX = EXPLORER_BASE_URL
 
 /** Phase-accurate busy label: the button must never say "Confirm in wallet…"
  *  while the status line says the tx is already pending. */
-export function busyLabelFor(status: WriteStatus): string {
+export function busyLabelFor(status: WriteStatus, actionName = "Action"): string {
   if (status.phase === "simulating") return "Simulating…";
   if (status.phase === "signing") return "Confirm in wallet…";
-  if (status.phase === "pending") return status.stopped ? "Buy locked—outcome unknown" : "Pending…";
+  if (status.phase === "pending") return status.stopped ? `${actionName} locked—outcome unknown` : "Pending…";
   return "Working…";
 }
 
@@ -127,7 +127,7 @@ export function ActionButton({
   );
 }
 
-export function StatusLine({status}: {status: WriteStatus}) {
+export function StatusLine({status, actionName = "Action"}: {status: WriteStatus; actionName?: string}) {
   if (status.phase === "idle") return null;
   if (status.phase === "simulating")
     return <Line tone="muted">Simulating against live chain state…</Line>;
@@ -136,9 +136,9 @@ export function StatusLine({status}: {status: WriteStatus}) {
     return (
       <Line tone="muted">
         {status.stopped
-          ? "Automatic receipt checking has stopped. This transaction may still go through, so Buy stays locked here. Check its hash in your wallet or an explorer; reload only after its outcome is clear."
+          ? `Automatic receipt checking has stopped. This transaction may still go through, so ${actionName === "Action" ? "this action" : actionName} stays locked here. Check its hash in your wallet or an explorer; reload only after its outcome is clear.`
           : status.delayed
-            ? "Your transaction was submitted and may still go through. Check your wallet's activity before buying again; this page is still checking its receipt."
+            ? "Your transaction was submitted and may still go through. Check your wallet's activity before submitting again; this page is still checking its receipt."
           : "Transaction pending…"}
         {EXPLORER_TX ? (
           <>

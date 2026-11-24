@@ -30,7 +30,7 @@ export function TokenMechanics() {
         <div className="token-instrument__head"><span>USDfr</span><small>The credit-backed unit</small></div>
         <h3 className="display mt-6 text-[26px] leading-tight">Backing moves with supply.</h3>
         <p className="mt-4 max-w-[42ch] text-[14.5px] leading-relaxed text-ink-muted">Minted 1:1 from USDC. Backing includes idle USDC and deployed loan principal; the contract refuses a mint that would put supply above recognized backing.</p>
-        <div className="token-backing" aria-label="USDfr supply and backing rise together, with supply never greater than backing">
+        <div className="token-backing" role="img" aria-label="USDfr supply and backing rise together, with supply never greater than backing">
           <div><span>Supply</span><i><b /></i></div>
           <strong>≤</strong>
           <div><span>Backing</span><i><b /></i></div>
@@ -43,7 +43,7 @@ export function TokenMechanics() {
         <div className="token-instrument__head"><span>sUSDfr</span><small>The staked position</small></div>
         <h3 className="display mt-6 text-[26px] leading-tight">Net performance moves share value.</h3>
         <p className="mt-4 max-w-[42ch] text-[14.5px] leading-relaxed text-on-navy-muted">Stake USDfr into the vault. Its rate reflects book performance after fees and losses, and can fall if losses reach depositors.</p>
-        <div className="token-income" aria-label="Illustrative share value path driven by realised book income">
+        <div className="token-income" role="img" aria-label="Illustrative share value path driven by realised book income">
           <svg viewBox="0 0 520 130" preserveAspectRatio="none" aria-hidden>
             <defs><linearGradient id="token-income-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#8eb0dc" stopOpacity=".3"/><stop offset="1" stopColor="#8eb0dc" stopOpacity="0"/></linearGradient></defs>
             <path className="token-income__fill" d="M0 112C70 108 102 96 151 91s72-18 112-28 75-1 118-20 70-19 139-31V130H0Z" />
@@ -78,7 +78,32 @@ export function HomeTransparencyPreview() {
   const deployed = value(3);
   const rate = value(4);
   const facilities = value(5);
-  const holding = supply !== undefined && backing !== undefined && supply <= backing;
+  const invariantStatus: "pending" | "holding" | "deficit" =
+    supply === undefined || backing === undefined
+      ? "pending"
+      : supply <= backing
+        ? "holding"
+        : "deficit";
+  const statusLabel =
+    invariantStatus === "holding"
+      ? "Backing invariant holding"
+      : invariantStatus === "deficit"
+        ? "Backing deficit"
+        : "Read pending";
+  const supplyBarWidth =
+    invariantStatus === "pending"
+      ? "42%"
+      : invariantStatus === "holding"
+        ? "82%"
+        : "100%";
+  const backingBarWidth =
+    invariantStatus === "pending"
+      ? "42%"
+      : invariantStatus === "holding"
+        ? "82%"
+        : supply && supply > 0n
+          ? `${Math.max(8, Math.min(96, Number((backing! * 100n) / supply)))}%`
+          : "82%";
 
   return (
     <div className="home-transparency">
@@ -87,16 +112,16 @@ export function HomeTransparencyPreview() {
         <p>Supply, backing, deployed principal, the vault rate and facilities are public reads—not an off-chain summary.</p>
       </div>
       <div className="home-transparency__console" data-viewport-replay="" data-viewport-reveal="">
-        <div className="home-transparency__status"><span><i /> {holding ? "Backing invariant holding" : "Read pending"}</span><b>SUPPLY ≤ BACKING</b></div>
+        <div className="home-transparency__status"><span className={invariantStatus === "deficit" ? "text-danger" : undefined}><i /> {statusLabel}</span><b>SUPPLY ≤ BACKING</b></div>
         <div className="home-transparency__balance">
-          <div><small>USDfr supply</small><strong>{amount(supply)}</strong><span><i style={{ width: holding ? "82%" : "42%" }} /></span></div>
-          <em>≤</em>
-          <div><small>Backing value</small><strong>${amount(backing)}</strong><span><i style={{ width: holding ? "82%" : "42%" }} /></span></div>
+          <div><small>USDfr supply</small><strong>{amount(supply)}</strong><span><i style={{ width: supplyBarWidth }} /></span></div>
+          <em>{invariantStatus === "deficit" ? ">" : "≤"}</em>
+          <div><small>Backing value</small><strong>${amount(backing)}</strong><span><i style={{ width: backingBarWidth }} /></span></div>
         </div>
         <div className="home-transparency__metrics">
           <div><small>Idle reserve</small><strong>${amount(idle)}</strong></div>
           <div><small>Deployed principal</small><strong>${amount(deployed)}</strong></div>
-          <div><small>sUSDfr / USDfr</small><strong>{rate === undefined ? "—" : amount(rate, 18)}</strong></div>
+          <div><small>sUSDfr / USDfr</small><strong>{rate === undefined ? "—" : fmtAmount(rate, 18, 4)}</strong></div>
           <div><small>Facilities originated</small><strong>{facilities?.toString() ?? "—"}</strong></div>
         </div>
       </div>
@@ -107,9 +132,9 @@ export function HomeTransparencyPreview() {
 
 export function OperateCards() {
   const cards = [
-    { href: "/app", label: "Deposit", token: "USDC → USDfr", copy: "Mint only against verified backing.", scene: "mint" },
+    { href: "/app#get-usdfr-card", label: "Deposit", token: "USDC → USDfr", copy: "Mint only against verified backing.", scene: "mint" },
     { href: "/app#stake-card", label: "Stake", token: "USDfr → sUSDfr", copy: "Receive a share of actual book performance.", scene: "stake" },
-    { href: "/app", label: "Redeem", token: "sUSDfr → queue", copy: "Exit in order as cash becomes available.", scene: "redeem" },
+    { href: "/app#redeem-card", label: "Redeem", token: "sUSDfr → queue", copy: "Exit in order as cash becomes available.", scene: "redeem" },
   ];
   return (
     <div className="operate-cards mt-14 grid gap-5 md:grid-cols-3">

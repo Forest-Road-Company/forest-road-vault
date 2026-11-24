@@ -63,8 +63,8 @@ function bytes32(value: readonly number[] | Uint8Array): string {
 /** Turns a simulation or send failure into the program's own message, or a plain sentence. */
 function describeFailure(e: unknown, logs?: string[] | null): string {
   const text = [String((e as Error)?.message ?? e), ...(logs ?? [])].join("\n");
-  const m = text.match(/Error Code: (\w+)\. Error Number: \d+\. Error Message: ([^.]+)\./);
-  if (m) return `${m[2]}.`;
+  const m = text.match(/Error Code: (\w+)\. Error Number: \d+\. Error Message: ([^\n]+?)\.?$/m);
+  if (m) return `${m[2].trim()}.`;
   if (/insufficient funds/i.test(text)) return "The wallet does not hold enough for this transaction (tokens, or SOL for fees and account rent).";
   if (/User rejected|rejected the request/i.test(text)) return "You declined the wallet prompt.";
   if (/blockhash/i.test(text)) return "The network moved on before the transaction landed. Try again.";
@@ -383,8 +383,9 @@ export function CuratorVaultPanel() {
   );
 
   const parsedAmount = useMemo(() => {
-    if (!/^\d+(\.\d{0,6})?$/.test(amount) || amount === "") return null;
-    const [w, f = ""] = amount.split(".");
+    const normalized = amount.startsWith(".") ? `0${amount}` : amount;
+    if (!/^\d+(\.\d{0,6})?$/.test(normalized) || normalized === "") return null;
+    const [w, f = ""] = normalized.split(".");
     return BigInt(w) * 10n ** BigInt(DECIMALS) + BigInt((f + "000000").slice(0, DECIMALS));
   }, [amount]);
 

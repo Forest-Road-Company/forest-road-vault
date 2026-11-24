@@ -13,6 +13,7 @@ import {
   type ContractName,
 } from "@/config/contracts";
 import {SUSDFR_USDC_POOL, USDFR_USDC_POOL} from "@/config/markets";
+import {MORPHO_MARKET} from "@/lib/morphoMarket";
 import {PERMIT2} from "@/lib/uniswapV4Liquidity";
 import {UNIVERSAL_ROUTER, V4_QUOTER} from "@/lib/uniswapV4Swap";
 import {ProtocolScene} from "@/components/site/ProtocolScene";
@@ -20,8 +21,20 @@ import {ProtocolScene} from "@/components/site/ProtocolScene";
 export const metadata: Metadata = pageMetadata({
   title: "Deployed Addresses | Forest Road Vault",
   description:
-    "Every Forest Road Vault contract address, what each contract does, and the USDfr/USDC market, with block-explorer links.",
+    "Every Forest Road Vault contract address, what each contract does, and the live external markets, with block-explorer links.",
+  path: "/docs/addresses",
 });
+
+function sectionId(title: string): string {
+  return `group-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+}
+
+const LIVE_MAINNET_INTEGRATIONS = {
+  uniswapV2SusdfrUsdc: "0xA3A922Ecfa8cb41154AcA336462c822F16FEfab4",
+  pendleSySusdfr: "0xa6E23d9A6F7F4FB5EC305b50b29418dD119Eb692",
+  pendleSyUsdfr: "0xef10D4eD86E12B57f1fA178D3AB7BFd5cC2F97DF",
+  bscOftLockbox: "0x9022D706D15273865DbF3deAa34d0DdC465524aB",
+} as const;
 
 /**
  * What each contract does, in a reader's terms.
@@ -170,10 +183,12 @@ export default function AddressesPage() {
           <span className={HEAD}>What it does</span>
           <span className={HEAD}>Address</span>
         </div>
-        {SECTIONS.map((section) => (
-          <section key={section.title} aria-labelledby={`group-${section.title}`}>
+        {SECTIONS.map((section) => {
+          const headingId = sectionId(section.title);
+          return (
+          <section key={section.title} aria-labelledby={headingId}>
             <h2
-              id={`group-${section.title}`}
+              id={headingId}
               className="mt-8 text-[12px] font-semibold uppercase tracking-[0.16em] text-accent"
             >
               {section.title}
@@ -193,7 +208,8 @@ export default function AddressesPage() {
               ))}
             </ul>
           </section>
-        ))}
+          );
+        })}
 
         {IS_MAINNET ? (
           <section aria-labelledby="group-market">
@@ -266,6 +282,49 @@ export default function AddressesPage() {
                   The Buy card reads a USDC-to-USDfr quote from this contract before preparing a swap.
                 </span>
                 <span className="min-w-0"><AddressLink address={V4_QUOTER} /></span>
+              </li>
+              <li className="grid gap-1.5 border-b border-line/60 py-4 md:grid-cols-[13rem_1fr_minmax(0,24rem)] md:gap-6">
+                <span className="text-[13.5px] font-medium text-ink">sUSDfr/USDC Uniswap v2 pair</span>
+                <span className="text-[13px] leading-relaxed text-ink-muted">
+                  A third-party Uniswap v2 pool pairing sUSDfr with USDC. Shown separately from individual wallets on the points leaderboard.
+                </span>
+                <span className="min-w-0"><AddressLink address={LIVE_MAINNET_INTEGRATIONS.uniswapV2SusdfrUsdc} /></span>
+              </li>
+              <li className="grid gap-1.5 border-b border-line/60 py-4 md:grid-cols-[13rem_1fr_minmax(0,24rem)] md:gap-6">
+                <span className="text-[13.5px] font-medium text-ink">Morpho Blue (USDC/sUSDfr)</span>
+                <span className="text-[13px] leading-relaxed text-ink-muted">
+                  Live Ethereum Morpho Blue lending market (86% LLTV) served by the{" "}
+                  <Link href="/markets" className="u-link text-ink">Borrow &amp; lend</Link> surface, priced by the Forest Road exit-value oracle.
+                </span>
+                <span className="min-w-0 space-y-1">
+                  <span className="block text-[11px] uppercase tracking-[0.14em] text-ink-faint">Market ID</span>
+                  <span className="block break-all font-mono text-[12px] leading-relaxed text-ink-muted">
+                    {MORPHO_MARKET.id}
+                  </span>
+                  <span className="block pt-1 text-[11px] uppercase tracking-[0.14em] text-ink-faint">Morpho Blue</span>
+                  <AddressLink address={MORPHO_MARKET.address} />
+                  <span className="block pt-1 text-[11px] uppercase tracking-[0.14em] text-ink-faint">Exit-value oracle</span>
+                  <AddressLink address={MORPHO_MARKET.params.oracle} />
+                </span>
+              </li>
+              <li className="grid gap-1.5 border-b border-line/60 py-4 md:grid-cols-[13rem_1fr_minmax(0,24rem)] md:gap-6">
+                <span className="text-[13.5px] font-medium text-ink">Pendle SY wrappers</span>
+                <span className="text-[13px] leading-relaxed text-ink-muted">
+                  Standardized Yield contracts wrapping sUSDfr and USDfr on Pendle. YT holders, LPs and direct SY holders receive pass-through points on the points page; PT earns nothing.
+                </span>
+                <span className="min-w-0 space-y-1">
+                  <span className="block text-[11px] uppercase tracking-[0.14em] text-ink-faint">SY-sUSDfr</span>
+                  <AddressLink address={LIVE_MAINNET_INTEGRATIONS.pendleSySusdfr} />
+                  <span className="block pt-1 text-[11px] uppercase tracking-[0.14em] text-ink-faint">SY-USDfr</span>
+                  <AddressLink address={LIVE_MAINNET_INTEGRATIONS.pendleSyUsdfr} />
+                </span>
+              </li>
+              <li className="grid gap-1.5 border-b border-line/60 py-4 md:grid-cols-[13rem_1fr_minmax(0,24rem)] md:gap-6">
+                <span className="text-[13.5px] font-medium text-ink">sUSDfr BSC LayerZero OFT lockbox</span>
+                <span className="text-[13px] leading-relaxed text-ink-muted">
+                  Escrow adapter on Ethereum locking bridged sUSDfr represented on BNB Smart Chain (`SUSDfrOFTAdapter`). Excluded from personal wallet leaderboard ranks.
+                </span>
+                <span className="min-w-0"><AddressLink address={LIVE_MAINNET_INTEGRATIONS.bscOftLockbox} /></span>
               </li>
             </ul>
           </section>

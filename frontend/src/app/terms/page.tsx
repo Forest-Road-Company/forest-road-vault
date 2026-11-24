@@ -9,6 +9,7 @@ export const metadata: Metadata = pageMetadata({
   description:
     "Terms of use for the Forest Road Vault website and application, and how they relate to the definitive agreements, eligibility controls and risk disclosures for each path.",
   socialTitle: "Terms of use | Forest Road Vault",
+  path: "/terms",
 });
 
 export default function TermsPage() {

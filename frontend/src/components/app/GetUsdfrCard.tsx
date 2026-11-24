@@ -110,7 +110,7 @@ function GetUsdfrTabs({writesEnabled, chainOk}: {writesEnabled: boolean; chainOk
   };
 
   return (
-    <div className="panel app-action-card app-action-card--mint flex flex-col p-6" data-viewport-replay="">
+    <div id="get-usdfr-card" className="panel app-action-card app-action-card--mint flex scroll-mt-24 flex-col p-6" data-viewport-replay="">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <h3 id={titleId} className="font-display text-[16px] font-semibold tracking-tight">
           Get USDfr

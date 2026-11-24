@@ -10,11 +10,11 @@
  * Below the form: this wallet's queue positions with live fill/claim state.
  */
 
-import {useMemo, useState} from "react";
-import {parseUnits} from "viem";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {parseUnits, zeroAddress, type Address} from "viem";
 import {useAccount, useReadContract, useReadContracts} from "wagmi";
 import {CONTRACTS, IS_TESTNET, STABLE_SYMBOL} from "@/config/contracts";
-import {CONTROLLER_ABI, ERC20_ABI, QUEUE_ABI, SHARE_DECIMALS, VAULT_ABI} from "@/lib/abi";
+import {CONTROLLER_ABI, ERC20_ABI, IMPAIRMENT_SOURCE_ABI, QUEUE_ABI, RESERVES_ABI, SHARE_DECIMALS, VAULT_ABI, VAULT_STAGE2_ABI} from "@/lib/abi";
 import {fmtAmount, fmtCountdown} from "@/lib/format";
 import {secondsUntilEligible} from "@/lib/queue";
 import {useWriteFlow} from "@/components/app/useWriteFlow";
@@ -31,6 +31,11 @@ import {ACCOUNT_POLL, EVENT_WATCH_POLL_MS, QUEUE_POLL} from "@/lib/polling";
 const REQUEST_SCAN_WINDOW = 500n;
 const POLL = ACCOUNT_POLL;
 
+/** Read only from the instant-redeem click handler: a clock is never consulted during render. */
+function instantRedeemDeadline(): bigint {
+  return BigInt(Math.floor(Date.now() / 1_000) + 1_200);
+}
+
 type Mode = "instant" | "queue";
 type QueuePosition = {
   id: bigint;
@@ -46,6 +51,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   const [amount, setAmount] = useState("");
   const [lookupIdText, setLookupIdText] = useState("");
   const [acknowledgedCooldown, setAcknowledgedCooldown] = useState<bigint | null>(null);
+  const [acknowledgedSubParQuote, setAcknowledgedSubParQuote] = useState<string | null>(null);
   const flow = useWriteFlow();
   const claimFlow = useWriteFlow();
 
@@ -54,11 +60,11 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   const controller = CONTRACTS.MintRedeemController!;
   const queue = CONTRACTS.RedemptionQueue!;
   // ── Reads ────────────────────────────────────────────────────────────
-  const {data: usdfrBalance} = useReadContract({
+  const {data: usdfrBalance, isLoading: usdfrBalanceLoading} = useReadContract({
     address: usdfr, abi: ERC20_ABI, functionName: "balanceOf",
     args: address ? [address] : undefined, query: {enabled: Boolean(address), ...POLL},
   });
-  const {data: shareBalance} = useReadContract({
+  const {data: shareBalance, isLoading: shareBalanceLoading} = useReadContract({
     address: vault, abi: ERC20_ABI, functionName: "balanceOf",
     args: address ? [address] : undefined, query: {enabled: Boolean(address), ...POLL},
   });
@@ -79,6 +85,35 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   const {data: redeemCooldown, refetch: refetchRedeemCooldown} = useReadContract({
     address: queue, abi: QUEUE_ABI, functionName: "redeemCooldown", query: QUEUE_POLL,
   });
+  const {data: impairmentSourceAddress} = useReadContract({
+    address: vault, abi: VAULT_ABI, functionName: "impairmentSource", query: QUEUE_POLL,
+  });
+  const hasImpairmentSource = Boolean(
+    impairmentSourceAddress && impairmentSourceAddress !== zeroAddress,
+  );
+  const {data: pendingSeniorImpairment} = useReadContract({
+    address: (impairmentSourceAddress ?? zeroAddress) as Address,
+    abi: IMPAIRMENT_SOURCE_ABI,
+    functionName: "pendingSeniorImpairment",
+    query: {enabled: hasImpairmentSource, ...QUEUE_POLL},
+  });
+  // Stage 2 (ee9b228a) settlement freeze views: read with allowFailure: true so pre-Stage-2
+  // deployments without unresolvedPastDueExposure() degrade cleanly.
+  const {data: freezeReads} = useReadContracts({
+    allowFailure: true,
+    query: QUEUE_POLL,
+    contracts: [
+      {address: vault, abi: VAULT_STAGE2_ABI, functionName: "unresolvedPastDueExposure"},
+      {address: CONTRACTS.ReserveManager!, abi: RESERVES_ABI, functionName: "reserveLossExitsLocked"},
+    ],
+  });
+  const unresolvedPastDue =
+    freezeReads?.[0]?.status === "success" ? (freezeReads[0].result as bigint) : undefined;
+  const reserveLossExitsLocked =
+    freezeReads?.[1]?.status === "success" ? (freezeReads[1].result as boolean) : undefined;
+  const queueSettlementFrozen =
+    (unresolvedPastDue !== undefined && unresolvedPastDue > 0n) || reserveLossExitsLocked === true;
+  const exitImpaired = (pendingSeniorImpairment ?? 0n) > 0n;
 
   // USDfr is 18-dec; sUSDfr shares are 24-dec (ERC-4626 decimals offset).
   const decimals = mode === "instant" ? 18 : SHARE_DECIMALS;
@@ -88,6 +123,33 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   } catch {
     parsed = null;
   }
+
+  // Direct USDfr -> USDC preview: captures both par and sub-par pro-rata settlements.
+  const {data: instantPreviewRaw} = useReadContract({
+    address: controller,
+    abi: CONTROLLER_ABI,
+    functionName: "previewRedeem",
+    args: parsed !== null && parsed > 0n ? [parsed] : undefined,
+    query: {enabled: mode === "instant" && parsed !== null && parsed > 0n, ...POLL},
+  });
+  const instantQuote =
+    Array.isArray(instantPreviewRaw) &&
+    typeof instantPreviewRaw[0] === "bigint" &&
+    typeof instantPreviewRaw[1] === "bigint"
+      ? {usdcOut: instantPreviewRaw[0], usdfrIn: instantPreviewRaw[1]}
+      : null;
+  const parUsdcOut = parsed !== null ? parsed / 10n ** 12n : 0n;
+  const instantSubPar =
+    mode === "instant" &&
+    instantQuote !== null &&
+    parUsdcOut > 0n &&
+    instantQuote.usdcOut < parUsdcOut;
+  const subParQuoteKey =
+    instantSubPar && parsed !== null && instantQuote !== null
+      ? `${parsed.toString()}:${instantQuote.usdcOut.toString()}`
+      : null;
+  const subParAcknowledged =
+    subParQuoteKey !== null && acknowledgedSubParQuote === subParQuoteKey;
 
   // ADR-0022 Option Y: a queued exit settles at the CONSERVATIVE redemption NAV
   // (`totalAssets - pendingSeniorImpairment`), not the deposit NAV. Previewing with
@@ -149,14 +211,28 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   // this works for the local Anvil fork as well as public Sepolia RPCs. The
   // watcher restarts from the current block after a failed read (see
   // RestartingEventWatcher), so a long sleep cannot stop it for good.
-  const onQueueLogs = () => {
-    void refetchEpochEndsAt();
-    void refetchIsSettling();
-    void refetchTotalRequests();
-    void refetchRedeemCooldown();
-    void refetchScanned();
-    if (lookupId !== undefined) void refetchLookedUpRequest();
-  };
+  const queueLogRefetchRef = useRef<() => void>(() => undefined);
+  useEffect(() => {
+    queueLogRefetchRef.current = () => {
+      void refetchEpochEndsAt();
+      void refetchIsSettling();
+      void refetchTotalRequests();
+      void refetchRedeemCooldown();
+      void refetchScanned();
+      if (lookupId !== undefined) void refetchLookedUpRequest();
+    };
+  }, [
+    lookupId,
+    refetchEpochEndsAt,
+    refetchIsSettling,
+    refetchLookedUpRequest,
+    refetchRedeemCooldown,
+    refetchScanned,
+    refetchTotalRequests,
+  ]);
+  const onQueueLogs = useCallback(() => {
+    queueLogRefetchRef.current();
+  }, []);
 
   const myRequests = useMemo(() => {
     if (!address) return [] as QueuePosition[];
@@ -215,19 +291,38 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   // mirrors the contracts exactly (never stricter, never looser).
   const actionAllowed = mode === "instant" ? writesEnabled : chainOk;
   // Queue mode needs the share allowance LOADED for an honest Approve/Request label.
+  // Instant mode requires explicit sub-par acknowledgement whenever backing is below 1:1.
   const canSubmit =
     actionAllowed && parsed !== null && parsed > 0n && !flow.busy &&
-    (mode === "instant" ||
-      (shareAllowance !== undefined &&
-        (needsApproval || (redeemCooldown !== undefined && queueAcknowledged))));
+    (mode === "instant"
+      ? !instantSubPar || subParAcknowledged
+      : shareAllowance !== undefined &&
+        (needsApproval || (redeemCooldown !== undefined && queueAcknowledged)));
 
   const act = () => {
     if (parsed === null) return;
     if (mode === "instant") {
-      flow.run({
-        address: controller, abi: CONTROLLER_ABI, functionName: "redeem",
-        args: [parsed], onSuccess: () => setAmount(""),
-      });
+      if (instantQuote !== null) {
+        const deadline = instantRedeemDeadline();
+        flow.run({
+          address: controller,
+          abi: CONTROLLER_ABI,
+          functionName: "redeem",
+          args: [parsed, instantQuote.usdcOut, deadline],
+          onSuccess: () => {
+            setAmount("");
+            setAcknowledgedSubParQuote(null);
+          },
+        });
+      } else {
+        flow.run({
+          address: controller,
+          abi: CONTROLLER_ABI,
+          functionName: "redeem",
+          args: [parsed],
+          onSuccess: () => setAmount(""),
+        });
+      }
     } else if (needsApproval) {
       flow.run({address: vault, abi: ERC20_ABI, functionName: "approve", args: [queue, parsed]});
     } else if (queueAcknowledged) {
@@ -253,10 +348,13 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
     redeemCooldown !== undefined ? fmtCountdown(Number(redeemCooldown)) : null;
 
   const balanceShown = mode === "instant" ? usdfrBalance : shareBalance;
+  const balanceLoading = mode === "instant" ? usdfrBalanceLoading : shareBalanceLoading;
   const symbol = mode === "instant" ? "USDfr" : "sUSDfr";
+  const activeRequests = myRequests.filter((r) => r.sharesRemaining > 0n || r.assetsClaimable > 0n);
+  const completedRequests = myRequests.filter((r) => r.sharesRemaining === 0n && r.assetsClaimable === 0n);
 
   return (
-    <div className="panel app-action-card app-action-card--redeem flex flex-col p-6" data-viewport-replay="">
+    <div id="redeem-card" className="panel app-action-card app-action-card--redeem flex scroll-mt-24 flex-col p-6" data-viewport-replay="">
       <RestartingEventWatcher
         label="redeem.queue_watcher"
         address={queue}
@@ -268,6 +366,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
         <h3 className="font-display text-[16px] font-semibold tracking-tight">Redeem</h3>
         <div
           className="flex gap-1 rounded-pill border border-line bg-surface p-0.5"
+          role="group"
           aria-label="Redemption route"
         >
           {(["instant", "queue"] as const).map((m) => (
@@ -283,6 +382,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
                 setMode(m);
                 setAmount("");
                 setAcknowledgedCooldown(null);
+                setAcknowledgedSubParQuote(null);
                 flow.reset();
                 claimFlow.reset();
               }}
@@ -333,10 +433,14 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
       {/* Same balance vocabulary as the other two write cards. */}
       <p className="mt-4 font-mono text-[11px] text-ink-faint">
         Balance:{" "}
-        {balanceShown !== undefined ? (
+        {balanceLoading ? (
+          <span>loading…</span>
+        ) : balanceShown !== undefined ? (
           <span className="text-ink-muted">
             {fmtAmount(balanceShown, decimals)} {symbol}
           </span>
+        ) : address ? (
+          <span>unavailable</span>
         ) : (
           <span>wallet not connected</span>
         )}
@@ -344,22 +448,76 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
 
       <AmountInput
         value={amount}
-        onChange={setAmount}
+        onChange={(value) => {
+          setAmount(value);
+          setAcknowledgedSubParQuote(null);
+        }}
         symbol={symbol}
         maxDecimals={decimals}
         disabled={!actionAllowed || flow.busy}
         onMax={
           balanceShown !== undefined && balanceShown > 0n
-            ? () => setAmount(fmtAmount(balanceShown, decimals, decimals).replace(/,/g, ""))
+            ? () => {
+                setAmount(fmtAmount(balanceShown, decimals, decimals).replace(/,/g, ""));
+                setAcknowledgedSubParQuote(null);
+              }
             : undefined
         }
       />
+
+      {mode === "instant" && reserveLossExitsLocked ? (
+        <div role="alert" className="mt-3 rounded-card border border-warn/50 bg-warn/10 p-3 text-[11.5px] leading-relaxed text-ink">
+          <strong className="font-semibold text-warn">Direct redemptions are currently frozen on-chain.</strong>{" "}
+          A reserve custody loss or reserve-loss arm is active until reconciliation completes.
+        </div>
+      ) : null}
+
+      {mode === "instant" && instantQuote !== null && parsed !== null && parsed > 0n ? (
+        <p className="mt-2 font-mono text-[11px] text-ink-faint">
+          Quoted output:{" "}
+          <span className="text-ink-muted">
+            {fmtAmount(instantQuote.usdcOut, 6, 6)} {STABLE_SYMBOL}
+          </span>{" "}
+          for {fmtAmount(instantQuote.usdfrIn, 18, 6)} USDfr
+          {instantSubPar ? " (pro-rata below 1:1 par)" : " (1:1 par)"}
+        </p>
+      ) : null}
+
+      {mode === "instant" && instantSubPar && instantQuote !== null ? (
+        <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-card border border-warn/50 bg-warn/10 p-3 text-[11px] leading-relaxed text-ink">
+          <input
+            type="checkbox"
+            checked={subParAcknowledged}
+            onChange={(event) =>
+              setAcknowledgedSubParQuote(event.target.checked ? subParQuoteKey : null)
+            }
+            disabled={!writesEnabled || flow.busy}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-accent)]"
+          />
+          <span>
+            <strong className="font-semibold text-warn">Sub-par redemption quote.</strong>{" "}
+            Recognized backing is below 1:1, so this redemption settles pro-rata at{" "}
+            {fmtAmount(instantQuote.usdcOut, 6, 6)} {STABLE_SYMBOL} (slippage-protected minimum). I
+            understand and want to submit at this quoted output.
+          </span>
+        </label>
+      ) : null}
+
+      {mode === "queue" && queueSettlementFrozen ? (
+        <div role="alert" className="mt-3 rounded-card border border-warn/50 bg-warn/10 p-3 text-[11.5px] leading-relaxed text-ink">
+          <strong className="font-semibold text-warn">Queue settlement is currently frozen on-chain.</strong>{" "}
+          {reserveLossExitsLocked
+            ? "A reserve custody loss or reserve-loss arm is active."
+            : "Unresolved past-due loan exposure is active."}{" "}
+          New queue requests remain non-cancellable and cannot settle until this condition clears.
+        </div>
+      ) : null}
 
       {mode === "queue" && previewAssets !== undefined && parsed !== null && parsed > 0n ? (
         <p className="mt-2 font-mono text-[11px] text-ink-faint">
           Worth today ≈ <span className="text-ink-muted">{fmtAmount(previewAssets, 18, 4)} USDfr</span>{" "}
           (fills at settlement rate)
-          {depositPriceAssets !== undefined && depositPriceAssets > previewAssets ? (
+          {exitImpaired && depositPriceAssets !== undefined && depositPriceAssets > previewAssets ? (
             <>
               <span className="text-ink-muted">
                , marked down from {fmtAmount(depositPriceAssets, 18, 4)} using the current
@@ -371,7 +529,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
         </p>
       ) : null}
 
-      {mode === "queue" && depositPriceAssets !== undefined && previewAssets !== undefined &&
+      {mode === "queue" && exitImpaired && depositPriceAssets !== undefined && previewAssets !== undefined &&
       depositPriceAssets > previewAssets ? (
         <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">
           Actual recovery may be higher or lower.{" "}
@@ -451,60 +609,82 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
             No positions found in the latest scan or by request ID.
           </p>
         ) : (
-          <ul className="mt-2 space-y-2">
-            {myRequests.map((r) => {
-              // Eligibility arithmetic lives in lib/queue.ts so it is pinned by value
-              // tests rather than by a substring match over this component.
-              const untilEligible = secondsUntilEligible(r.requestedAt, redeemCooldown, now);
-              const eligibilityCountdown =
-                untilEligible !== null ? fmtCountdown(untilEligible) : null;
-              return (
-                <li
-                  key={r.id.toString()}
-                  className="flex items-center justify-between gap-3 rounded-card border border-line bg-surface px-3.5 py-2.5"
-                >
-                  <div className="font-mono text-[11px] leading-relaxed text-ink-muted">
-                    <span className="text-ink-faint">#{r.id.toString()}</span>{" "}
-                    {r.sharesRemaining > 0n ? (
-                      <>
-                        queued {fmtAmount(r.sharesRemaining, SHARE_DECIMALS, 4)} sUSDfr
-                        {" "}(epoch {r.epochRequested.toString()})
-                      </>
-                    ) : (
-                      <>filled</>
-                    )}
-                    {r.sharesRemaining > 0n ? (
-                      <span className="block text-ink-faint">
-                        {eligibilityCountdown === null
-                          ? "Loading cooldown eligibility…"
-                          : eligibilityCountdown === "now"
-                            ? "Cooldown complete · awaiting FIFO settlement and liquidity"
-                            : `First eligible in ${eligibilityCountdown} · settlement may be later`}
-                      </span>
-                    ) : null}
-                    {r.assetsClaimable > 0n ? (
-                      <span className="ml-1 text-accent">
-                        · {fmtAmount(r.assetsClaimable, 18)} USDfr claimable
-                      </span>
-                    ) : null}
-                  </div>
-                  {r.assetsClaimable > 0n ? (
-                    <button
-                      onClick={() =>
-                        claimFlow.run({
-                          address: queue, abi: QUEUE_ABI, functionName: "claim", args: [r.id],
-                        })
-                      }
-                      disabled={!chainOk || claimFlow.busy}
-                      className="min-h-9 shrink-0 rounded-pill bg-accent px-3.5 py-2 text-[12px] font-medium text-raised transition-transform hover:scale-[1.02] disabled:opacity-50"
+          <>
+            {activeRequests.length > 0 ? (
+              <ul className="mt-2 space-y-2">
+                {activeRequests.map((r) => {
+                  // Eligibility arithmetic lives in lib/queue.ts so it is pinned by value
+                  // tests rather than by a substring match over this component.
+                  const untilEligible = secondsUntilEligible(r.requestedAt, redeemCooldown, now);
+                  const eligibilityCountdown =
+                    untilEligible !== null ? fmtCountdown(untilEligible) : null;
+                  return (
+                    <li
+                      key={r.id.toString()}
+                      className="flex items-center justify-between gap-3 rounded-card border border-line bg-surface px-3.5 py-2.5"
                     >
-                      Claim
-                    </button>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
+                      <div className="font-mono text-[11px] leading-relaxed text-ink-muted">
+                        <span className="text-ink-faint">#{r.id.toString()}</span>{" "}
+                        {r.sharesRemaining > 0n ? (
+                          <>
+                            queued {fmtAmount(r.sharesRemaining, SHARE_DECIMALS, 4)} sUSDfr
+                            {" "}(epoch {r.epochRequested.toString()})
+                          </>
+                        ) : (
+                          <>filled</>
+                        )}
+                        {r.sharesRemaining > 0n ? (
+                          <span className="block text-ink-faint">
+                            {eligibilityCountdown === null
+                              ? "Loading cooldown eligibility…"
+                              : eligibilityCountdown === "now"
+                                ? "Cooldown complete · awaiting FIFO settlement and liquidity"
+                                : `First eligible in ${eligibilityCountdown} · settlement may be later`}
+                          </span>
+                        ) : null}
+                        {r.assetsClaimable > 0n ? (
+                          <span className="ml-1 text-accent">
+                            · {fmtAmount(r.assetsClaimable, 18)} USDfr claimable
+                          </span>
+                        ) : null}
+                      </div>
+                      {r.assetsClaimable > 0n ? (
+                        <button
+                          onClick={() =>
+                            claimFlow.run({
+                              address: queue, abi: QUEUE_ABI, functionName: "claim", args: [r.id],
+                            })
+                          }
+                          disabled={!chainOk || claimFlow.busy}
+                          className="min-h-9 shrink-0 rounded-pill bg-accent px-3.5 py-2 text-[12px] font-medium text-raised transition-transform hover:scale-[1.02] disabled:opacity-50"
+                        >
+                          Claim
+                        </button>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="mt-2 text-[13px] text-ink-faint">
+                No active or claimable positions in the latest scan.
+              </p>
+            )}
+            {completedRequests.length > 0 ? (
+              <details className="mt-3 rounded-card border border-line bg-surface px-3.5 py-2">
+                <summary className="cursor-pointer font-mono text-[11px] text-ink-faint hover:text-ink-muted">
+                  Completed requests ({completedRequests.length})
+                </summary>
+                <ul className="mt-2 space-y-1.5 border-t border-line pt-2">
+                  {completedRequests.map((r) => (
+                    <li key={r.id.toString()} className="font-mono text-[11px] text-ink-faint">
+                      #{r.id.toString()} · filled &amp; claimed (epoch {r.epochRequested.toString()})
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+          </>
         )}
         <StatusLine status={claimFlow.status} />
       </div>

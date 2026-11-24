@@ -47,6 +47,12 @@ export const POINTS_VENUES: readonly {key: string; label: string; address: Addre
     address: "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb",
     note: "sUSDfr posted as collateral on Morpho. Each owner of that collateral is credited with Morpho points in the table.",
   },
+  {
+    key: "bsc-oft-lockbox",
+    label: "sUSDfr BSC LayerZero OFT lockbox",
+    address: "0x9022D706D15273865DbF3deAa34d0DdC465524aB",
+    note: "Ethereum escrow locking sUSDfr bridged to BNB Smart Chain. Individual BSC holders are credited separately via BSC points checkpoints.",
+  },
 ]);
 
 /** How many ranked rows one answer carries; the count of every ranked wallet is reported beside them. */

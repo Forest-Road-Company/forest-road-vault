@@ -11,16 +11,33 @@ export const REVIEWED_TREASURY_GENERATOR = {
   sha256: "b1753b188eae814d0dcc31f7016efa030f559ef1bf532baef5ba13a91617d383",
 } as const;
 
+const TREASURY_HISTORY_WAVE = 6;
+
 /** Only an own, executed contribution counts. Foreign dust is deliberately ignored. */
 export async function assertNoTreasurySupply(client: PublicClient, toBlock: bigint) {
   try {
     if (toBlock < MORPHO_MARKET.fromBlock) throw new Error("Missing market history");
+    const ranges: Array<{from: bigint; to: bigint}> = [];
     for (let from = MORPHO_MARKET.fromBlock; from <= toBlock; from += TREASURY_HISTORY_CHUNK) {
       const end = from + TREASURY_HISTORY_CHUNK - 1n;
-      const logs = await client.getLogs({address: MORPHO_MARKET.address, event: SUPPLY_EVENT,
-        args: {id: MORPHO_MARKET.id, caller: MORPHO_MARKET.treasury, onBehalf: MORPHO_MARKET.treasury},
-        fromBlock: from, toBlock: end < toBlock ? end : toBlock, strict: true});
-      if (logs.some(l => l.args.assets! > 0n && l.args.shares! > 0n)) {
+      ranges.push({from, to: end < toBlock ? end : toBlock});
+    }
+    const waveSize = ranges.length > 8 ? TREASURY_HISTORY_WAVE : 1;
+    for (let i = 0; i < ranges.length; i += waveSize) {
+      const wave = ranges.slice(i, i + waveSize);
+      const results = await Promise.all(
+        wave.map(({from, to}) =>
+          client.getLogs({
+            address: MORPHO_MARKET.address,
+            event: SUPPLY_EVENT,
+            args: {id: MORPHO_MARKET.id, caller: MORPHO_MARKET.treasury, onBehalf: MORPHO_MARKET.treasury},
+            fromBlock: from,
+            toBlock: to,
+            strict: true,
+          }),
+        ),
+      );
+      if (results.some((logs) => logs.some((l) => l.args.assets! > 0n && l.args.shares! > 0n))) {
         throw new TreasuryAlreadySuppliedError();
       }
     }

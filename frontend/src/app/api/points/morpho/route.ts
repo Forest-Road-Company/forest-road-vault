@@ -46,26 +46,42 @@ export async function GET(request: Request) {
   // upgrade that changes the normalization fails there.
   const canonical = getAddress(wallet);
   if (url.search !== `?wallet=${canonical}`) {
-    const location = new URL(`/api/points/morpho?wallet=${canonical}`, url);
     return new Response(null, {
       status: 308,
-      headers: {location: location.toString(), "cache-control": "public, max-age=86400, s-maxage=86400"},
+      headers: {
+        location: `/api/points/morpho?wallet=${canonical}`,
+        "cache-control": "public, max-age=86400, s-maxage=86400",
+      },
     });
   }
   try {
     const result = await loadMorphoCollateralPoints(canonical, undefined, arrivedAt);
     return Response.json(result, {
-      headers: {"cache-control": "public, s-maxage=60, stale-while-revalidate=300"},
+      headers: {"cache-control": "public, s-maxage=60, stale-while-revalidate=300, stale-if-error=600"},
     });
   } catch (error) {
     // RPC client errors can carry the endpoint URL, so only the loader's own static messages log.
-    const known = error instanceof MorphoPointsIntegrityError || error instanceof MorphoPointsNotReadyError;
+    const notReady = error instanceof MorphoPointsNotReadyError;
+    const known = notReady || error instanceof MorphoPointsIntegrityError;
     const detail = known ? `: ${(error as Error).message}` : "";
     const name = error instanceof Error ? error.name : "UnknownError";
     console.error(`points.morpho failed: ${name}${detail}`);
+    if (notReady) {
+      return Response.json(
+        {ok: false, error: "Morpho collateral points are catching up with the chain."},
+        {status: 503, headers: {"cache-control": "no-store", "retry-after": "10"}},
+      );
+    }
     return Response.json(
       {ok: false, error: "Morpho collateral points are temporarily unavailable."},
       {status: 502, headers: {"cache-control": "no-store"}},
     );
   }
+}
+
+export async function POST() {
+  return Response.json(
+    {ok: false, error: "Method not allowed."},
+    {status: 405, headers: {allow: "GET", "cache-control": "no-store"}},
+  );
 }

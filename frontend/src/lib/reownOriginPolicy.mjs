@@ -41,7 +41,13 @@ export function reownRuleAllowsOrigin(rule, requiredOrigin) {
   if (typeof rule !== "string" || rule.trim() === "") return false;
   const candidate = rule.trim();
   const includesScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(candidate);
-  const parsedRule = originUrl(includesScheme ? candidate : `https://${candidate}`, "Reown allowlist entry");
+  let parsedRule;
+  try {
+    parsedRule = originUrl(includesScheme ? candidate : `https://${candidate}`, "Reown allowlist entry");
+  } catch {
+    // Non-HTTP(S) dashboard entries (e.g. mobile custom schemes like capacitor://) cannot match web origins.
+    return false;
+  }
   const parsedRequired = originUrl(requiredOrigin, "Required WalletConnect origin");
   if (includesScheme && parsedRule.protocol !== parsedRequired.protocol) return false;
   if (parsedRule.port && parsedRule.port !== parsedRequired.port) return false;
@@ -94,17 +100,31 @@ export async function verifyReownOriginPolicy({
   url.searchParams.set("sv", "forest-road-vault-build-origin-check");
 
   let response;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      response = await fetchImpl(url, {
+        signal: AbortSignal.timeout(10_000),
+        redirect: "error",
+        cache: "no-store",
+      });
+    } catch (error) {
+      if (attempt === 0) continue;
+      throw new Error(
+        `Reown origin allowlist check failed: ${error instanceof Error ? error.message : "network error"}`,
+      );
+    }
+    if (response.status >= 500 && attempt === 0) continue;
+    break;
+  }
+  if (!response || !response.ok) {
+    throw new Error(`Reown origin allowlist check returned HTTP ${response?.status ?? "unknown"}`);
+  }
+  let payload;
   try {
-    response = await fetchImpl(url, {signal: AbortSignal.timeout(10_000)});
-  } catch (error) {
-    throw new Error(
-      `Reown origin allowlist check failed: ${error instanceof Error ? error.message : "network error"}`,
-    );
+    payload = await response.json();
+  } catch {
+    throw new Error("Reown origin allowlist check returned an invalid response");
   }
-  if (!response.ok) {
-    throw new Error(`Reown origin allowlist check returned HTTP ${response.status}`);
-  }
-  const payload = await response.json();
   if (
     typeof payload !== "object"
     || payload === null

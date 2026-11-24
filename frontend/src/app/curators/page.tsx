@@ -19,6 +19,7 @@ export const metadata: Metadata = pageMetadata({
   description:
     "Curator capital stands first in line for losses on the Forest Road Vault credit book. How the programme works, what it earns in points, and how to register interest.",
   socialTitle: "Capital that stands first in line | Forest Road Vault",
+  path: "/curators",
 });
 
 /* COPY RULES. This page describes a programme run under bilateral agreements with Forest Road.
@@ -175,7 +176,7 @@ export default function CuratorsPage() {
       <Section tone="light">
         <NumberedRows
           heading="How the programme works."
-          aside="Four steps, none of which happens on this page except the first."
+          aside="Four steps: eligibility and bilateral terms happen off-chain; registration and approved-wallet subscription live below."
           rows={steps}
         />
       </Section>

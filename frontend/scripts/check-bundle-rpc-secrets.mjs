@@ -48,24 +48,35 @@ const literals = [
   {label: "sentinel host", needle: "sentinel-upstream.invalid"},
   {label: "an Alchemy keyed path", needle: "alchemy.com/v2/"},
 ];
-const configured = process.env.RPC_PROXY_UPSTREAM_URL?.trim();
-if (configured) {
-  const whole = {label: "this build's RPC_PROXY_UPSTREAM_URL (value not printed)", needle: configured};
+const SUBDOMAIN_KEY_SUFFIXES = [".quiknode.pro", ".g.alchemy.com", ".infura.io", ".helius-rpc.com"];
+for (const envName of ["RPC_PROXY_UPSTREAM_URL", "ETHEREUM_ARCHIVE_RPC_URL"]) {
+  const configured = process.env[envName]?.trim();
+  if (!configured) continue;
+  const whole = {label: `this build's ${envName} (value not printed)`, needle: configured};
   try {
     const parsed = new URL(configured);
     const secrets = [];
+    const hostLower = parsed.hostname.toLowerCase();
+    for (const suffix of SUBDOMAIN_KEY_SUFFIXES) {
+      if (hostLower.endsWith(suffix)) {
+        const sub = hostLower.slice(0, -suffix.length).split(".")[0];
+        if (sub && sub.length >= 12) {
+          secrets.push({label: `a subdomain token of ${envName} (value not printed)`, needle: sub});
+        }
+      }
+    }
     for (const segment of parsed.pathname.split("/")) {
       if (segment.length >= 12) {
-        secrets.push({label: "a key-length path segment of RPC_PROXY_UPSTREAM_URL (value not printed)", needle: segment});
+        secrets.push({label: `a key-length path segment of ${envName} (value not printed)`, needle: segment});
       }
     }
     for (const value of parsed.searchParams.values()) {
       if (value.length >= 12) {
-        secrets.push({label: "a key-length query value of RPC_PROXY_UPSTREAM_URL (value not printed)", needle: value});
+        secrets.push({label: `a key-length query value of ${envName} (value not printed)`, needle: value});
       }
     }
     if (parsed.password.length >= 8) {
-      secrets.push({label: "the URL password of RPC_PROXY_UPSTREAM_URL (value not printed)", needle: parsed.password});
+      secrets.push({label: `the URL password of ${envName} (value not printed)`, needle: parsed.password});
     }
     // A URL with nothing key-shaped in it (a keyless public endpoint) carries no secret, and may well
     // already be in the bundle: viem ships its chains' public RPC URLs. Only a URL that could hold a

@@ -313,6 +313,24 @@ describe("ordinary Safe batches",()=>{
     expect(screen.getByRole("button", {name: /Awaiting Safe execution/})).toBeDisabled();
     expect(h.send).toHaveBeenCalledTimes(1);
   });
+  it("allows switching actions, resetting after Safe handoff, and rejects a non-mainnet Safe even when the browser wallet is on mainnet", async () => {
+    ordinarySafe();
+    renderMarket();await amount("25");acknowledge();
+    const button = screen.getByRole("button", {name: "Review lend usdc in Safe"});
+    await waitFor(() => expect(button).toBeEnabled());fireEvent.click(button);
+    await waitFor(() => expect(h.send).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", {name: /Awaiting Safe execution/})).toBeDisabled();
+    expect(screen.getByRole("button", {name: "Withdraw USDC"})).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", {name: "Start another action"}));
+    await waitFor(() => expect(screen.getByRole("button", {name: "Review lend usdc in Safe"})).toBeEnabled());
+
+    cleanup();
+    h.chainId = 1;
+    h.safe = {address: WALLET, chainId: 8453, threshold: 1, owners: [WALLET], sdk: {safe: {getInfo: h.info}, txs: {send: h.send}}};
+    renderMarket();
+    expect((await screen.findAllByText(/Switch your wallet to Ethereum mainnet/)).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", {name: "Review lend usdc in Safe"})).toBeDisabled();
+  });
 });
 
 describe("Treasury Safe flow",()=>{

@@ -117,7 +117,7 @@ describe("waitForReceiptRobustly", () => {
     expect(pauses).toEqual(Array(RECEIPT_WAIT_RESTARTS).fill(12_000));
   });
 
-  it("passes the overall wait timeout through unchanged, without restarting", async () => {
+  it("turns the overall wait timeout into status unknown with the hash, without restarting", async () => {
     const node = stubNode({oversizedBlockReads: new Set(), minedAfterBlockReads: Number.POSITIVE_INFINITY});
     let restarts = 0;
     const failure = await waitForReceiptRobustly(node.client, {hash: SENT, timeout: 60}, {
@@ -125,7 +125,9 @@ describe("waitForReceiptRobustly", () => {
         restarts += 1;
       },
     }).catch((error: unknown) => error);
-    expect((failure as Error).name).toBe("WaitForTransactionReceiptTimeoutError");
+    expect(failure).toBeInstanceOf(ReceiptStatusUnknownError);
+    expect((failure as ReceiptStatusUnknownError).hash).toBe(SENT);
+    expect(((failure as Error).cause as Error).name).toBe("WaitForTransactionReceiptTimeoutError");
     expect(restarts).toBe(0);
   });
 });

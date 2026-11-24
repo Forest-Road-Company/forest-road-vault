@@ -26,6 +26,7 @@ import {
   SGROVE_ABI,
   SHARE_DECIMALS,
   VAULT_ABI,
+  VAULT_STAGE2_ABI,
   WATERFALL_ABI,
 } from "@/lib/abi";
 import {formatUtcMinute, type HistoricalNetDefaultMetrics} from "@/lib/book";
@@ -102,6 +103,20 @@ export function TransparencyDashboard() {
       {address: CONTRACTS.WaterfallEngine!, abi: WATERFALL_ABI, functionName: "originationFeeBps", args: [5n]},
     ],
   });
+  const {data: freezeData} = useReadContracts({
+    allowFailure: true,
+    query: POLL,
+    contracts: [
+      {address: CONTRACTS.sUSDfr!, abi: VAULT_STAGE2_ABI, functionName: "unresolvedPastDueExposure"},
+      {address: CONTRACTS.ReserveManager!, abi: RESERVES_ABI, functionName: "reserveLossExitsLocked"},
+    ],
+  });
+  const unresolvedPastDue =
+    freezeData?.[0]?.status === "success" ? (freezeData[0].result as bigint) : undefined;
+  const reserveLossExitsLocked =
+    freezeData?.[1]?.status === "success" ? (freezeData[1].result as boolean) : undefined;
+  const queueSettlementFrozen =
+    (unresolvedPastDue !== undefined && unresolvedPastDue > 0n) || reserveLossExitsLocked === true;
   const {data: feeData} = useReadContracts({
     query: {enabled: SUPPORTS_VAULT_FEE_ACCOUNTING, ...POLL},
     contracts: [
@@ -193,34 +208,32 @@ export function TransparencyDashboard() {
       : null;
 
   useEffect(() => {
-    let cancelled = false;
+    if (blockNumber === undefined) return;
+    const controller = new AbortController();
 
     async function loadHistory() {
-      if (blockNumber === undefined) return;
-      setRevenue({phase: "loading"});
-      setCreditPerformance({phase: "loading"});
       try {
         const response = await fetch("/api/transparency/history", {
           headers: {accept: "application/json"},
+          signal: controller.signal,
         });
         if (!response.ok) throw new Error(`history endpoint returned ${response.status}`);
         const history = parseTransparencyHistoryResponse(await response.json());
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         setHistoryBlock(history.asOfBlock);
         setRevenue({phase: "ready", ...history.revenue});
         setCreditPerformance({phase: "ready", metrics: history.credit});
       } catch {
-        if (!cancelled) {
-          setHistoryBlock(undefined);
-          setRevenue({phase: "error"});
-          setCreditPerformance({phase: "error"});
-        }
+        if (controller.signal.aborted) return;
+        // Preserve previously loaded figures across transient refresh failures instead of wiping the panel.
+        setRevenue((prev) => (prev.phase === "ready" ? prev : {phase: "error"}));
+        setCreditPerformance((prev) => (prev.phase === "ready" ? prev : {phase: "error"}));
       }
     }
 
     void loadHistory();
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [blockNumber]);
 
@@ -262,20 +275,29 @@ export function TransparencyDashboard() {
     : "–";
 
   const fmt = (x: bigint | undefined, dp = 2) => (x !== undefined ? fmtAmount(x, 18, dp) : "–");
-  /* Band figures only: house-style compact notation past $1mm so a mainnet-sized
-     number cannot overflow its fifth of the band. Exact values stay in the
-     panels below and on each figure's reconcile link. */
+  /* Band figures only: house-style compact notation past $1mm using exact BigInt truncation
+     (never float rounding up) so a mainnet-sized number cannot overflow its fifth of the band. */
   const fmtBand = (x: bigint | undefined) => {
     if (x === undefined) return "–";
-    const n = Number(x) / 1e18;
-    if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}bn`;
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}mm`;
+    const negative = x < 0n;
+    const abs = negative ? -x : x;
+    const sign = negative ? "-" : "";
+    const BILLION = 1_000_000_000n * 10n ** 18n;
+    const MILLION = 1_000_000n * 10n ** 18n;
+    if (abs >= BILLION) {
+      const scaled = (abs * 100n) / BILLION;
+      return `${sign}${scaled / 100n}.${(scaled % 100n).toString().padStart(2, "0")}bn`;
+    }
+    if (abs >= MILLION) {
+      const scaled = (abs * 10n) / MILLION;
+      return `${sign}${scaled / 10n}.${(scaled % 10n).toString()}mm`;
+    }
     return fmtAmount(x, 18, 2);
   };
 
   return (
     <div className="transparency-console mt-12">
-      <div className="transparency-ledger-rail" aria-label="Live transparency reconciliation path" data-viewport-replay="" data-viewport-reveal="">
+      <div className="transparency-ledger-rail" role="region" aria-label="Live transparency reconciliation path" data-viewport-replay="" data-viewport-reveal="">
         <div><span><i /> RPC head</span><strong>{blockNumber?.toLocaleString() ?? "reading"}</strong></div>
         <b aria-hidden><i /></b>
         <div><span>USDfr supply</span><strong>{fmtBand(supply)}</strong></div>
@@ -409,13 +431,25 @@ export function TransparencyDashboard() {
           <Row k="Current epoch" val={epoch?.toString() ?? "–"} />
           <Row
             k="Settlement status"
-            val={settlementStatusText}
+            val={
+              queueSettlementFrozen
+                ? reserveLossExitsLocked
+                  ? "frozen · reserve-loss exit lock active"
+                  : `frozen · $${fmt(unresolvedPastDue)} unresolved past-due`
+                : settlementStatusText
+            }
           />
           <Row
             k="Queued shares"
             val={queuedShares !== undefined ? `${fmtAmount(queuedShares, SHARE_DECIMALS, 4)} sUSDfr` : "–"}
           />
           <Row k="Settlement liquidity" val={`$${fmt(queueLiquidity)}`} />
+          {queueSettlementFrozen ? (
+            <p className="mt-3 text-[13px] font-medium text-warn">
+              Settlement is currently frozen on-chain until{" "}
+              {reserveLossExitsLocked ? "the reserve-loss exit lock" : "unresolved past-due exposure"} clears.
+            </p>
+          ) : null}
         </Panel>
 
         <Panel title="sUSDfr vault" eyebrow="Senior position" kind="vault" addr={CONTRACTS.sUSDfr!}>
@@ -747,6 +781,13 @@ function Row({k, val}: {k: string; val: string}) {
 /** Both call sites sit inside the navy backing-invariant band, so this reads
  *  on-navy ink rather than page ink. */
 function Reconcile({addr, fn}: {addr: string; fn: string}) {
+  if (!EXPLORER) {
+    return (
+      <span className="mt-1 inline-flex min-h-[24px] items-center font-mono text-[11px] text-on-navy-muted">
+        {fn}() · {shortAddress(addr)}
+      </span>
+    );
+  }
   return (
     <a
       href={`${EXPLORER}${addr}#readProxyContract`}

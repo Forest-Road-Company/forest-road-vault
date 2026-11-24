@@ -44,6 +44,14 @@ describe("chunked Treasury contribution history", () => {
     await expect(assertNoTreasurySupply({getLogs} as unknown as PublicClient, 26_234_246n)).rejects.toThrow(/history is unavailable/);
     await expect(assertNoTreasurySupply({getLogs} as unknown as PublicClient, MORPHO_MARKET.fromBlock - 1n)).rejects.toThrow(/history is unavailable/);
   });
+  it("batches wide ranges in bounded waves while preserving exact 1000-block chunks and stopping on supply", async () => {
+    const getLogs = vi.fn<(request: {fromBlock: bigint; toBlock: bigint}) => Promise<unknown[]>>().mockResolvedValue([]);
+    await assertNoTreasurySupply({getLogs} as unknown as PublicClient, MORPHO_MARKET.fromBlock + 9_500n);
+    expect(getLogs).toHaveBeenCalledTimes(10);
+    const spans = getLogs.mock.calls.map(([req]) => [req.fromBlock, req.toBlock]);
+    expect(spans[0]).toEqual([MORPHO_MARKET.fromBlock, MORPHO_MARKET.fromBlock + 999n]);
+    expect(spans[9]).toEqual([MORPHO_MARKET.fromBlock + 9_000n, MORPHO_MARKET.fromBlock + 9_500n]);
+  });
 });
 
 describe("persistent Treasury proposal protection", () => {

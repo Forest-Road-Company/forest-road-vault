@@ -103,9 +103,48 @@ function checkoutHead(): string | null {
   }
 }
 
+function extraConnectOrigins(): string[] {
+  const out = new Set<string>();
+  for (const raw of [process.env.NEXT_PUBLIC_RPC_URL, process.env.NEXT_PUBLIC_SOLANA_RPC_URL]) {
+    const trimmed = raw?.trim();
+    if (!trimmed || trimmed.startsWith("/")) continue;
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol === "https:" || parsed.protocol === "wss:") {
+        out.add(parsed.origin);
+        if (parsed.protocol === "https:") out.add(`wss://${parsed.host}`);
+      }
+    } catch {
+      // Ignore non-URL values; dedicated config validators handle them.
+    }
+  }
+  return [...out];
+}
+
 const localConnectSources = isDevelopment || isLocalFork
   ? " http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*"
   : "";
+
+const connectSources = [
+  "'self'",
+  "https://*.walletconnect.com",
+  "https://*.walletconnect.org",
+  "wss://*.walletconnect.com",
+  "wss://*.walletconnect.org",
+  "https://*.reown.com",
+  "wss://*.reown.com",
+  "https://*.web3modal.org",
+  "https://*.web3modal.com",
+  "https://pulse.walletconnect.org",
+  "https://api.mainnet-beta.solana.com",
+  "wss://api.mainnet-beta.solana.com",
+  "https://api.devnet.solana.com",
+  "wss://api.devnet.solana.com",
+  "https://safe-transaction-mainnet.safe.global",
+  "https://safe-client.safe.global",
+  "https://vitals.vercel-insights.com",
+  ...extraConnectOrigins(),
+].join(" ");
 
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -114,8 +153,8 @@ const contentSecurityPolicy = [
   "img-src 'self' data: blob: https://api.web3modal.org https://secure.walletconnect.org",
   "font-src 'self' data: https://fonts.reown.com",
   "frame-src https://verify.walletconnect.com https://verify.walletconnect.org",
-  // Public RPC and WalletConnect/Reown traffic is HTTPS/WSS only outside local-fork builds.
-  `connect-src 'self' https: wss:${localConnectSources}`,
+  // Explicit origin allowlist for WalletConnect/Reown, Solana RPC, Safe & analytics (plus loopback on dev/local fork).
+  `connect-src ${connectSources}${localConnectSources}`,
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -208,7 +247,7 @@ export default function createNextConfig(phase: string): NextConfig {
     async headers() {
       return [
         {
-          source: "/((?!markets$).*)",
+          source: "/((?!markets/?$).*)",
           headers: [...securityHeaders],
         },
         {

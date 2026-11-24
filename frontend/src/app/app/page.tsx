@@ -10,6 +10,7 @@ export const metadata: Metadata = pageMetadata({
   description:
     "Mint USDfr with USDC, stake it for sUSDfr and exit through the redemption queue. Every write simulates before you sign; minting and instant redemption are KYC-gated on-chain.",
   socialTitle: "Deposit, stake, redeem | Forest Road Vault",
+  path: "/app",
 });
 
 export default function AppPage() {

@@ -24,7 +24,12 @@ afterEach(() => vi.unstubAllGlobals());
 describe("MorphoCollateralCard", () => {
   it("renders nothing while the market is not configured", async () => {
     const {container} = renderCard({ok: true, enabled: false});
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith(`/api/points/morpho?wallet=${WALLET}`));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        `/api/points/morpho?wallet=${WALLET}`,
+        expect.objectContaining({signal: expect.any(AbortSignal)}),
+      ),
+    );
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -49,6 +54,25 @@ describe("MorphoCollateralCard", () => {
   it("says it is unavailable rather than showing zero when the server fails", async () => {
     renderCard({ok: false, error: "Morpho collateral points are temporarily unavailable."}, 502);
     expect(await screen.findByText(/temporarily unavailable\. No zero balance has been assumed/)).toBeInTheDocument();
+  });
+
+  it("says it is catching up when the server answers 503 with Retry-After", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ok: false, error: "catching up"}), {
+          status: 503,
+          headers: {"content-type": "application/json", "retry-after": "10"},
+        }),
+      ),
+    );
+    const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
+    render(
+      <QueryClientProvider client={client}>
+        <MorphoCollateralCard wallet={WALLET} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText(/catching up with the chain and will appear shortly/)).toBeInTheDocument();
   });
 
   it("explains an address that is not credited", async () => {

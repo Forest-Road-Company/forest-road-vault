@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/internal/curator-rate-cleanup",
-      "schedule": "0 3 * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }

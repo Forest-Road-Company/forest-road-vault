@@ -439,6 +439,7 @@ export function verifyMintReceipt(args: {
   expectedLiquidity: bigint;
 }): MintEvidence {
   const ownerTopic = addressTopic(args.owner).toLowerCase();
+  const poolManagerTopic = addressTopic(V4_POOL_MANAGER).toLowerCase();
   const zeroTopic = addressTopic(ZERO_ADDRESS).toLowerCase();
   let tokenId: bigint | undefined;
   let usdcSpent = 0n;
@@ -449,7 +450,8 @@ export function verifyMintReceipt(args: {
     const logAddress = log.address.toLowerCase();
     if (
       log.topics[0]?.toLowerCase() === TRANSFER_TOPIC.toLowerCase() &&
-      log.topics[1]?.toLowerCase() === ownerTopic
+      log.topics[1]?.toLowerCase() === ownerTopic &&
+      log.topics[2]?.toLowerCase() === poolManagerTopic
     ) {
       if (logAddress === USDC.toLowerCase()) usdcSpent += BigInt(log.data);
       if (logAddress === USDFR.toLowerCase()) usdfrSpent += BigInt(log.data);

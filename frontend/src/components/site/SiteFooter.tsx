@@ -21,6 +21,7 @@ export function SiteFooter() {
               alt="Forest Road Vault"
               width={2400}
               height={173}
+              sizes="208px"
               className="h-auto w-[208px]"
             />
             <p className="text-[13px] leading-relaxed text-on-navy-faint">
@@ -54,6 +55,9 @@ export function SiteFooter() {
               </Link>
               <Link href="/points" className="block py-1 text-on-navy-muted hover:text-on-navy">
                 Points
+              </Link>
+              <Link href="/markets" className="block py-1 text-on-navy-muted hover:text-on-navy">
+                Borrow &amp; lend
               </Link>
               <Link href="/curators" className="block py-1 text-on-navy-muted hover:text-on-navy">
                 Curators

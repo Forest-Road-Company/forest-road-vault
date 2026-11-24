@@ -1,13 +1,9 @@
 import type { AuditFinding, Disposition, Severity } from "@/content/audits";
 
 /**
- * Findings are rendered as structured cards rather than a markdown table.
- *
- * The docs pipeline runs `react-markdown` without `remark-gfm`, so pipe tables in
- * markdown are emitted as literal text, the `.doc-prose table` rules in globals.css
- * never match anything. Registers therefore live in typed data (`content/audits.ts`)
- * and render through this component, which also keeps severity and disposition
- * vocabulary consistent across every round.
+ * Findings are rendered as structured cards rather than markdown tables so the register,
+ * severity counts, and per-report pages share one typed source (`content/audits.ts`) with
+ * consistent severity and disposition vocabulary across every round.
  */
 
 /**

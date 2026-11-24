@@ -71,7 +71,7 @@ export const DOCS: DocEntry[] = [
     title: "Integrating",
     eyebrow: "For builders",
     summary:
-      "Where our tokens depart from what their interfaces imply: asynchronous redemption through the queue, the absolute gas floor on every balance change, sanctions-screened transfers, and the 24-decimal share. Read before wiring a router, adapter or aggregator.",
+      "Where our tokens depart from what their interfaces imply: asynchronous redemption through the queue, the points-hook gas discipline on every balance change, sanctions-screened transfers, and the 24-decimal share. Read before wiring a router, adapter or aggregator.",
   },
 ];
 

@@ -8,18 +8,16 @@ import {
   HighlightBox,
 } from "@/components/site/Blocks";
 import {IS_MAINNET} from "@/config/contracts";
-import { socialMetadata } from "@/lib/shareCards";
+import { pageMetadata } from "@/lib/shareCards";
 import { ProtocolScene } from "@/components/site/ProtocolScene";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Risk factors | Forest Road Vault",
   description: "Understand the credit, liquidity, contract, regulatory and collateral risks before interacting with Forest Road Vault.",
-  ...socialMetadata({
-    card: "risk",
-    title: "Risk factors | Forest Road Vault",
-    description: "The material assumptions and failure modes to understand before interacting with Forest Road Vault.",
-  }),
-};
+  card: "risk",
+  socialDescription: "The material assumptions and failure modes to understand before interacting with Forest Road Vault.",
+  path: "/risk",
+});
 
 /**
  * Risk copy is disclosure material and is reproduced verbatim. The grouping

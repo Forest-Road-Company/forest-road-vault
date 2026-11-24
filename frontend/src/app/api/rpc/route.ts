@@ -7,6 +7,8 @@ import {handleRpcProxyRequest, rpcProxyMethodNotAllowed} from "@/lib/rpcProxy.se
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Covers the 5 s chain check plus one 20 s upstream forward, with headroom for body assembly. */
+export const maxDuration = 30;
 
 export async function POST(request: Request): Promise<Response> {
   return handleRpcProxyRequest(request);

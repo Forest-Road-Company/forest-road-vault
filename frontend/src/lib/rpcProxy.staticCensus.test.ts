@@ -155,7 +155,7 @@ describe("the static method census of browser code", () => {
     expect(census.unknownWagmi).toEqual([]);
     expect(census.unknownClientCalls).toEqual([]);
     // Not vacuous: the site's actual read paths are found.
-    for (const hook of ["useReadContract", "useReadContracts", "useBlockNumber", "useBlock", "useWatchContractEvent"]) {
+    for (const hook of ["useReadContract", "useReadContracts", "useBlockNumber", "useWatchContractEvent"]) {
       expect(census.seenWagmi.has(hook), hook).toBe(true);
     }
     for (const call of ["readContract", "getBlock", "getContractEvents", "getLogs", "simulateContract", "waitForTransactionReceipt"]) {

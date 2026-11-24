@@ -24,6 +24,7 @@ export async function generateMetadata({
   return pageMetadata({
     title: `${audit.title} | Forest Road Vault`,
     description: audit.summary,
+    path: `/docs/audit/${slug}`,
   });
 }
 
@@ -118,7 +119,16 @@ export default async function AuditReportPage({
       <article className="doc-prose mt-12">
         {/* Raw HTML is explicitly discarded. react-markdown also applies a safe URL transform,
             so repository prose cannot inject script URLs or executable markup into the site. */}
-        <ReactMarkdown skipHtml remarkPlugins={[remarkGfm]}>
+        <ReactMarkdown skipHtml
+          remarkPlugins={[remarkGfm]}
+          components={{
+            table: ({children}) => (
+              <div className="overflow-x-auto">
+                <table>{children}</table>
+              </div>
+            ),
+          }}
+        >
           {markdown}
         </ReactMarkdown>
       </article>

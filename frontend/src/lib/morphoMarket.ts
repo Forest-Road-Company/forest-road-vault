@@ -33,12 +33,22 @@ export const MORPHO_MARKET_ABI = parseAbi([
   "function borrow(MarketParams marketParams,uint256 assets,uint256 shares,address onBehalf,address receiver) returns (uint256,uint256)",
   "function repay(MarketParams marketParams,uint256 assets,uint256 shares,address onBehalf,bytes data) returns (uint256,uint256)",
   "function borrowRateView(MarketParams marketParams,Market market) view returns (uint256)",
+  "error SUSDfr_TransferBlocked(address from,address to)",
+  "error PointsHook_InsufficientGas(uint256 available,uint256 required)",
+  "error EnforcedPause()",
+  "error ERC20InsufficientBalance(address sender,uint256 balance,uint256 needed)",
+  "error ERC20InsufficientAllowance(address spender,uint256 allowance,uint256 needed)",
 ]);
 export const MARKET_TOKEN_ABI = parseAbi([
   "function approve(address spender,uint256 amount) returns (bool)",
   "function allowance(address owner,address spender) view returns (uint256)",
   "function balanceOf(address owner) view returns (uint256)",
   "function decimals() view returns (uint8)",
+  "error SUSDfr_TransferBlocked(address from,address to)",
+  "error PointsHook_InsufficientGas(uint256 available,uint256 required)",
+  "error EnforcedPause()",
+  "error ERC20InsufficientBalance(address sender,uint256 balance,uint256 needed)",
+  "error ERC20InsufficientAllowance(address spender,uint256 allowance,uint256 needed)",
 ]);
 export const MARKET_ORACLE_ABI = parseAbi([
   "function price() view returns (uint256)",

@@ -177,11 +177,11 @@ describe("a non-Buy write whose receipt cannot be read (review F4)", () => {
     expect(result.current.status).toEqual({phase: "error", message: "Transaction reverted on-chain.", errorName: null});
   });
 
-  it("keeps the overall wait timeout as it was: not restarted, not called unknown", async () => {
+  it("reports a receipt timeout as status unknown with the hash, without restarting or claiming failure", async () => {
     harness.wait.mockRejectedValue(Object.assign(new Error("timed out"), {name: "WaitForTransactionReceiptTimeoutError"}));
     const {result} = renderHook(() => useWriteFlow());
     await act(async () => { await result.current.run(STAKE); });
     expect(harness.wait).toHaveBeenCalledTimes(1);
-    expect(result.current.status.phase).toBe("error");
+    expect(result.current.status).toEqual({phase: "unknown", hash: HASH});
   });
 });

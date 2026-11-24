@@ -32,7 +32,7 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
   const usdfr = CONTRACTS.USDfr!;
   const vault = CONTRACTS.sUSDfr!;
 
-  const {data: balance} = useReadContract({
+  const {data: balance, isLoading: balanceLoading} = useReadContract({
     address: usdfr,
     abi: ERC20_ABI,
     functionName: "balanceOf",
@@ -205,8 +205,12 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
           says so in words rather than as a dash. */}
       <p className="mt-4 font-mono text-[11px] text-ink-faint">
         Balance:{" "}
-        {balance !== undefined ? (
+        {balanceLoading ? (
+          <span>loading…</span>
+        ) : balance !== undefined ? (
           <span className="text-ink-muted">{fmtAmount(balance, 18)} USDfr</span>
+        ) : address ? (
+          <span>unavailable</span>
         ) : (
           <span>wallet not connected</span>
         )}

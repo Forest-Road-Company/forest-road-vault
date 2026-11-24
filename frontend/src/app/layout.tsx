@@ -52,6 +52,7 @@ export const metadata: Metadata = {
     description: `Forest Road Vault records specialty-finance credit across Media, Renewables, and Digital Assets on-chain. USDfr backing includes reserves and deployed loan principal; sUSDfr reflects net book performance after fees and losses.${IS_TESTNET ? " Testnet preview." : ""}`,
     socialDescription:
       "The Vault's on-chain credit book: USDfr backing includes reserves and deployed loan principal; sUSDfr reflects net performance after fees and losses.",
+    path: "/",
   }),
 };
 
@@ -70,10 +71,16 @@ export default function RootLayout({
         <ViewportReplayController />
         <Providers>
           <div className="site-stack flex min-h-dvh flex-col">
+            <a
+              href="#main-content"
+              className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-pill focus:bg-navy focus:px-4 focus:py-2 focus:text-[13px] focus:font-semibold focus:text-on-navy focus:shadow-lg"
+            >
+              Skip to main content
+            </a>
             <TestnetBanner />
             <SiteNav />
             <ViewTransition name="page-content" default="page-crossfade">
-              <main className="site-main flex-1">{children}</main>
+              <main id="main-content" className="site-main flex-1">{children}</main>
             </ViewTransition>
             <SiteFooter />
           </div>

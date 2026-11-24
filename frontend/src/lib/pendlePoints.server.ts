@@ -18,8 +18,60 @@ import {IS_MAINNET} from "@/config/contracts";
 export const PENDLE_POINTS_URL = "https://points.forestroadvault.com/api/pendle-points";
 const TIMEOUT_MS = 8_000;
 const MAX_MARKETS = 8;
+const MAX_WALLET_RESPONSE_BYTES = 256 * 1024;
+const MAX_LEADERBOARD_RESPONSE_BYTES = 4 * 1024 * 1024;
+const WALLET_CACHE_TTL_MS = 60_000;
+const MAX_WALLET_CACHE = 500;
 /** Raw points, 1e18 to a point: a uint256 at most. */
 const RAW = /^(0|[1-9]\d{0,77})$/;
+
+const walletCache = new Map<string, {answer: PendlePointsAnswer; at: number}>();
+const walletInFlight = new Map<string, Promise<PendlePointsAnswer>>();
+
+/** Clears the per-instance wallet cache. Tests only. */
+export function resetPendlePointsCache(): void {
+  walletCache.clear();
+  walletInFlight.clear();
+}
+
+async function readCappedJson(response: Response, limit: number): Promise<unknown> {
+  const declared = response.headers.get("content-length");
+  if (declared !== null) {
+    const length = Number(declared);
+    if (!Number.isFinite(length) || length < 0 || length > limit) fail("the answer is too large");
+  }
+  const body = response.body;
+  if (!body) fail("the answer is empty");
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > limit) {
+        await reader.cancel().catch(() => undefined);
+        fail("the answer is too large");
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    if (error instanceof PendlePointsUnavailableError) throw error;
+    fail("the points site did not finish answering");
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder("utf-8", {fatal: true}).decode(bytes)) as unknown;
+  } catch {
+    fail("the answer is not JSON");
+  }
+}
 
 /** The points site was unreachable or answered something this module will not show. Safe to log. */
 export class PendlePointsUnavailableError extends Error {
@@ -116,30 +168,59 @@ export function parsePendlePoints(body: unknown, wallet: Address): PendlePointsA
   };
 }
 
-/**
- * One wallet's Pendle points from the points site. Ethereum only: on a testnet build the Pendle
- * markets do not exist, so it answers disabled without a request.
- */
-export async function loadPendlePoints(wallet: Address, fetcher: typeof fetch = fetch): Promise<PendlePointsAnswer> {
-  if (!IS_MAINNET) return {ok: true, enabled: false};
+async function fetchPendlePointsUncached(wallet: Address, fetcher: typeof fetch): Promise<PendlePointsAnswer> {
   let response: Response;
   try {
     response = await fetcher(`${PENDLE_POINTS_URL}?wallet=${wallet.toLowerCase()}`, {
       headers: {accept: "application/json"},
       signal: AbortSignal.timeout(TIMEOUT_MS),
+      redirect: "error",
       cache: "no-store",
     });
   } catch {
     fail("the points site did not answer");
   }
   if (!response.ok) fail(`the points site answered ${response.status}`);
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    fail("the answer is not JSON");
-  }
+  const body = await readCappedJson(response, MAX_WALLET_RESPONSE_BYTES);
   return parsePendlePoints(body, wallet);
+}
+
+/**
+ * One wallet's Pendle points from the points site. Ethereum only: on a testnet build the Pendle
+ * markets do not exist, so it answers disabled without a request. Production calls coalesce in
+ * flight and reuse validated answers for 60s so Next.js-stripped query variants cannot amplify
+ * upstream traffic.
+ */
+export async function loadPendlePoints(
+  wallet: Address,
+  fetcher: typeof fetch = fetch,
+  options?: {useCache?: boolean; now?: () => number},
+): Promise<PendlePointsAnswer> {
+  if (!IS_MAINNET) return {ok: true, enabled: false};
+  const useCache = options?.useCache ?? fetcher === fetch;
+  if (!useCache) return fetchPendlePointsUncached(wallet, fetcher);
+
+  const now = options?.now ?? Date.now;
+  const key = wallet.toLowerCase();
+  const cached = walletCache.get(key);
+  if (cached && now() - cached.at < WALLET_CACHE_TTL_MS) return cached.answer;
+  const existing = walletInFlight.get(key);
+  if (existing) return existing;
+
+  const pending = fetchPendlePointsUncached(wallet, fetcher)
+    .then((answer) => {
+      if (walletCache.size >= MAX_WALLET_CACHE) {
+        const oldest = walletCache.keys().next().value;
+        if (oldest !== undefined) walletCache.delete(oldest);
+      }
+      walletCache.set(key, {answer, at: now()});
+      return answer;
+    })
+    .finally(() => {
+      if (walletInFlight.get(key) === pending) walletInFlight.delete(key);
+    });
+  walletInFlight.set(key, pending);
+  return pending;
 }
 
 /** Every wallet's Pendle points, for the leaderboard (forestvault-whitelist, src/app/api/pendle-points/all). */
@@ -192,24 +273,25 @@ export function parsePendleLeaderboard(body: unknown): PendleLeaderboardAnswer {
  * Every wallet's Pendle points from the points site, for the leaderboard. Ethereum only: on a testnet
  * build the Pendle markets do not exist, so it answers disabled without a request.
  */
-export async function loadPendleLeaderboard(fetcher: typeof fetch = fetch): Promise<PendleLeaderboardAnswer> {
+export async function loadPendleLeaderboard(
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<PendleLeaderboardAnswer> {
   if (!IS_MAINNET) return {ok: true, enabled: false};
+  const timeout = AbortSignal.timeout(LEADERBOARD_TIMEOUT_MS);
+  const combinedSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
   let response: Response;
   try {
     response = await fetcher(PENDLE_LEADERBOARD_URL, {
       headers: {accept: "application/json"},
-      signal: AbortSignal.timeout(LEADERBOARD_TIMEOUT_MS),
+      signal: combinedSignal,
+      redirect: "error",
       cache: "no-store",
     });
   } catch {
     fail("the points site did not answer");
   }
   if (!response.ok) fail(`the points site answered ${response.status}`);
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    fail("the answer is not JSON");
-  }
+  const body = await readCappedJson(response, MAX_LEADERBOARD_RESPONSE_BYTES);
   return parsePendleLeaderboard(body);
 }

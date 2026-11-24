@@ -14,6 +14,7 @@ export const metadata: Metadata = pageMetadata({
   description:
     "How Forest Road Vault works: depositors provide capital through USDfr and sUSDfr, borrowers are financed against specific, named collateral, and each loan is kept in sync between its legal record and the chain.",
   socialTitle: "How the Vault works | Forest Road Vault",
+  path: "/how-it-works",
 });
 
 const depositorSteps = [

@@ -62,15 +62,19 @@ eligibility restrictions and agreements presented during onboarding.
 
 ## 3. Get USDfr
 
-**Mint with USDC (KYC-verified addresses).** In **Deposit & mint**, enter a USDC amount,
-press **Approve USDC** and confirm in your wallet, then press **Mint USDfr**. You receive
-USDfr 1:1. Every mint is checked on-chain so that USDfr supply can never exceed its backing.
+The **Get USDfr** card opens with two tabs: **Buy** (default, open to any eligible address) and
+**Mint 1:1** (KYC-verified addresses).
 
-**Buy on Uniswap (any address).** USDfr trades against USDC in a Uniswap v4 pool:
-[USDfr/USDC on Uniswap](https://app.uniswap.org/explore/pools/ethereum/0x72ef9130b1c7bd2daa49405e618b7ad27eb90e03c893629ba1d28a4562fc7b55).
+**Buy through Uniswap (any address).** On Ethereum mainnet, the **Buy** tab quotes and routes
+USDC → USDfr directly through the USDfr/USDC Uniswap v4 pool
+([view pool on Uniswap](https://app.uniswap.org/explore/pools/ethereum/0x72ef9130b1c7bd2daa49405e618b7ad27eb90e03c893629ba1d28a4562fc7b55)).
 Uniswap is independent of Forest Road. The pool's price is set by the market and can differ from
-1:1, so check the quote and your slippage setting before you swap. The pool ID is on the
-[deployed-addresses page](/docs/addresses).
+1:1, so check the quote, price warning and slippage setting before signing. The pool ID and router
+addresses are on the [deployed-addresses page](/docs/addresses).
+
+**Mint 1:1 with USDC (KYC-verified addresses).** Switch to **Mint 1:1** inside **Get USDfr**, enter
+a USDC amount, press **Approve USDC** and confirm in your wallet, then press **Mint USDfr**. You
+receive USDfr 1:1. Every mint is checked on-chain so that USDfr supply can never exceed its backing.
 
 ## 4. Stake USDfr for yield
 
@@ -135,7 +139,13 @@ stays in your wallet as USDfr.
 
 - The app's position panel shows your position, current expected yield, projected income,
   historical gain and the fees that apply.
-- The [points page](/points) shows the participation points your wallet has accrued.
+- The [borrow & lend page](/markets) connects directly to the live Ethereum Morpho Blue
+  USDC/sUSDfr market (supply USDC or post sUSDfr collateral and borrow USDC; supports Safe multisig
+  atomic batches).
+- The [curators page](/curators) describes first-loss curator participation and hosts the
+  Ethereum and Solana curator surfaces for approved wallets.
+- The [points page](/points) shows the participation points your wallet has accrued across
+  on-chain balances, Morpho collateral and Pendle positions.
 - The [transparency dashboard](/transparency) reconciles supply, backing, the loan book, the
   loss layers and the queue to on-chain state.
 - To see the tokens in your wallet, add them by address from the

@@ -7,6 +7,7 @@ type OriginatedArgs = {tokenId?: bigint; classId?: bigint};
 type FundedArgs = {tokenId?: bigint; principal?: bigint};
 type LossArgs = {classId?: bigint; loss?: bigint};
 type FeeArgs = {fee?: bigint};
+type DistributedArgs = {fee?: bigint; toVault?: bigint};
 type VaultFeeArgs = {feeAssets?: bigint};
 
 export interface TransparencyHistory {
@@ -17,6 +18,8 @@ export interface TransparencyHistory {
     performanceFees: bigint;
     managementFees: bigint;
   };
+  /** Cumulative senior interest delivered to sUSDfr via WaterfallEngine.Distributed.toVault. */
+  seniorIncome: bigint;
   credit: HistoricalNetDefaultMetrics;
 }
 
@@ -29,6 +32,7 @@ export interface TransparencyHistoryWire {
     performanceFees: string;
     managementFees: string;
   };
+  seniorIncome: string;
   credit: {
     fundedPrincipal: string;
     netLoss: string;
@@ -62,7 +66,7 @@ export function summarizeTransparencyHistory(input: {
   funded: readonly FundedArgs[];
   losses: readonly LossArgs[];
   originationFees: readonly FeeArgs[];
-  distributions: readonly FeeArgs[];
+  distributions: readonly DistributedArgs[];
   performanceFees: readonly VaultFeeArgs[];
   managementFees: readonly VaultFeeArgs[];
 }): TransparencyHistory {
@@ -84,6 +88,7 @@ export function summarizeTransparencyHistory(input: {
     classId: Number(required(event.classId, "LossRealized")),
     loss: required(event.loss, "LossRealized"),
   }));
+  const seniorIncome = input.distributions.reduce((sum, event) => sum + (event.toVault ?? 0n), 0n);
 
   return {
     asOfBlock: input.asOfBlock,
@@ -93,6 +98,7 @@ export function summarizeTransparencyHistory(input: {
       performanceFees: sumVaultFees(input.performanceFees, "PerformanceFeeAccrued"),
       managementFees: sumVaultFees(input.managementFees, "ManagementFeeAccrued"),
     },
+    seniorIncome,
     credit: calculateHistoricalNetDefaultMetrics(funded, losses, input.classIds),
   };
 }
@@ -107,6 +113,7 @@ export function serializeTransparencyHistory(history: TransparencyHistory): Tran
       performanceFees: history.revenue.performanceFees.toString(),
       managementFees: history.revenue.managementFees.toString(),
     },
+    seniorIncome: history.seniorIncome.toString(),
     credit: {
       fundedPrincipal: history.credit.fundedPrincipal.toString(),
       netLoss: history.credit.netLoss.toString(),
@@ -167,6 +174,7 @@ export function parseTransparencyHistoryResponse(value: unknown): TransparencyHi
       performanceFees: decimal(revenue.performanceFees, "performanceFees"),
       managementFees: decimal(revenue.managementFees, "managementFees"),
     },
+    seniorIncome: root.seniorIncome === undefined ? 0n : decimal(root.seniorIncome, "seniorIncome"),
     credit: {
       fundedPrincipal: decimal(credit.fundedPrincipal, "fundedPrincipal"),
       netLoss: decimal(credit.netLoss, "netLoss"),

@@ -1764,10 +1764,20 @@ if (!existsSync(new URL("../contracts/src/interfaces/", import.meta.url))) {
     "position panel labels the forward rate current expected yield",
     yieldPanel.includes('label="Current expected yield"'),
   );
+  const transparencyHistoryServer = readFileSync(
+    new URL("./src/lib/transparencyHistory.server.ts", import.meta.url),
+    "utf8",
+  );
+  const transparencyHistory = readFileSync(
+    new URL("./src/lib/transparencyHistory.ts", import.meta.url),
+    "utf8",
+  );
   check(
     "position panel derives historical income from zero-vesting-compatible Waterfall distributions",
-    yieldPanel.includes('eventName: "Distributed"') &&
-      yieldPanel.includes("log.args.toVault") &&
+    yieldPanel.includes("/api/transparency/history") &&
+      yieldPanel.includes("seniorIncome") &&
+      transparencyHistoryServer.includes('log.eventName === "Distributed"') &&
+      transparencyHistory.includes("event.toVault") &&
       !/eventName:\s*"YieldStreamStarted"[\s\S]{0,500}recordedIncome/.test(yieldPanel),
   );
 }
@@ -1819,8 +1829,12 @@ if (!existsSync(new URL("../contracts/src/", import.meta.url))) {
   //     never contain one (ERC20InsufficientAllowance, AccessControlUnauthorizedAccount,
   //     EnforcedPause). So "has an underscore" cleanly separates ours from theirs, without a
   //     hardcoded allowlist that would silently rot as OZ adds errors.
+  // Stage 2 (audited commit ee9b228a) errors deployed on Ethereum mainnet and wired into the
+  // frontend ahead of Stage 2 governance activation so reverts decode immediately at cutover.
+  const STAGE2_PREACTIVATION_ERRORS = new Set(["SUSDfr_UnresolvedPastDue"]);
   for (const name of abiErrors) {
     if (!name.includes("_")) continue; // inherited third-party error, not ours to track
+    if (STAGE2_PREACTIVATION_ERRORS.has(name)) continue;
     check(`drift: "${name}" still exists in contracts/src`, declared.has(name));
   }
 

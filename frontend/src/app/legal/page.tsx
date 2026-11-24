@@ -8,6 +8,7 @@ export const metadata: Metadata = pageMetadata({
   title: "Disclosures | Forest Road Vault",
   description:
     "Deployment status, eligibility, fees, governance, conflicts, risks, and legal disclosures for Forest Road Vault.",
+  path: "/legal",
 });
 
 export default function LegalPage() {
