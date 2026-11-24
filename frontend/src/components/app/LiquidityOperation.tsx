@@ -11,7 +11,7 @@ import {
 } from "viem";
 import {mainnet} from "viem/chains";
 import {useAccount, usePublicClient, useWalletClient} from "wagmi";
-import {waitForReceiptRobustly} from "@/lib/receiptWait";
+import {ReceiptStatusUnknownError, waitForReceiptRobustly} from "@/lib/receiptWait";
 
 import {ConnectControl} from "@/components/app/ConnectControl";
 import {CHAIN_ID, CONTRACTS, EXPLORER_BASE_URL} from "@/config/contracts";
@@ -85,6 +85,7 @@ type OperationStatus =
   | {phase: "simulating"; message: string}
   | {phase: "submitting"; message: string}
   | {phase: "pending"; message: string; hash: Hash}
+  | {phase: "unknown"; message: string; hash: Hash}
   | {phase: "success"; message: string; hash: Hash}
   | {phase: "error"; message: string; hash?: Hash};
 
@@ -406,6 +407,12 @@ export function LiquidityOperation() {
       if (!connectedCorrectly || !walletClient || !publicClient || !address) return;
       try {
         setStatus({phase: "simulating", message: `Checking ${symbol} approval…`});
+        const alignment = await probeRpcAlignment(
+          publicClient.request as RpcRequest,
+          walletClient.transport.request as RpcRequest,
+          {expectedChainId: mainnet.id, requireExactTip: false},
+        );
+        if (!alignment.aligned) throw new Error(alignment.message);
         await publicClient.simulateContract({
           account: address,
           address: token,
@@ -433,7 +440,11 @@ export function LiquidityOperation() {
         await loadSnapshot();
         setStatus({phase: "success", message: `${symbol} approval confirmed.`, hash});
       } catch (error) {
-        setStatus({phase: "error", message: messageFromError(error)});
+        if (error instanceof ReceiptStatusUnknownError) {
+          setStatus({phase: "unknown", message: error.message, hash: error.hash});
+        } else {
+          setStatus({phase: "error", message: messageFromError(error)});
+        }
       }
     }, [address, connectedCorrectly, loadSnapshot, publicClient, walletClient],
   );
@@ -580,7 +591,11 @@ export function LiquidityOperation() {
           hash,
         });
       } catch (error) {
-        setStatus({phase: "error", message: messageFromError(error), hash: pendingHash});
+        if (error instanceof ReceiptStatusUnknownError) {
+          setStatus({phase: "unknown", message: error.message, hash: error.hash});
+        } else {
+          setStatus({phase: "error", message: messageFromError(error), hash: pendingHash});
+        }
       }
     }, [address, connectedCorrectly, loadSnapshot, pilot, publicClient, walletClient],
   );
@@ -589,11 +604,12 @@ export function LiquidityOperation() {
   const usdfrPrice = snapshot
     ? 1 / (Math.pow(1.0001, snapshot.tick) * 1e-12)
     : null;
+  const activePlan = pilot ? remainderPlan : pilotPlan;
   const tokenApprovalsReady = Boolean(
     snapshot &&
-      pilotPlan &&
-      snapshot.usdcTokenAllowance >= pilotPlan.maxUsdc &&
-      snapshot.usdfrTokenAllowance >= pilotPlan.maxUsdfr,
+      activePlan &&
+      snapshot.usdcTokenAllowance >= activePlan.maxUsdc &&
+      snapshot.usdfrTokenAllowance >= activePlan.maxUsdfr,
   );
   const pilotFundsReady = Boolean(
     snapshot &&
@@ -680,7 +696,7 @@ export function LiquidityOperation() {
         </button>
       </div>
 
-      {snapshot && pilotPlan && !tokenApprovalsReady ? (
+      {snapshot && activePlan && !tokenApprovalsReady ? (
         <section className="mt-6 rounded-card border border-warn/30 bg-warn-faint p-5 md:p-7">
           <h2 className="text-[20px] font-semibold text-ink">Permit2 token approvals</h2>
           <p className="mt-2 text-[13px] leading-relaxed text-ink-muted">
@@ -689,7 +705,7 @@ export function LiquidityOperation() {
             signed allowance.
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
-            {snapshot.usdcTokenAllowance < pilotPlan.maxUsdc ? (
+            {snapshot.usdcTokenAllowance < activePlan.maxUsdc ? (
               <button
                 type="button"
                 onClick={() => void approveToken(USDC, "USDC")}
@@ -699,7 +715,7 @@ export function LiquidityOperation() {
                 Approve USDC
               </button>
             ) : null}
-            {snapshot.usdfrTokenAllowance < pilotPlan.maxUsdfr ? (
+            {snapshot.usdfrTokenAllowance < activePlan.maxUsdfr ? (
               <button
                 type="button"
                 onClick={() => void approveToken(USDFR, "USDfr")}

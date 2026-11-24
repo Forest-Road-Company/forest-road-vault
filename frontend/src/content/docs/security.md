@@ -74,16 +74,18 @@ withdrew and refuted the classification: the measured difference was not an atta
 contract defect. The failed analysis and its correction remain in the ledger rather than being
 erased. No attacker-reachable High or Critical is currently confirmed.
 
-The latest round challenged whether permissionless accrual maintenance could create financing
-inside an external liquidation callback. After Morpho delivered **1,000 sUSDfr** of seized
-collateral, a roleless contract posted existing virtual interest, materialized both USDfr issuance
-legs, reposted the collateral and recursively borrowed. The planned oracle stayed exactly
-**0.651096550750396791 USDC per sUSDfr**: the accounting representation changed, but economic
-value did not. The nested borrow reached **559.943032 USDC**, below the **623.750496 USDC** outer
-repayment, so the zero-capital route reverted atomically and still required **63.807464 USDC** of
-outside capital. This is **Held / no finding**; the planned market remains undeployed, the separate
-Round 128 launch blocker remains accepted, and the campaign is paused at this reproducible
-checkpoint.
+The latest round in the September fork campaign (Round 130, 29 September 2026) challenged whether
+permissionless accrual maintenance could create financing inside an external liquidation callback.
+After Morpho delivered **1,000 sUSDfr** of seized collateral, a roleless contract posted existing
+virtual interest, materialized both USDfr issuance legs, reposted the collateral and recursively
+borrowed. The planned oracle stayed exactly **0.651096550750396791 USDC per sUSDfr**: the
+accounting representation changed, but economic value did not. The nested borrow reached
+**559.943032 USDC**, below the **623.750496 USDC** outer repayment, so the zero-capital route
+reverted atomically and still required **63.807464 USDC** of outside capital. This is **Held / no
+finding**; at that 29 September checkpoint the Morpho market was not yet deployed (it subsequently
+launched on Ethereum mainnet in October 2026 after its pre-launch gates closed; see
+[Borrow & lend](/markets) and [Live deployment status](/docs/status)), and the September fork
+campaign paused at Round 130.
 
 The separate **Medium / Open** economic finding LMV-09 has High technical impact but very-low
 practical likelihood. During a marked-credit window, an ordinary KYC holder can amplify settlement of an
@@ -614,13 +616,15 @@ remained intact and depositor loss would require later facility underperformance
 should either revalidate current class policy before funding or record explicit, auditable
 grandfathering.
 
-Round 104 exercised the planned, not-yet-deployed Morpho USDC/sUSDfr integration against real
-mainnet state and deployed market liquidity. A newly valid public overdue mark invalidated a
-professional assessment, materially repriced an unrelated borrower's collateral, enabled full
-liquidation and left residual bad debt with the fork-only lender. This is a new external-market
-consequence of the already disclosed **Medium / Accepted M-2** assessment-invalidation risk, not a
-new root or live High. No current Forest Road depositor funds were exposed, and the integration
-remains behind its monitoring, liquidity, disclosure and parameter launch gates.
+Round 104 (historical September 2026 pre-deployment snapshot) exercised the planned Morpho
+USDC/sUSDfr integration against real mainnet state and deployed market liquidity before the Morpho
+market went live in October 2026. A newly valid public overdue mark invalidated a professional
+assessment, materially repriced an unrelated borrower's collateral, enabled full liquidation and
+left residual bad debt with the fork-only lender. This is a new external-market consequence of the
+already disclosed **Medium / Accepted M-2** assessment-invalidation risk, not a new root or live
+High. At the time of that September round no Forest Road depositor funds were exposed, and the
+integration subsequently cleared its monitoring, liquidity, disclosure and parameter launch gates
+before opening.
 
 Round 105 attacked the exact first five-facility cash-payment package by publicly submitting its
 five genuine signed facts before the reviewed Operations Safe transaction. The original package
@@ -639,15 +643,20 @@ only the correct **$0.000129** of cash interest; sub-micro-dollar allocation dus
 independent depositor's final cash payout by one native USDC unit. The roleless caller gained
 nothing. This is a novel held full-system result, not a finding or High.
 
-Round 107 attacked the planned external-lending integration by having an approved curator post
-first-loss capital, borrow canonical USDC against the improved sUSDfr exit-value oracle and then
-try to reclaim the support. Freely withdrawable capital moved the oracle by zero. Capital that did
-move it increased borrowing power by only **86.270546 USDC** while locking **44,611.737234 USDfr**
-in the marked class; the withdrawal failed with zero headroom and the Morpho position remained
-healthy. This is a held external-consumer bypass test, not a new root or High. The oracle and
-market are not deployed, so it is not current depositor exposure.
+Round 107 (historical September 2026 pre-deployment snapshot) attacked the planned external-lending
+integration by having an approved curator post first-loss capital, borrow canonical USDC against the
+improved sUSDfr exit-value oracle and then try to reclaim the support. Freely withdrawable capital
+moved the oracle by zero. Capital that did move it increased borrowing power by only **86.270546
+USDC** while locking **44,611.737234 USDfr** in the marked class; the withdrawal failed with zero
+headroom and the Morpho position remained healthy. This is a held external-consumer bypass test, not
+a new root or High. (The Morpho USDC/sUSDfr market later launched in October 2026; see
+[Live deployment status](/docs/status).)
 
-## Live acceptance
+*(Rounds 108–130 continued the September 2026 pre-deployment Morpho and cross-module fork campaign
+through its 29 September checkpoint; the complete round-by-round chronicle is preserved on the
+[Audit Register](/docs/audit#ongoing-adversarial-testing).)*
+
+## Live acceptance (September 2026 launch canary)
 
 A funded mainnet canary completed USDfr minting and transfer, sUSDfr deposit and transfer, direct
 USDfr redemption and sUSDfr queue entry. Supply equalled recognized backing, and physical USDC in
@@ -659,24 +668,33 @@ value movement. Unrelated wallets and protocol burn legs remained available. The
 block, the wallet's retained allowlist status became effective again, and the temporary drill
 balance redeemed for exactly 1 USDC.
 
-The queue request remains in its contractually required 21-day cooldown until 12 October 2026.
-The full settlement and claim sequence has passed on a fork, while its live settlement remains a
-scheduled observation rather than a completed claim.
+At launch acceptance in September 2026, the canary queue request entered its contractually required
+21-day cooldown (through 12 October 2026). Full queue settlement and claim behavior has been
+verified on mainnet forks and in ongoing live operations; see [Live deployment status](/docs/status)
+for current queue state.
 
 ## Recent review history
 
-The Audit Register now includes the September review sequence:
+The Audit Register includes both the November 2026 LMV remediation reviews and the September 2026
+V2 launch review sequence:
 
-- the 13 September Corrovera dual-chain ensemble, which read 125 source files individually and
-  explicitly did not establish dependency closure or review deployment scripts;
-- the 17 September Corrovera diff review and its follow-up probes over the accrual, impairment,
-  custody and legacy-default changes;
-- the 18 September internal Solana and curator correctness review;
-- the 20 September Corrovera curator-vault review and its remediation verification;
-- the 20 September internal review of the exact Ethereum V2 deployment on forked mainnet state;
-  and
-- 76 post-launch strict-novelty attack rounds through 29 September, followed by the
-  outcome-independent LMV-09 technical-impact adjudication and owner-adjusted disposition.
+- the 24 November 2026 Corrovera re-audit of the `ee9b228a` LMV remediation candidate (`PASS`,
+  closing all five prior delta findings and prior mutation survivor M3, paired with `66/66` green
+  Security gates Run #753);
+- the 23 November 2026 Corrovera protocol delta review (`58e651f1`) covering the `LMV-09` and
+  `LMV-18` remediation diff;
+- the 21 November 2026 Corrovera full-system LMV review across contracts and off-chain services
+  (six findings remediated; off-chain liquidation bot `FRV-NEW-02` remaining Open pending rollout);
+- the 20 September 2026 internal review of the exact Ethereum V2 deployment on forked mainnet state
+  and the 20 September 2026 Corrovera Solana curator-vault review;
+- the 18 September 2026 internal Solana and curator correctness review;
+- the 17 September 2026 Corrovera diff review over accrual, impairment, custody and legacy-default
+  changes;
+- the 13 September 2026 Corrovera dual-chain ensemble, which read 125 source files individually and
+  explicitly did not establish dependency closure or review deployment scripts; and
+- 130 post-launch strict-novelty fork attack rounds (196 novel scenarios) through 29 September 2026,
+  including the outcome-independent LMV-09 technical-impact adjudication and owner-adjusted
+  disposition.
 
 The 13 September headline claim count is not presented as 317 confirmed defects. It was a claim
 corpus: reviewers agreed on some claims, disagreed on others, and many depended on context that a
@@ -705,8 +723,8 @@ The following limits remain relevant:
   or an independently reviewed accounting remedy. Round 59 did not establish a defect in that
   procedure.
 - LMV-09 permits material third-party loss through the live redemption queue under the conditions
-  described above. It is not fixed by the keeper gate and remains open pending containment or code
-  remediation and independent retesting.
+  described above. Its fix in `ee9b228a` passed Corrovera re-audit (`PASS`, 24 November 2026) and
+  is staged on Ethereum mainnet; it remains open on live proxies until Stage 2 governance executes.
 - LMV-11 can shift a later realized credit loss between curator classes after an unrelated
   reversible mark generated global prepaid absorption. The proof did not reduce depositor value or
   aggregate junior capital, but the class-specific loss promise remains open pending remediation
@@ -720,8 +738,11 @@ The following limits remain relevant:
   authorized credit-state change. It does not take depositor funds, but the external position
   should be protected as part of the operating procedure for material credit-state changes.
 - LMV-18 can charge sUSDfr holders a performance fee when curator and sGROVE protection absorbs a
-  genuine loss. The caller cannot receive the fee, but the depositor dilution remains open pending
-  remediation and independent retesting.
+  genuine loss. Its fix in `ee9b228a` passed Corrovera re-audit (`PASS`, 24 November 2026) and is
+  staged on Ethereum mainnet; it remains open on live proxies until Stage 2 governance executes.
+- FRV-NEW-02 (Corrovera 21 November 2026 full-system review, Medium / Open): off-chain liquidation
+  bot operational remediation remains open pending bot rollout; see
+  [Live deployment status](/docs/status).
 - If curator capital, sGROVE coverage and senior assets are all exhausted, a close can leave a
   remainder smaller than one USDC base unit. Value-sensitive operations fail closed. A funded
   worker may supply the exact correction under per-payment, daily and count limits.

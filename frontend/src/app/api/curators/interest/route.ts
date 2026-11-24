@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import {BlobPreconditionFailedError, del, put} from "@vercel/blob";
+import {rpcProxyOriginAllowed} from "@/lib/rpcProxy.server";
 
 /**
  * Records one registration of interest in the curator programme.
@@ -24,7 +25,10 @@ import {BlobPreconditionFailedError, del, put} from "@vercel/blob";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 15;
 
+const MAX_BODY_BYTES = 8_192;
+const BLOB_TIMEOUT_MS = 10_000;
 const EMAIL = /^[^@\s]{1,64}@[^@\s.]{1,63}(\.[^@\s.]{1,63})+$/;
 const MAX_EMAIL = 254;
 const CHAINS = new Set(["solana", "ethereum", "canton", "other"]);
@@ -32,6 +36,30 @@ const SIZES = new Set(["under-250k", "250k-1m", "1m-5m", "over-5m", "undisclosed
 const SOURCE_WINDOW_MS = 10 * 60_000;
 const SOURCE_SLOTS = 16;
 const SOURCE_SLOT_MS = SOURCE_WINDOW_MS / SOURCE_SLOTS;
+
+async function readCappedBody(body: ReadableStream<Uint8Array> | null, limit: number): Promise<string | null> {
+  if (!body) return "";
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8", {fatal: true}).decode(bytes);
+}
 
 function json(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {
@@ -82,6 +110,7 @@ async function admit(request: Request, secret: string): Promise<Response | Admis
       contentType: "application/json",
       addRandomSuffix: false,
       allowOverwrite: false,
+      abortSignal: AbortSignal.timeout(BLOB_TIMEOUT_MS),
     });
   } catch (error) {
     if (!conflict(error)) throw error;
@@ -107,25 +136,28 @@ export async function POST(request: Request) {
   }
 
   // The whole form is under two kilobytes; anything larger is not a registration.
-  const length = Number(request.headers.get("content-length") ?? "0");
-  if (length > 8_192) return json({ ok: false, error: "Malformed request." }, 413);
-  if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
+  const declaredLength = request.headers.get("content-length");
+  if (declaredLength !== null) {
+    const trimmed = declaredLength.trim();
+    if (!/^\d+$/.test(trimmed)) return json({ ok: false, error: "Malformed request." }, 400);
+    if (Number(trimmed) > MAX_BODY_BYTES) return json({ ok: false, error: "Malformed request." }, 413);
+  }
+  const contentType = request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") {
     return json({ ok: false, error: "Malformed request." }, 415);
   }
-  const origin = request.headers.get("origin");
-  if (origin) {
-    try {
-      if (new URL(origin).origin !== new URL(request.url).origin) {
-        return json({ ok: false, error: "Malformed request." }, 403);
-      }
-    } catch {
-      return json({ ok: false, error: "Malformed request." }, 403);
-    }
+  if (!rpcProxyOriginAllowed(request)) {
+    return json({ ok: false, error: "Malformed request." }, 403);
   }
+  let body: string | null;
+  try {
+    body = await readCappedBody(request.body, MAX_BODY_BYTES);
+  } catch {
+    return json({ ok: false, error: "Malformed request." }, 400);
+  }
+  if (body === null) return json({ ok: false, error: "Malformed request." }, 413);
   let parsed: unknown;
   try {
-    const body = await request.text();
-    if (body.length > 8_192) return json({ ok: false, error: "Malformed request." }, 413);
     parsed = JSON.parse(body) as unknown;
   } catch {
     return json({ ok: false, error: "Malformed request." }, 400);
@@ -176,6 +208,7 @@ export async function POST(request: Request) {
         contentType: "application/json",
         addRandomSuffix: true,
         allowOverwrite: false,
+        abortSignal: AbortSignal.timeout(BLOB_TIMEOUT_MS),
       },
     );
   } catch (error) {

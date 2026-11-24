@@ -10,7 +10,7 @@ vi.mock("@/lib/pendlePoints.server", () => {
   return {loadPendlePoints: load, PendlePointsUnavailableError};
 });
 
-import {GET, maxDuration} from "./route";
+import {GET, maxDuration, POST} from "./route";
 import {PendlePointsUnavailableError} from "@/lib/pendlePoints.server";
 
 const WALLET = "0x000000000000000000000000000000000000a11c";
@@ -62,9 +62,16 @@ describe("GET /api/points/pendle", () => {
   ])("sends %s to the one canonical URL with a cacheable 308", async (_, query) => {
     const response = await call(query);
     expect(response.status).toBe(308);
-    expect(response.headers.get("location")).toBe(`https://forestroadvault.com/api/points/pendle?wallet=${MIXED}`);
+    expect(response.headers.get("location")).toBe(`/api/points/pendle?wallet=${MIXED}`);
     expect(response.headers.get("cache-control")).toContain("s-maxage=86400");
     expect(load).not.toHaveBeenCalled();
+  });
+
+  it("refuses POST with 405 and no-store", async () => {
+    const response = await POST();
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET");
+    expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
   it("never returns or logs an unexpected error's message", async () => {

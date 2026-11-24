@@ -14,10 +14,21 @@ export const PROTOCOL_ERRORS = [
   {type: "error", name: "Controller_ZeroAmount", inputs: []},
   {type: "error", name: "Controller_AmountTooSmall", inputs: [{name: "usdfrAmount", type: "uint256"}]},
   {type: "error", name: "Controller_BackingInvariantViolated", inputs: [{name: "supply", type: "uint256"}, {name: "backing", type: "uint256"}]},
+  {type: "error", name: "Controller_MintClosedWhileUnderBacked", inputs: [{name: "supply", type: "uint256"}, {name: "backing", type: "uint256"}]},
+  {type: "error", name: "Controller_ReserveCustodyShortfall", inputs: [{name: "shortfallValue", type: "uint256"}, {name: "recognizedBacking", type: "uint256"}]},
+  {type: "error", name: "Controller_ReserveLossArmFreeze", inputs: [{name: "armId", type: "uint256"}, {name: "usdcOut", type: "uint256"}, {name: "usdfrIn", type: "uint256"}]},
+  {type: "error", name: "Controller_SlippageExceeded", inputs: [{name: "usdcOut", type: "uint256"}, {name: "minUsdcOut", type: "uint256"}]},
+  {type: "error", name: "Controller_DeadlinePassed", inputs: [{name: "deadline", type: "uint256"}, {name: "nowTimestamp", type: "uint256"}]},
+  {type: "error", name: "Controller_NoRedeemableBacking", inputs: [{name: "supply", type: "uint256"}]},
+  {type: "error", name: "Controller_DeficitWorsened", inputs: [{name: "deficitBefore", type: "uint256"}, {name: "deficitAfter", type: "uint256"}]},
   {type: "error", name: "Controller_ZeroAddress", inputs: []},
+  // PointsHookGas
+  {type: "error", name: "PointsHook_InsufficientGas", inputs: [{name: "available", type: "uint256"}, {name: "required", type: "uint256"}]},
   // sUSDfr
   {type: "error", name: "SUSDfr_QueueOnly", inputs: []},
   {type: "error", name: "SUSDfr_TransferBlocked", inputs: [{name: "from", type: "address"}, {name: "to", type: "address"}]},
+  {type: "error", name: "SUSDfr_UnresolvedPastDue", inputs: [{name: "exposure", type: "uint256"}]},
+  {type: "error", name: "SUSDfr_DegenerateSharePrice", inputs: [{name: "shares", type: "uint256"}, {name: "assets", type: "uint256"}]},
   {type: "error", name: "SUSDfr_VestingPeriodTooLong", inputs: [{name: "period", type: "uint64"}]},
   {type: "error", name: "SUSDfr_ManagementFeeTooHigh", inputs: [{name: "requestedBps", type: "uint16"}]},
   {type: "error", name: "SUSDfr_PerformanceFeeTooHigh", inputs: [{name: "requestedBps", type: "uint16"}]},
@@ -37,9 +48,9 @@ export const PROTOCOL_ERRORS = [
   {type: "error", name: "Queue_AllInCooldown", inputs: [{name: "eligibleAt", type: "uint256"}]},
   {type: "error", name: "Queue_BadParams", inputs: []},
   {type: "error", name: "Queue_NoLiquidity", inputs: []},
+  {type: "error", name: "Queue_ReserveLossSettlementFrozen", inputs: []},
   // ReserveManager errors surface through MintRedeemController.redeem
   {type: "error", name: "ReserveManager_InsufficientIdleValue", inputs: [{name: "requestedValue", type: "uint256"}, {name: "idleValue", type: "uint256"}]},
-  {type: "error", name: "Queue_NoLiquidity", inputs: []},
   // CuratorModule (first-loss posting from /curators)
   {type: "error", name: "Curator_NotApprovedCurator", inputs: [{name: "classId", type: "uint256"}, {name: "curator", type: "address"}]},
   {type: "error", name: "Curator_ZeroAmount", inputs: []},
@@ -82,6 +93,8 @@ export const TEST_STABLE_ABI = [
 export const CONTROLLER_ABI = [
   {type: "function", name: "mint", stateMutability: "nonpayable", inputs: [{name: "usdcAmount", type: "uint256"}], outputs: [{name: "usdfrOut", type: "uint256"}]},
   {type: "function", name: "redeem", stateMutability: "nonpayable", inputs: [{name: "usdfrAmount", type: "uint256"}], outputs: [{name: "usdcOut", type: "uint256"}]},
+  {type: "function", name: "redeem", stateMutability: "nonpayable", inputs: [{name: "usdfrAmount", type: "uint256"}, {name: "minUsdcOut", type: "uint256"}, {name: "deadline", type: "uint256"}], outputs: [{name: "usdcOut", type: "uint256"}]},
+  {type: "function", name: "previewRedeem", stateMutability: "view", inputs: [{name: "usdfrAmount", type: "uint256"}], outputs: [{name: "usdcOut", type: "uint256"}, {name: "usdfrIn", type: "uint256"}]},
   {type: "function", name: "paused", stateMutability: "view", inputs: [], outputs: [{type: "bool"}]},
   ...PROTOCOL_ERRORS,
 ] as const;
@@ -117,6 +130,13 @@ export const VAULT_ABI = [
   {type: "function", name: "feeRecipient", stateMutability: "view", inputs: [], outputs: [{type: "address"}]},
   {type: "function", name: "lastFeeAccrual", stateMutability: "view", inputs: [], outputs: [{type: "uint64"}]},
   ...ERC20_ABI,
+] as const;
+
+/** Stage 2 (ee9b228a) sUSDfr freeze view: non-zero freezes new sUSDfr deposits and RedemptionQueue
+ *  settlement. Kept separate from VAULT_ABI until Stage 2 merges to contracts/src on main; callers
+ *  read with allowFailure: true so pre-Stage-2 proxies degrade cleanly. */
+export const VAULT_STAGE2_ABI = [
+  {type: "function", name: "unresolvedPastDueExposure", stateMutability: "view", inputs: [], outputs: [{type: "uint256"}]},
 ] as const;
 
 /** Narrow ADR-0022/0027 source used to decide whether the queued-exit warning is real.
@@ -304,6 +324,29 @@ export const RESERVES_ABI = [
   {type: "function", name: "deployedPrincipal", stateMutability: "view", inputs: [], outputs: [{type: "uint256"}]},
   {type: "function", name: "deployedTo", stateMutability: "view", inputs: [{name: "tokenId", type: "uint256"}], outputs: [{type: "uint256"}]},
   {type: "function", name: "totalBackingValue", stateMutability: "view", inputs: [], outputs: [{type: "uint256"}]},
+  {type: "function", name: "reserveLossExitsLocked", stateMutability: "view", inputs: [], outputs: [{type: "bool"}]},
+  {
+    type: "function",
+    name: "accruedDebt",
+    stateMutability: "view",
+    inputs: [{name: "facilityId", type: "uint256"}],
+    outputs: [
+      {
+        type: "tuple",
+        components: [
+          {name: "principal", type: "uint256"},
+          {name: "interest", type: "uint256"},
+          {name: "balanceCeiling", type: "uint256"},
+          {name: "accruedThrough", type: "uint64"},
+          {name: "nextCapitalization", type: "uint64"},
+          {name: "maturity", type: "uint64"},
+          {name: "pik", type: "bool"},
+          {name: "active", type: "bool"},
+          {name: "known", type: "bool"},
+        ],
+      },
+    ],
+  },
 ] as const;
 
 export const BRIDGE_ABI = [
@@ -531,6 +574,8 @@ export const POINTS_ABI = [
   {type: "function", name: "usdfrMultiplierBps", stateMutability: "view", inputs: [], outputs: [{type: "uint32"}]},
   {type: "function", name: "curatorMultiplierBps", stateMutability: "view", inputs: [], outputs: [{type: "uint32"}]},
   {type: "function", name: "rateEpochCount", stateMutability: "view", inputs: [], outputs: [{type: "uint256"}]},
+  {type: "function", name: "reconcile", stateMutability: "nonpayable", inputs: [{name: "wallet", type: "address"}], outputs: []},
+  ...PROTOCOL_ERRORS,
 ] as const;
 
 export const SGROVE_ABI = [

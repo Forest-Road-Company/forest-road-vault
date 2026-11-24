@@ -27,3 +27,13 @@ export const EVENT_WATCH_POLL_MS = 60_000;
 
 /** How often a connected wallet's RPC is re-checked against the site's. */
 export const RPC_ALIGNMENT_POLL_MS = 60_000;
+
+/** Human-readable cadence derived directly from a poll constant so UI copy cannot drift. */
+export function formatPollCadence(ms: number): string {
+  if (ms >= 60_000 && ms % 60_000 === 0) {
+    const minutes = ms / 60_000;
+    return minutes === 1 ? "1 minute" : `${minutes} minutes`;
+  }
+  const seconds = Math.max(1, Math.round(ms / 1_000));
+  return seconds === 1 ? "1 second" : `${seconds} seconds`;
+}

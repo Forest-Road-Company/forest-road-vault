@@ -1,7 +1,12 @@
 import {beforeEach, describe, expect, it} from "vitest";
 import {getAddress, pad, type Address, type Hex, type PublicClient} from "viem";
+import {POINTS_VENUES} from "@/config/pointsLeaderboard";
 import {EXPECTED_CHAIN} from "@/lib/chain";
-import {POINTS_MODULE_IMPLEMENTATION, type MorphoLeaderboard} from "@/lib/morphoPoints.server";
+import {
+  POINTS_MODULE_IMPLEMENTATION,
+  STAGE2_POINTS_MODULE_IMPLEMENTATION,
+  type MorphoLeaderboard,
+} from "@/lib/morphoPoints.server";
 import {PendlePointsUnavailableError, type PendleLeaderboardAnswer} from "@/lib/pendlePoints.server";
 import {
   addressFromTopic,
@@ -46,7 +51,7 @@ const GONE = wallet(0x60e);
 const topicOf = (address: Address): Hex => pad(address.toLowerCase() as Hex);
 const timeOf = (block: bigint): bigint => 1_790_000_000n + block * 12n;
 
-type Holder = {shares: bigint; usdfr: bigint; points: bigint; blocked?: boolean; curator?: Record<number, bigint>};
+type Holder = {shares: bigint; usdfr: bigint; points: bigint; bscCredited?: bigint; blocked?: boolean; curator?: Record<number, bigint>};
 type Log = {address: Address; topics: Hex[]; block: bigint; removed?: boolean};
 
 /** A chain the loader can read: finalized head, the four event sources, and the views it checks. */
@@ -91,6 +96,20 @@ class FakeChain {
     this.logs.push({address: POINTS, topics: [LEADERBOARD_TOPICS.reconciled, topicOf(who)], block});
   }
 
+  bscCredited(who: Address, bscBlock: bigint, block: bigint): void {
+    this.logs.push({
+      address: POINTS,
+      topics: [LEADERBOARD_TOPICS.bscPointsCredited, topicOf(who), pad(`0x${bscBlock.toString(16)}`)],
+      block,
+    });
+  }
+
+  bscTotals(): [bigint, bigint] {
+    let credited = 0n;
+    for (const h of this.holders.values()) credited += h.bscCredited ?? 0n;
+    return [credited, credited];
+  }
+
   firstLoss(curator: Address, classId: number, block: bigint): void {
     this.logs.push({address: CURATOR, topics: [LEADERBOARD_TOPICS.firstLossPosted, pad(`0x${classId.toString(16)}`), topicOf(curator)], block});
   }
@@ -121,6 +140,10 @@ class FakeChain {
         return holder()?.curator?.[Number(c.args![1] as bigint)] ?? 0n;
       case "totals":
         return this.totals();
+      case "bscPointsCredited":
+        return holder()?.bscCredited ?? 0n;
+      case "bscPointsCreditTotals":
+        return this.bscTotals();
       case "curatorModule":
         return this.curatorModule;
       case "pointsModule":
@@ -562,5 +585,61 @@ describe("review fixes", () => {
     await servePointsLeaderboard(0, off, () => 0);
     await servePointsLeaderboard(1, off, () => 1);
     expect(offLoads).toBe(2);
+  });
+
+  it("supports Stage 2 PointsModule, indexes BscPointsCredited, proves BSC completeness, and excludes BSC OFT lockbox", async () => {
+    expect(POINTS_VENUES.some((v) => v.address.toLowerCase() === "0x9022d706d15273865dbf3deaa34d0ddc465524ab")).toBe(true);
+    const BSC_ONLY = wallet(0x5c01);
+    chain.implementation = STAGE2_POINTS_MODULE_IMPLEMENTATION;
+    chain.hold(BSC_ONLY, {shares: 0n, usdfr: 0n, points: 42n * E18, bscCredited: 42n * E18});
+    chain.bscCredited(BSC_ONLY, 133_000_000n, DEPLOY + 25n);
+
+    const board = enabled(await loadPointsLeaderboard(deps()));
+    expect(board.rows.find((row) => row.wallet === getAddress(BSC_ONLY))).toMatchObject({
+      points: String(42n * E18),
+      onchain: String(42n * E18),
+    });
+
+    // Hiding the BscPointsCredited log must fail the Stage 2 BSC completeness proof.
+    resetPointsLeaderboardCache();
+    const bscLogIndex = chain.logs.findIndex((log) => log.topics[0] === LEADERBOARD_TOPICS.bscPointsCredited);
+    chain.hidden.add(bscLogIndex);
+    await expect(loadPointsLeaderboard(deps())).rejects.toThrow(/BSC credited points/);
+  });
+
+  it("hydrates cold discovery from snapshotStore while still enforcing on-chain completeness", async () => {
+    let saved: unknown = null;
+    const store = {
+      load: async () => saved as never,
+      save: async (snapshot: unknown) => {
+        saved = snapshot;
+      },
+    };
+    const first = enabled(await loadPointsLeaderboard(deps({snapshotStore: store})));
+    expect(first.ranked).toBe(5);
+    expect(saved).not.toBeNull();
+    const callsOnCold = chain.getLogsCalls;
+
+    // Cold restart with snapshotStore hydrates scannedTo and avoids rescanning finalized chunks.
+    resetPointsLeaderboardCache();
+    chain.getLogsCalls = 0;
+    const warm = enabled(await loadPointsLeaderboard(deps({snapshotStore: store})));
+    expect(warm.ranked).toBe(5);
+    expect(chain.getLogsCalls).toBe(0);
+    expect(callsOnCold).toBeGreaterThan(0);
+
+    // A tampered/incomplete snapshot still fails the on-chain totals() proof and triggers rebuild.
+    resetPointsLeaderboardCache();
+    const corrupted = {...(saved as {wallets: string[]}), wallets: []};
+    await expect(
+      loadPointsLeaderboard(
+        deps({
+          snapshotStore: {
+            load: async () => corrupted as never,
+            save: async () => {},
+          },
+        }),
+      ),
+    ).rejects.toThrow(/do not account for the PointsModule's totals/);
   });
 });

@@ -80,4 +80,17 @@ describe("the page-wide connect lock", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("auto-releases an abandoned lock after the staleness timeout", () => {
+    vi.useFakeTimers();
+    try {
+      const started = startLockedConnect("alpha", () => new Promise(() => undefined), 60_000);
+      expect(started).not.toBeNull();
+      expect(getConnectLock()).toEqual({id: started!.id, connector: "alpha"});
+      vi.advanceTimersByTime(60_000);
+      expect(getConnectLock()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

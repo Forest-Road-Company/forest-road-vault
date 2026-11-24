@@ -433,6 +433,8 @@ export function BuyUsdfrPanel({
           </span>
         ) : balance !== undefined ? (
           <span className="text-ink-muted">{fmtAmount(balance, USDC_DECIMALS)} USDC</span>
+        ) : address ? (
+          <span>unavailable</span>
         ) : (
           <span>wallet not connected</span>
         )}
@@ -560,7 +562,7 @@ export function BuyUsdfrPanel({
             ? "Preparing…"
             : prep.phase === "permit"
               ? "Sign in wallet…"
-              : busyLabelFor(flow.status)
+              : busyLabelFor(flow.status, "Buy")
         }
         busy={busy}
         disabled={!canSubmit}
@@ -612,9 +614,9 @@ export function BuyUsdfrPanel({
       ) : prep.phase === "notice" ? (
         <PrepNote>{prep.message}</PrepNote>
       ) : prep.phase === "error" ? (
-        <StatusLine status={{phase: "error", message: prep.message, errorName: prep.errorName}} />
+        <StatusLine status={{phase: "error", message: prep.message, errorName: prep.errorName}} actionName="Buy" />
       ) : (
-        <StatusLine status={flow.status} />
+        <StatusLine status={flow.status} actionName="Buy" />
       )}
       {busy && lockedQuote && prep.phase !== "permit" ? (
         <p className="mt-1 text-[13px] leading-snug text-ink-faint">

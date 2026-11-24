@@ -119,7 +119,7 @@ export function AppSurface() {
        and motion that reports state rather than decorating. Declared in
        globals.css so the rules are not re-argued per component. */
     <div className="operate mt-10">
-      <div className="app-operation-map" aria-label="Vault operation flow" data-viewport-replay="" data-viewport-reveal="">
+      <div className="app-operation-map" role="region" aria-label="Vault operation flow" data-viewport-replay="" data-viewport-reveal="">
         <div><span>01</span><strong>Reserve</strong><small>USDC enters</small></div>
         <i aria-hidden><b /><b /></i>
         <div><span>02</span><strong>USDfr</strong><small>minted 1:1</small></div>

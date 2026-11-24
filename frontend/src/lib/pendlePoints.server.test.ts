@@ -16,6 +16,7 @@ import {
   PENDLE_LEADERBOARD_URL,
   PENDLE_POINTS_URL,
   PendlePointsUnavailableError,
+  resetPendlePointsCache,
 } from "./pendlePoints.server";
 
 const WALLET = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed" as const;
@@ -44,6 +45,7 @@ const respond = (body: unknown, status = 200) =>
 
 afterEach(() => {
   chain.mainnet = true;
+  resetPendlePointsCache();
   vi.restoreAllMocks();
 });
 
@@ -105,6 +107,27 @@ describe("loadPendlePoints", () => {
     const error = await loadPendlePoints(WALLET, fetcher as unknown as typeof fetch).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(PendlePointsUnavailableError);
     expect(String((error as Error).message)).not.toContain("secret");
+  });
+
+  it("caches and coalesces per-wallet lookups when cache is enabled and enforces redirect: error + body cap", async () => {
+    const nowMs = 1_000;
+    const fetcher = respond(answer());
+    const [first, second] = await Promise.all([
+      loadPendlePoints(WALLET, fetcher as unknown as typeof fetch, {useCache: true, now: () => nowMs}),
+      loadPendlePoints(WALLET, fetcher as unknown as typeof fetch, {useCache: true, now: () => nowMs}),
+    ]);
+    expect(first).toEqual(second);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledWith(
+      `${PENDLE_POINTS_URL}?wallet=${WALLET.toLowerCase()}`,
+      expect.objectContaining({redirect: "error", cache: "no-store"}),
+    );
+    const cached = await loadPendlePoints(WALLET, fetcher as unknown as typeof fetch, {useCache: true, now: () => nowMs + 30_000});
+    expect(cached).toEqual(first);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    const hugeFetcher = vi.fn(async () => new Response("x".repeat(300 * 1024), {status: 200}));
+    await expect(loadPendlePoints(WALLET, hugeFetcher as unknown as typeof fetch)).rejects.toThrow(/too large/);
   });
 });
 
@@ -181,5 +204,20 @@ describe("loadPendleLeaderboard", () => {
     const error = await loadPendleLeaderboard(fetcher as unknown as typeof fetch).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(PendlePointsUnavailableError);
     expect(String((error as Error).message)).not.toContain("secret");
+  });
+
+  it("enforces redirect: error and honors an external AbortSignal", async () => {
+    const controller = new AbortController();
+    let seenSignal: AbortSignal | undefined;
+    const fetcher = vi.fn(async (_url: string, init?: RequestInit) => {
+      seenSignal = init?.signal ?? undefined;
+      expect(init?.redirect).toBe("error");
+      controller.abort();
+      throw new DOMException("aborted", "AbortError");
+    });
+    await expect(loadPendleLeaderboard(fetcher as unknown as typeof fetch, controller.signal)).rejects.toBeInstanceOf(
+      PendlePointsUnavailableError,
+    );
+    expect(seenSignal?.aborted).toBe(true);
   });
 });

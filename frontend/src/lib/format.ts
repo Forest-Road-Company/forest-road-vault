@@ -5,12 +5,15 @@ import {formatUnits} from "viem";
 
 /** Format a token amount, truncated (never rounded up) to `dp` decimals. */
 export function fmtAmount(value: bigint, decimals: number, dp = 2): string {
-  const s = formatUnits(value, decimals);
+  const negative = value < 0n;
+  const abs = negative ? -value : value;
+  const s = formatUnits(abs, decimals);
   const [int, frac = ""] = s.split(".");
   const intFmt = BigInt(int).toLocaleString("en-US");
-  if (dp === 0) return intFmt;
-  const fracCut = frac.slice(0, dp).replace(/0+$/, "");
-  return fracCut ? `${intFmt}.${fracCut}` : intFmt;
+  const fracCut = dp === 0 ? "" : frac.slice(0, dp).replace(/0+$/, "");
+  const body = fracCut ? `${intFmt}.${fracCut}` : intFmt;
+  const nonZero = BigInt(int) > 0n || fracCut.length > 0;
+  return negative && nonZero ? `-${body}` : body;
 }
 
 export function shortAddress(addr: string): string {

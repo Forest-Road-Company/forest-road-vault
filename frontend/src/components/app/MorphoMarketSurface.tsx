@@ -6,6 +6,7 @@ import {useQuery, useQueryClient} from "@tanstack/react-query";
 import {useAccount, usePublicClient, useSwitchChain} from "wagmi";
 import {encodeFunctionData, formatUnits, type Hex} from "viem";
 import {IS_MAINNET} from "@/config/contracts";
+import {decodeWriteError} from "@/lib/errors";
 import {fmtAmount, shortAddress} from "@/lib/format";
 import {assertTreasurySupplyCalls, CLOSED_MARKET_LAUNCH, MARKET_SAFE_ABI, MARKET_TOKEN_ABI, MORPHO_MARKET,
   isTreasury, marketAction, parseMarketAmount, treasurySupplyCalls, treasurySupplyDigest,
@@ -43,10 +44,10 @@ async function loadLaunch(): Promise<MarketLaunch> {
 export function MorphoMarketSurface() {
   const {address: browserAddress, chainId} = useAccount();
   const client = usePublicClient();
-  const {switchChain} = useSwitchChain();
+  const {switchChain, error: switchChainError} = useSwitchChain();
   const safe = useMorphoSafe();
   const wallet = safe.context?.address ?? browserAddress;
-  const correctNetwork = safe.context?.chainId === 1 || chainId === 1;
+  const correctNetwork = safe.context ? safe.context.chainId === 1 : chainId === 1;
   const cache = useQueryClient();
   const [action, setAction] = useState<MarketAction>("supply");
   const [amount, setAmount] = useState("");
@@ -97,12 +98,14 @@ export function MorphoMarketSurface() {
     ?? (treasurySeed && !launch.treasury ? "The Treasury supply is awaiting its final launch checks." : null)
     ?? (!treasurySeed && !actionOpen(action, launch) ? "New positions are awaiting launch checks. Existing positions can still be repaid or withdrawn." : null)
     ?? limitReason ?? (!riskAccepted && requiresRisk ? "Review and acknowledge the market risks before continuing." : null);
-  const safeBusy = safeStatus.phase === "simulating" || safeStatus.phase === "review" || safeStatus.phase === "proposed";
+  const safeBusy = safeStatus.phase === "simulating" || safeStatus.phase === "review";
+  const safeProposed = safeStatus.phase === "proposed";
   const busy = preparing || flow.busy || safeBusy;
   // A background refresh must not give a pending wallet request/proposal a new expiry.
-  const displayedQuote = busy && preparedQuote ? preparedQuote : marketQuery.data;
+  const displayedQuote = (busy || safeProposed) && preparedQuote ? preparedQuote : marketQuery.data;
   const quoteExpired = !!displayedQuote && displayNow !== null && displayNow >= displayedQuote.expiresAt;
-  const switchAction = (next: MarketAction) => {if (busy) return; setAction(next); setAmount(""); setAll(false); setRiskAccepted(false); setSafeStatus({phase: "idle"});};
+  const resetSafeProposal = () => {setSafeStatus({phase: "idle"}); setPreparedQuote(null);};
+  const switchAction = (next: MarketAction) => {if (busy) return; setAction(next); setAmount(""); setAll(false); setRiskAccepted(false); resetSafeProposal();};
   const maximum = account ? action === "supply" ? account.usdc
     : action === "repay" ? min(account.usdc, max(0n, account.values.borrowed - 1n))
     : action === "supplyCollateral" ? account.collateral : action === "withdrawCollateral" ? safeCollateralMaximum(snapshot!)
@@ -111,9 +114,10 @@ export function MorphoMarketSurface() {
   const preview = snapshot && (all || parsed !== null) ? postActionValues(action, all ? 0n : parsed!, all, snapshot) : null;
 
   async function submit() {
-    if (disabledReason || busy || locked.current || !client || !wallet || !snapshot) return;
+    if (disabledReason || busy || safeProposed || locked.current || !client || !wallet || !snapshot) return;
     locked.current = true;
     setPreparing(true);
+    setSafeStatus({phase: "idle"});
     try {
       const currentLaunch = await loadLaunch();
       const current = await readMorphoMarket(client, wallet);
@@ -174,7 +178,14 @@ export function MorphoMarketSurface() {
           onSuccess: () => {void cache.invalidateQueries({queryKey: ["morpho-market"]}); if (!approve) {setAmount(""); setAll(false);}}});
       }
     } catch (error) {
-      setSafeStatus({phase: "error", message: error instanceof Error && error.message.length < 240 ? error.message : "The action could not be prepared. Refresh and try again."});
+      const decoded = decodeWriteError(error);
+      const message =
+        decoded.errorName !== null
+          ? decoded.message
+          : error instanceof Error && error.message.length < 240
+            ? error.message
+            : "The action could not be prepared. Refresh and try again.";
+      setSafeStatus({phase: "error", message});
     } finally {locked.current = false; setPreparing(false); if (treasurySeed && safe.context) void proposalQuery.refetch();}
   }
 
@@ -195,12 +206,13 @@ export function MorphoMarketSurface() {
       <p className="mt-5 text-[13px] text-ink-faint">{fresh ? `Read at Ethereum block ${snapshot!.block.toLocaleString()}. Displayed rates are averages since the market's last update and change with utilization.` : "Current market figures are unavailable. Refresh before making a decision."}</p>
     </section>
     {networkReason ? <div role="status" className="border-l-2 border-accent pl-4 text-sm text-ink-muted">{networkReason}
-      {IS_MAINNET && wallet && !correctNetwork && !safe.context ? <button type="button" className="u-link ml-2 text-accent" onClick={() => switchChain({chainId: 1})}>Switch to Ethereum</button> : null}</div> : null}
+      {IS_MAINNET && wallet && !correctNetwork && !safe.context ? <button type="button" className="u-link ml-2 text-accent" onClick={() => switchChain({chainId: 1})}>Switch to Ethereum</button> : null}
+      {switchChainError ? <p role="alert" className="mt-2 text-danger">{switchChainError.message.length < 180 ? switchChainError.message : "Could not switch networks. Switch to Ethereum mainnet in your wallet."}</p> : null}</div> : null}
     {marketQuery.isError ? <div role="alert" className="text-sm text-danger">Market data could not be verified. No balances have been assumed. <button type="button" className="u-link" onClick={() => void marketQuery.refetch()}>Retry</button></div> : null}
     {safe.error ? <p role="alert" className="text-sm text-danger">{safe.error}</p> : null}
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
       <section className="market-console__action panel min-w-0 p-6 sm:p-8" aria-label="Manage market position">
-        <div className="flex flex-wrap gap-2 border-b border-line pb-5" aria-label="Market actions">
+        <div role="group" className="flex flex-wrap gap-2 border-b border-line pb-5" aria-label="Market actions">
           {(Object.keys(titles) as MarketAction[]).map(key => <button type="button" key={key} disabled={busy} aria-pressed={key === action}
             onClick={() => switchAction(key)} className={`rounded-pill border px-3 py-2 text-xs transition-colors ${key === action ? "border-navy bg-navy text-on-navy" : "border-line text-ink-muted hover:border-accent"}`}>{titles[key]}</button>)}
         </div>
@@ -234,17 +246,18 @@ export function MorphoMarketSurface() {
           <input type="checkbox" checked={riskAccepted} disabled={busy} onChange={e => setRiskAccepted(e.target.checked)} className="mt-1" />
           <span>I understand the <Link href="/risk" className="u-link text-accent">market risks</Link>, including credit losses, liquidation and limited withdrawal liquidity.</span></label> : null}
         <ActionButton label={treasurySeed ? "Review 50,000-USDC supply in Safe" : safe.context ? `Review ${titles[action].toLowerCase()} in Safe` : needsApproval ? `Approve ${symbol}` : titles[action]}
-          busyLabel={safeStatus.phase === "proposed" ? "Awaiting Safe execution…" : safeStatus.phase === "review" ? "Review in Safe…" : safeStatus.phase === "simulating" ? "Simulating Safe batch…" : busyLabelFor(flow.status)}
-          busy={busy} disabled={!!disabledReason} onClick={() => void submit()} />
+          busyLabel={safeProposed ? "Awaiting Safe execution…" : safeStatus.phase === "review" ? "Review in Safe…" : safeStatus.phase === "simulating" ? "Simulating Safe batch…" : busyLabelFor(flow.status)}
+          busy={busy || safeProposed} disabled={!!disabledReason} onClick={() => void submit()} />
         {disabledReason ? <p role="status" className="mt-3 text-[13px] leading-relaxed text-ink-muted">{disabledReason}</p> : null}
         {flow.status.phase === "pending" ? <p role="status" className="mt-4 text-sm text-ink-muted">
           Transaction submitted; its outcome is still being checked. Check your wallet before submitting again.{" "}
           <a href={`https://etherscan.io/tx/${flow.status.hash}`} className="u-link text-accent" target="_blank" rel="noreferrer">View transaction</a>
         </p> : <StatusLine status={flow.status} />}
         {safeStatus.phase === "error" ? <p role="alert" className="mt-4 text-sm text-danger">{safeStatus.message}</p> : null}
-        {safeStatus.phase === "proposed" ? <div role="status" className="mt-4 break-words text-sm leading-relaxed text-ink-muted">
+        {safeProposed ? <div role="status" className="mt-4 break-words text-sm leading-relaxed text-ink-muted">
           Safe review returned a proposal reference. Funds have not been confirmed as moved. The Safe&apos;s owners must review its nonce, signatures and execution.
           <p className="mt-2 font-mono text-xs">{safeStatus.hash}</p><p className="mt-2">Check the Safe transaction queue before creating another proposal.</p>
+          <button type="button" className="u-link mt-3 text-accent" onClick={() => {resetSafeProposal(); void marketQuery.refetch();}}>Start another action</button>
         </div> : null}
         {treasurySeed && proposal?.record ? <div role="status" className="mt-4 break-words text-xs leading-relaxed text-ink-muted">
           <p>Saved Treasury proposal: {proposal.status}.</p>

@@ -42,8 +42,12 @@ type ReceiptWaiter = {waitForTransactionReceipt: (args: WaitArgs) => Promise<Tra
 export type ReceiptWaitOptions = {
   restarts?: number;
   restartDelayMs?: number;
+  /** Cumulative ceiling across restarts; defaults to `args.timeout` (when set) or unlimited. */
+  maxTotalMs?: number;
   /** Test seam for the pause between attempts. */
   sleep?: (ms: number) => Promise<void>;
+  /** Test seam for the clock. */
+  now?: () => number;
 };
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -55,14 +59,26 @@ function isWaitTimeout(error: unknown): boolean {
 export async function waitForReceiptRobustly(
   client: ReceiptWaiter,
   args: WaitArgs,
-  {restarts = RECEIPT_WAIT_RESTARTS, restartDelayMs = RECEIPT_WAIT_RESTART_DELAY_MS, sleep = defaultSleep}: ReceiptWaitOptions = {},
+  {
+    restarts = RECEIPT_WAIT_RESTARTS,
+    restartDelayMs = RECEIPT_WAIT_RESTART_DELAY_MS,
+    maxTotalMs,
+    sleep = defaultSleep,
+    now = Date.now,
+  }: ReceiptWaitOptions = {},
 ): Promise<TransactionReceipt> {
+  const startedAt = now();
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await client.waitForTransactionReceipt(args);
     } catch (error) {
-      if (isWaitTimeout(error)) throw error;
+      // A receipt timeout means the tx was broadcast and may still confirm on-chain. Never report
+      // it as a failure (which invites a duplicate submission) and do not restart after a timeout.
+      if (isWaitTimeout(error)) throw new ReceiptStatusUnknownError(args.hash, error);
       if (attempt >= restarts) throw new ReceiptStatusUnknownError(args.hash, error);
+      if (maxTotalMs !== undefined && now() - startedAt >= maxTotalMs) {
+        throw new ReceiptStatusUnknownError(args.hash, error);
+      }
       await sleep(restartDelayMs);
     }
   }

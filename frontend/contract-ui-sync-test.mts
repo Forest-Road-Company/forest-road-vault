@@ -352,6 +352,7 @@ const componentFiles = [
   "./src/components/app/PointsDashboard.tsx",
   "./src/components/app/TransparencyDashboard.tsx",
   "./src/components/app/YieldPositionPanel.tsx",
+  "./src/components/app/useBookFacilities.ts",
   "./src/components/app/useBookEconomics.ts",
   "./src/components/app/useCollateralValue.ts",
 ];
@@ -462,16 +463,22 @@ const readSurfaces: Array<[string, string, string[], string]> = [
     "const POLL = PROTOCOL_POLL;",
   ],
   [
+    "book facilities",
+    "./src/components/app/useBookFacilities.ts",
+    ["totalOriginated", "facility", "deployedTo", "accruedDebt", "latestValuation"],
+    "const POLL = PROTOCOL_POLL;",
+  ],
+  [
     "book economics",
     "./src/components/app/useBookEconomics.ts",
-    ["totalOriginated", "facility", "deployedTo", "protocolFeeBps"],
-    "const POLL = PROTOCOL_POLL;",
+    ["protocolFeeBps"],
+    "useBookFacilities",
   ],
   [
     "collateral valuation",
     "./src/components/app/useCollateralValue.ts",
-    ["facility", "deployedTo", "latestValuation", "classParams"],
-    "const POLL = PROTOCOL_POLL;",
+    ["classParams"],
+    "useBookFacilities",
   ],
   [
     "yield position",
@@ -529,7 +536,8 @@ for (const historyEvent of [
 ]) {
   check(
     `transparency history: ${historyEvent}`,
-    transparencyHistory.includes(`eventName: "${historyEvent}"`),
+    transparencyHistory.includes(`eventName: "${historyEvent}"`) ||
+      transparencyHistory.includes(`log.eventName === "${historyEvent}"`),
   );
 }
 check(

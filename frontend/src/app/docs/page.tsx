@@ -12,6 +12,7 @@ export const metadata: Metadata = pageMetadata({
   description:
     "Protocol documentation: overview, a how-to guide, live status, the safety-spec guarantees, governance, exit pricing, security, integration notes and deployed addresses.",
   socialTitle: "Documentation | Forest Road Vault",
+  path: "/docs",
 });
 
 const evidence = [AUDIT_SECTION, ADDRESSES_SECTION];

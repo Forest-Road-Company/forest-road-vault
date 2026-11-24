@@ -4,7 +4,7 @@ import {useCallback, useEffect, useMemo, useState} from "react";
 import {formatUnits, type Address, type Hash} from "viem";
 import {mainnet} from "viem/chains";
 import {useAccount, usePublicClient, useWalletClient} from "wagmi";
-import {waitForReceiptRobustly} from "@/lib/receiptWait";
+import {ReceiptStatusUnknownError, waitForReceiptRobustly} from "@/lib/receiptWait";
 
 import {ConnectControl} from "@/components/app/ConnectControl";
 import {CHAIN_ID, CONTRACTS, EXPLORER_BASE_URL} from "@/config/contracts";
@@ -63,7 +63,7 @@ type ConfirmedMint = {
 type OperationStatus =
   | {phase: "idle"}
   | {phase: "reading" | "simulating" | "submitting"; message: string}
-  | {phase: "pending" | "success"; message: string; hash: Hash}
+  | {phase: "pending" | "unknown" | "success"; message: string; hash: Hash}
   | {phase: "error"; message: string; hash?: Hash};
 
 const STORAGE_KEY_PREFIX = "frv:uniswap-v2-susdfr-liquidity:v1";
@@ -307,6 +307,12 @@ export function SusdfrV2LiquidityOperation() {
         const live = await loadSnapshot();
         if (live.pair !== ZERO_ADDRESS) throw new Error("The V2 pair already exists; approvals are locked.");
         const amount = token.toLowerCase() === USDC.toLowerCase() ? live.plan.usdc : live.plan.susdfr;
+        const alignment = await probeRpcAlignment(
+          publicClient.request as RpcRequest,
+          walletClient.transport.request as RpcRequest,
+          {expectedChainId: mainnet.id, requireExactTip: false},
+        );
+        if (!alignment.aligned) throw new Error(alignment.message);
         setStatus({phase: "simulating", message: `Checking the exact ${symbol} approval…`});
         await publicClient.simulateContract({
           account: address,
@@ -332,7 +338,11 @@ export function SusdfrV2LiquidityOperation() {
         await loadSnapshot();
         setStatus({phase: "success", message: `${symbol} approval confirmed.`, hash});
       } catch (error) {
-        setStatus({phase: "error", message: messageFromError(error)});
+        if (error instanceof ReceiptStatusUnknownError) {
+          setStatus({phase: "unknown", message: error.message, hash: error.hash});
+        } else {
+          setStatus({phase: "error", message: messageFromError(error)});
+        }
       }
     },
     [address, connectedCorrectly, loadSnapshot, publicClient, walletClient],
@@ -440,7 +450,11 @@ export function SusdfrV2LiquidityOperation() {
         hash,
       });
     } catch (error) {
-      setStatus({phase: "error", message: messageFromError(error), hash: pendingHash});
+      if (error instanceof ReceiptStatusUnknownError) {
+        setStatus({phase: "unknown", message: error.message, hash: error.hash});
+      } else {
+        setStatus({phase: "error", message: messageFromError(error), hash: pendingHash});
+      }
     }
   }, [address, connectedCorrectly, loadSnapshot, publicClient, walletClient]);
 

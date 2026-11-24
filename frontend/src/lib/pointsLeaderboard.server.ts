@@ -1,3 +1,4 @@
+import {get as getBlob, put as putBlob} from "@vercel/blob";
 import {
   createPublicClient,
   getAddress,
@@ -14,8 +15,9 @@ import {LEADERBOARD_MAX_ROWS, POINTS_VENUES} from "@/config/pointsLeaderboard";
 import {OWNER_STATUS_ABI, POINTS_ABI, VAULT_POINTS_ABI} from "@/lib/abi";
 import {EXPECTED_CHAIN} from "@/lib/chain";
 import {
+  isVerifiedPointsModuleImplementation,
   loadMorphoCollateralLeaderboard,
-  POINTS_MODULE_IMPLEMENTATION,
+  STAGE2_POINTS_MODULE_IMPLEMENTATION,
   type MorphoLeaderboard,
 } from "@/lib/morphoPoints.server";
 import {loadPendleLeaderboard, type PendleLeaderboardAnswer} from "@/lib/pendlePoints.server";
@@ -82,6 +84,7 @@ export const LEADERBOARD_TOPICS = {
   transfer: keccak256(toHex("Transfer(address,address,uint256)")),
   pointsAccrued: keccak256(toHex("PointsAccrued(address,uint8,uint256)")),
   reconciled: keccak256(toHex("Reconciled(address)")),
+  bscPointsCredited: keccak256(toHex("BscPointsCredited(address,uint64,uint256,uint256)")),
   firstLossPosted: keccak256(toHex("FirstLossPosted(uint256,address,uint256,uint256,uint256)")),
 } as const;
 
@@ -98,10 +101,40 @@ export const LEDGER_ABI = [
       {name: "curator", type: "uint256"},
     ],
   },
+  {
+    type: "function",
+    name: "bscPointsCreditTotals",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      {name: "approved", type: "uint256"},
+      {name: "credited", type: "uint256"},
+    ],
+  },
+  {
+    type: "function",
+    name: "bscPointsCredited",
+    stateMutability: "view",
+    inputs: [{name: "wallet", type: "address"}],
+    outputs: [{type: "uint256"}],
+  },
   {type: "function", name: "curatorModule", stateMutability: "view", inputs: [], outputs: [{type: "address"}]},
 ] as const;
 
 export type LeaderboardVenue = {key: string; label: string; address: Address; note: string};
+
+export type DiscoverySnapshot = {
+  version: 1;
+  key: string;
+  scannedTo: string;
+  wallets: string[];
+  curators: string[];
+};
+
+export type DiscoverySnapshotStore = {
+  load: (key: string) => Promise<DiscoverySnapshot | null>;
+  save: (snapshot: DiscoverySnapshot) => Promise<void>;
+};
 
 /** Everything the loader reads through; injectable so tests can drive it without a network. */
 export type LeaderboardDeps = {
@@ -110,9 +143,10 @@ export type LeaderboardDeps = {
   protocolDeploymentBlock: bigint;
   now: () => number;
   morpho: (arrivedAt: number) => Promise<MorphoLeaderboard>;
-  pendle: () => Promise<PendleLeaderboardAnswer>;
+  pendle: (signal?: AbortSignal) => Promise<PendleLeaderboardAnswer>;
   forestRoad: readonly Address[];
   venues: readonly LeaderboardVenue[];
+  snapshotStore?: DiscoverySnapshotStore;
 };
 
 export type LeaderboardRow = {
@@ -154,10 +188,12 @@ type RawLog = {
   removed?: boolean;
 };
 
-type Discovery = {key: string; scannedTo: bigint; wallets: Set<string>; curators: Set<string>};
+type Discovery = {key: string; scannedTo: bigint; wallets: Set<string>; curators: Set<string>; hydratedFromStore: boolean};
 
 let discovery: Discovery | null = null;
 let rebuildAfter = 0;
+let skipSnapshotUntilVerified = false;
+let lastSavedSnapshotBlock = 0n;
 let queue: Promise<unknown> = Promise.resolve();
 
 /** How long a whole answer is reused, so query spellings Next.js strips cannot each run the loader. */
@@ -172,6 +208,8 @@ let answerInFlight: Promise<LeaderboardWire> | null = null;
 export function resetPointsLeaderboardCache(): void {
   discovery = null;
   rebuildAfter = 0;
+  skipSnapshotUntilVerified = false;
+  lastSavedSnapshotBlock = 0n;
   queue = Promise.resolve();
   lastAnswer = null;
   answerInFlight = null;
@@ -308,6 +346,63 @@ async function blockLogs(deps: LeaderboardDeps, sources: readonly Source[], bloc
   return out;
 }
 
+const DISCOVERY_WAVE_CONCURRENCY = 4;
+const SNAPSHOT_BLOB_PATH = "points-leaderboard/discovery-v1.json";
+const SNAPSHOT_IO_TIMEOUT_MS = 4_000;
+const HEX_ADDRESS_LOWER = /^0x[0-9a-f]{40}$/;
+
+function blobSnapshotStore(): DiscoverySnapshotStore | undefined {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return undefined;
+  return {
+    async load(expectedKey: string): Promise<DiscoverySnapshot | null> {
+      try {
+        const result = await getBlob(SNAPSHOT_BLOB_PATH, {
+          access: "private",
+          useCache: false,
+          abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
+        });
+        if (!result || result.statusCode !== 200 || !result.stream) return null;
+        const text = await new Response(result.stream).text();
+        const parsed = JSON.parse(text) as Partial<DiscoverySnapshot>;
+        if (
+          parsed.version !== 1 ||
+          parsed.key !== expectedKey ||
+          typeof parsed.scannedTo !== "string" ||
+          !/^[1-9][0-9]*$/.test(parsed.scannedTo) ||
+          !Array.isArray(parsed.wallets) ||
+          !Array.isArray(parsed.curators) ||
+          parsed.wallets.length > MAX_PARTICIPANTS ||
+          parsed.curators.length > MAX_PARTICIPANTS
+        ) {
+          return null;
+        }
+        if (
+          !parsed.wallets.every((w) => typeof w === "string" && HEX_ADDRESS_LOWER.test(w)) ||
+          !parsed.curators.every((c) => typeof c === "string" && HEX_ADDRESS_LOWER.test(c))
+        ) {
+          return null;
+        }
+        return parsed as DiscoverySnapshot;
+      } catch {
+        return null;
+      }
+    },
+    async save(snapshot: DiscoverySnapshot): Promise<void> {
+      try {
+        await putBlob(SNAPSHOT_BLOB_PATH, JSON.stringify(snapshot), {
+          access: "private",
+          contentType: "application/json",
+          addRandomSuffix: false,
+          allowOverwrite: true,
+          abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
+        });
+      } catch {
+        // Best-effort cache write; on-chain discovery remains authoritative.
+      }
+    },
+  };
+}
+
 function discoveryFor(deps: LeaderboardDeps): Discovery {
   const key = [deps.contracts.usdfr, deps.contracts.susdfr, deps.contracts.points, deps.contracts.curator]
     .map((address) => address.toLowerCase())
@@ -317,7 +412,7 @@ function discoveryFor(deps: LeaderboardDeps): Discovery {
   if (deps.now() < rebuildAfter) {
     throw new LeaderboardNotReadyError("leaderboard: rebuilding the participant discovery");
   }
-  discovery = {key, scannedTo: 0n, wallets: new Set(), curators: new Set()};
+  discovery = {key, scannedTo: 0n, wallets: new Set(), curators: new Set(), hydratedFromStore: false};
   return discovery;
 }
 
@@ -334,7 +429,7 @@ async function readChunk(
     [
       {address: contracts.susdfr, topics: [t.transfer]},
       {address: contracts.usdfr, topics: [t.transfer]},
-      {address: contracts.points, topics: [t.pointsAccrued, t.reconciled]},
+      {address: contracts.points, topics: [t.pointsAccrued, t.reconciled, t.bscPointsCredited]},
       {address: contracts.curator, topics: [t.firstLossPosted]},
     ],
     from,
@@ -352,7 +447,9 @@ async function readChunk(
     }
   }
   for (const log of ledger) {
-    const expected = log.topics[0].toLowerCase() === t.pointsAccrued.toLowerCase() ? 3 : 2;
+    const topic0 = log.topics[0].toLowerCase();
+    const expected =
+      topic0 === t.pointsAccrued.toLowerCase() || topic0 === t.bscPointsCredited.toLowerCase() ? 3 : 2;
     if (log.topics.length !== expected) throw new LeaderboardIntegrityError("leaderboard: a PointsModule log is malformed");
     wallets.add(addressFromTopic(log.topics[1]));
   }
@@ -368,28 +465,56 @@ async function readChunk(
 /**
  * Extends the discovery to `toBlock`, committing each finalized chunk as it is read, so a cold
  * instance converges over successive requests. Past `deadline` it stops with "not ready", though
- * every request reads at least one chunk.
+ * every request reads at least one chunk. Wide cold scans read bounded parallel waves and commit
+ * strictly in ascending block order while mutating the wallet set in place.
  */
 async function extendDiscovery(deps: LeaderboardDeps, toBlock: bigint, deadline: number): Promise<Discovery> {
   const d = discoveryFor(deps);
+  if (d.scannedTo === 0n && !d.hydratedFromStore && !skipSnapshotUntilVerified && deps.snapshotStore) {
+    d.hydratedFromStore = true;
+    const snap = await deps.snapshotStore.load(d.key);
+    if (snap && discovery === d) {
+      const snapBlock = BigInt(snap.scannedTo);
+      if (snapBlock >= deps.protocolDeploymentBlock && snapBlock <= toBlock && snap.wallets.length <= MAX_PARTICIPANTS) {
+        for (const wallet of snap.wallets) d.wallets.add(wallet);
+        for (const curator of snap.curators) d.curators.add(curator);
+        d.scannedTo = snapBlock;
+        lastSavedSnapshotBlock = snapBlock;
+      }
+    }
+  }
+
   let from = d.scannedTo === 0n ? deps.protocolDeploymentBlock : d.scannedTo + 1n;
   let first = true;
   while (from <= toBlock) {
-    if (!first && deps.now() > deadline) {
+    const pastDeadline = deps.now() > deadline;
+    if (!first && pastDeadline) {
       throw new LeaderboardNotReadyError("leaderboard: still indexing participants");
     }
     first = false;
-    const to = from + LOG_CHUNK - 1n < toBlock ? from + LOG_CHUNK - 1n : toBlock;
-    const chunk = await readChunk(deps, from, to);
-    const grown = new Set([...d.wallets, ...chunk.wallets]);
-    if (grown.size > MAX_PARTICIPANTS) {
-      throw new LeaderboardIntegrityError("leaderboard: more participants than one answer reads");
+    const remainingChunks = (toBlock - from) / LOG_CHUNK + 1n;
+    const waveSize = !pastDeadline && remainingChunks > 6n ? DISCOVERY_WAVE_CONCURRENCY : 1;
+    const waveRanges: Array<{from: bigint; to: bigint}> = [];
+    for (let i = 0; i < waveSize && from <= toBlock; i += 1) {
+      const to = from + LOG_CHUNK - 1n < toBlock ? from + LOG_CHUNK - 1n : toBlock;
+      waveRanges.push({from, to});
+      from = to + 1n;
     }
-    if (discovery !== d) throw new LeaderboardNotReadyError("leaderboard: the discovery was reset");
-    d.wallets = grown;
-    for (const curator of chunk.curators) d.curators.add(curator);
-    d.scannedTo = to;
-    from = to + 1n;
+    const chunks = await Promise.all(waveRanges.map((range) => readChunk(deps, range.from, range.to)));
+    for (let i = 0; i < chunks.length; i += 1) {
+      const chunk = chunks[i];
+      if (discovery !== d) throw new LeaderboardNotReadyError("leaderboard: the discovery was reset");
+      let additions = 0;
+      for (const wallet of chunk.wallets) {
+        if (!d.wallets.has(wallet)) additions += 1;
+      }
+      if (d.wallets.size + additions > MAX_PARTICIPANTS) {
+        throw new LeaderboardIntegrityError("leaderboard: more participants than one answer reads");
+      }
+      for (const wallet of chunk.wallets) d.wallets.add(wallet);
+      for (const curator of chunk.curators) d.curators.add(curator);
+      d.scannedTo = waveRanges[i].to;
+    }
   }
   return d;
 }
@@ -403,7 +528,7 @@ function discoverTo(deps: LeaderboardDeps, toBlock: bigint, deadline: number): P
 }
 
 /** The chain, the ledger's implementation and every hook that feeds it, as the discovery assumes them. */
-async function checkWiring(deps: LeaderboardDeps, block: bigint): Promise<void> {
+async function checkWiring(deps: LeaderboardDeps, block: bigint): Promise<{supportsBscCredits: boolean}> {
   const {client, contracts} = deps;
   if ((await client.getChainId()) !== EXPECTED_CHAIN.id) {
     throw new LeaderboardIntegrityError("leaderboard: the archive RPC serves another chain");
@@ -415,7 +540,7 @@ async function checkWiring(deps: LeaderboardDeps, block: bigint): Promise<void> 
     client.readContract({address: contracts.points, abi: LEDGER_ABI, functionName: "curatorModule", blockNumber: block}),
   ]);
   const implementation = slot ? `0x${slot.slice(-40)}` : "";
-  if (implementation.toLowerCase() !== POINTS_MODULE_IMPLEMENTATION.toLowerCase()) {
+  if (!isVerifiedPointsModuleImplementation(implementation)) {
     throw new LeaderboardIntegrityError("leaderboard: the PointsModule implementation changed; re-verify the discovery");
   }
   const points = contracts.points.toLowerCase();
@@ -425,6 +550,7 @@ async function checkWiring(deps: LeaderboardDeps, block: bigint): Promise<void> 
   if ((curatorModule as Address).toLowerCase() !== contracts.curator.toLowerCase()) {
     throw new LeaderboardIntegrityError("leaderboard: the PointsModule reports another CuratorModule");
   }
+  return {supportsBscCredits: implementation.toLowerCase() === STAGE2_POINTS_MODULE_IMPLEMENTATION.toLowerCase()};
 }
 
 /** Runs `work` over `items` in batches, a few at a time, keeping the batches' order. */
@@ -463,23 +589,29 @@ async function readOnchain(
   block: bigint,
   wallets: readonly string[],
   curators: readonly string[],
+  supportsBscCredits: boolean,
 ): Promise<Onchain> {
   const {contracts} = deps;
+  const stride = supportsBscCredits ? 4 : 3;
   const per = await inBatches(wallets, async (batch) => {
     const calls = batch.flatMap((wallet) => {
       const account = wallet as Address;
-      return [
+      const base = [
         {address: contracts.points, abi: POINTS_ABI, functionName: "pointsOfWallet", args: [account]},
         {address: contracts.points, abi: POINTS_ABI, functionName: "trackedBalances", args: [account]},
         {address: contracts.compliance, abi: OWNER_STATUS_ABI, functionName: "isJurisdictionBlocked", args: [account]},
       ];
+      return supportsBscCredits
+        ? [...base, {address: contracts.points, abi: LEDGER_ABI, functionName: "bscPointsCredited", args: [account]}]
+        : base;
     });
-    const reads = await multicall(deps, block, calls, batch.length * 3);
+    const reads = await multicall(deps, block, calls, batch.length * stride);
     return batch.map((wallet, j) => ({
       wallet,
-      points: reads[j * 3] as bigint,
-      tracked: reads[j * 3 + 1] as readonly [bigint, bigint],
-      blocked: reads[j * 3 + 2] as boolean,
+      points: reads[j * stride] as bigint,
+      tracked: reads[j * stride + 1] as readonly [bigint, bigint],
+      blocked: reads[j * stride + 2] as boolean,
+      bscCredited: supportsBscCredits ? (reads[j * stride + 3] as bigint) : 0n,
     }));
   });
   const classes = Array.from({length: CURATOR_CLASSES}, (_, i) => BigInt(i + 1));
@@ -494,21 +626,36 @@ async function readOnchain(
     );
     return (await multicall(deps, block, calls, batch.length * CURATOR_CLASSES)) as bigint[];
   });
-  const totals = (await deps.client.readContract({
-    address: contracts.points,
-    abi: LEDGER_ABI,
-    functionName: "totals",
-    blockNumber: block,
-  })) as readonly [bigint, bigint, bigint];
+  const [totals, bscTotals] = await Promise.all([
+    deps.client.readContract({
+      address: contracts.points,
+      abi: LEDGER_ABI,
+      functionName: "totals",
+      blockNumber: block,
+    }) as Promise<readonly [bigint, bigint, bigint]>,
+    supportsBscCredits
+      ? (deps.client.readContract({
+          address: contracts.points,
+          abi: LEDGER_ABI,
+          functionName: "bscPointsCreditTotals",
+          blockNumber: block,
+        }) as Promise<readonly [bigint, bigint]>)
+      : Promise.resolve(null),
+  ]);
   let shares = 0n;
   let usdfr = 0n;
+  let bscCredited = 0n;
   for (const row of per) {
     shares += row.tracked[0];
     usdfr += row.tracked[1];
+    bscCredited += row.bscCredited;
   }
   const curator = curatorTracked.reduce((sum, value) => sum + value, 0n);
   if (shares !== totals[0] || usdfr !== totals[1] || curator !== totals[2]) {
     throw new LeaderboardIntegrityError("leaderboard: the discovered wallets do not account for the PointsModule's totals");
+  }
+  if (bscTotals !== null && bscCredited !== bscTotals[1]) {
+    throw new LeaderboardIntegrityError("leaderboard: the discovered wallets do not account for the PointsModule's BSC credited points");
   }
   const points = new Map<string, bigint>();
   const blocked = new Set<string>();
@@ -647,9 +794,10 @@ function defaultDeps(): LeaderboardDeps | null {
     protocolDeploymentBlock: PROTOCOL_DEPLOYMENT_BLOCK,
     now: () => Date.now(),
     morpho: (arrivedAt) => loadMorphoCollateralLeaderboard(undefined, arrivedAt),
-    pendle: () => loadPendleLeaderboard(),
+    pendle: (signal) => loadPendleLeaderboard(undefined, signal),
     forestRoad,
     venues: POINTS_VENUES,
+    snapshotStore: blobSnapshotStore(),
   };
 }
 
@@ -665,59 +813,77 @@ export async function loadPointsLeaderboard(injected?: LeaderboardDeps, arrivedA
   if (!deps) return {ok: true, enabled: false};
   const started = arrivedAt ?? deps.now();
   const deadline = started + REQUEST_BUDGET_MS;
-  const pendlePending = settle(deps.pendle());
-  const morpho = await deps.morpho(started);
-  let asOf: {number: bigint; timestamp: bigint};
-  if (morpho.enabled) {
-    asOf = {number: morpho.asOfBlock, timestamp: morpho.asOfTimestamp};
-  } else {
-    const finalized = await deps.client.getBlock({blockTag: "finalized"});
-    if (finalized.number === null) throw new LeaderboardNotReadyError("leaderboard: no finalized block");
-    asOf = {number: finalized.number, timestamp: finalized.timestamp};
-  }
-  if (asOf.number < deps.protocolDeploymentBlock) {
-    throw new LeaderboardNotReadyError("leaderboard: the protocol's deployment block is not finalized yet");
-  }
-  await checkWiring(deps, asOf.number);
-  const d = await discoverTo(deps, asOf.number, deadline);
-  let onchain: Onchain;
+  const pendleAbort = new AbortController();
+  const pendlePending = settle(deps.pendle(pendleAbort.signal));
   try {
-    onchain = await readOnchain(deps, asOf.number, [...d.wallets], [...d.curators]);
-  } catch (error) {
-    if (error instanceof LeaderboardIntegrityError && discovery === d) {
-      discovery = null;
-      rebuildAfter = deps.now() + REBUILD_BACKOFF_MS;
+    const morpho = await deps.morpho(started);
+    let asOf: {number: bigint; timestamp: bigint};
+    if (morpho.enabled) {
+      asOf = {number: morpho.asOfBlock, timestamp: morpho.asOfTimestamp};
+    } else {
+      const finalized = await deps.client.getBlock({blockTag: "finalized"});
+      if (finalized.number === null) throw new LeaderboardNotReadyError("leaderboard: no finalized block");
+      asOf = {number: finalized.number, timestamp: finalized.timestamp};
     }
+    if (asOf.number < deps.protocolDeploymentBlock) {
+      throw new LeaderboardNotReadyError("leaderboard: the protocol's deployment block is not finalized yet");
+    }
+    const {supportsBscCredits} = await checkWiring(deps, asOf.number);
+    const d = await discoverTo(deps, asOf.number, deadline);
+    let onchain: Onchain;
+    try {
+      onchain = await readOnchain(deps, asOf.number, [...d.wallets], [...d.curators], supportsBscCredits);
+      skipSnapshotUntilVerified = false;
+      if (deps.snapshotStore && d.scannedTo > lastSavedSnapshotBlock) {
+        lastSavedSnapshotBlock = d.scannedTo;
+        void deps.snapshotStore.save({
+          version: 1,
+          key: d.key,
+          scannedTo: d.scannedTo.toString(),
+          wallets: [...d.wallets],
+          curators: [...d.curators],
+        });
+      }
+    } catch (error) {
+      if (error instanceof LeaderboardIntegrityError && discovery === d) {
+        discovery = null;
+        skipSnapshotUntilVerified = true;
+        rebuildAfter = deps.now() + REBUILD_BACKOFF_MS;
+      }
+      throw error;
+    }
+    const pendleSettled = await pendlePending;
+    if (!pendleSettled.ok) throw pendleSettled.error;
+    const pendle = pendleSettled.value;
+    const board = rankLeaderboard({
+      onchain,
+      morpho: morpho.enabled ? morpho.points : new Map(),
+      pendle: pendle.enabled ? pendle.points : new Map(),
+      forestRoad: deps.forestRoad,
+      venues: deps.venues,
+    });
+    const rows = board.ranked.slice(0, LEADERBOARD_MAX_ROWS);
+    return {
+      ok: true,
+      enabled: true,
+      asOfBlock: asOf.number.toString(),
+      asOfTimestamp: asOf.timestamp.toString(),
+      pendle: pendle.enabled
+        ? {enabled: true, asOfBlock: pendle.asOfBlock.toString(), asOfTimestamp: pendle.asOfTimestamp}
+        : {enabled: false},
+      morpho: {enabled: morpho.enabled, withheld: morpho.enabled ? morpho.withheld : 0},
+      ranked: board.ranked.length,
+      rankedPoints: board.rankedPoints.toString(),
+      truncated: board.ranked.length > rows.length,
+      rows,
+      forestRoad: {wallets: board.forestRoad.wallets, points: board.forestRoad.points.toString()},
+      venues: board.venues.map((venue) => ({...venue, points: venue.points.toString()})),
+      notRanked: {jurisdictionBlocked: board.jurisdictionBlocked, belowOnePoint: board.belowFloor},
+    };
+  } catch (error) {
+    pendleAbort.abort();
     throw error;
   }
-  const pendleSettled = await pendlePending;
-  if (!pendleSettled.ok) throw pendleSettled.error;
-  const pendle = pendleSettled.value;
-  const board = rankLeaderboard({
-    onchain,
-    morpho: morpho.enabled ? morpho.points : new Map(),
-    pendle: pendle.enabled ? pendle.points : new Map(),
-    forestRoad: deps.forestRoad,
-    venues: deps.venues,
-  });
-  const rows = board.ranked.slice(0, LEADERBOARD_MAX_ROWS);
-  return {
-    ok: true,
-    enabled: true,
-    asOfBlock: asOf.number.toString(),
-    asOfTimestamp: asOf.timestamp.toString(),
-    pendle: pendle.enabled
-      ? {enabled: true, asOfBlock: pendle.asOfBlock.toString(), asOfTimestamp: pendle.asOfTimestamp}
-      : {enabled: false},
-    morpho: {enabled: morpho.enabled, withheld: morpho.enabled ? morpho.withheld : 0},
-    ranked: board.ranked.length,
-    rankedPoints: board.rankedPoints.toString(),
-    truncated: board.ranked.length > rows.length,
-    rows,
-    forestRoad: {wallets: board.forestRoad.wallets, points: board.forestRoad.points.toString()},
-    venues: board.venues.map((venue) => ({...venue, points: venue.points.toString()})),
-    notRanked: {jurisdictionBlocked: board.jurisdictionBlocked, belowOnePoint: board.belowFloor},
-  };
 }
 
 export type ServedLeaderboard = {answer: LeaderboardWire; stale: false} | {answer: LeaderboardWire; stale: true; error: unknown};

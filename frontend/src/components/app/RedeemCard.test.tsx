@@ -203,4 +203,50 @@ describe("RedeemCard, in-flight write protection (RC-05)", () => {
 
     expect(screen.getByRole("button", {name: "sUSDfr"})).toBeEnabled();
   });
+
+  it("requires explicit acknowledgement on sub-par instant redeem and submits canonical 3-arg redeem", async () => {
+    // 100 USDfr (1e20) quoted at 95 USDC (95e6) -> sub-par
+    reads = baseReads({previewRedeem: [95_000_000n, 100n * 10n ** 18n]});
+    const user = userEvent.setup();
+    render(<RedeemCard writesEnabled chainOk />);
+
+    const amount = screen.getByPlaceholderText("0.00");
+    await user.type(amount, "100");
+
+    const submit = screen.getByRole("button", {name: /Redeem to/i});
+    expect(screen.getByText(/Sub-par redemption quote/i)).toBeInTheDocument();
+    expect(submit).toBeDisabled();
+
+    await user.click(screen.getByRole("checkbox"));
+    expect(submit).toBeEnabled();
+    await user.click(submit);
+
+    const redeemCalls = flows.flatMap((f) => f.run.mock.calls);
+    expect(redeemCalls).toHaveLength(1);
+    expect(redeemCalls[0][0]).toEqual(
+      expect.objectContaining({
+        functionName: "redeem",
+        args: [100n * 10n ** 18n, 95_000_000n, expect.any(BigInt)],
+      }),
+    );
+  });
+
+  it("collapses fully claimed requests into a completed requests summary", async () => {
+    reads = baseReads({
+      totalRequests: 1n,
+      __positions: [
+        {
+          result: [
+            "0x1111111111111111111111111111111111111111",
+            0n, // sharesRemaining
+            0n, // assetsClaimable
+            1n, // epochRequested
+            BigInt(NOW - 30 * DAY),
+          ],
+        },
+      ],
+    });
+    render(<RedeemCard writesEnabled chainOk />);
+    expect(screen.getByText(/Completed requests \(1\)/i)).toBeInTheDocument();
+  });
 });

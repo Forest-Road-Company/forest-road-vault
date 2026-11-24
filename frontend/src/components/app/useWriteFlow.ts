@@ -173,17 +173,6 @@ export function useWriteFlow() {
           functionName: params.functionName,
           args: params.args as unknown[],
         });
-        const beforeSubmission = await probeRpcAlignment(
-          publicClient.request as RpcRequest,
-          walletClient.transport.request as RpcRequest,
-          {
-            expectedChainId: EXPECTED_CHAIN.id,
-            requireExactTip: IS_LOCAL_FORK,
-          },
-        );
-        if (!beforeSubmission.aligned) {
-          throw new Error(`RPC mismatch: ${beforeSubmission.message}`);
-        }
         if (!isCurrentFlow()) return;
         // Size the transaction ourselves rather than letting the wallet estimate with no margin.
         // See POINTS_HOOK_GAS_HEADROOM: the absolute points-hook floor makes a bare estimate

@@ -53,10 +53,12 @@ export function socialMetadata({
   card,
   title,
   description,
+  path,
 }: {
   card?: ShareCard;
   title: string;
   description: string;
+  path?: string;
 }): Pick<Metadata, "openGraph" | "twitter"> {
   const image = shareImage(card);
 
@@ -66,6 +68,7 @@ export function socialMetadata({
       siteName: "Forest Road Vault",
       title,
       description,
+      ...(path ? {url: path} : {}),
       images: [image],
     },
     twitter: {
@@ -87,6 +90,7 @@ export function pageMetadata({
   card,
   socialTitle = title,
   socialDescription = description,
+  path,
   robots,
 }: {
   title: string;
@@ -94,12 +98,14 @@ export function pageMetadata({
   card?: ShareCard;
   socialTitle?: string;
   socialDescription?: string;
+  path?: string;
   robots?: Metadata["robots"];
 }): Metadata {
   return {
     title,
     description,
-    ...socialMetadata({card, title: socialTitle, description: socialDescription}),
+    ...(path ? {alternates: {canonical: path}} : {}),
+    ...socialMetadata({card, title: socialTitle, description: socialDescription, path}),
     ...(robots ? {robots} : {}),
   };
 }

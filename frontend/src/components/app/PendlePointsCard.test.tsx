@@ -25,7 +25,12 @@ afterEach(() => vi.unstubAllGlobals());
 describe("PendlePointsCard", () => {
   it("renders nothing while Pendle points are not enabled", async () => {
     const {container} = renderCard({ok: true, enabled: false});
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith(`/api/points/pendle?wallet=${WALLET}`));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        `/api/points/pendle?wallet=${WALLET}`,
+        expect.objectContaining({signal: expect.any(AbortSignal)}),
+      ),
+    );
     expect(container).toBeEmptyDOMElement();
   });
 

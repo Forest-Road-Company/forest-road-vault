@@ -4,7 +4,7 @@
 as stateful fuzzing (Foundry) with handlers and hold at the configured run counts
 (`heavy` profile: 10k fuzz runs; invariants runs ≥ 512, depth ≥ 256); the backing and
 cascade sections additionally have Halmos transition/arithmetic proofs. This document is
-the protocol's **safety spec**. It maps each property in CLAUDE.md §1.3 to (a) the
+the protocol's **safety spec**. It maps each core safety property to (a) the
 mechanism that enforces it on-chain and (b) the named test(s) that prove it.
 
 Run: `FOUNDRY_PROFILE=heavy forge test` (from `contracts/`). Ethereum V2 is also
@@ -12,7 +12,7 @@ rehearsed against canonical Ethereum-mainnet USDC and the exact deployed proxy a
 
 > Convention: an invariant is a property that must hold **across all reachable states**.
 > If one cannot be made to hold: that is a genuine-problem STOP. We surface it rather
-> than weaken the assertion (CLAUDE.md §1.3, §4.5).
+> than weaken the assertion.
 
 ---
 
@@ -207,7 +207,7 @@ backing and role revocation have all been independently verified.
 
 ---
 
-## Additional encoded invariants (beyond the §1.3 minimum)
+## Additional encoded invariants
 
 | Invariant | Property |
 |---|---|
@@ -222,7 +222,7 @@ backing and role revocation have all been independently verified.
 
 ---
 
-## Formal / differential notes (CLAUDE.md §1.5)
+## Formal / differential notes
 
 - **Differential model:** the attestation oracle runs against an independent ghost model
   (`invariant_oracle_ghostParity`); reward accounting is cross-checked by
@@ -236,4 +236,4 @@ backing and role revocation have all been independently verified.
 - **Gas snapshots:** `forge snapshot` tracked; regressions flagged in review.
 
 *This spec is a living document. Any new value-moving path must add its invariant here and
-its encoding test before the module is considered done (CLAUDE.md §5).*
+its encoding test before the module is considered done.*

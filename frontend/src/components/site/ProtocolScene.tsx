@@ -103,7 +103,7 @@ function LifecycleScene({ compact }: { compact: boolean }) {
 
 function TransparencyScene({ compact }: { compact: boolean }) {
   return (
-    <Frame label="Conceptual reconciliation: USDfr supply cannot exceed recognized backing, which includes reserves and deployed principal; see the dashboard for live values" compact={compact}>
+    <Frame label="Illustrative diagram: USDfr supply cannot exceed recognized backing, composed of idle reserves and deployed principal; live values are below" compact={compact}>
       <div className="protocol-reconcile">
         <div className="protocol-reconcile__metric">
           <span>USDfr supply</span><strong>On-chain</strong>
@@ -118,10 +118,10 @@ function TransparencyScene({ compact }: { compact: boolean }) {
         </div>
       </div>
       <div className="protocol-backing-mix">
-        <b><i /> contract invariant holding</b>
+        <b><i /> illustrative diagram — live figures below</b>
         <div className="protocol-backing-mix__bar">
-          <span style={style({ "--mix": "64%" })}>Idle reserve</span>
-          <span style={style({ "--mix": "36%" })}>Deployed principal</span>
+          <span style={style({ "--mix": "50%" })}>Idle reserve</span>
+          <span style={style({ "--mix": "50%" })}>Deployed principal</span>
         </div>
       </div>
     </Frame>

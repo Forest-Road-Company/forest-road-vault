@@ -136,4 +136,41 @@ describe("curator interest admission", () => {
     expect(response.status).toBe(400);
     expect(blob.put).not.toHaveBeenCalled();
   });
+
+  it("refuses an oversized chunked body without Content-Length using streaming cap", async () => {
+    const oversized = JSON.stringify({email: "curator@example.com", note: "x".repeat(10_000)});
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(oversized));
+        controller.close();
+      },
+    });
+    const chunked = new Request("https://forestroadvault.com/api/curators/interest", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: "https://forestroadvault.com",
+        "x-vercel-forwarded-for": "192.0.2.10",
+      },
+      body: stream,
+      duplex: "half",
+    } as RequestInit);
+    const response = await POST(chunked);
+    expect(response.status).toBe(413);
+    expect(blob.put).not.toHaveBeenCalled();
+  });
+
+  it("refuses Sec-Fetch-Site: cross-site even without an Origin header", async () => {
+    const crossSite = new Request("https://forestroadvault.com/api/curators/interest", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "sec-fetch-site": "cross-site",
+      },
+      body: JSON.stringify({email: "curator@example.com"}),
+    });
+    const response = await POST(crossSite);
+    expect(response.status).toBe(403);
+    expect(blob.put).not.toHaveBeenCalled();
+  });
 });

@@ -6,9 +6,11 @@ const LEGACY_VAULTS = new Set([
 ]);
 
 const ADR_0031_VAULTS = new Set([
-  // Canonical Ethereum mainnet deployment (mainnet-v1, block 25768251, manifest
-  // 1-production-v1.json). Pinned by address so a mainnet build cannot be pointed at
-  // this vault while declaring the pre-ADR-0031 fee ABI.
+  // Canonical Ethereum mainnet deployment (mainnet-v2, block 26006832, manifest
+  // 1-production-v2.json).
+  "0xaf559d1d59b33ca4b950ab2091372af8a773e234",
+  // Retired Ethereum mainnet v1 deployment (mainnet-v1, block 25768251, manifest
+  // 1-production-v1.json). Retained so a build cannot declare pre-ADR-0031 ABI on it.
   "0x4761995f4f6daddf7886acd9d16e119ef2fb4132",
   // Canonical Sepolia deployment.
   "0x197bb3701e964bfb367449a6754c845fc8f7d0f4",

@@ -132,6 +132,8 @@ export function EthereumCuratorPanel() {
     stakeReads.data !== undefined && stakeReads.data.every((r) => r.status === "success");
   const classReadsSettled =
     classReads.data !== undefined && classReads.data.every((r) => r.status === "success");
+  const tokenReadsSettled =
+    tokenReads.data !== undefined && tokenReads.data.every((r) => r.status === "success");
   const defaultClass = positionViews.find((v) => v.approved)?.classId ?? positionViews[0]?.classId ?? null;
   useEffect(() => {
     if (defaultClass === null) return;
@@ -166,6 +168,7 @@ export function EthereumCuratorPanel() {
   const canWrite = isConnected && rightNetwork && current !== null && !flow.busy && !paused;
   const canPost =
     canWrite
+    && tokenReadsSettled
     && current?.approved === true
     && parsed !== null
     && parsed > 0n
@@ -457,6 +460,20 @@ export function EthereumCuratorPanel() {
               : undefined
           }
         />
+        {withdrawable > 0n ? (
+          <div className="mt-2 flex justify-end">
+            <button
+              type="button"
+              disabled={flow.busy || paused || custodyFrozen}
+              onClick={() =>
+                setAmount(fmtAmount(withdrawable, USDFR_DECIMALS, USDFR_DECIMALS).replace(/,/g, ""))
+              }
+              className="text-[11.5px] font-medium text-accent underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Max withdraw ({fmtAmount(withdrawable, USDFR_DECIMALS)} USDfr)
+            </button>
+          </div>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <ActionButton
             label={!current?.approved ? "Posting unavailable" : approvalNeeded ? "Approve USDfr" : "Post first-loss capital"}

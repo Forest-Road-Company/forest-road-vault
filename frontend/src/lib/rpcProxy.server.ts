@@ -35,13 +35,19 @@
  * direction: the next request checks again.
  */
 
-import {CHAIN_ID} from "@/config/contracts";
+import {CHAIN_ID, CONTRACTS} from "@/config/contracts";
 import {
   RPC_PROXY_CHAIN_PROBE_TIMEOUT_MS,
   RPC_PROXY_MAX_BATCH,
   RPC_PROXY_MAX_BODY_BYTES,
   RPC_PROXY_UPSTREAM_TIMEOUT_MS,
 } from "@/lib/rpcProxyShared";
+
+const MORPHO_BLUE_MAINNET = "0xbbbbbbbbbb9cc5e90e3b3af64bdaf62c37eeffcb";
+export const RPC_PROXY_MAX_FULL_BLOCKS_PER_BATCH = 4;
+export const RPC_PROXY_MAX_LOG_ADDRESSES = 8;
+export const RPC_PROXY_MAX_TOPIC_ENTRIES = 16;
+const CHAIN_MISMATCH_TTL_MS = 60_000;
 
 export {RPC_PROXY_CHAIN_PROBE_TIMEOUT_MS, RPC_PROXY_UPSTREAM_TIMEOUT_MS};
 export const RPC_PROXY_UPSTREAM_ENV = "RPC_PROXY_UPSTREAM_URL";
@@ -162,14 +168,30 @@ const ENTRY_REFUSALS = {
     code: -32602,
     message: "eth_getLogs through this proxy must name a contract address",
   },
+  logsDisallowedAddress: {
+    code: -32602,
+    message: "eth_getLogs through this proxy only serves protocol contract addresses",
+  },
   logsRange: {
     code: -32602,
     message:
       "eth_getLogs through this proxy needs numeric fromBlock and toBlock at most 100,000 blocks apart, or a blockHash",
   },
+  logsTopics: {
+    code: -32602,
+    message: "eth_getLogs topics through this proxy must be at most 4 valid 32-byte topic filters",
+  },
   callShape: {
     code: -32602,
     message: "eth_call and eth_estimateGas through this proxy take [transaction] or [transaction, block] with a contract address",
+  },
+  paramsShape: {
+    code: -32602,
+    message: "Invalid parameters for this method through this proxy",
+  },
+  tooManyFullBlocks: {
+    code: -32602,
+    message: "Too many full-transaction block reads in one batch",
   },
 } as const;
 
@@ -291,23 +313,52 @@ function parseEntry(value: unknown): JsonRpcRequest | null {
   return params === undefined ? {jsonrpc, id, method} : {jsonrpc, id, method, params};
 }
 
-/** eth_getLogs must be scoped to one or more contract addresses, never a chain-wide scan. */
-function logsFilterNamesAddress(params: unknown[] | undefined): boolean {
+/** eth_getLogs must be scoped to one or more contract addresses (at most 8), never a chain-wide scan. */
+function logsFilterAddresses(params: unknown[] | undefined): string[] | null {
   const filter = params?.[0];
-  if (!isPlainObject(filter)) return false;
+  if (!isPlainObject(filter)) return null;
   const {address} = filter;
-  if (typeof address === "string") return ADDRESS.test(address);
-  return (
+  if (typeof address === "string") return ADDRESS.test(address) ? [address.toLowerCase()] : null;
+  if (
     Array.isArray(address) &&
     address.length > 0 &&
+    address.length <= RPC_PROXY_MAX_LOG_ADDRESSES &&
     address.every((entry) => typeof entry === "string" && ADDRESS.test(entry))
-  );
+  ) {
+    return address.map((entry) => entry.toLowerCase());
+  }
+  return null;
 }
 
 const QUANTITY = /^0x(0|[1-9a-fA-F][0-9a-fA-F]{0,15})$/;
 const BLOCK_HASH = /^0x[0-9a-fA-F]{64}$/;
 const BLOCK_TAG = /^(latest|earliest|pending|safe|finalized)$/;
 const LOG_FILTER_KEYS = new Set(["address", "topics", "fromBlock", "toBlock", "blockHash"]);
+
+function isBlockSpec(value: unknown): boolean {
+  return typeof value === "string" && (BLOCK_TAG.test(value) || QUANTITY.test(value));
+}
+
+function logsTopicsAllowed(topics: unknown): boolean {
+  if (topics === undefined) return true;
+  if (!Array.isArray(topics) || topics.length > 4) return false;
+  for (const item of topics) {
+    if (item === null) continue;
+    if (typeof item === "string") {
+      if (!BLOCK_HASH.test(item)) return false;
+      continue;
+    }
+    if (
+      Array.isArray(item) &&
+      item.length <= RPC_PROXY_MAX_TOPIC_ENTRIES &&
+      item.every((entry) => typeof entry === "string" && BLOCK_HASH.test(entry))
+    ) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
 
 /**
  * The block range of an eth_getLogs filter: one block by hash, or both numeric bounds, in order, no
@@ -338,22 +389,86 @@ function callShapeAllowed(params: unknown[] | undefined): boolean {
   if (!isPlainObject(transaction)) return false;
   if (typeof transaction.to !== "string" || !ADDRESS.test(transaction.to)) return false;
   if (params.length === 2) {
-    return typeof block === "string" && (BLOCK_TAG.test(block) || QUANTITY.test(block));
+    return isBlockSpec(block);
   }
   return true;
 }
 
+function defaultAllowedLogAddresses(chainId: number): ReadonlySet<string> | null {
+  if (chainId !== 1) return null;
+  const addresses = new Set<string>([MORPHO_BLUE_MAINNET]);
+  for (const key of [
+    "sUSDfr",
+    "WaterfallEngine",
+    "RedemptionQueue",
+    "CuratorModule",
+    "USDfr",
+    "PointsModule",
+  ] as const) {
+    const addr = CONTRACTS[key];
+    if (addr) addresses.add(addr.toLowerCase());
+  }
+  return addresses;
+}
+
 /** Null when the entry may be forwarded, otherwise its JSON-RPC refusal. Exported for the census. */
-export function rpcProxyEntryRefusal(entry: {method: string; params?: unknown[]}): JsonRpcError | null {
+export function rpcProxyEntryRefusal(
+  entry: {method: string; params?: unknown[]},
+  options?: {allowedLogAddresses?: ReadonlySet<string> | null},
+): JsonRpcError | null {
   if (!RPC_PROXY_ALLOWED_METHODS.has(entry.method)) return {...ENTRY_REFUSALS.methodNotFound};
   if (entry.method === "eth_getLogs") {
-    if (!logsFilterNamesAddress(entry.params)) return {...ENTRY_REFUSALS.logsWithoutAddress};
+    const addresses = logsFilterAddresses(entry.params);
+    if (!addresses) return {...ENTRY_REFUSALS.logsWithoutAddress};
     if (entry.params!.length !== 1 || !logsRangeAllowed(entry.params![0] as Record<string, unknown>)) {
       return {...ENTRY_REFUSALS.logsRange};
     }
+    const filter = entry.params![0] as Record<string, unknown>;
+    if (!logsTopicsAllowed(filter.topics)) return {...ENTRY_REFUSALS.logsTopics};
+    if (
+      options?.allowedLogAddresses &&
+      addresses.some((address) => !options.allowedLogAddresses!.has(address))
+    ) {
+      return {...ENTRY_REFUSALS.logsDisallowedAddress};
+    }
+    return null;
   }
-  if ((entry.method === "eth_call" || entry.method === "eth_estimateGas") && !callShapeAllowed(entry.params)) {
-    return {...ENTRY_REFUSALS.callShape};
+  if (entry.method === "eth_call" || entry.method === "eth_estimateGas") {
+    return callShapeAllowed(entry.params) ? null : {...ENTRY_REFUSALS.callShape};
+  }
+  if (entry.method === "eth_getBlockByNumber") {
+    const params = entry.params;
+    if (!params || params.length !== 2 || !isBlockSpec(params[0]) || typeof params[1] !== "boolean") {
+      return {...ENTRY_REFUSALS.paramsShape};
+    }
+    return null;
+  }
+  if (entry.method === "eth_getCode") {
+    const params = entry.params;
+    if (
+      !params ||
+      params.length < 1 ||
+      params.length > 2 ||
+      typeof params[0] !== "string" ||
+      !ADDRESS.test(params[0]) ||
+      (params.length === 2 && !isBlockSpec(params[1]))
+    ) {
+      return {...ENTRY_REFUSALS.paramsShape};
+    }
+    return null;
+  }
+  if (entry.method === "eth_getTransactionReceipt" || entry.method === "eth_getTransactionByHash") {
+    const params = entry.params;
+    if (!params || params.length !== 1 || typeof params[0] !== "string" || !BLOCK_HASH.test(params[0])) {
+      return {...ENTRY_REFUSALS.paramsShape};
+    }
+    return null;
+  }
+  if (entry.method === "eth_blockNumber" || entry.method === "eth_chainId") {
+    if (entry.params !== undefined && entry.params.length !== 0) {
+      return {...ENTRY_REFUSALS.paramsShape};
+    }
+    return null;
   }
   return null;
 }
@@ -413,13 +528,13 @@ export function rpcProxyUpstream(
  * path, and every long path segment or query value (where providers put keys).
  */
 function urlSecrets(url: URL): string[] {
-  const secrets = new Set<string>([url.toString(), `${url.host}${url.pathname}`]);
-  if (url.pathname.length > 1) secrets.add(url.pathname);
+  const secrets = new Set<string>([url.toString().toLowerCase(), `${url.host}${url.pathname}`.toLowerCase()]);
+  if (url.pathname.length >= 12) secrets.add(url.pathname.toLowerCase());
   for (const segment of url.pathname.split("/")) {
-    if (segment.length >= 12) secrets.add(segment);
+    if (segment.length >= 12) secrets.add(segment.toLowerCase());
   }
   for (const value of url.searchParams.values()) {
-    if (value.length >= 12) secrets.add(value);
+    if (value.length >= 12) secrets.add(value.toLowerCase());
   }
   return [...secrets];
 }
@@ -485,6 +600,14 @@ async function postUpstream(
   try {
     text = await readCapped(response.body, RPC_PROXY_MAX_UPSTREAM_BYTES);
   } catch {
+    if (clientSignal?.aborted) {
+      logFailure("upstream_cancelled_client_gone");
+      return {ok: false, failure: "clientGone"};
+    }
+    if (timeout.aborted) {
+      logFailure("upstream_timeout");
+      return {ok: false, failure: "upstreamTimeout"};
+    }
     logFailure("upstream_body_error");
     return {ok: false, failure: "upstreamUnavailable"};
   }
@@ -504,7 +627,7 @@ async function postUpstream(
 
 type ChainVerdict = "verified" | "mismatch" | "unavailable";
 
-const settledChains = new Map<string, Exclude<ChainVerdict, "unavailable">>();
+const settledChains = new Map<string, {verdict: Exclude<ChainVerdict, "unavailable">; at: number}>();
 const pendingChains = new Map<string, Promise<ChainVerdict>>();
 
 /** Clears the per-instance chain-check memory. Tests only. */
@@ -530,22 +653,28 @@ async function probeChain(upstream: string, chainId: number, timeoutMs: number):
 }
 
 /**
- * Once per instance and upstream: a verified or mismatched chain is remembered; an unavailable
- * check is not, so a transient failure is retried by the next request. Concurrent first requests
- * share one probe.
+ * Once per instance, chainId and upstream: a verified chain is remembered for the instance; a
+ * mismatch is remembered for 60s so a corrected upstream recovers without a redeploy; an
+ * unavailable check is not remembered. Concurrent first requests share one probe.
  */
 async function checkChain(upstream: string, chainId: number, timeoutMs: number): Promise<ChainVerdict> {
-  const settled = settledChains.get(upstream);
-  if (settled) return settled;
-  let pending = pendingChains.get(upstream);
+  const key = `${chainId}:${upstream}`;
+  const settled = settledChains.get(key);
+  if (settled) {
+    if (settled.verdict === "verified" || Date.now() - settled.at < CHAIN_MISMATCH_TTL_MS) {
+      return settled.verdict;
+    }
+    settledChains.delete(key);
+  }
+  let pending = pendingChains.get(key);
   if (!pending) {
     pending = probeChain(upstream, chainId, timeoutMs)
       .then((verdict) => {
-        if (verdict !== "unavailable") settledChains.set(upstream, verdict);
+        if (verdict !== "unavailable") settledChains.set(key, {verdict, at: Date.now()});
         return verdict;
       })
-      .finally(() => pendingChains.delete(upstream));
-    pendingChains.set(upstream, pending);
+      .finally(() => pendingChains.delete(key));
+    pendingChains.set(key, pending);
   }
   return pending;
 }
@@ -555,7 +684,7 @@ async function checkChain(upstream: string, chainId: number, timeoutMs: number):
 /** An upstream answer entry for one of our ids, rebuilt with only the JSON-RPC fields. */
 function upstreamEntry(value: unknown): {id: number; outcome: {result: unknown} | {error: JsonRpcError}} | null {
   if (!isPlainObject(value) || value.jsonrpc !== "2.0" || typeof value.id !== "number") return null;
-  if ("error" in value && value.error !== undefined) {
+  if ("error" in value && value.error !== undefined && value.error !== null) {
     const error = value.error;
     if (!isPlainObject(error) || typeof error.code !== "number" || typeof error.message !== "string") {
       return null;
@@ -586,7 +715,8 @@ async function forward(
     return {ok: true, outcomes: new Map(outbound.map(({id}) => [id, {error: {...RPC_PROXY_RESPONSE_TOO_BIG}}]))};
   }
   if (!answer.ok) return answer;
-  if (upstream.secrets.some((secret) => answer.text.includes(secret))) {
+  const answerLower = answer.text.toLowerCase();
+  if (upstream.secrets.some((secret) => answerLower.includes(secret))) {
     logFailure("upstream_echoed_its_url");
     return {ok: false, failure: "upstreamInvalid"};
   }
@@ -618,6 +748,8 @@ export type RpcProxyOptions = {
   upstreamTimeoutMs?: number;
   /** Defaults to RPC_PROXY_CHAIN_PROBE_TIMEOUT_MS. */
   probeTimeoutMs?: number;
+  /** Contract allowlist for eth_getLogs (defaults to protocol contracts + Morpho Blue on mainnet). */
+  allowedLogAddresses?: ReadonlySet<string> | null;
 };
 
 export async function handleRpcProxyRequest(request: Request, options: RpcProxyOptions = {}): Promise<Response> {
@@ -627,7 +759,11 @@ export async function handleRpcProxyRequest(request: Request, options: RpcProxyO
   const contentType = request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
   if (contentType !== "application/json") return failure("notJson");
   const declared = request.headers.get("content-length");
-  if (declared !== null && Number(declared) > RPC_PROXY_MAX_BODY_BYTES) return failure("tooLarge");
+  if (declared !== null) {
+    const trimmed = declared.trim();
+    if (!/^\d+$/.test(trimmed)) return failure("invalidRequest");
+    if (Number(trimmed) > RPC_PROXY_MAX_BODY_BYTES) return failure("tooLarge");
+  }
 
   let text: string | null;
   try {
@@ -654,13 +790,28 @@ export async function handleRpcProxyRequest(request: Request, options: RpcProxyO
     entries.push(entry);
   }
 
-  const refusals = entries.map(rpcProxyEntryRefusal);
+  const chainId = options.chainId ?? CHAIN_ID;
+  const allowedLogAddresses =
+    options.allowedLogAddresses !== undefined
+      ? options.allowedLogAddresses
+      : defaultAllowedLogAddresses(chainId);
+  let fullBlockCount = 0;
+  const refusals = entries.map((entry) => {
+    const refusal = rpcProxyEntryRefusal(entry, {allowedLogAddresses});
+    if (refusal) return refusal;
+    if (entry.method === "eth_getBlockByNumber" && entry.params?.[1] === true) {
+      fullBlockCount += 1;
+      if (fullBlockCount > RPC_PROXY_MAX_FULL_BLOCKS_PER_BATCH) {
+        return {...ENTRY_REFUSALS.tooManyFullBlocks};
+      }
+    }
+    return null;
+  });
   const admitted = entries.filter((_, index) => refusals[index] === null);
   let outcomes = new Map<number, {result: unknown} | {error: JsonRpcError}>();
 
   if (admitted.length > 0) {
     const known = {entries, refusals, asBatch};
-    const chainId = options.chainId ?? CHAIN_ID;
     const upstream = rpcProxyUpstream(
       options.upstreamUrl ?? process.env[RPC_PROXY_UPSTREAM_ENV],
       chainId,

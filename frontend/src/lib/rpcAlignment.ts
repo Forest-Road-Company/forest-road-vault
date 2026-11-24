@@ -233,24 +233,28 @@ export async function probeRpcAlignment(
     }
 
     const commonBlock = appBlock < walletBlock ? appBlock : walletBlock;
-    const blockTag = `0x${commonBlock.toString(16)}`;
+    // Outside local-fork mode, compare 2 blocks behind the common tip so normal 1-block mainnet
+    // reorgs or read-replica tip lag do not falsely lock out writes.
+    const checkBlock =
+      !options.requireExactTip && commonBlock > 2n ? commonBlock - 2n : commonBlock;
+    const blockTag = `0x${checkBlock.toString(16)}`;
     const [appHeader, walletHeader] = await Promise.all([
       call("app", appRequest, {method: "eth_getBlockByNumber", params: [blockTag, false]}),
       call("wallet", walletRequest, {method: "eth_getBlockByNumber", params: [blockTag, false]}),
     ]);
-    const appHash = asBlockHash(appHeader, "app", commonBlock);
-    const walletHash = asBlockHash(walletHeader, "wallet", commonBlock);
+    const appHash = asBlockHash(appHeader, "app", checkBlock);
+    const walletHash = asBlockHash(walletHeader, "wallet", checkBlock);
 
     if (appHash.toLowerCase() !== walletHash.toLowerCase()) {
       return {
         aligned: false,
         reason: "state",
         message:
-          `The app and wallet disagree on block ${commonBlock.toString()}. They are connected to different fork or network state.`,
+          `The app and wallet disagree on block ${checkBlock.toString()}. They are connected to different fork or network state.`,
       };
     }
 
-    return {aligned: true, blockNumber: commonBlock, blockHash: appHash};
+    return {aligned: true, blockNumber: checkBlock, blockHash: appHash};
   } catch (error) {
     if (error instanceof RpcSideError) {
       return {

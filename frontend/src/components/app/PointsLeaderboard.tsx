@@ -206,7 +206,7 @@ export function PointsLeaderboard({endpoint = "/api/points/leaderboard"}: {endpo
         <span className="font-mono text-[11px] text-accent">{sources.join(" · ")}</span>
       </div>
       {data.rows.length > 0 ? (
-        <div className="main-board-key" aria-label="Leaderboard bar key">
+        <div className="main-board-key" role="group" aria-label="Leaderboard bar key">
           <span>Bar length = total points relative to #1</span>
           <span><i className="is-onchain" /> On-chain</span>
           {showPendle ? <span><i className="is-pendle" /> Pendle</span> : null}

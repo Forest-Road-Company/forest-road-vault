@@ -36,13 +36,20 @@ const EIP1193_INTERNAL_ERROR = {code: -32603, message: "Internal JSON-RPC error.
 const OPTIONS = {expectedChainId: CHAIN, requireExactTip: false};
 
 describe("probeRpcAlignment quantity parsing", () => {
-  it("accepts the compliant hex form on both transports", async () => {
+  it("accepts the compliant hex form on both transports (comparing 2 blocks behind tip outside local fork)", async () => {
     const result = await probeRpcAlignment(
       transport("0x1", "0x64"),
       transport("0x1", "0x64"),
       OPTIONS,
     );
-    expect(result).toEqual({aligned: true, blockNumber: 100n, blockHash: HASH});
+    expect(result).toEqual({aligned: true, blockNumber: 98n, blockHash: HASH});
+
+    const exact = await probeRpcAlignment(
+      transport("0x1", "0x64"),
+      transport("0x1", "0x64"),
+      {expectedChainId: CHAIN, requireExactTip: true},
+    );
+    expect(exact).toEqual({aligned: true, blockNumber: 100n, blockHash: HASH});
   });
 
   // THE REGRESSION. A Fireblocks WalletConnect session reported chain 1 as the number 1, and
@@ -238,7 +245,7 @@ describe("probeRpcAlignment failure attribution", () => {
     expect(result).toEqual({
       aligned: false,
       reason: "wallet",
-      message: "The wallet RPC did not return a header for block 100. Writes are disabled.",
+      message: "The wallet RPC did not return a header for block 98. Writes are disabled.",
     });
   });
 
@@ -278,7 +285,7 @@ describe("probeRpcAlignment failure attribution", () => {
       aligned: false,
       reason: "state",
       message:
-        "The app and wallet disagree on block 100. They are connected to different fork or network state.",
+        "The app and wallet disagree on block 98. They are connected to different fork or network state.",
     });
   });
 });

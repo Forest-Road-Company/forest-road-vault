@@ -222,4 +222,17 @@ describe("Ethereum curator approval revocation", () => {
     expect(within(row).getAllByRole("cell").at(-1)).toHaveTextContent("0 USDfr");
     expect(screen.getByRole("button", {name: "Withdraw"})).toBeDisabled();
   });
+
+  it("gates posting on settled token reads and provides a Max withdraw fill button", async () => {
+    setClass(1, {approved: true, posted: 250n * UNIT, headroom: 120n * UNIT});
+    harness.failedReads.add("allowance");
+    const {rerender} = render(<EthereumCuratorPanel />);
+    fireEvent.change(await screen.findByLabelText("Amount in USDfr"), {target: {value: "10"}});
+    expect(screen.getByRole("button", {name: /Post first-loss capital|Approve USDfr/i})).toBeDisabled();
+
+    harness.failedReads.clear();
+    rerender(<EthereumCuratorPanel />);
+    fireEvent.click(screen.getByRole("button", {name: /Max withdraw \(120 USDfr\)/i}));
+    expect(screen.getByLabelText("Amount in USDfr")).toHaveValue("120");
+  });
 });

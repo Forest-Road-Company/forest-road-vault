@@ -27,7 +27,7 @@ import {
 import { BRIDGE_ABI, ERC20_ABI, RESERVES_ABI } from "@/lib/abi";
 import { fmtAmount } from "@/lib/format";
 import { SECTORS } from "@/lib/verticals";
-import { PROTOCOL_POLL } from "@/lib/polling";
+import { formatPollCadence, PROTOCOL_POLL } from "@/lib/polling";
 
 const receivable = SECTORS.filter(
   (v) => v.collateralModel === "receivable",
@@ -116,7 +116,7 @@ export function HeroLiveStats() {
           </span>
         ))}
         <span>
-          · refreshed every 60s
+          · refreshed every {formatPollCadence(PROTOCOL_POLL.refetchInterval)}
           {IS_TESTNET ? " · test tokens, no real value" : ""}
         </span>
       </p>

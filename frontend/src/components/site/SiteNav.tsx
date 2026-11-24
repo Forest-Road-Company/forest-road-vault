@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /* Risk is deliberately not in the top nav. It stays reachable from the footer
    and from the landing page's closing action, both of which point at it. */
@@ -21,6 +21,7 @@ export function SiteNav() {
   const pathname = usePathname();
   const isAppRoute = pathname === "/app" || pathname.startsWith("/app/");
   const [open, setOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
 
   /* The panel must not leave the page scrollable underneath it. Closing on
      navigation is handled by the links themselves rather than by an effect on
@@ -28,8 +29,21 @@ export function SiteNav() {
      would leave the overlay open on exactly that case. */
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";
+    if (!open) {
+      return () => {
+        document.body.style.overflow = "";
+      };
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
     return () => {
       document.body.style.overflow = "";
+      window.removeEventListener("keydown", onKeyDown);
     };
   }, [open]);
 
@@ -41,7 +55,7 @@ export function SiteNav() {
       className="site-nav sticky top-0 z-40 border-b border-line bg-bg/80 backdrop-blur-xl"
       style={{ viewTransitionName: "site-header" }}
     >
-      <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-5 sm:gap-6">
+      <nav aria-label="Primary" className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-5 sm:gap-6">
         <Link
           href="/"
           onClick={() => setOpen(false)}
@@ -54,6 +68,7 @@ export function SiteNav() {
             alt="Forest Road Vault"
             width={2400}
             height={173}
+            sizes="(min-width: 640px) 208px, 168px"
             priority
             className="h-auto w-[168px] sm:w-[208px]"
           />
@@ -97,6 +112,7 @@ export function SiteNav() {
             </Link>
           )}
           <button
+            ref={menuButtonRef}
             type="button"
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}

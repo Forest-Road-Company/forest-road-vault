@@ -80,10 +80,10 @@ dependency is tested and must be part of incident procedure.
 | `CuratorModule.freezeOnDefault` | DefaultManager | **no** |
 | `SGrove.coverShortfall` | DefaultManager | **no** (cascade) |
 | `sUSDfr.beginYieldNotification` / `notifyYield` | WaterfallEngine | **no**; one vault-side lock spans both interest-leg mints, then Waterfall calls permissionless `accrueFees` |
-| `AttestationOracle.consume` | WaterfallEngine |, |
-| `ClaimBridge.transitionState` | WaterfallEngine, DefaultManager |, |
-| `ReserveManager.{recordDeployment, recordFeeCapitalization, recordPayment, recordPrincipalWritedown}` | WaterfallEngine, DefaultManager |, |
-| `CollateralRegistry` exposure record/decrease | ClaimBridge, WaterfallEngine, DefaultManager |, |
+| `AttestationOracle.consume` | WaterfallEngine | **no** (internal servicing/cascade hook) |
+| `ClaimBridge.transitionState` | WaterfallEngine, DefaultManager | **no** (internal servicing/cascade hook) |
+| `ReserveManager.{recordDeployment, recordFeeCapitalization, recordPayment, recordPrincipalWritedown}` | WaterfallEngine, DefaultManager | **yes** (pausable on `ReserveManager`) |
+| `CollateralRegistry` exposure record/decrease | ClaimBridge, WaterfallEngine, DefaultManager | **no** (internal exposure accounting) |
 
 ### `FEE_ACCOUNTING_ROLE`: fee-neutral junior-capacity changes
 
@@ -135,4 +135,4 @@ is always reachable (ADR-0017 §4).
   reserve-admin or loss-burner holder.
 
 *Living document. Any new role or privileged function must be added here and to
-`Validate.s.sol` in the same change (CLAUDE.md §3.2).*
+`ValidateMainnetProductionV2.s.sol` in the same change.*

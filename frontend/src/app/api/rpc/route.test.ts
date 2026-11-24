@@ -946,15 +946,72 @@ describe("pass-through", () => {
   });
 
   it("answers each of the nine allowed methods", async () => {
+    const TX_HASH = `0x${"ab".repeat(32)}`;
     for (const method of RPC_PROXY_ALLOWED_METHODS) {
       const params =
-        method === "eth_getLogs" ? [LOGS] : method === "eth_call" || method === "eth_estimateGas" ? [TX, "latest"] : [];
+        method === "eth_getLogs"
+          ? [LOGS]
+          : method === "eth_call" || method === "eth_estimateGas"
+            ? [TX, "latest"]
+            : method === "eth_getBlockByNumber"
+              ? ["latest", false]
+              : method === "eth_getCode"
+                ? [ADDRESS, "latest"]
+                : method === "eth_getTransactionReceipt" || method === "eth_getTransactionByHash"
+                  ? [TX_HASH]
+                  : [];
       const answer = await read(await POST(rpcRequest(call(method, params, method))));
       expect(answer.status).toBe(200);
       // The stub answers every single eth_chainId as it answers the proxy's own chain probe.
       const result = method === "eth_chainId" ? SEPOLIA : `ok:${method}:1`;
       expect(answer.body).toEqual({jsonrpc: "2.0", id: method, result});
     }
+  });
+
+  it("restricts eth_getLogs on mainnet to protocol contracts + Morpho Blue, validates topics, and caps full-block reads per batch", async () => {
+    upstream.chain = "0x1";
+    const usdt = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
+    const morpho = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb";
+    const disallowed = await read(
+      await handleRpcProxyRequest(
+        rpcRequest(call("eth_getLogs", [{address: usdt, fromBlock: "0x1", toBlock: "0x2"}], 1)),
+        {chainId: 1, upstreamUrl: UPSTREAM},
+      ),
+    );
+    expect(disallowed.status).toBe(200);
+    expect(disallowed.body).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      error: {code: -32602, message: "eth_getLogs through this proxy only serves protocol contract addresses"},
+    });
+    const allowed = await read(
+      await handleRpcProxyRequest(
+        rpcRequest(call("eth_getLogs", [{address: morpho, fromBlock: "0x1", toBlock: "0x2"}], 2)),
+        {chainId: 1, upstreamUrl: UPSTREAM},
+      ),
+    );
+    expect(allowed.status).toBe(200);
+    expect(allowed.body).toEqual({jsonrpc: "2.0", id: 2, result: "ok:eth_getLogs:1"});
+
+    const badTopics = await read(
+      await POST(rpcRequest(call("eth_getLogs", [{...LOGS, topics: ["not-a-hash"]}], 3))),
+    );
+    expect(badTopics.body).toMatchObject({id: 3, error: {code: -32602}});
+
+    upstream.chain = SEPOLIA;
+    const fiveFullBlocks = Array.from({length: 5}, (_, i) =>
+      call("eth_getBlockByNumber", ["0x1", true], i + 1),
+    );
+    const capped = (await read(await POST(rpcRequest(fiveFullBlocks)))).body as {id: number; result?: string; error?: {code: number}}[];
+    expect(capped.slice(0, 4).every((entry) => entry.result !== undefined)).toBe(true);
+    expect(capped[4].error?.code).toBe(-32602);
+  });
+
+  it("accepts JSON-RPC 2.0 upstream answers carrying error: null alongside result", async () => {
+    upstream.forward = () => jsonResponse({jsonrpc: "2.0", id: 1, result: "0x42", error: null});
+    const answer = await read(await POST(rpcRequest(call("eth_blockNumber", [], 1))));
+    expect(answer.status).toBe(200);
+    expect(answer.body).toEqual({jsonrpc: "2.0", id: 1, result: "0x42"});
   });
 });
 
@@ -1057,7 +1114,7 @@ describe("the response size budget (a Vercel Function body is capped at 4.5 MB)"
   function lengths(sizes: number[]) {
     upstream.forward = (payload) =>
       jsonResponse((payload as {id: number}[]).map((entry, index) => ({jsonrpc: "2.0", id: entry.id, result: "a".repeat(sizes[index])})));
-    return rpcRequest(sizes.map((_, index) => call("eth_getBlockByNumber", ["0x1", true], index + 1)));
+    return rpcRequest(sizes.map((_, index) => call("eth_call", [TX, "latest"], index + 1)));
   }
   /** The bytes of one answer entry with client id `id` and a result of `length` ASCII characters. */
   const entryBytes = (id: number, length: number) => Buffer.byteLength(JSON.stringify({jsonrpc: "2.0", id, result: "a".repeat(length)}));

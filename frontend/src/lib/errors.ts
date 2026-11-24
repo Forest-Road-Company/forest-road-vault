@@ -24,9 +24,31 @@ export const ERROR_MESSAGES: Record<string, string> = {
     "The treasury does not hold enough idle USDC to fill this redemption right now. Try a smaller amount, or the sUSDfr redemption queue.",
   Queue_ZeroAmount: "Enter an amount greater than zero.",
   Controller_AmountTooSmall:
-    "Amount is below one whole USDfr, too small to redeem without dust.",
+    "Amount is below 0.000001 USDfr (one USDC base unit), too small to redeem without rounding to zero.",
   Controller_BackingInvariantViolated:
     "The mint would push USDfr supply above its backing, refused by the backing invariant.",
+  Controller_MintClosedWhileUnderBacked:
+    "Minting is closed while USDfr supply exceeds recognized backing.",
+  Controller_ReserveCustodyShortfall:
+    "A reserve custody shortfall is active; primary mint and redemption paths are frozen until reconciliation completes.",
+  Controller_ReserveLossArmFreeze:
+    "A precautionary reserve-loss arm is active; direct redemptions are frozen until it is resolved.",
+  Controller_SlippageExceeded:
+    "The redemption quote moved below your minimum USDC output. Refresh the quote and retry.",
+  Controller_DeadlinePassed:
+    "This redemption quote's deadline expired before inclusion. Refresh the quote and retry.",
+  Controller_NoRedeemableBacking:
+    "No redeemable backing is available to settle this redemption right now.",
+  Controller_DeficitWorsened:
+    "This redemption was refused because it would worsen an active backing deficit.",
+  PointsHook_InsufficientGas:
+    "Insufficient gas was forwarded for the token's points hook. Raise the transaction gas limit and retry.",
+  SUSDfr_UnresolvedPastDue:
+    "A facility has unresolved past-due exposure; new sUSDfr deposits and queue settlement are temporarily frozen until it is cured or resolved.",
+  SUSDfr_DegenerateSharePrice:
+    "Vault share pricing is currently unavailable because share value is degenerate; try again after resolution.",
+  Queue_ReserveLossSettlementFrozen:
+    "Queue settlement is frozen while a reserve custody loss or reserve-loss arm is active.",
   Queue_BelowMinRedemption:
     "This redemption is below the $1 minimum. Queued redemptions must be worth at least $1 to enter the queue, increase the amount.",
   Queue_HeadNotRedeemable:
@@ -75,12 +97,17 @@ export type DecodedError = {
   errorName: string | null;
 };
 
-export function decodeWriteError(err: unknown): DecodedError {
+export function decodeWriteError(
+  err: unknown,
+  options?: {isLocalFork?: boolean},
+): DecodedError {
   if (err instanceof BaseError) {
     if (err.name === "WaitForTransactionReceiptTimeoutError") {
+      const isLocalFork = options?.isLocalFork ?? process.env.NEXT_PUBLIC_CHAIN_ID === "31337";
       return {
-        message:
-          "The transaction was submitted, but this app did not see its receipt on the configured RPC within 90 seconds. For local-fork testing, both the app and wallet must use the same loopback RPC and dedicated chain ID 31337.",
+        message: isLocalFork
+          ? "The transaction was submitted, but this app did not see its receipt on the configured RPC within 90 seconds. For local-fork testing, both the app and wallet must use the same loopback RPC and dedicated chain ID 31337."
+          : "The transaction was submitted, but no receipt arrived within 90 seconds. It may still confirm on-chain—check your wallet or block explorer before submitting again.",
         errorName: null,
       };
     }

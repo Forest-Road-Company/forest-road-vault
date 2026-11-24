@@ -13,8 +13,8 @@ vi.mock("@/lib/morphoPoints.server", () => {
   return {loadMorphoCollateralPoints: load, MorphoPointsIntegrityError, MorphoPointsNotReadyError};
 });
 
-import {GET, maxDuration} from "./route";
-import {MorphoPointsIntegrityError} from "@/lib/morphoPoints.server";
+import {GET, maxDuration, POST} from "./route";
+import {MorphoPointsIntegrityError, MorphoPointsNotReadyError} from "@/lib/morphoPoints.server";
 
 const WALLET = "0x000000000000000000000000000000000000a11c";
 /** The EIP-55 test vector: its canonical spelling mixes case, so other spellings are distinct URLs. */
@@ -79,9 +79,24 @@ describe("GET /api/points/morpho", () => {
   ])("sends %s to the one canonical URL with a cacheable 308 (MORPHO-17)", async (_, query) => {
     const response = await call(query);
     expect(response.status).toBe(308);
-    expect(response.headers.get("location")).toBe(`https://forestroadvault.com/api/points/morpho?wallet=${MIXED}`);
+    expect(response.headers.get("location")).toBe(`/api/points/morpho?wallet=${MIXED}`);
     expect(response.headers.get("cache-control")).toContain("s-maxage=86400");
     expect(load).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 with Retry-After when history is still catching up", async () => {
+    load.mockRejectedValue(new MorphoPointsNotReadyError("points: catching up on market history"));
+    const response = await call(`?wallet=${WALLET}`);
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("10");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("refuses POST with 405 and no-store", async () => {
+    const response = await POST();
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET");
+    expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
   it("never returns or logs an RPC error message, which can carry the endpoint URL", async () => {

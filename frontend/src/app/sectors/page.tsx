@@ -4,17 +4,16 @@ import { PageShell } from "@/components/site/PageShell";
 import { ProtocolScene } from "@/components/site/ProtocolScene";
 import { Section, SectionHead } from "@/components/site/Blocks";
 import { SECTORS } from "@/lib/verticals";
-import { socialMetadata } from "@/lib/shareCards";
+import { pageMetadata } from "@/lib/shareCards";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Sectors | Forest Road Vault",
   description: "Explore Forest Road Vault credit across Media, Renewables, and Digital Assets.",
-  ...socialMetadata({
-    card: "sectors",
-    title: "The three sectors | Forest Road Vault",
-    description: "Receivable-backed specialty finance and marked-to-market Digital Assets, recorded on-chain for the Vault.",
-  }),
-};
+  card: "sectors",
+  socialTitle: "The three sectors | Forest Road Vault",
+  socialDescription: "Receivable-backed specialty finance and marked-to-market Digital Assets, recorded on-chain for the Vault.",
+  path: "/sectors",
+});
 
 /* One authored line-icon per sector, drawn to the same stroke and weight
    rather than pulled from an icon font. Each names the mechanism, not a

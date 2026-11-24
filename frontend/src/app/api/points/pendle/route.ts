@@ -22,16 +22,18 @@ export async function GET(request: Request) {
   // One CDN cache key per wallet: any other spelling is sent to the EIP-55 URL (as MORPHO-17).
   const canonical = getAddress(wallet);
   if (url.search !== `?wallet=${canonical}`) {
-    const location = new URL(`/api/points/pendle?wallet=${canonical}`, url);
     return new Response(null, {
       status: 308,
-      headers: {location: location.toString(), "cache-control": "public, max-age=86400, s-maxage=86400"},
+      headers: {
+        location: `/api/points/pendle?wallet=${canonical}`,
+        "cache-control": "public, max-age=86400, s-maxage=86400",
+      },
     });
   }
   try {
     const result = await loadPendlePoints(canonical);
     return Response.json(result, {
-      headers: {"cache-control": "public, s-maxage=60, stale-while-revalidate=300"},
+      headers: {"cache-control": "public, s-maxage=60, stale-while-revalidate=300, stale-if-error=600"},
     });
   } catch (error) {
     // Only this module's own static messages are logged; anything else is named, not quoted.
@@ -44,4 +46,11 @@ export async function GET(request: Request) {
       {status: 502, headers: {"cache-control": "no-store"}},
     );
   }
+}
+
+export async function POST() {
+  return Response.json(
+    {ok: false, error: "Method not allowed."},
+    {status: 405, headers: {allow: "GET", "cache-control": "no-store"}},
+  );
 }

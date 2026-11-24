@@ -26,10 +26,11 @@ type PendlePointsResponse =
 export function PendlePointsCard({wallet}: {wallet: `0x${string}`}) {
   const {data, isError} = useQuery({
     queryKey: ["pendle-points", wallet],
-    queryFn: async (): Promise<PendlePointsResponse> => {
-      const response = await fetch(`/api/points/pendle?wallet=${wallet}`);
+    queryFn: async ({signal}): Promise<PendlePointsResponse> => {
+      const response = await fetch(`/api/points/pendle?wallet=${wallet}`, {signal});
+      if (!response.ok) throw new Error("Pendle points unavailable");
       const body = (await response.json()) as PendlePointsResponse | {ok: false};
-      if (!response.ok || !body.ok) throw new Error("Pendle points unavailable");
+      if (!body.ok) throw new Error("Pendle points unavailable");
       return body;
     },
     ...POINTS_API_POLL,

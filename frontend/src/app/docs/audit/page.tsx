@@ -4,13 +4,19 @@ import Link from "next/link";
 import { PageShell } from "@/components/site/PageShell";
 import { Section, SectionHead, KpiBand, HighlightBox } from "@/components/site/Blocks";
 import { SeverityMix } from "@/components/site/AuditFindings";
-import { AUDITS, openFindings, totalFindings } from "@/content/audits";
+import {
+  AUDITS,
+  acceptedOrDeferredFindings,
+  strictlyOpenFindings,
+  totalFindings,
+} from "@/content/audits";
 import { ProtocolScene } from "@/components/site/ProtocolScene";
 
 export const metadata: Metadata = pageMetadata({
   title: "Audit Register | Forest Road Vault",
   description:
     "Dated reviews of Forest Road Vault, with scope, material findings, remediation history, and review limits.",
+  path: "/docs/audit",
 });
 
 /** Reviews run by a party other than Forest Road are labelled external. */
@@ -43,7 +49,8 @@ const ADVERSARIAL_PROGRAM = {
 export default function AuditRegisterPage() {
   const rounds = AUDITS.length;
   const findings = totalFindings();
-  const open = openFindings().length;
+  const openCount = strictlyOpenFindings().length;
+  const acceptedDeferredCount = acceptedOrDeferredFindings().length;
 
   const external = AUDITS.filter((a) => isExternal(a.eyebrow));
   const internal = AUDITS.filter((a) => !isExternal(a.eyebrow));
@@ -63,17 +70,17 @@ export default function AuditRegisterPage() {
             {
               value: rounds,
               label: "Review rounds",
-              note: "Each with its own findings list and remediation history.",
+              note: `${external.length} external engagements and ${internal.length} internal engineering rounds.`,
             },
             {
               value: findings,
               label: "Material findings listed",
-              note: "Including accepted findings; each large report retains its complete claim corpus.",
+              note: "Across all historical V1 and V2 rounds; each large report retains its complete claim corpus.",
             },
             {
-              value: open,
-              label: "Still open or accepted",
-              note: "Counted as open unless remediated or superseded.",
+              value: openCount,
+              label: "Open (all historical rounds)",
+              note: `Includes historical V1/pre-V2 entries alongside live V2 open items; ${acceptedDeferredCount} additional entries are formally accepted or deferred.`,
             },
           ]}
         />
@@ -92,9 +99,84 @@ export default function AuditRegisterPage() {
         </div>
       </Section>
 
+      {/* ── External review, placed first so outside assurance is immediately
+             visible above historical fork chronicles and internal rounds. ── */}
+      {external.length > 0 ? (
+        <Section tone="light">
+          <SectionHead
+            title={
+              external.length === 1
+                ? "One review conducted by a party other than Forest Road."
+                : "Reviews conducted by a party other than Forest Road."
+            }
+            lede="An outside engagement carries weight an internal round cannot. Its stated scope and methodological limits remain part of the evidence and are published alongside the findings."
+          />
+          <div
+            className={`mt-12 grid gap-6 ${
+              external.length > 1 ? "lg:grid-cols-2" : ""
+            }`}
+          >
+            {external.map((a) => {
+              const solo = external.length === 1;
+              return (
+                <Link
+                  key={a.slug}
+                  href={`/docs/audit/${a.slug}`}
+                  className={`panel panel-hover group flex h-full p-8 ${
+                    solo ? "flex-col gap-8 lg:flex-row lg:gap-16" : "flex-col"
+                  }`}
+                >
+                  <div className={solo ? "lg:w-[3.4in] lg:flex-none" : ""}>
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
+                      <span className="running-head text-accent">
+                        {a.dateLabel}
+                      </span>
+                      <span className="running-head rounded-pill bg-navy px-2.5 py-[3px] text-on-navy">
+                        {a.eyebrow}
+                      </span>
+                    </div>
+                    <h3 className="display mt-5 text-[25px] leading-tight transition-colors group-hover:text-accent">
+                      {a.title}
+                    </h3>
+                    <div
+                      className={`flex flex-wrap items-center gap-x-4 gap-y-2 ${
+                        solo ? "mt-7" : "hidden"
+                      }`}
+                    >
+                      <SeverityMix findings={a.findings} />
+                    </div>
+                    <span
+                      className={`text-[12.5px] font-medium text-accent transition-transform group-hover:translate-x-0.5 ${
+                        solo ? "mt-5 inline-block" : "hidden"
+                      }`}
+                    >
+                      Read the report →
+                    </span>
+                  </div>
+
+                  <div className="flex flex-1 flex-col">
+                    <p className="mt-4 max-w-[64ch] text-[14px] leading-relaxed text-ink-muted">
+                      {a.summary}
+                    </p>
+                    {solo ? null : (
+                      <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-2 pt-7">
+                        <SeverityMix findings={a.findings} />
+                        <span className="text-[12.5px] font-medium text-accent transition-transform group-hover:translate-x-0.5">
+                          Read the report →
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </Section>
+      ) : null}
+
       {/* ── Security after deployment. These figures come from the canonical
              attack ledger, not from test counts or a marketing estimate. ── */}
-      <Section tone="light" id="ongoing-adversarial-testing">
+      <Section tone="surface" id="ongoing-adversarial-testing">
         <SectionHead
           title={
             <>
@@ -166,7 +248,27 @@ export default function AuditRegisterPage() {
             gross-positive across the tested credit outcomes, so the finding
             remains open on live proxies (the fix in audited commit ee9b228a
             passed Corrovera re-audit on 24 November 2026 and awaits Stage 2
-            governance execution following live Stage 1 proposal 0x83a8…f698). Round 34 also confirmed Medium/Open LMV-11: under a
+            governance execution following live Stage 1 proposal 0x83a8…f698).
+            Open findings and accepted risks elsewhere in the register still
+            matter, and their assumptions are continuously challenged as the
+            deployed state changes. Smart-contract, credit, liquidity, oracle,
+            governance and operational risks remain.
+          </HighlightBox>
+        </div>
+
+        <details className="mt-6 rounded-card border border-line bg-raised/70 p-6">
+          <summary className="cursor-pointer text-[14px] font-semibold text-ink">
+            Read the full September 2026 round-by-round attack chronicle (Rounds 34–130)
+          </summary>
+          <p className="mt-3 text-[13px] leading-relaxed text-ink-faint">
+            Preserved verbatim from the September 2026 fork-campaign ledger through Round 130 (29
+            September 2026). References below to the Morpho USDC/sUSDfr market as &ldquo;planned&rdquo;
+            or &ldquo;undeployed&rdquo; describe the September 2026 fork state before that market
+            cleared its launch gates and went live in October 2026.
+          </p>
+          <div className="mt-4 space-y-3 text-[13.5px] leading-relaxed text-ink-muted">
+            <p>
+            Round 34 also confirmed Medium/Open LMV-11: under a
             conditional multi-class loss sequence, a global prepayment ledger
             can shift a realized credit loss between curator classes. The fork
             moved about 261,069 USDfr of curator value but left depositor value,
@@ -936,90 +1038,13 @@ export default function AuditRegisterPage() {
             guarantee against loss. Smart-contract, credit, liquidity, oracle,
             governance and operational risks remain, which is why findings and
             their current dispositions stay visible below.
-          </HighlightBox>
-        </div>
+            </p>
+          </div>
+        </details>
       </Section>
 
-      {/* ── External review, separated. The distinction between an outside
-             engagement and an internal round is the one a reader most needs
-             to see, so it does not sit in the same list. ────────────────── */}
-      {external.length > 0 ? (
-        <Section tone="light">
-          <SectionHead
-            title={
-              external.length === 1
-                ? "One review conducted by a party other than Forest Road."
-                : "Reviews conducted by a party other than Forest Road."
-            }
-            lede="An outside engagement carries weight an internal round cannot. Its stated scope and methodological limits remain part of the evidence and are published alongside the findings."
-          />
-          {/* A single outside engagement fills the row and splits internally,
-              rather than sitting as one narrow card beside dead space. */}
-          <div
-            className={`mt-12 grid gap-6 ${
-              external.length > 1 ? "lg:grid-cols-2" : ""
-            }`}
-          >
-            {external.map((a) => {
-              const solo = external.length === 1;
-              return (
-                <Link
-                  key={a.slug}
-                  href={`/docs/audit/${a.slug}`}
-                  className={`panel panel-hover group flex h-full p-8 ${
-                    solo ? "flex-col gap-8 lg:flex-row lg:gap-16" : "flex-col"
-                  }`}
-                >
-                  <div className={solo ? "lg:w-[3.4in] lg:flex-none" : ""}>
-                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
-                      <span className="running-head text-accent">
-                        {a.dateLabel}
-                      </span>
-                      <span className="running-head rounded-pill bg-navy px-2.5 py-[3px] text-on-navy">
-                        {a.eyebrow}
-                      </span>
-                    </div>
-                    <h2 className="display mt-5 text-[25px] leading-tight transition-colors group-hover:text-accent">
-                      {a.title}
-                    </h2>
-                    <div
-                      className={`flex flex-wrap items-center gap-x-4 gap-y-2 ${
-                        solo ? "mt-7" : "hidden"
-                      }`}
-                    >
-                      <SeverityMix findings={a.findings} />
-                    </div>
-                    <span
-                      className={`text-[12.5px] font-medium text-accent transition-transform group-hover:translate-x-0.5 ${
-                        solo ? "mt-5 inline-block" : "hidden"
-                      }`}
-                    >
-                      Read the report →
-                    </span>
-                  </div>
-
-                  <div className="flex-1">
-                    <p className="max-w-[64ch] text-[14px] leading-relaxed text-ink-muted">
-                      {a.summary}
-                    </p>
-                    {solo ? null : (
-                      <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-2 pt-7">
-                        <SeverityMix findings={a.findings} />
-                        <span className="text-[12.5px] font-medium text-accent transition-transform group-hover:translate-x-0.5">
-                          Read the report →
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </Section>
-      ) : null}
-
       {/* ── The internal programme, as a dated register. ────────────────── */}
-      <Section tone="surface">
+      <Section tone="light">
         <SectionHead
           title={
             <>
@@ -1052,9 +1077,9 @@ export default function AuditRegisterPage() {
               </div>
 
               <div className="flex-1">
-                <h2 className="display text-[19px] leading-tight transition-colors group-hover:text-accent">
+                <h3 className="display text-[19px] leading-tight transition-colors group-hover:text-accent">
                   {a.title}
-                </h2>
+                </h3>
                 <p className="mt-2.5 text-[14px] leading-relaxed text-ink-muted">
                   {a.summary}
                 </p>

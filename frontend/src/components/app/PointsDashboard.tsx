@@ -1,6 +1,6 @@
 "use client";
 
-import {useQuery} from "@tanstack/react-query";
+import {useQuery, useQueryClient} from "@tanstack/react-query";
 import {useAccount, useReadContracts} from "wagmi";
 import {CONTRACTS, NETWORK_NAME} from "@/config/contracts";
 import {POINTS_ABI, SHARE_DECIMALS} from "@/lib/abi";
@@ -10,7 +10,9 @@ import {EXPECTED_CHAIN} from "@/lib/wagmi";
 import {ConnectControl} from "@/components/app/ConnectControl";
 import {NetworkBanner} from "@/components/app/NetworkBanner";
 import {PendlePointsCard} from "@/components/app/PendlePointsCard";
-import {ACCOUNT_POLL, POINTS_API_POLL} from "@/lib/polling";
+import {useWriteFlow, type WriteStatus} from "@/components/app/useWriteFlow";
+import {ActionButton, StatusLine, busyLabelFor} from "@/components/app/WriteBits";
+import {ACCOUNT_POLL, POINTS_API_POLL, formatPollCadence} from "@/lib/polling";
 
 const BPS = 10_000n;
 const CLASS_IDS = [1n, 2n, 3n, 4n, 5n] as const;
@@ -110,22 +112,56 @@ type MorphoPointsResponse =
       walletShares: string;
     };
 
+class MorphoCatchingUpError extends Error {
+  constructor(readonly retryMs: number) {
+    super("Morpho collateral points catching up");
+  }
+}
+
+function parseRetryAfterMs(response: Response, fallbackMs = 10_000): number {
+  const seconds = Number(response.headers.get("retry-after"));
+  if (!Number.isFinite(seconds) || seconds <= 0) return fallbackMs;
+  return Math.min(60_000, Math.max(3_000, seconds * 1_000));
+}
+
+export type ReconcileAction = {
+  busy: boolean;
+  status: WriteStatus;
+  onReconcile: () => void;
+};
+
 /**
  * sUSDfr posted in the Forest Road Morpho market leaves the wallet, so PointsModule credits the
  * Morpho Blue contract rather than the owner. The server replays the market's own collateral
  * events through the same formula and reconciles the balance with Morpho Blue before answering.
  * Hidden until the market is configured.
  */
-export function MorphoCollateralCard({wallet}: {wallet: `0x${string}`}) {
-  const {data, isError} = useQuery({
+export function MorphoCollateralCard({
+  wallet,
+  reconcile,
+}: {
+  wallet: `0x${string}`;
+  reconcile?: ReconcileAction;
+}) {
+  const {data, error, isError} = useQuery({
     queryKey: ["morpho-collateral-points", wallet],
-    queryFn: async (): Promise<MorphoPointsResponse> => {
-      const response = await fetch(`/api/points/morpho?wallet=${wallet}`);
+    queryFn: async ({signal}): Promise<MorphoPointsResponse> => {
+      const response = await fetch(`/api/points/morpho?wallet=${wallet}`, {signal});
+      if (response.status === 503) {
+        throw new MorphoCatchingUpError(parseRetryAfterMs(response));
+      }
+      if (!response.ok) throw new Error("Morpho collateral points unavailable");
       const body = (await response.json()) as MorphoPointsResponse | {ok: false};
-      if (!response.ok || !body.ok) throw new Error("Morpho collateral points unavailable");
+      if (!body.ok) throw new Error("Morpho collateral points unavailable");
       return body;
     },
     ...POINTS_API_POLL,
+    refetchInterval: (query) => {
+      if (query.state.status === "error" && query.state.error instanceof MorphoCatchingUpError) {
+        return query.state.error.retryMs;
+      }
+      return POINTS_API_POLL.refetchInterval;
+    },
   });
 
   if (!isError && (!data || !data.enabled)) return null;
@@ -140,16 +176,32 @@ export function MorphoCollateralCard({wallet}: {wallet: `0x${string}`}) {
       </div>
       {isError || !data?.enabled ? (
         <p className="mt-4 text-[13px] leading-relaxed text-ink-muted">
-          Morpho collateral points are temporarily unavailable. No zero balance has been assumed.
+          {error instanceof MorphoCatchingUpError
+            ? "Morpho collateral points are catching up with the chain and will appear shortly. No zero balance has been assumed."
+            : "Morpho collateral points are temporarily unavailable. No zero balance has been assumed."}
         </p>
       ) : "reconcileRequired" in data ? (
-        <p className="mt-4 text-[13px] leading-relaxed text-ink-muted">
-          These points are held back until the on-chain points ledger is reconciled for this address.
-          The ledger still counts {fmtAmount(BigInt(data.trackedShares), SHARE_DECIMALS, 4)} sUSDfr in
-          this wallet, which holds {fmtAmount(BigInt(data.walletShares), SHARE_DECIMALS, 4)}, because a
-          points update was dropped. Anyone can call <span className="font-mono">reconcile</span> on the
-          PointsModule for this address; the points then show here.
-        </p>
+        <div className="mt-4">
+          <p className="text-[13px] leading-relaxed text-ink-muted">
+            These points are held back until the on-chain points ledger is reconciled for this address.
+            The ledger still counts {fmtAmount(BigInt(data.trackedShares), SHARE_DECIMALS, 4)} sUSDfr in
+            this wallet, which holds {fmtAmount(BigInt(data.walletShares), SHARE_DECIMALS, 4)}, because a
+            points update was dropped. Anyone can call <span className="font-mono">reconcile</span> on the
+            PointsModule for this address; the points then show here.
+          </p>
+          {reconcile ? (
+            <div className="mt-3 max-w-xs">
+              <ActionButton
+                label="Reconcile points"
+                busyLabel={busyLabelFor(reconcile.status)}
+                busy={reconcile.busy}
+                disabled={reconcile.busy}
+                onClick={reconcile.onReconcile}
+              />
+              <StatusLine status={reconcile.status} />
+            </div>
+          ) : null}
+        </div>
       ) : data.excluded ? (
         <p className="mt-4 text-[13px] leading-relaxed text-ink-muted">
           {data.excluded === "protocol-exempt"
@@ -193,6 +245,8 @@ export function PointsDashboard() {
   const {address, isConnected, chainId} = useAccount();
   const points = CONTRACTS.PointsModule;
   const rightNetwork = chainId === EXPECTED_CHAIN.id;
+  const queryClient = useQueryClient();
+  const reconcileFlow = useWriteFlow();
 
   const contracts =
     address && points
@@ -240,10 +294,17 @@ export function PointsDashboard() {
       name: VERTICALS[index]?.name ?? `Class ${classId.toString()}`,
       balance: result(offset) as bigint | undefined,
       points: result(offset + 1) as bigint | undefined,
-      frozen: freeze?.[0] ?? false,
+      frozen: freeze?.[0],
       frozenAt: freeze?.[1],
     };
   });
+
+  const formatUtcTimestamp = (seconds: bigint | undefined): string => {
+    if (seconds === undefined || seconds <= 0n) return "unknown";
+    const ms = Number(seconds) * 1_000;
+    if (!Number.isFinite(ms)) return seconds.toString();
+    return new Date(ms).toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
+  };
 
   const curatorBalance =
     classRows.every((row) => row.balance !== undefined)
@@ -255,7 +316,7 @@ export function PointsDashboard() {
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-card border border-line bg-raised/70 px-5 py-4">
         <ConnectControl />
         <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
-          live on-chain ledger · refreshes every 30 seconds
+          live on-chain ledger · refreshes every {formatPollCadence(ACCOUNT_POLL.refetchInterval)}
         </span>
       </div>
       <NetworkBanner />
@@ -359,7 +420,32 @@ export function PointsDashboard() {
             />
           </div>
 
-          {address ? <MorphoCollateralCard wallet={address} /> : null}
+          {address ? (
+            <MorphoCollateralCard
+              wallet={address}
+              reconcile={
+                points && rightNetwork
+                  ? {
+                      busy: reconcileFlow.busy,
+                      status: reconcileFlow.status,
+                      onReconcile: () => {
+                        void reconcileFlow.run({
+                          address: points,
+                          abi: POINTS_ABI,
+                          functionName: "reconcile",
+                          args: [address],
+                          onSuccess: () => {
+                            void queryClient.invalidateQueries({
+                              queryKey: ["morpho-collateral-points", address],
+                            });
+                          },
+                        });
+                      },
+                    }
+                  : undefined
+              }
+            />
+          ) : null}
           {address ? <PendlePointsCard wallet={address} /> : null}
 
           <div className="panel mt-5 overflow-hidden">
@@ -388,10 +474,12 @@ export function PointsDashboard() {
                       <td className="px-6 py-3.5 text-right">
                         {row.points !== undefined ? fmtAmount(row.points, 18, 2) : "–"}
                       </td>
-                      <td className={`px-6 py-3.5 text-right ${row.frozen ? "text-warn" : "text-accent"}`}>
-                        {row.frozen
-                          ? `frozen since ${row.frozenAt ?? "unknown"}`
-                          : "active"}
+                      <td className={`px-6 py-3.5 text-right ${row.frozen === true ? "text-warn" : row.frozen === false ? "text-accent" : "text-ink-faint"}`}>
+                        {row.frozen === undefined
+                          ? "–"
+                          : row.frozen
+                            ? `frozen since ${formatUtcTimestamp(row.frozenAt)}`
+                            : "active"}
                       </td>
                     </tr>
                   ))}

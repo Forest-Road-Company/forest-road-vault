@@ -34,11 +34,23 @@ export const MORPHO_BLUE: Address = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb"
 export const ADAPTIVE_CURVE_IRM: Address = "0x870aC11D48B15DB9a138Cf899d20F13F79Ba00BC";
 export const MARKET_LLTV = 860_000_000_000_000_000n;
 /**
- * The PointsModule implementation this mirror was verified against (`impl_points` in
- * contracts/deployments/1-production-v2.json). An upgrade can change the formula, so the loader
- * refuses to answer until the mirror has been re-verified against the new implementation.
+ * The PointsModule implementations this mirror was verified against:
+ *  - v2 launch (`impl_points` in contracts/deployments/1-production-v2.json): 0x63AA...E801
+ *  - Stage 2 LMV remediation (audited commit ee9b228a, Sourcify exact_match): 0x84f0...978F
+ * An unverified upgrade can change the formula, so the loader refuses to answer for any
+ * implementation outside this reviewed allowlist.
  */
 export const POINTS_MODULE_IMPLEMENTATION: Address = "0x63AA0ae03DDc7f938B7C5a22878bd02898c7E801";
+export const STAGE2_POINTS_MODULE_IMPLEMENTATION: Address = "0x84f0e4DD9453865c27EFF43c955A4eA42A3D978F";
+export const VERIFIED_POINTS_MODULE_IMPLEMENTATIONS: readonly Address[] = Object.freeze([
+  POINTS_MODULE_IMPLEMENTATION,
+  STAGE2_POINTS_MODULE_IMPLEMENTATION,
+]);
+
+export function isVerifiedPointsModuleImplementation(address: string): boolean {
+  const lower = address.toLowerCase();
+  return VERIFIED_POINTS_MODULE_IMPLEMENTATIONS.some((allowed) => allowed.toLowerCase() === lower);
+}
 const IMPLEMENTATION_SLOT: Hex = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
 const ONE_SHARE = 10n ** 24n;
 export const BLOCK_CHUNK = 9_000n;
@@ -86,6 +98,14 @@ const REBUILD_BACKOFF_MS = 60_000;
  * range is split and read again. Far above what one 9,000-block range of this market holds.
  */
 export const LOG_RESULT_LIMIT = 1_000;
+/**
+ * Splits one log range may make, refused or capped answers together. Bounds adaptive halving so a
+ * provider that refuses every range fails closed instead of splitting down to every block.
+ */
+export const MAX_SPLITS_PER_RANGE = 64;
+const MAX_BLOCK_HEADER_CACHE = 5_000;
+const WALLET_CACHE_TTL_MS = 60_000;
+const MAX_WALLET_CACHE = 500;
 
 /** Morpho Blue's collateral events and the two views the loader checks against. */
 export const MORPHO_COLLATERAL_ABI = [
@@ -278,6 +298,9 @@ let history: History | null = null;
 let rebuildAfter = 0;
 let queue: Promise<unknown> = Promise.resolve();
 let inflight: {target: bigint; promise: Promise<Snapshot>} | null = null;
+const blockHeaderCache = new Map<bigint, {hash: Hex; timestamp: bigint}>();
+const walletAnswerCache = new Map<string, {answer: MorphoPointsWire; at: number}>();
+const walletAnswerInFlight = new Map<string, Promise<MorphoPointsWire>>();
 
 /** Clears the per-instance cache. Tests only. */
 export function resetMorphoPointsCache(): void {
@@ -285,12 +308,17 @@ export function resetMorphoPointsCache(): void {
   rebuildAfter = 0;
   queue = Promise.resolve();
   inflight = null;
+  blockHeaderCache.clear();
+  walletAnswerCache.clear();
+  walletAnswerInFlight.clear();
 }
 
 /** Drops `h` after an integrity failure, unless a newer history has already replaced it. */
 function dropHistory(deps: MorphoPointsDeps, h: History): void {
   if (history !== h) return;
   history = null;
+  blockHeaderCache.clear();
+  walletAnswerCache.clear();
   rebuildAfter = deps.now() + REBUILD_BACKOFF_MS;
 }
 
@@ -319,10 +347,76 @@ function hex(n: bigint): Hex {
   return `0x${n.toString(16)}`;
 }
 
+const TOO_LARGE_CODES = new Set([-32005, -32008, -32602]);
+
+function answerTooLarge(error: unknown): boolean {
+  for (let e: unknown = error, depth = 0; e && typeof e === "object" && depth < 5; e = (e as {cause?: unknown}).cause, depth++) {
+    const {code, shortMessage, details} = e as {code?: unknown; shortMessage?: unknown; details?: unknown};
+    const text = `${typeof shortMessage === "string" ? shortMessage : ""} ${typeof details === "string" ? details : ""}`;
+    if (typeof code === "number" && TOO_LARGE_CODES.has(code) && /too big|too large|too many|more than|exceed|limit/i.test(text)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function logMatchesTopics(log: RawLog, topics: (Hex | Hex[] | null)[]): boolean {
+  for (let i = 0; i < topics.length; i += 1) {
+    const expected = topics[i];
+    if (expected === null || expected === undefined) continue;
+    const actual = log.topics?.[i]?.toLowerCase();
+    if (!actual) return false;
+    if (Array.isArray(expected)) {
+      if (!expected.some((candidate) => candidate.toLowerCase() === actual)) return false;
+    } else if (expected.toLowerCase() !== actual) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Fallback for a single block whose `eth_getLogs` hit the provider's result cap or size refusal:
+ * read the block's full receipts and filter locally so one crowded block cannot DoS the mirror.
+ */
+async function blockLogs(
+  deps: MorphoPointsDeps,
+  address: Address,
+  topics: (Hex | Hex[] | null)[],
+  block: bigint,
+  atLeast: number,
+): Promise<RawLog[]> {
+  const receipts = (await deps.client.request({method: "eth_getBlockReceipts", params: [hex(block)]} as never)) as
+    | {logs?: RawLog[]}[]
+    | null;
+  if (!Array.isArray(receipts)) {
+    throw new MorphoPointsIntegrityError("points: the RPC's receipts answer is not a list");
+  }
+  const out: RawLog[] = [];
+  const targetAddress = address.toLowerCase();
+  for (const receipt of receipts) {
+    if (!Array.isArray(receipt?.logs)) {
+      throw new MorphoPointsIntegrityError("points: a receipt carries no log list");
+    }
+    for (const log of receipt.logs) {
+      if (log.removed || BigInt(log.blockNumber) !== block) {
+        throw new MorphoPointsIntegrityError("points: a receipt log is not from the requested block");
+      }
+      if (log.address?.toLowerCase() === targetAddress && logMatchesTopics(log, topics)) {
+        out.push(log);
+      }
+    }
+  }
+  if (out.length < atLeast) {
+    throw new MorphoPointsIntegrityError("points: a block's receipts hold fewer logs than its log answer");
+  }
+  return out;
+}
+
 /**
  * `eth_getLogs` over one range, refusing anything outside the filter. An answer of
- * LOG_RESULT_LIMIT entries or more is treated as possibly truncated: the range is halved and
- * each half read again, down to a single block, which then fails closed.
+ * LOG_RESULT_LIMIT entries or more, or a provider "too large" refusal, is halved (bounded by
+ * MAX_SPLITS_PER_RANGE), down to a single block which falls back to `eth_getBlockReceipts`.
  */
 async function getLogs(
   deps: MorphoPointsDeps,
@@ -330,39 +424,71 @@ async function getLogs(
   topics: (Hex | Hex[] | null)[],
   from: bigint,
   to: bigint,
+  budget: {splits: number} = {splits: MAX_SPLITS_PER_RANGE},
 ): Promise<RawLog[]> {
-  const logs = (await deps.client.request({
-    method: "eth_getLogs",
-    params: [{address, topics, fromBlock: hex(from), toBlock: hex(to)}],
-  } as never)) as RawLog[];
+  const split = async (): Promise<RawLog[]> => {
+    budget.splits -= 2;
+    if (budget.splits < 0) {
+      throw new MorphoPointsIntegrityError(
+        "points: the RPC refused or capped too many log ranges to prove the answer complete",
+      );
+    }
+    const middle = from + (to - from) / 2n;
+    const first = await getLogs(deps, address, topics, from, middle, budget);
+    const second = await getLogs(deps, address, topics, middle + 1n, to, budget);
+    return [...first, ...second];
+  };
+  let logs: RawLog[];
+  try {
+    logs = (await deps.client.request({
+      method: "eth_getLogs",
+      params: [{address, topics, fromBlock: hex(from), toBlock: hex(to)}],
+    } as never)) as RawLog[];
+  } catch (error) {
+    if (!answerTooLarge(error)) throw error;
+    if (from === to) return blockLogs(deps, address, topics, from, 0);
+    return split();
+  }
+  if (!Array.isArray(logs)) {
+    throw new MorphoPointsIntegrityError("points: the RPC's log answer is not a list");
+  }
   for (const log of logs) {
     const n = BigInt(log.blockNumber);
-    if (log.removed || n < from || n > to || log.address.toLowerCase() !== address.toLowerCase()) {
+    if (log.removed || n < from || n > to || log.address?.toLowerCase() !== address.toLowerCase()) {
       throw new MorphoPointsIntegrityError("points: the RPC returned a log outside the requested filter");
     }
   }
   if (logs.length < LOG_RESULT_LIMIT) return logs;
-  if (from === to) {
-    throw new MorphoPointsIntegrityError("points: one block returned too many logs to prove the answer complete");
-  }
-  const middle = from + (to - from) / 2n;
-  const first = await getLogs(deps, address, topics, from, middle);
-  const second = await getLogs(deps, address, topics, middle + 1n, to);
-  return [...first, ...second];
+  if (from === to) return blockLogs(deps, address, topics, from, logs.length);
+  return split();
 }
 
 async function headers(
   deps: MorphoPointsDeps,
   numbers: bigint[],
+  useCache = true,
 ): Promise<Map<bigint, {hash: Hex; timestamp: bigint}>> {
   const out = new Map<bigint, {hash: Hex; timestamp: bigint}>();
-  const unique = [...new Set(numbers)];
-  for (let i = 0; i < unique.length; i += HEADER_CONCURRENCY) {
-    const slice = unique.slice(i, i + HEADER_CONCURRENCY);
+  const missing: bigint[] = [];
+  for (const num of new Set(numbers)) {
+    const cached = useCache ? blockHeaderCache.get(num) : undefined;
+    if (cached) out.set(num, cached);
+    else missing.push(num);
+  }
+  for (let i = 0; i < missing.length; i += HEADER_CONCURRENCY) {
+    const slice = missing.slice(i, i + HEADER_CONCURRENCY);
     const blocks = await Promise.all(slice.map((blockNumber) => deps.client.getBlock({blockNumber})));
     blocks.forEach((block, j) => {
       if (block.hash === null) throw new MorphoPointsIntegrityError("points: a pending block in history");
-      out.set(slice[j], {hash: block.hash, timestamp: block.timestamp});
+      const entry = {hash: block.hash, timestamp: block.timestamp};
+      out.set(slice[j], entry);
+      if (useCache) {
+        if (blockHeaderCache.size >= MAX_BLOCK_HEADER_CACHE) {
+          const oldest = blockHeaderCache.keys().next().value;
+          if (oldest !== undefined) blockHeaderCache.delete(oldest);
+        }
+        blockHeaderCache.set(slice[j], entry);
+      }
     });
   }
   return out;
@@ -444,7 +570,7 @@ async function checkLedgerWiring(deps: MorphoPointsDeps, block: bigint): Promise
     }),
   ]);
   const implementation = slot ? `0x${slot.slice(-40)}` : "";
-  if (implementation.toLowerCase() !== POINTS_MODULE_IMPLEMENTATION.toLowerCase()) {
+  if (!isVerifiedPointsModuleImplementation(implementation)) {
     throw new MorphoPointsIntegrityError("points: the PointsModule implementation changed; re-verify the mirror");
   }
   if ((hook as Address).toLowerCase() !== contracts.points.toLowerCase()) {
@@ -756,86 +882,105 @@ export async function loadMorphoCollateralPoints(
   wallet: Address,
   injected?: MorphoPointsDeps,
   arrivedAt?: number,
+  options?: {useWalletCache?: boolean},
 ): Promise<MorphoPointsWire> {
   const deps = injected ?? defaultDeps();
   if (!deps) return {ok: true, enabled: false};
   const deadline = (arrivedAt ?? deps.now()) + REQUEST_BUDGET_MS;
-  const finalized = await deps.client.getBlock({blockTag: "finalized"});
-  if (finalized.number === null) throw new MorphoPointsNotReadyError("points: no finalized block");
-  if (finalized.number < deps.config.fromBlock) {
-    throw new MorphoPointsNotReadyError("points: the market's creation block is not finalized yet");
+  const useWalletCache = options?.useWalletCache ?? injected === undefined;
+  const cacheKey = `${deps.config.marketId}:${deps.config.fromBlock}:${deps.config.oracle.toLowerCase()}:${wallet.toLowerCase()}`;
+  if (useWalletCache) {
+    const cached = walletAnswerCache.get(cacheKey);
+    if (cached && deps.now() - cached.at < WALLET_CACHE_TTL_MS) return cached.answer;
+    const pending = walletAnswerInFlight.get(cacheKey);
+    if (pending) return pending;
   }
-  const snapshot = await snapshotAt(deps, {number: finalized.number, timestamp: finalized.timestamp}, deadline);
-  const block = snapshot.asOfBlock;
-  const owner = wallet.toLowerCase();
-  const [position, exempt, blocked, tracked, walletShares] = await Promise.all([
-    deps.client.readContract({
-      address: MORPHO_BLUE,
-      abi: MORPHO_COLLATERAL_ABI,
-      functionName: "position",
-      args: [deps.config.marketId, wallet],
-      blockNumber: block,
-    }),
-    deps.client.readContract({
-      address: deps.contracts.compliance,
-      abi: OWNER_STATUS_ABI,
-      functionName: "isProtocolExempt",
-      args: [wallet],
-      blockNumber: block,
-    }),
-    deps.client.readContract({
-      address: deps.contracts.compliance,
-      abi: OWNER_STATUS_ABI,
-      functionName: "isJurisdictionBlocked",
-      args: [wallet],
-      blockNumber: block,
-    }),
-    deps.client.readContract({
-      address: deps.contracts.points,
-      abi: POINTS_ABI,
-      functionName: "trackedBalances",
-      args: [wallet],
-      blockNumber: block,
-    }),
-    deps.client.readContract({
-      address: deps.contracts.susdfr,
-      abi: ERC20_ABI,
-      functionName: "balanceOf",
-      args: [wallet],
-      blockNumber: block,
-    }),
-  ]);
-  const mine = snapshot.owners.get(owner);
-  const collateral = mine?.collateral ?? 0n;
-  if (position[2] !== collateral) {
-    dropHistory(deps, snapshot.history);
-    throw new MorphoPointsIntegrityError("points: replayed collateral disagrees with Morpho Blue");
-  }
-  const base = {
-    ok: true as const,
-    enabled: true as const,
-    marketId: deps.config.marketId,
-    asOfBlock: block.toString(),
-    asOfTimestamp: snapshot.asOfTimestamp.toString(),
-    wallet,
-    collateral: collateral.toString(),
-    rateEpochs: snapshot.rateEpochs,
+
+  const compute = async (): Promise<MorphoPointsWire> => {
+    const finalized = await deps.client.getBlock({blockTag: "finalized"});
+    if (finalized.number === null) throw new MorphoPointsNotReadyError("points: no finalized block");
+    if (finalized.number < deps.config.fromBlock) {
+      throw new MorphoPointsNotReadyError("points: the market's creation block is not finalized yet");
+    }
+    const snapshot = await snapshotAt(deps, {number: finalized.number, timestamp: finalized.timestamp}, deadline);
+    const block = snapshot.asOfBlock;
+    const owner = wallet.toLowerCase();
+    const [position, exempt, blocked, tracked, walletShares] = await Promise.all([
+      deps.client.readContract({
+        address: MORPHO_BLUE,
+        abi: MORPHO_COLLATERAL_ABI,
+        functionName: "position",
+        args: [deps.config.marketId, wallet],
+        blockNumber: block,
+      }),
+      deps.client.readContract({
+        address: deps.contracts.compliance,
+        abi: OWNER_STATUS_ABI,
+        functionName: "isProtocolExempt",
+        args: [wallet],
+        blockNumber: block,
+      }),
+      deps.client.readContract({
+        address: deps.contracts.compliance,
+        abi: OWNER_STATUS_ABI,
+        functionName: "isJurisdictionBlocked",
+        args: [wallet],
+        blockNumber: block,
+      }),
+      deps.client.readContract({
+        address: deps.contracts.points,
+        abi: POINTS_ABI,
+        functionName: "trackedBalances",
+        args: [wallet],
+        blockNumber: block,
+      }),
+      deps.client.readContract({
+        address: deps.contracts.susdfr,
+        abi: ERC20_ABI,
+        functionName: "balanceOf",
+        args: [wallet],
+        blockNumber: block,
+      }),
+    ]);
+    const mine = snapshot.owners.get(owner);
+    const collateral = mine?.collateral ?? 0n;
+    if (position[2] !== collateral) {
+      dropHistory(deps, snapshot.history);
+      throw new MorphoPointsIntegrityError("points: replayed collateral disagrees with Morpho Blue");
+    }
+    const base = {
+      ok: true as const,
+      enabled: true as const,
+      marketId: deps.config.marketId,
+      asOfBlock: block.toString(),
+      asOfTimestamp: snapshot.asOfTimestamp.toString(),
+      wallet,
+      collateral: collateral.toString(),
+      rateEpochs: snapshot.rateEpochs,
+    };
+    if (exempt) return {...base, points: "0", excluded: "protocol-exempt"};
+    if (blocked) return {...base, points: "0", excluded: "jurisdiction-blocked"};
+    if (mine !== undefined && tracked[0] > walletShares) {
+      return {...base, reconcileRequired: true, trackedShares: tracked[0].toString(), walletShares: walletShares.toString()};
+    }
+    return {...base, points: (mine?.points ?? 0n).toString()};
   };
-  // PointsModule never credits a protocol-exempt address, and a jurisdiction-blocked address could
-  // never have received these shares in a wallet; neither is credited here.
-  if (exempt) return {...base, points: "0", excluded: "protocol-exempt"};
-  if (blocked) return {...base, points: "0", excluded: "jurisdiction-blocked"};
-  // The vault calls the points hook on every mint, burn and transfer, so for a wallet that is not
-  // exempt the ledger's tracked shares equal its balance unless a hook failed and dropped a
-  // transition. Tracked shares above the balance mean the on-chain ledger is still crediting
-  // shares that left the wallet, possibly the very shares posted here, so the Morpho points are
-  // withheld until anyone calls PointsModule.reconcile(wallet). This covers every leg of a
-  // routed supply and clears itself on reconcile. It does not net the on-chain over-credit that
-  // accrued before the reconcile, nor one that a later opposite failure has already cancelled.
-  if (mine !== undefined && tracked[0] > walletShares) {
-    return {...base, reconcileRequired: true, trackedShares: tracked[0].toString(), walletShares: walletShares.toString()};
-  }
-  return {...base, points: (mine?.points ?? 0n).toString()};
+
+  if (!useWalletCache) return compute();
+  const promise = compute()
+    .then((answer) => {
+      if (walletAnswerCache.size >= MAX_WALLET_CACHE) {
+        const oldest = walletAnswerCache.keys().next().value;
+        if (oldest !== undefined) walletAnswerCache.delete(oldest);
+      }
+      walletAnswerCache.set(cacheKey, {answer, at: deps.now()});
+      return answer;
+    })
+    .finally(() => {
+      if (walletAnswerInFlight.get(cacheKey) === promise) walletAnswerInFlight.delete(cacheKey);
+    });
+  walletAnswerInFlight.set(cacheKey, promise);
+  return promise;
 }
 
 /** Every credited owner's Morpho collateral points at one snapshot, for the points leaderboard. */
@@ -881,46 +1026,57 @@ export async function loadMorphoCollateralLeaderboard(
   const owners = [...snapshot.owners.values()];
   const points = new Map<string, bigint>();
   let withheld = 0;
+  const batches: OwnerPoints[][] = [];
   for (let i = 0; i < owners.length; i += RECONCILE_BATCH) {
-    const batch = owners.slice(i, i + RECONCILE_BATCH);
-    const calls = batch.flatMap((entry) => {
-      const owner = entry.owner as Address;
-      return [
-        {address: MORPHO_BLUE, abi: MORPHO_COLLATERAL_ABI, functionName: "position", args: [deps.config.marketId, owner]},
-        {address: deps.contracts.compliance, abi: OWNER_STATUS_ABI, functionName: "isProtocolExempt", args: [owner]},
-        {address: deps.contracts.compliance, abi: OWNER_STATUS_ABI, functionName: "isJurisdictionBlocked", args: [owner]},
-        {address: deps.contracts.points, abi: POINTS_ABI, functionName: "trackedBalances", args: [owner]},
-        {address: deps.contracts.susdfr, abi: ERC20_ABI, functionName: "balanceOf", args: [owner]},
-      ];
-    });
-    const reads = (await deps.client.multicall({
-      contracts: calls as never,
-      blockNumber: block,
-      allowFailure: false,
-      batchSize: RECONCILE_CALLDATA_BYTES,
-    })) as unknown[];
-    if (reads.length !== batch.length * OWNER_READS) {
-      throw new MorphoPointsIntegrityError("points: a leaderboard read returned the wrong number of answers");
+    batches.push(owners.slice(i, i + RECONCILE_BATCH));
+  }
+  for (let i = 0; i < batches.length; i += RECONCILE_CONCURRENCY) {
+    const wave = batches.slice(i, i + RECONCILE_CONCURRENCY);
+    const waveResults = await Promise.all(
+      wave.map(async (batch) => {
+        const calls = batch.flatMap((entry) => {
+          const owner = entry.owner as Address;
+          return [
+            {address: MORPHO_BLUE, abi: MORPHO_COLLATERAL_ABI, functionName: "position", args: [deps.config.marketId, owner]},
+            {address: deps.contracts.compliance, abi: OWNER_STATUS_ABI, functionName: "isProtocolExempt", args: [owner]},
+            {address: deps.contracts.compliance, abi: OWNER_STATUS_ABI, functionName: "isJurisdictionBlocked", args: [owner]},
+            {address: deps.contracts.points, abi: POINTS_ABI, functionName: "trackedBalances", args: [owner]},
+            {address: deps.contracts.susdfr, abi: ERC20_ABI, functionName: "balanceOf", args: [owner]},
+          ];
+        });
+        const reads = (await deps.client.multicall({
+          contracts: calls as never,
+          blockNumber: block,
+          allowFailure: false,
+          batchSize: RECONCILE_CALLDATA_BYTES,
+        })) as unknown[];
+        if (reads.length !== batch.length * OWNER_READS) {
+          throw new MorphoPointsIntegrityError("points: a leaderboard read returned the wrong number of answers");
+        }
+        return {batch, reads};
+      }),
+    );
+    for (const {batch, reads} of waveResults) {
+      batch.forEach((entry, j) => {
+        const [position, exempt, blocked, tracked, walletShares] = reads.slice(j * OWNER_READS, (j + 1) * OWNER_READS) as [
+          readonly [bigint, bigint, bigint],
+          boolean,
+          boolean,
+          readonly [bigint, bigint],
+          bigint,
+        ];
+        if (position[2] !== entry.collateral) {
+          dropHistory(deps, snapshot.history);
+          throw new MorphoPointsIntegrityError("points: replayed collateral disagrees with Morpho Blue");
+        }
+        if (exempt || blocked) return;
+        if (tracked[0] > walletShares) {
+          withheld += 1;
+          return;
+        }
+        if (entry.points > 0n) points.set(entry.owner.toLowerCase(), entry.points);
+      });
     }
-    batch.forEach((entry, j) => {
-      const [position, exempt, blocked, tracked, walletShares] = reads.slice(j * OWNER_READS, (j + 1) * OWNER_READS) as [
-        readonly [bigint, bigint, bigint],
-        boolean,
-        boolean,
-        readonly [bigint, bigint],
-        bigint,
-      ];
-      if (position[2] !== entry.collateral) {
-        dropHistory(deps, snapshot.history);
-        throw new MorphoPointsIntegrityError("points: replayed collateral disagrees with Morpho Blue");
-      }
-      if (exempt || blocked) return;
-      if (tracked[0] > walletShares) {
-        withheld += 1;
-        return;
-      }
-      if (entry.points > 0n) points.set(entry.owner.toLowerCase(), entry.points);
-    });
   }
   return {enabled: true, asOfBlock: block, asOfTimestamp: snapshot.asOfTimestamp, points, withheld};
 }

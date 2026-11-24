@@ -26,7 +26,7 @@ export async function generateMetadata({
   const card: ShareCard | undefined =
     slug === "overview" ? "overview" : slug === "how-to" ? "how-to" : undefined;
 
-  return pageMetadata({ title, description: doc.summary, card });
+  return pageMetadata({ title, description: doc.summary, card, path: `/docs/${slug}` });
 }
 
 function readDoc(file: string): string {
@@ -68,7 +68,16 @@ export default async function DocPage({
           <article className="doc-prose">
             {/* Raw HTML is explicitly discarded. react-markdown also applies a safe URL transform,
                 so repository prose cannot inject script URLs or executable markup into the site. */}
-            <ReactMarkdown skipHtml remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown skipHtml
+              remarkPlugins={[remarkGfm]}
+              components={{
+                table: ({children}) => (
+                  <div className="overflow-x-auto">
+                    <table>{children}</table>
+                  </div>
+                ),
+              }}
+            >
               {markdown}
             </ReactMarkdown>
           </article>
