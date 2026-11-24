@@ -41,10 +41,30 @@ export const ERROR_MESSAGES: Record<string, string> = {
     "No redeemable backing is available to settle this redemption right now.",
   Controller_DeficitWorsened:
     "This redemption was refused because it would worsen an active backing deficit.",
+  Controller_RedeemExceedsSupply:
+    "Redemption amount exceeds the current circulating USDfr supply.",
+  Controller_DepositNotCustodied:
+    "The reserve did not receive the expected USDC custody amount for this mint.",
+  Controller_RedemptionNotSettled:
+    "The redemption payout did not settle cleanly against idle reserves.",
+  Controller_CashStrandedOnController:
+    "The controller detected an unexpected USDC balance mismatch during settlement.",
+  Controller_RecognizedDeficitWorsened:
+    "This redemption was refused because it would worsen an active recognized backing deficit.",
+  Controller_DepositNotRecognized:
+    "The mint could not be recognized against backing in the current state.",
+  Controller_ViewUnavailableMidTransition:
+    "Redemption quoting is temporarily unavailable during an in-flight reserve transition; retry in a moment.",
+  AccrualBook_BoundaryPending:
+    "The protocol's continuous accrual clock has a pending boundary checkpoint; retry shortly after the keeper advances it.",
+  ReserveAccrual_OperationInProgress:
+    "A reserve accrual operation is currently in progress; retry in a moment.",
+  VaultAccrual_OperationInProgress:
+    "A vault accrual operation is currently in progress; retry in a moment.",
   PointsHook_InsufficientGas:
     "Insufficient gas was forwarded for the token's points hook. Raise the transaction gas limit and retry.",
   SUSDfr_UnresolvedPastDue:
-    "A facility has unresolved past-due exposure; new sUSDfr deposits and queue settlement are temporarily frozen until it is cured or resolved.",
+    "A facility has unresolved past-due exposure; sUSDfr exits and queue settlement are temporarily frozen until it is cured or resolved.",
   SUSDfr_DegenerateSharePrice:
     "Vault share pricing is currently unavailable because share value is degenerate; try again after resolution.",
   Queue_ReserveLossSettlementFrozen:

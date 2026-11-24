@@ -57,7 +57,7 @@ export async function GET(request: Request) {
   try {
     const result = await loadMorphoCollateralPoints(canonical, undefined, arrivedAt);
     return Response.json(result, {
-      headers: {"cache-control": "public, s-maxage=60, stale-while-revalidate=300, stale-if-error=600"},
+      headers: {"cache-control": "public, max-age=0, must-revalidate, s-maxage=60, stale-while-revalidate=300, stale-if-error=600"},
     });
   } catch (error) {
     // RPC client errors can carry the endpoint URL, so only the loader's own static messages log.

@@ -19,9 +19,6 @@ export const metadata: Metadata = pageMetadata({
   path: "/docs/audit",
 });
 
-/** Reviews run by a party other than Forest Road are labelled external. */
-const isExternal = (eyebrow: string) => eyebrow.toLowerCase().includes("external");
-
 /**
  * Snapshot of the canonical attack ledger after fork round 130, the
  * LMV-17 control refutation, and the LMV-09 outcome-independent technical-
@@ -52,8 +49,8 @@ export default function AuditRegisterPage() {
   const openCount = strictlyOpenFindings().length;
   const acceptedDeferredCount = acceptedOrDeferredFindings().length;
 
-  const external = AUDITS.filter((a) => isExternal(a.eyebrow));
-  const internal = AUDITS.filter((a) => !isExternal(a.eyebrow));
+  const external = AUDITS.filter((a) => Boolean(a.external));
+  const internal = AUDITS.filter((a) => !a.external);
 
   return (
     <PageShell
@@ -248,7 +245,8 @@ export default function AuditRegisterPage() {
             gross-positive across the tested credit outcomes, so the finding
             remains open on live proxies (the fix in audited commit ee9b228a
             passed Corrovera re-audit on 24 November 2026 and awaits Stage 2
-            governance execution following live Stage 1 proposal 0x83a8…f698).
+            governance execution following live Stage 1 proposal 0xd14e…2ce1
+            (submitted in tx 0x83a8…f698)).
             Open findings and accepted risks elsewhere in the register still
             matter, and their assumptions are continuously challenged as the
             deployed state changes. Smart-contract, credit, liquidity, oracle,

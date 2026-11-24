@@ -101,10 +101,19 @@ export function pageMetadata({
   path?: string;
   robots?: Metadata["robots"];
 }): Metadata {
+  // Next.js shallow-merges route metadata onto RootLayout's metadata, which declares
+  // `alternates: { canonical: "/" }`. Routes marked `noindex` (or without an explicit path)
+  // must explicitly clear `canonical` rather than silently inheriting the homepage canonical.
+  const isNoIndex =
+    (typeof robots === "string" && /\bnoindex\b/i.test(robots)) ||
+    (typeof robots === "object" && robots !== null && "index" in robots && robots.index === false);
+  const alternates: Metadata["alternates"] =
+    !isNoIndex && path ? {canonical: path} : {canonical: null};
+
   return {
     title,
     description,
-    ...(path ? {alternates: {canonical: path}} : {}),
+    alternates,
     ...socialMetadata({card, title: socialTitle, description: socialDescription, path}),
     ...(robots ? {robots} : {}),
   };

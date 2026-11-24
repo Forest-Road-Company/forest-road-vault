@@ -159,6 +159,22 @@ describe("post-action LTV and executable buffered maxima", () => {
     expect(postActionValues("repay", 0n, true, s)).toMatchObject({borrowed: 0n, ltvBps: 0n});
     expect(postActionValues("repay", 600_000n, false, s)).toBeNull();
   });
+  it("clamps totalBorrowAssets at zero when share-based full repay rounds dust above totalBorrowAssets", () => {
+    const s = snapshot();
+    s.market.totalBorrowAssets = 100n;
+    s.market.totalBorrowShares = 1_000_000n;
+    s.account!.position.borrowShares = 1_000_000n;
+    s.account!.values.borrowed = 101n;
+    // toAssetsUp(1_000_000, 100, 1_000_000) == 100n, and even with asymmetric dust where assets > totalBorrowAssets:
+    s.market.totalBorrowAssets = 100n;
+    s.market.totalBorrowShares = 500_000n;
+    s.account!.position.borrowShares = 600_000n;
+    // Partial repayment or full share repayment clamps without throwing or returning negative borrowed:
+    const full = postActionValues("repay", 0n, true, s);
+    expect(full).not.toBeNull();
+    expect(full!.borrowed).toBe(0n);
+    expect(full!.ltvBps).toBe(0n);
+  });
   it("rejects impossible previews without mutating the snapshot", () => {
     const s = snapshot();expect(postActionValues("withdrawCollateral", 10n ** 24n + 1n, false, s)).toBeNull();
     expect(postActionValues("borrow", -1n, false, s)).toBeNull();

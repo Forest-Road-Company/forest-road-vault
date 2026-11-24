@@ -105,13 +105,14 @@ const age = (seconds: number) => {
   return hours < 48 ? count(hours, "hour", "hours") : count(Math.floor(hours / 24), "day", "days");
 };
 const utc = (seconds: number) => `${new Date(seconds * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
-const explorer = (address: string) => (EXPLORER_BASE_URL ? `${EXPLORER_BASE_URL}/address/${address}` : null);
+const MAINNET_EXPLORER_BASE_URL = "https://etherscan.io";
+const explorer = (address: string, baseUrl: string | null) => (baseUrl ? `${baseUrl}/address/${address}` : null);
 
 /** Azeret Mono's contextual alternates draw "0x" before a digit as "0×"; an address must read as typed. */
 const ADDRESS_FONT = "font-mono [font-variant-ligatures:no-contextual]";
 
-function WalletLink({wallet}: {wallet: string}) {
-  const href = explorer(wallet);
+function WalletLink({wallet, explorerBaseUrl}: {wallet: string; explorerBaseUrl: string | null}) {
+  const href = explorer(wallet, explorerBaseUrl);
   return href ? (
     <a href={href} target="_blank" rel="noreferrer" className={`${ADDRESS_FONT} text-accent underline-offset-4 hover:underline`}>
       {shortAddress(wallet)}
@@ -127,7 +128,19 @@ function WalletLink({wallet}: {wallet: string}) {
  * venue contracts that hold tokens for many people are reported below the table, never ranked. Hidden
  * on a testnet build, where the server answers that it is off.
  */
-export function PointsLeaderboard({endpoint = "/api/points/leaderboard"}: {endpoint?: string} = {}) {
+export function PointsLeaderboard({
+  endpoint = "/api/points/leaderboard",
+  explorerBaseUrl,
+}: {
+  endpoint?: string;
+  explorerBaseUrl?: string | null;
+} = {}) {
+  const resolvedExplorerBaseUrl =
+    explorerBaseUrl !== undefined
+      ? explorerBaseUrl
+      : endpoint === "/api/points/live-leaderboard"
+        ? MAINNET_EXPLORER_BASE_URL
+        : EXPLORER_BASE_URL;
   const {address} = useAccount();
   const [shown, setShown] = useState(LEADERBOARD_STEP);
   const nowSeconds = useNowSeconds(30_000);
@@ -279,7 +292,7 @@ export function PointsLeaderboard({endpoint = "/api/points/leaderboard"}: {endpo
                   >
                     <td className="py-1.5 pr-3 font-mono text-ink-muted">{row.rank}</td>
                     <td className="py-2.5 pr-3">
-                      <WalletLink wallet={row.wallet} />
+                      <WalletLink wallet={row.wallet} explorerBaseUrl={resolvedExplorerBaseUrl} />
                       {isMe ? <span className="ml-2 text-[11px] font-semibold text-accent">You</span> : null}
                       <span
                         className="main-board-meter"
@@ -341,7 +354,7 @@ export function PointsLeaderboard({endpoint = "/api/points/leaderboard"}: {endpo
           ) : null}
           {venues.map((venue) => (
             <li key={venue.key}>
-              {venue.label} (<WalletLink wallet={venue.address} />):{" "}
+              {venue.label} (<WalletLink wallet={venue.address} explorerBaseUrl={resolvedExplorerBaseUrl} />):{" "}
               <span className="font-mono text-ink-muted">{pts(venue.points)}</span> {unit(venue.points)}
               <span className="block text-[13px]">{venue.note}</span>
             </li>

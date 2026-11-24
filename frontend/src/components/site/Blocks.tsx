@@ -236,11 +236,13 @@ export function CardDeck({
  */
 export function NumberedRows({
   heading,
+  headingAs = "h3",
   aside,
   rows,
   tone = "light",
 }: {
   heading?: ReactNode;
+  headingAs?: "p" | "h2" | "h3";
   /** Supporting copy under the heading. The left column is tall next to a
    *  five-row list, and empty space there reads as unfinished rather than
    *  composed: this is where the section's detail belongs. */
@@ -249,11 +251,12 @@ export function NumberedRows({
   tone?: Tone;
 }) {
   const dark = isDark(tone);
+  const HeadingTag = headingAs;
   return (
     <div className="numbered-flow mt-14 flex flex-col gap-10 lg:flex-row lg:gap-16">
       {heading ? (
         <div className="lg:w-[3.2in] lg:flex-none">
-          <p className="display text-[25px] leading-tight">{heading}</p>
+          <HeadingTag className="display text-[25px] leading-tight">{heading}</HeadingTag>
           {aside ? (
             <div
               className={`mt-5 border-t pt-5 text-[14px] leading-relaxed ${

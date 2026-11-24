@@ -217,7 +217,7 @@ export default function AddressesPage() {
               id="group-market"
               className="mt-8 text-[12px] font-semibold uppercase tracking-[0.16em] text-accent"
             >
-              Market (third party)
+              Markets &amp; external integrations
             </h2>
             <ul className="mt-2">
               <li className="grid gap-1.5 border-b border-line/60 py-4 md:grid-cols-[13rem_1fr_minmax(0,24rem)] md:gap-6">
@@ -322,7 +322,8 @@ export default function AddressesPage() {
               <li className="grid gap-1.5 border-b border-line/60 py-4 md:grid-cols-[13rem_1fr_minmax(0,24rem)] md:gap-6">
                 <span className="text-[13.5px] font-medium text-ink">sUSDfr BSC LayerZero OFT lockbox</span>
                 <span className="text-[13px] leading-relaxed text-ink-muted">
-                  Escrow adapter on Ethereum locking bridged sUSDfr represented on BNB Smart Chain (`SUSDfrOFTAdapter`). Excluded from personal wallet leaderboard ranks.
+                  Escrow adapter on Ethereum locking bridged sUSDfr represented on BNB Smart Chain (
+                  <code className="font-mono text-[12px]">SUSDfrOFTAdapter</code>). Excluded from personal wallet leaderboard ranks.
                 </span>
                 <span className="min-w-0"><AddressLink address={LIVE_MAINNET_INTEGRATIONS.bscOftLockbox} /></span>
               </li>
@@ -332,7 +333,7 @@ export default function AddressesPage() {
       </div>
 
       <p className="mt-8 text-[13px] leading-relaxed text-ink-faint">
-        {COUNT} contracts.{" "}
+        {COUNT} protocol contracts.{" "}
         {EXPLORER_BASE_URL
           ? "Each address links to the block explorer, where the verified source can be read and every figure on the transparency dashboard reconciled independently."
           : "This local fork has no block explorer."}

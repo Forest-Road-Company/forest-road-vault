@@ -364,11 +364,11 @@ export function EthereumCuratorPanel() {
         <table className="w-full text-[13px]">
           <thead>
             <tr className="text-left text-ink-faint">
-              <th className="py-1.5 font-medium">Class</th>
-              <th className="py-1.5 font-medium">Your posting</th>
-              <th className="py-1.5 font-medium">Class pool</th>
-              <th className="py-1.5 font-medium">Required by live facilities</th>
-              <th className="py-1.5 font-medium">Withdrawable now</th>
+              <th scope="col" className="py-1.5 font-medium">Class</th>
+              <th scope="col" className="py-1.5 font-medium">Your posting</th>
+              <th scope="col" className="py-1.5 font-medium">Class pool</th>
+              <th scope="col" className="py-1.5 font-medium">Required by live facilities</th>
+              <th scope="col" className="py-1.5 font-medium">Withdrawable now</th>
             </tr>
           </thead>
           <tbody>
@@ -513,6 +513,42 @@ export function EthereumCuratorPanel() {
           ledger it settles on.
         </p>
       </div>
+
+      {positionViews.length < views.length ? (
+        <details className="mt-5 border-t border-line pt-4">
+          <summary className="cursor-pointer text-[13px] font-semibold text-ink">
+            Previously posted capital in another class?
+          </summary>
+          <p className="mt-2 text-[13px] leading-relaxed text-ink-muted">
+            A revoked position carried through several closed pool rounds can quote as zero until its
+            old shares are settled forward. Choose its class and settle it here; this moves no funds.
+          </p>
+          <label className="mt-3 block text-[13px] text-ink-muted">
+            Prior position class
+            <select
+              value={recoveryClass.toString()}
+              onChange={(e) => setSelected(BigInt(e.target.value))}
+              disabled={flow.busy}
+              className="op-field mt-1.5 block w-full px-4 py-2.5 text-[14px] text-ink"
+            >
+              {views.map((v) => (
+                <option key={v.classId.toString()} value={v.classId.toString()}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="mt-3">
+            <ActionButton
+              label="Settle prior position"
+              busyLabel={busyLabelFor(flow.status)}
+              busy={flow.busy}
+              disabled={!canSettlePriorPosition}
+              onClick={() => settleClosedRound(recoveryClass)}
+            />
+          </div>
+        </details>
+      ) : null}
 
       <p className="mt-6 text-[13px] leading-relaxed text-ink-faint">
         CuratorModule{" "}

@@ -50,7 +50,7 @@ export function reownRuleAllowsOrigin(rule, requiredOrigin) {
   }
   const parsedRequired = originUrl(requiredOrigin, "Required WalletConnect origin");
   if (includesScheme && parsedRule.protocol !== parsedRequired.protocol) return false;
-  if (parsedRule.port && parsedRule.port !== parsedRequired.port) return false;
+  if (parsedRule.port !== parsedRequired.port) return false;
   return hostnameMatches(parsedRule.hostname, parsedRequired.hostname);
 }
 

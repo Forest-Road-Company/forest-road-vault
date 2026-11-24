@@ -65,7 +65,7 @@ describe("GET /api/points/leaderboard", () => {
     // Fresh for five minutes; stale-while-revalidate and stale-if-error add at most ten more, so no
     // cached answer outlives the server's own fifteen-minute stand-in rule.
     expect(response.headers.get("cache-control")).toBe(
-      "public, s-maxage=300, stale-while-revalidate=600, stale-if-error=600",
+      "public, max-age=0, must-revalidate, s-maxage=300, stale-while-revalidate=600, stale-if-error=600",
     );
     expect(response.headers.get("retry-after")).toBeNull();
     const arrivedAt = serve.mock.calls[0]?.[0] as number;
@@ -84,7 +84,7 @@ describe("GET /api/points/leaderboard", () => {
     const response = await call();
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(answer);
-    expect(response.headers.get("cache-control")).toBe("public, s-maxage=60");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate, s-maxage=60");
     expect(logged.join("\n")).toContain("serving the last whole answer: LeaderboardIntegrityError: leaderboard: the discovered wallets");
   });
 

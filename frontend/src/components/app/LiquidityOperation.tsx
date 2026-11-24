@@ -1,6 +1,6 @@
 "use client";
 
-import {useCallback, useEffect, useMemo, useState} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {
   formatUnits,
   maxUint256,
@@ -288,6 +288,8 @@ export function LiquidityOperation() {
     }
   }, [snapshot, pilot]);
 
+  const inFlightRef = useRef(false);
+
   const loadSnapshot = useCallback(async (): Promise<Snapshot> => {
     if (!publicClient || !address) throw new Error("Connect the treasury wallet first.");
     const [block, slot0, usdcBalance, usdfrBalance, usdcTokenAllowance, usdfrTokenAllowance, usdcPermit, usdfrPermit] =
@@ -451,7 +453,8 @@ export function LiquidityOperation() {
 
   const executePlan = useCallback(
     async (kind: StoredMint["kind"]) => {
-      if (!connectedCorrectly || !walletClient || !publicClient || !address) return;
+      if (!connectedCorrectly || !walletClient || !publicClient || !address || inFlightRef.current) return;
+      inFlightRef.current = true;
       let pendingHash: Hash | undefined;
       try {
         setStatus({phase: "reading", message: "Refreshing price, balances, allowances, and nonces…"});
@@ -596,6 +599,8 @@ export function LiquidityOperation() {
         } else {
           setStatus({phase: "error", message: messageFromError(error), hash: pendingHash});
         }
+      } finally {
+        inFlightRef.current = false;
       }
     }, [address, connectedCorrectly, loadSnapshot, pilot, publicClient, walletClient],
   );

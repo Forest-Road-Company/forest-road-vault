@@ -23,13 +23,14 @@ import {
 
 const CACHE_TTL_MS = 60_000;
 const ARCHIVE_HISTORY_CONCURRENCY = 6;
-const MAX_SPLITS_PER_CHUNK = 12;
+const MAX_SPLITS_PER_CHUNK = 64;
 
 function isLoopbackOrPrivateHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (
     host === "localhost" ||
     host === "::1" ||
+    host === "::" ||
     host === "0.0.0.0" ||
     host.endsWith(".localhost") ||
     host.endsWith(".local") ||
@@ -46,7 +47,12 @@ function isLoopbackOrPrivateHost(hostname: string): boolean {
     if (a === 172 && b >= 16 && b <= 31) return true;
     if (a === 100 && b >= 64 && b <= 127) return true;
   }
-  if (host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:")) return true;
+  if (
+    host.includes(":") &&
+    (host.startsWith("::ffff:") || /^f[cd][0-9a-f]{2}:/.test(host) || /^fe[89ab][0-9a-f]:/.test(host))
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -130,39 +136,49 @@ function mergeBatches(a: TransparencyEventsBatch, b: TransparencyEventsBatch): T
 }
 
 function isLogLimitError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  const code =
-    typeof error === "object" && error !== null && "code" in error
-      ? Number((error as {code?: unknown}).code)
-      : NaN;
-  return (
-    code === -32005 ||
-    code === -32008 ||
-    message.includes("more than") ||
-    message.includes("too large") ||
-    message.includes("exceed") ||
-    message.includes("block range") ||
-    message.includes("log response size")
-  );
+  let cursor: unknown = error;
+  for (let depth = 0; cursor !== null && cursor !== undefined && depth < 5; depth += 1) {
+    const message = cursor instanceof Error ? cursor.message.toLowerCase() : String(cursor).toLowerCase();
+    const code =
+      typeof cursor === "object" && "code" in cursor
+        ? Number((cursor as {code?: unknown}).code)
+        : NaN;
+    if (
+      code === -32005 ||
+      code === -32008 ||
+      message.includes("more than") ||
+      message.includes("too large") ||
+      message.includes("too big") ||
+      message.includes("exceed") ||
+      message.includes("block range") ||
+      message.includes("log response size")
+    ) {
+      return true;
+    }
+    cursor =
+      typeof cursor === "object" && "cause" in cursor
+        ? (cursor as {cause?: unknown}).cause
+        : undefined;
+  }
+  return false;
 }
 
 async function readRangeAdaptive<T>(
   fromBlock: bigint,
   toBlock: bigint,
   fetchEvents: (from: bigint, to: bigint) => Promise<readonly T[]>,
-  splits = 0,
+  budget: {remaining: number} = {remaining: MAX_SPLITS_PER_CHUNK},
 ): Promise<T[]> {
   try {
     return [...(await fetchEvents(fromBlock, toBlock))];
   } catch (error) {
-    if (!isLogLimitError(error) || fromBlock >= toBlock || splits >= MAX_SPLITS_PER_CHUNK) {
+    if (!isLogLimitError(error) || fromBlock >= toBlock || budget.remaining <= 0) {
       throw error;
     }
+    budget.remaining -= 1;
     const mid = fromBlock + (toBlock - fromBlock) / 2n;
-    const [left, right] = await Promise.all([
-      readRangeAdaptive(fromBlock, mid, fetchEvents, splits + 1),
-      readRangeAdaptive(mid + 1n, toBlock, fetchEvents, splits + 1),
-    ]);
+    const left = await readRangeAdaptive(fromBlock, mid, fetchEvents, budget);
+    const right = await readRangeAdaptive(mid + 1n, toBlock, fetchEvents, budget);
     return [...left, ...right];
   }
 }
@@ -183,7 +199,7 @@ function defaultDeps(): TransparencyHistoryDeps {
       ]);
       // Fall back to a conservative 64-block finality margin if the RPC omits the finalized tag (e.g. local anvil).
       const fallbackFinalized = latest > 64n ? latest - 64n : 0n;
-      const finalized = finalizedBlock?.number !== undefined && finalizedBlock.number <= latest
+      const finalized = finalizedBlock?.number != null && finalizedBlock.number <= latest
         ? finalizedBlock.number
         : fallbackFinalized;
       return {latest, finalized};

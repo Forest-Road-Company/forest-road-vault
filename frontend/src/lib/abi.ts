@@ -21,7 +21,18 @@ export const PROTOCOL_ERRORS = [
   {type: "error", name: "Controller_DeadlinePassed", inputs: [{name: "deadline", type: "uint256"}, {name: "nowTimestamp", type: "uint256"}]},
   {type: "error", name: "Controller_NoRedeemableBacking", inputs: [{name: "supply", type: "uint256"}]},
   {type: "error", name: "Controller_DeficitWorsened", inputs: [{name: "deficitBefore", type: "uint256"}, {name: "deficitAfter", type: "uint256"}]},
+  {type: "error", name: "Controller_RedeemExceedsSupply", inputs: [{name: "usdfrIn", type: "uint256"}, {name: "bound", type: "uint256"}]},
+  {type: "error", name: "Controller_DepositNotCustodied", inputs: [{name: "requested", type: "uint256"}, {name: "delivered", type: "uint256"}, {name: "credited", type: "uint256"}]},
+  {type: "error", name: "Controller_RedemptionNotSettled", inputs: [{name: "expected", type: "uint256"}, {name: "settled", type: "uint256"}, {name: "usdfrBurned", type: "uint256"}]},
+  {type: "error", name: "Controller_CashStrandedOnController", inputs: [{name: "balanceBefore", type: "uint256"}, {name: "balanceAfter", type: "uint256"}]},
+  {type: "error", name: "Controller_RecognizedDeficitWorsened", inputs: [{name: "deficitBefore", type: "uint256"}, {name: "deficitAfter", type: "uint256"}]},
+  {type: "error", name: "Controller_DepositNotRecognized", inputs: [{name: "credited", type: "uint256"}, {name: "recognized", type: "uint256"}]},
+  {type: "error", name: "Controller_ViewUnavailableMidTransition", inputs: []},
   {type: "error", name: "Controller_ZeroAddress", inputs: []},
+  // Continuous accrual guards
+  {type: "error", name: "AccrualBook_BoundaryPending", inputs: [{name: "boundary", type: "uint64"}, {name: "requested", type: "uint64"}]},
+  {type: "error", name: "ReserveAccrual_OperationInProgress", inputs: []},
+  {type: "error", name: "VaultAccrual_OperationInProgress", inputs: []},
   // PointsHookGas
   {type: "error", name: "PointsHook_InsufficientGas", inputs: [{name: "available", type: "uint256"}, {name: "required", type: "uint256"}]},
   // sUSDfr
@@ -132,7 +143,7 @@ export const VAULT_ABI = [
   ...ERC20_ABI,
 ] as const;
 
-/** Stage 2 (ee9b228a) sUSDfr freeze view: non-zero freezes new sUSDfr deposits and RedemptionQueue
+/** Stage 2 (ee9b228a) sUSDfr freeze view: non-zero freezes sUSDfr exits and RedemptionQueue
  *  settlement. Kept separate from VAULT_ABI until Stage 2 merges to contracts/src on main; callers
  *  read with allowFailure: true so pre-Stage-2 proxies degrade cleanly. */
 export const VAULT_STAGE2_ABI = [
@@ -324,6 +335,7 @@ export const RESERVES_ABI = [
   {type: "function", name: "deployedPrincipal", stateMutability: "view", inputs: [], outputs: [{type: "uint256"}]},
   {type: "function", name: "deployedTo", stateMutability: "view", inputs: [{name: "tokenId", type: "uint256"}], outputs: [{type: "uint256"}]},
   {type: "function", name: "totalBackingValue", stateMutability: "view", inputs: [], outputs: [{type: "uint256"}]},
+  {type: "function", name: "recognizedBackingValue", stateMutability: "view", inputs: [], outputs: [{type: "uint256"}]},
   {type: "function", name: "reserveLossExitsLocked", stateMutability: "view", inputs: [], outputs: [{type: "bool"}]},
   {
     type: "function",

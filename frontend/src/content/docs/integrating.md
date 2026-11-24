@@ -50,12 +50,13 @@ FRV-007 (executed 30 September 2026) replaced the earlier fixed 500,000-gas floo
 
 - **Epilogue reserve (`30,000` gas):** the token reserves `30,000` gas for its own post-hook
   epilogue and forwards the remaining budget (subject to EIP-150's 63/64 rule) to `PointsModule`.
-  If less than `30,000` gas remains when entering the hook, the transfer reverts with
+  If `30,000` gas or less remains when entering the hook, the transfer reverts with
   `PointsHook_InsufficientGas`.
 - **Empty-failure classifier (`2,000,000` gas):** if the points hook fails with empty return data
   (out-of-gas), the token classifies the failure as caller gas starvation and reverts with
-  `PointsHook_InsufficientGas` whenever the forwarded budget was below `2,000,000` gas. Genuine
-  typed reverts from `PointsModule`—or empty failures with at least `2,000,000` gas forwarded—emit
+  `PointsHook_InsufficientGas` whenever the total gas available on entering the hook (forwarded
+  budget plus the `30,000` epilogue reserve) was below `2,000,000` gas. Genuine typed reverts from
+  `PointsModule`—or empty failures with at least `2,000,000` gas available on entry—emit
   `PointsHookFailed` and allow the transfer to complete so a degraded points module cannot freeze
   ERC-20 transfers.
 
@@ -77,7 +78,7 @@ remain available so the protocol can reduce supply safely.
 
 For integrators this means a DEX pool or router does not need allowlisting, but a token that can
 refuse a specific recipient is unusual, and aggregators generally do not model it. Expect occasional
-route failures that look opaque unless you decode `SUSDfr_TransferBlocked` / the USDfr equivalent.
+route failures that look opaque unless you decode `SUSDfr_TransferBlocked` or `USDfr_TransferNotAllowed`.
 
 Note the asymmetry: **minting and redeeming USDfr against USDC is KYC-gated**, while transferring
 either token is not.

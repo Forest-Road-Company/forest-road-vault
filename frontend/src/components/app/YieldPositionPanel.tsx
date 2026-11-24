@@ -39,6 +39,9 @@ type ProtocolHistoryState =
   | {phase: "error"};
 
 type WalletHistoryCursor = {
+  /** Confirmed state up to `finalizedBlock` (never re-scanned). */
+  finalizedState: ShareBasisState;
+  finalizedBlock: bigint | null;
   basisState: ShareBasisState;
   lastScannedBlock: bigint;
 };
@@ -46,10 +49,13 @@ type WalletHistoryCursor = {
 type WalletHistoryState =
   | {phase: "idle"}
   | {phase: "loading"}
-  | {phase: "ready"; value: ShareBasisState}
+  | {phase: "ready"; value: ShareBasisState; lastScannedBlock: bigint}
   | {phase: "error"};
 
 const POLL = ACCOUNT_POLL;
+/** Keep a 12-block unfinalized tail re-readable across polls so a 1-block tip reorg cannot
+ *  permanently double-apply or drop a wallet's deposit/transfer in the lot-based basis tracker. */
+const REORG_TAIL_BLOCKS = 12n;
 
 export function YieldPositionPanel() {
   const {address} = useAccount();
@@ -61,6 +67,7 @@ export function YieldPositionPanel() {
   const historyGeneration = useRef(0);
   const pendingHistoryBlock = useRef<bigint | null>(null);
   const incrementalHistoryInFlight = useRef(false);
+  const deploymentTimestampCache = useRef<bigint | null>(null);
   const {projectedSeniorIncome, protocolFeeBps} = useBookEconomics();
   const vault = CONTRACTS.sUSDfr;
 
@@ -119,7 +126,7 @@ export function YieldPositionPanel() {
   // `/api/transparency/history` route instead of scanning deployment-to-tip WaterfallEngine
   // logs in every visitor's browser.
   useEffect(() => {
-    if (!publicClient) return;
+    if (!publicClient || blockNumber === undefined) return;
     const client = publicClient;
     const controller = new AbortController();
 
@@ -132,13 +139,20 @@ export function YieldPositionPanel() {
         if (!response.ok) throw new Error(`history endpoint returned ${response.status}`);
         const parsed = parseTransparencyHistoryResponse(await response.json());
         if (controller.signal.aborted) return;
-        const [startBlock, endBlock] = await Promise.all([
-          client.getBlock({blockNumber: PROTOCOL_DEPLOYMENT_BLOCK}),
-          client.getBlock({blockNumber: parsed.asOfBlock}),
+        const [startTimestamp, endBlock] = await Promise.all([
+          deploymentTimestampCache.current !== null
+            ? Promise.resolve(deploymentTimestampCache.current)
+            : client.getBlock({blockNumber: PROTOCOL_DEPLOYMENT_BLOCK}).then((b) => {
+                deploymentTimestampCache.current = b.timestamp;
+                return b.timestamp;
+              }),
+          client
+            .getBlock({blockNumber: parsed.asOfBlock})
+            .catch(() => client.getBlock({blockTag: "latest"})),
         ]);
         if (controller.signal.aborted) return;
         const observedSeconds =
-          endBlock.timestamp > startBlock.timestamp ? endBlock.timestamp - startBlock.timestamp : 0n;
+          endBlock.timestamp > startTimestamp ? endBlock.timestamp - startTimestamp : 0n;
         setProtocolHistory({
           phase: "ready",
           recordedIncome: parsed.seniorIncome ?? 0n,
@@ -215,7 +229,7 @@ export function YieldPositionPanel() {
       // mints (e.g. fee shares minted directly without Deposit) are treated as external transfers.
       const depositMintCounts = new Map<string, number>();
       for (const log of depositLogs) {
-        if (log.blockNumber === null || log.logIndex === null) continue;
+        if (log.removed || log.blockNumber === null || log.logIndex === null) continue;
         const assets = log.args.assets ?? 0n;
         const shares = log.args.shares ?? 0n;
         events.push({
@@ -232,7 +246,7 @@ export function YieldPositionPanel() {
       const ownerLower = address.toLowerCase();
       const zeroLower = zeroAddress.toLowerCase();
       for (const log of incomingLogs) {
-        if (log.blockNumber === null || log.logIndex === null) continue;
+        if (log.removed || log.blockNumber === null || log.logIndex === null) continue;
         const from = (log.args.from as Address | undefined)?.toLowerCase();
         const to = (log.args.to as Address | undefined)?.toLowerCase();
         const shares = log.args.value ?? 0n;
@@ -254,7 +268,7 @@ export function YieldPositionPanel() {
       }
 
       for (const log of outgoingLogs) {
-        if (log.blockNumber === null || log.logIndex === null) continue;
+        if (log.removed || log.blockNumber === null || log.logIndex === null) continue;
         const to = (log.args.to as Address | undefined)?.toLowerCase();
         const shares = log.args.value ?? 0n;
         if (to === ownerLower) continue; // ignore self-transfers
@@ -271,20 +285,14 @@ export function YieldPositionPanel() {
     [address, publicClient, vault],
   );
 
-  // The deployment-to-tip sweep runs only for a connected wallet when the wallet/client context
-  // changes. Polling below advances this cursor over unseen blocks only.
-  useEffect(() => {
-    const generation = ++historyGeneration.current;
-    historyCursor.current = null;
-    pendingHistoryBlock.current = null;
-    incrementalHistoryInFlight.current = false;
-
-    async function loadInitialHistory() {
+  const runInitialHistory = useCallback(
+    async (generation: number) => {
       if (!address) {
         setWalletHistory({phase: "idle"});
         return;
       }
       if (!publicClient || !vault) return;
+      incrementalHistoryInFlight.current = true;
       setWalletHistory({phase: "loading"});
       try {
         const latestBlockNumber = await publicClient.getBlockNumber();
@@ -298,28 +306,59 @@ export function YieldPositionPanel() {
         const events = await readWalletBasisEvents(PROTOCOL_DEPLOYMENT_BLOCK, latestBlockNumber);
         if (generation !== historyGeneration.current) return;
 
-        const basisState = applyShareBasisEvents(INITIAL_SHARE_BASIS_STATE, events);
+        const safeCutoff =
+          latestBlockNumber > PROTOCOL_DEPLOYMENT_BLOCK + REORG_TAIL_BLOCKS
+            ? latestBlockNumber - REORG_TAIL_BLOCKS
+            : null;
+        const finalizedEvents =
+          safeCutoff !== null ? events.filter((e) => e.blockNumber <= safeCutoff) : [];
+        const tailEvents =
+          safeCutoff !== null ? events.filter((e) => e.blockNumber > safeCutoff) : events;
+        const finalizedState = applyShareBasisEvents(INITIAL_SHARE_BASIS_STATE, finalizedEvents);
+        const basisState = applyShareBasisEvents(finalizedState, tailEvents);
         const cursor: WalletHistoryCursor = {
+          finalizedState,
+          finalizedBlock: safeCutoff,
           basisState,
           lastScannedBlock: latestBlockNumber,
         };
         historyCursor.current = cursor;
-        pendingHistoryBlock.current = latestBlockNumber;
-        setWalletHistory({phase: "ready", value: basisState});
+        if (
+          pendingHistoryBlock.current === null ||
+          latestBlockNumber > pendingHistoryBlock.current
+        ) {
+          pendingHistoryBlock.current = latestBlockNumber;
+        }
+        setWalletHistory({phase: "ready", value: basisState, lastScannedBlock: latestBlockNumber});
       } catch {
         if (generation === historyGeneration.current) {
           setWalletHistory({phase: "error"});
         }
+      } finally {
+        if (generation === historyGeneration.current) {
+          incrementalHistoryInFlight.current = false;
+        }
       }
-    }
+    },
+    [address, publicClient, readWalletBasisEvents, vault],
+  );
 
-    void loadInitialHistory();
+  // The deployment-to-tip sweep runs only for a connected wallet when the wallet/client context
+  // changes. Polling below advances this cursor over unseen blocks only (re-reading only the
+  // bounded unfinalized tail so 1-block tip reorgs cannot permanently desync lot-based basis).
+  useEffect(() => {
+    const generation = ++historyGeneration.current;
+    historyCursor.current = null;
+    pendingHistoryBlock.current = null;
+    incrementalHistoryInFlight.current = false;
+
+    void runInitialHistory(generation);
     return () => {
       if (generation === historyGeneration.current) {
         historyGeneration.current += 1;
       }
     };
-  }, [address, publicClient, readWalletBasisEvents, vault]);
+  }, [address, publicClient, runInitialHistory, vault]);
 
   useEffect(() => {
     if (!publicClient || !vault || !address || blockNumber === undefined) return;
@@ -329,9 +368,15 @@ export function YieldPositionPanel() {
     ) {
       pendingHistoryBlock.current = blockNumber;
     }
-    if (!historyCursor.current || incrementalHistoryInFlight.current) return;
+    if (incrementalHistoryInFlight.current) return;
 
     const generation = historyGeneration.current;
+    if (!historyCursor.current) {
+      // Retry initial load after a transient failure on mount.
+      void runInitialHistory(generation);
+      return;
+    }
+
     incrementalHistoryInFlight.current = true;
 
     async function advanceHistory() {
@@ -342,7 +387,9 @@ export function YieldPositionPanel() {
           if (!cursor || latestBlock === null) return;
           const range = nextUnreadBlockRange(cursor.lastScannedBlock, latestBlock);
           if (!range) return;
-          const events = await readWalletBasisEvents(range.fromBlock, range.toBlock);
+          const tailFrom =
+            cursor.finalizedBlock !== null ? cursor.finalizedBlock + 1n : PROTOCOL_DEPLOYMENT_BLOCK;
+          const events = await readWalletBasisEvents(tailFrom, range.toBlock);
           if (
             generation !== historyGeneration.current ||
             historyCursor.current !== cursor
@@ -350,13 +397,33 @@ export function YieldPositionPanel() {
             return;
           }
 
-          const nextState = applyShareBasisEvents(cursor.basisState, events);
+          const safeCutoff =
+            range.toBlock > PROTOCOL_DEPLOYMENT_BLOCK + REORG_TAIL_BLOCKS
+              ? range.toBlock - REORG_TAIL_BLOCKS
+              : cursor.finalizedBlock;
+          const nextFinalizedBlock =
+            safeCutoff !== null &&
+            (cursor.finalizedBlock === null || safeCutoff > cursor.finalizedBlock)
+              ? safeCutoff
+              : cursor.finalizedBlock;
+          const newlyFinalized =
+            nextFinalizedBlock !== null
+              ? events.filter((e) => e.blockNumber <= nextFinalizedBlock)
+              : [];
+          const tailEvents =
+            nextFinalizedBlock !== null
+              ? events.filter((e) => e.blockNumber > nextFinalizedBlock)
+              : events;
+          const nextFinalizedState = applyShareBasisEvents(cursor.finalizedState, newlyFinalized);
+          const nextState = applyShareBasisEvents(nextFinalizedState, tailEvents);
           const next: WalletHistoryCursor = {
+            finalizedState: nextFinalizedState,
+            finalizedBlock: nextFinalizedBlock,
             basisState: nextState,
             lastScannedBlock: range.toBlock,
           };
           historyCursor.current = next;
-          setWalletHistory({phase: "ready", value: nextState});
+          setWalletHistory({phase: "ready", value: nextState, lastScannedBlock: range.toBlock});
         }
       } catch {
         // Keep last-good wallet basis state across transient incremental poll failures.
@@ -368,7 +435,7 @@ export function YieldPositionPanel() {
     }
 
     void advanceHistory();
-  }, [address, blockNumber, publicClient, readWalletBasisEvents, vault]);
+  }, [address, blockNumber, publicClient, readWalletBasisEvents, runInitialHistory, vault]);
 
   const metrics = useMemo(() => {
     const basis =
@@ -557,17 +624,26 @@ export function YieldPositionPanel() {
                             18,
                             4,
                           )} USDfr`
-                        : "Unavailable"
+                        : walletHistory.phase === "ready" &&
+                            blockNumber !== undefined &&
+                            walletHistory.lastScannedBlock < blockNumber
+                          ? "Updating…"
+                          : "Unavailable"
                   }
                   note={
                     walletHistory.phase === "loading"
                       ? "reading direct-deposit history"
                       : walletHistory.phase === "ready" &&
-                          walletHistory.value.hasExternalShareTransfer
-                        ? "incoming shares have no on-chain cost basis"
-                        : SUPPORTS_VAULT_FEE_ACCOUNTING
-                          ? "fee-net exit value vs direct-deposit basis"
-                          : "legacy exit value vs direct-deposit basis"
+                          metrics?.positionPnl === null &&
+                          blockNumber !== undefined &&
+                          walletHistory.lastScannedBlock < blockNumber
+                        ? "syncing latest block"
+                        : walletHistory.phase === "ready" &&
+                            walletHistory.value.hasExternalShareTransfer
+                          ? "incoming shares have no on-chain cost basis"
+                          : SUPPORTS_VAULT_FEE_ACCOUNTING
+                            ? "fee-net exit value vs direct-deposit basis"
+                            : "legacy exit value vs direct-deposit basis"
                   }
                 />
                 <DarkMetric

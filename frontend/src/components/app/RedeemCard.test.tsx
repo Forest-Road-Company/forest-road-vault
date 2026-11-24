@@ -231,6 +231,27 @@ describe("RedeemCard, in-flight write protection (RC-05)", () => {
     );
   });
 
+  it("refuses zero previewRedeem quotes instead of submitting minUsdcOut = 0", async () => {
+    reads = baseReads({previewRedeem: [0n, 0n]});
+    const user = userEvent.setup();
+    render(<RedeemCard writesEnabled chainOk />);
+
+    await user.type(screen.getByPlaceholderText("0.00"), "100");
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: /Redeem to/i})).toBeDisabled();
+    expect(screen.getByText(/currently quotes 0/i)).toBeInTheDocument();
+  });
+
+  it("fails closed when previewRedeem is loading or unavailable instead of calling 1-arg redeem", async () => {
+    reads = baseReads({previewRedeem: undefined});
+    const user = userEvent.setup();
+    render(<RedeemCard writesEnabled chainOk />);
+
+    await user.type(screen.getByPlaceholderText("0.00"), "100");
+    expect(screen.getByRole("button", {name: /Redeem to/i})).toBeDisabled();
+    expect(flows.flatMap((f) => f.run.mock.calls)).toHaveLength(0);
+  });
+
   it("collapses fully claimed requests into a completed requests summary", async () => {
     reads = baseReads({
       totalRequests: 1n,

@@ -168,6 +168,7 @@ export function MintForm({
               Need test funds? The testnet mock stable has an open faucet.
             </p>
             <button
+              type="button"
               onClick={() =>
                 address &&
                 faucet.run({

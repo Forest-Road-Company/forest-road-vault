@@ -33,7 +33,7 @@ export async function GET(request: Request) {
   try {
     const result = await loadPendlePoints(canonical);
     return Response.json(result, {
-      headers: {"cache-control": "public, s-maxage=60, stale-while-revalidate=300, stale-if-error=600"},
+      headers: {"cache-control": "public, max-age=0, must-revalidate, s-maxage=60, stale-while-revalidate=300, stale-if-error=600"},
     });
   } catch (error) {
     // Only this module's own static messages are logged; anything else is named, not quoted.

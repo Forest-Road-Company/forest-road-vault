@@ -384,6 +384,14 @@ export function BuyUsdfrPanel({
     if (prep.phase === "notice" || prep.phase === "error" || prep.phase === "reviewReuse") setPrep({phase: "idle"});
   };
 
+  const changeSlippage = (value: string) => {
+    if (!/^\d{0,2}(\.\d{0,2})?$/.test(value)) return;
+    setSlippageText(value);
+    setLockedQuote(null);
+    setFreshRouterAllowance(null);
+    if (prep.phase === "notice" || prep.phase === "error" || prep.phase === "reviewReuse") setPrep({phase: "idle"});
+  };
+
   const act = () => {
     if (parsed === null || parsed <= 0n || !canSubmit) return;
     if (!needsApproval && quoteIsStale(quote.dataUpdatedAt)) {
@@ -526,9 +534,7 @@ export function BuyUsdfrPanel({
             disabled={busy}
             aria-describedby={slippageHintId}
             aria-invalid={slippage.ok ? undefined : true}
-            onChange={(event) => {
-              if (/^\d{0,2}(\.\d{0,2})?$/.test(event.target.value)) setSlippageText(event.target.value);
-            }}
+            onChange={(event) => changeSlippage(event.target.value)}
             className="w-full min-w-0 bg-transparent text-right font-mono text-[16px] text-ink outline-none disabled:cursor-not-allowed disabled:text-ink-faint"
           />
           <span className="text-[12px] text-ink-faint">%</span>

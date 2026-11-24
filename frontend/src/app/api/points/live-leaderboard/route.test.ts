@@ -17,12 +17,13 @@ function validPayload(overrides: Record<string, unknown> = {}) {
     enabled: true,
     asOfBlock: "26486000",
     asOfTimestamp: "1795536000",
-    rankedWallets: 1,
+    pendle: {enabled: true, asOfBlock: "26486000", asOfTimestamp: 1795536000},
+    morpho: {enabled: true, withheld: 0},
+    ranked: 1,
     rankedPoints: "100",
-    totalPoints: "100",
-    forestRoadPoints: "0",
     truncated: false,
     rows: [{rank: 1, wallet: WALLET, points: "100", onchain: "60", pendle: "20", morpho: "20"}],
+    forestRoad: {wallets: 0, points: "0"},
     venues: [
       {
         key: "morpho-blue",
@@ -32,6 +33,7 @@ function validPayload(overrides: Record<string, unknown> = {}) {
         note: "Pooled venue",
       },
     ],
+    notRanked: {jurisdictionBlocked: 0, belowOnePoint: 0},
     ...overrides,
   };
 }
@@ -80,7 +82,13 @@ describe("/api/points/live-leaderboard", () => {
     expect(res.headers.get("cache-control")).toContain("stale-if-error=600");
     const json = (await res.json()) as Record<string, unknown>;
     expect(json.unexpectedExtraField).toBeUndefined();
+    expect(json.ranked).toBe(1);
+    expect(json.pendle).toEqual({enabled: true, asOfBlock: "26486000", asOfTimestamp: 1795536000});
+    expect(json.morpho).toEqual({enabled: true, withheld: 0});
+    expect(json.forestRoad).toEqual({wallets: 0, points: "0"});
+    expect(json.notRanked).toEqual({jurisdictionBlocked: 0, belowOnePoint: 0});
     expect(json.rows).toHaveLength(1);
+    expect(res.headers.get("cache-control")).toContain("max-age=0, must-revalidate");
   });
 
   it.each([

@@ -21,6 +21,8 @@ export function SiteNav() {
   const pathname = usePathname();
   const isAppRoute = pathname === "/app" || pathname.startsWith("/app/");
   const [open, setOpen] = useState(false);
+  const headerRef = useRef<HTMLElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
 
   /* The panel must not leave the page scrollable underneath it. Closing on
@@ -34,16 +36,46 @@ export function SiteNav() {
         document.body.style.overflow = "";
       };
     }
+    const desktopQuery =
+      typeof window.matchMedia === "function" ? window.matchMedia("(min-width: 1024px)") : null;
+    const onViewportChange = (event: MediaQueryListEvent) => {
+      if (event.matches) setOpen(false);
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setOpen(false);
         menuButtonRef.current?.focus();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const menuLinks = menuRef.current
+        ? Array.from(menuRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'))
+        : [];
+      const focusables = [menuButtonRef.current, ...menuLinks].filter((el): el is HTMLElement => el !== null);
+      if (focusables.length < 2) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     };
+    const onPointerDown = (event: PointerEvent) => {
+      if (headerRef.current && event.target instanceof Node && !headerRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+    desktopQuery?.addEventListener("change", onViewportChange);
     window.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
     return () => {
       document.body.style.overflow = "";
+      desktopQuery?.removeEventListener("change", onViewportChange);
       window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
     };
   }, [open]);
 
@@ -52,10 +84,12 @@ export function SiteNav() {
 
   return (
     <header
+      ref={headerRef}
       className="site-nav sticky top-0 z-40 border-b border-line bg-bg/80 backdrop-blur-xl"
       style={{ viewTransitionName: "site-header" }}
     >
-      <nav aria-label="Primary" className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-5 sm:gap-6">
+      <nav aria-label="Primary">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-5 sm:gap-6">
         <Link
           href="/"
           onClick={() => setOpen(false)}
@@ -150,10 +184,11 @@ export function SiteNav() {
             </span>
           </button>
         </div>
-      </nav>
+      </div>
 
       {open ? (
         <div
+          ref={menuRef}
           id="site-menu"
           className="border-t border-line bg-bg lg:hidden"
         >
@@ -189,6 +224,7 @@ export function SiteNav() {
           </div>
         </div>
       ) : null}
+      </nav>
     </header>
   );
 }

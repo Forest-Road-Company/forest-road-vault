@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     const history = await loadTransparencyHistory();
     return Response.json(history, {
       headers: {
-        "cache-control": "public, s-maxage=60, stale-while-revalidate=300, stale-if-error=600",
+        "cache-control": "public, max-age=0, must-revalidate, s-maxage=60, stale-while-revalidate=300, stale-if-error=600",
       },
     });
   } catch (error) {
@@ -31,6 +31,6 @@ export async function GET(request: Request) {
 export async function POST() {
   return Response.json(
     {ok: false, error: "Method not allowed."},
-    {status: 405, headers: {"cache-control": "no-store"}},
+    {status: 405, headers: {allow: "GET", "cache-control": "no-store"}},
   );
 }

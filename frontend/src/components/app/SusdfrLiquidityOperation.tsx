@@ -1,6 +1,6 @@
 "use client";
 
-import {useCallback, useEffect, useMemo, useState} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {
   formatUnits,
   maxUint256,
@@ -289,6 +289,8 @@ export function SusdfrLiquidityOperation() {
     }
   }, [seed, snapshot]);
 
+  const inFlightRef = useRef(false);
+
   const loadSnapshot = useCallback(async (): Promise<Snapshot> => {
     if (!publicClient || !address) throw new Error("Connect the treasury wallet first.");
     const [
@@ -468,7 +470,8 @@ export function SusdfrLiquidityOperation() {
 
   const executePlan = useCallback(
     async (kind: SusdfrOperationKind) => {
-      if (!connectedCorrectly || !walletClient || !publicClient || !address) return;
+      if (!connectedCorrectly || !walletClient || !publicClient || !address || inFlightRef.current) return;
+      inFlightRef.current = true;
       let pendingHash: Hash | undefined;
       try {
         setStatus({phase: "reading", message: "Refreshing pool state, balances, allowances, and nonces…"});
@@ -631,6 +634,8 @@ export function SusdfrLiquidityOperation() {
         } else {
           setStatus({phase: "error", message: messageFromError(error), hash: pendingHash});
         }
+      } finally {
+        inFlightRef.current = false;
       }
     },
     [address, connectedCorrectly, loadSnapshot, publicClient, seed, walletClient],

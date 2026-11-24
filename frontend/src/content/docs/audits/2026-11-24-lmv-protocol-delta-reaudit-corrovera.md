@@ -30,9 +30,10 @@ At the audit sealing snapshot (08:20 UTC, 24 November 2026), overall release rea
 On 24 November 2026, all 38 newly compiled Stage 2 contracts and libraries from `ee9b228a` were
 finalized on Ethereum mainnet (block `26,486,122`) and verified **`exact_match`** (`38/38`) on
 Sourcify, alongside four reused audited components and the 15 Stage 1 preliminary release-monitor
-components deployed on 20 November. The Stage 1 governance proposal was submitted on 24 November
-(`0x83a86e829acec35568c6a1040f57dc4ebcb0dbe99f49d524232fc4044948f698`, voting 25–27 November,
-earliest execution 29 November).
+components deployed on 20 November. The Stage 1 governance proposal
+(`0xd14e120817bfd084d717dd230118014889c4909d51eb01ec3694a4255c102ce1`, submission tx
+`0x83a86e829acec35568c6a1040f57dc4ebcb0dbe99f49d524232fc4044948f698`) was submitted on 24 November
+(voting 25–27 November, earliest execution 29 November).
 
 Live protocol proxies remain on their pre-LMV implementations until Stage 2 governance executes.
 This review therefore clears the staged `ee9b228a` protocol delta; it does not claim that Stage 2

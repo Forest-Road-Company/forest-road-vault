@@ -36,6 +36,7 @@ export function NetworkBanner({
           </span>
         </p>
         <button
+          type="button"
           onClick={() => switchChain({chainId: EXPECTED_CHAIN.id}, {onSuccess: () => onSwitched?.()})}
           disabled={isPending}
           className="rounded-pill bg-warn px-4 py-1.5 text-[12.5px] font-medium text-raised transition-transform hover:scale-[1.02] disabled:opacity-60"

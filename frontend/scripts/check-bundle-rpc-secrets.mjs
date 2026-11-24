@@ -61,7 +61,11 @@ for (const envName of ["RPC_PROXY_UPSTREAM_URL", "ETHEREUM_ARCHIVE_RPC_URL"]) {
       if (hostLower.endsWith(suffix)) {
         const sub = hostLower.slice(0, -suffix.length).split(".")[0];
         if (sub && sub.length >= 12) {
-          secrets.push({label: `a subdomain token of ${envName} (value not printed)`, needle: sub});
+          secrets.push({
+            label: `a subdomain token of ${envName} (value not printed)`,
+            needle: sub,
+            caseInsensitive: true,
+          });
         }
       }
     }
@@ -122,8 +126,10 @@ function scan(files, {keyedUrls}) {
     const content = fs.readFileSync(file);
     bytes += content.length;
     const text = content.toString("latin1");
-    for (const {label, needle} of literals) {
-      if (text.includes(needle)) hits.push({file: path.relative(nextDir, file), label});
+    const textLower = text.toLowerCase();
+    for (const {label, needle, caseInsensitive} of literals) {
+      const matched = caseInsensitive ? textLower.includes(needle.toLowerCase()) : text.includes(needle);
+      if (matched) hits.push({file: path.relative(nextDir, file), label});
     }
     if (keyedUrls) {
       for (const {label, pattern} of KEYED_PROVIDER_URLS) {

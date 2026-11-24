@@ -118,6 +118,12 @@ class MorphoCatchingUpError extends Error {
   }
 }
 
+class MorphoUnavailableError extends Error {
+  constructor() {
+    super("Morpho collateral points unavailable");
+  }
+}
+
 function parseRetryAfterMs(response: Response, fallbackMs = 10_000): number {
   const seconds = Number(response.headers.get("retry-after"));
   if (!Number.isFinite(seconds) || seconds <= 0) return fallbackMs;
@@ -150,12 +156,16 @@ export function MorphoCollateralCard({
       if (response.status === 503) {
         throw new MorphoCatchingUpError(parseRetryAfterMs(response));
       }
-      if (!response.ok) throw new Error("Morpho collateral points unavailable");
+      if (!response.ok) throw new MorphoUnavailableError();
       const body = (await response.json()) as MorphoPointsResponse | {ok: false};
-      if (!body.ok) throw new Error("Morpho collateral points unavailable");
+      if (!body.ok) throw new MorphoUnavailableError();
       return body;
     },
     ...POINTS_API_POLL,
+    retry: (failureCount, queryError) =>
+      failureCount < 1 &&
+      !(queryError instanceof MorphoCatchingUpError) &&
+      !(queryError instanceof MorphoUnavailableError),
     refetchInterval: (query) => {
       if (query.state.status === "error" && query.state.error instanceof MorphoCatchingUpError) {
         return query.state.error.retryMs;
@@ -190,15 +200,25 @@ export function MorphoCollateralCard({
             PointsModule for this address; the points then show here.
           </p>
           {reconcile ? (
-            <div className="mt-3 max-w-xs">
+            <div className="mt-3 max-w-md">
               <ActionButton
-                label="Reconcile points"
+                label={
+                  reconcile.status.phase === "success"
+                    ? "Reconcile confirmed"
+                    : "Reconcile points"
+                }
                 busyLabel={busyLabelFor(reconcile.status)}
                 busy={reconcile.busy}
-                disabled={reconcile.busy}
+                disabled={reconcile.busy || reconcile.status.phase === "success"}
                 onClick={reconcile.onReconcile}
               />
               <StatusLine status={reconcile.status} />
+              {reconcile.status.phase === "success" ? (
+                <p className="mt-2 text-[11.5px] leading-relaxed text-ink-faint">
+                  Reconcile confirmed on-chain. Morpho collateral points update automatically once
+                  the reconcile block finalizes (~15 minutes).
+                </p>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -381,8 +401,10 @@ export function PointsDashboard() {
               </dl>
               <p className="mt-4 text-[11px] leading-relaxed text-ink-faint">
                 Every source has the same 1×→2× maturity factor over 365 days:
-                currently sUSDfr 1×→2×, USDfr 3×→6×, and curator
-                first-loss 5×→10×. Governance changes append forward-only rate epochs.
+                currently sUSDfr {maturityRangeLabel(10_000)}, USDfr{" "}
+                {maturityRangeLabel(usdfrMultiplier ?? 30_000)}, and curator
+                first-loss {maturityRangeLabel(curatorMultiplier ?? 50_000)}. Governance
+                changes append forward-only rate epochs.
               </p>
             </div>
           </div>
@@ -458,10 +480,10 @@ export function PointsDashboard() {
               <table className="w-full min-w-[680px] text-left">
                 <thead className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
                   <tr>
-                    <th className="px-6 py-3 font-normal">Class</th>
-                    <th className="px-6 py-3 text-right font-normal">Tracked capital</th>
-                    <th className="px-6 py-3 text-right font-normal">Points</th>
-                    <th className="px-6 py-3 text-right font-normal">Accrual status</th>
+                    <th scope="col" className="px-6 py-3 font-normal">Class</th>
+                    <th scope="col" className="px-6 py-3 text-right font-normal">Tracked capital</th>
+                    <th scope="col" className="px-6 py-3 text-right font-normal">Points</th>
+                    <th scope="col" className="px-6 py-3 text-right font-normal">Accrual status</th>
                   </tr>
                 </thead>
                 <tbody className="font-mono text-[11px] text-ink-muted">

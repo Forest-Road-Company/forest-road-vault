@@ -94,7 +94,7 @@ type Admission = {gates: string[]};
 
 async function releaseGates(gates: string[]) {
   if (gates.length === 0) return;
-  await del(gates);
+  await del(gates, {abortSignal: AbortSignal.timeout(3_000)});
 }
 
 async function admit(request: Request, secret: string): Promise<Response | Admission> {
@@ -238,5 +238,8 @@ export async function POST(request: Request) {
 }
 
 export async function GET() {
-  return json({ ok: false, error: "Method not allowed." }, 405);
+  return Response.json(
+    { ok: false, error: "Method not allowed." },
+    { status: 405, headers: { allow: "POST", "cache-control": "no-store" } },
+  );
 }
