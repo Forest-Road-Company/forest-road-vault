@@ -165,7 +165,7 @@ override and per-marked-leg gas scaling) alongside Stage 2 readiness.
 
 | Finding | Relevant only if | Earliest on today's book | Status and plan |
 | --- | --- | --- | --- |
-| LMV-09 | A borrower misses a payment and the loan is marked past due | 21 January 2027 (10 January for the USD 20 facility; 14 February+ for the USD 5.15m Digital Assets tranches) | Open on live proxies. Fixed and Corrovera re-audited (`ee9b228a`); Stage 2 components deployed & Sourcify-verified; Stage 1 proposal live ([`0x83a8...f698`](https://etherscan.io/tx/0x83a86e829acec35568c6a1040f57dc4ebcb0dbe99f49d524232fc4044948f698)); Stage 2 upgrade follows before 21 January 2027 |
+| LMV-09 | A borrower misses a payment and the loan is marked past due | 21 January 2027 (10 January for the USD 20 facility; 14 February+ for the USD 5.15m Digital Assets tranches) | Open on live proxies. Fixed and Corrovera re-audited (`ee9b228a`); Stage 2 components deployed & Sourcify-verified; Stage 1 proposal `0xd14e…2ce1` live (submission tx [`0x83a8...f698`](https://etherscan.io/tx/0x83a86e829acec35568c6a1040f57dc4ebcb0dbe99f49d524232fc4044948f698)); Stage 2 upgrade follows before 21 January 2027 |
 | LMV-18 | A facility defaults and a loss is realized | No payment can be missed before 20 December 2026 (31 December for Renewables), and no facility has defaulted or taken a loss | Open on live proxies. Same fix, verification and Stage 1 to Stage 2 rollout plan |
 
 A governance upgrade takes at least five days from proposal: a one-day delay, a two-day vote and a

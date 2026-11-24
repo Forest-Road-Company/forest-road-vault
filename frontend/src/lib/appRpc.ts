@@ -74,7 +74,12 @@ export type AppTransportInputs = {
 export function createAppTransport({rpcUrl, proxyMode, origin}: AppTransportInputs): Transport {
   if (!proxyMode) return http(rpcUrl || undefined);
   if (origin === undefined) return serverRenderRefusal();
-  return http(resolveProxyUrl(origin), {batch: RPC_PROXY_BATCH, timeout: RPC_PROXY_BROWSER_TIMEOUT_MS});
+  return http(resolveProxyUrl(origin), {
+    batch: RPC_PROXY_BATCH,
+    timeout: RPC_PROXY_BROWSER_TIMEOUT_MS,
+    retryCount: 2,
+    retryDelay: 600,
+  });
 }
 
 /** The read transport for this build and this environment (browser or server). */

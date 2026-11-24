@@ -8,7 +8,8 @@ export const maxDuration = 60;
 const PREFIX = "curators-rate/";
 const RETAIN_MS = 60 * 60_000;
 const MAX_PAGES = 50;
-const CLEANUP_BUDGET_MS = 45_000;
+const CLEANUP_BUDGET_MS = 35_000;
+const BLOB_OP_TIMEOUT_MS = 8_000;
 const NO_STORE = {"cache-control": "no-store"} as const;
 
 function sha256(value: string): Buffer {
@@ -47,13 +48,13 @@ export async function GET(request: Request) {
         prefix: PREFIX,
         cursor,
         limit: 1_000,
-        abortSignal: AbortSignal.timeout(10_000),
+        abortSignal: AbortSignal.timeout(BLOB_OP_TIMEOUT_MS),
       });
       const expired = result.blobs
         .filter((blob) => new Date(blob.uploadedAt).getTime() < cutoff)
         .map((blob) => blob.url);
       if (expired.length > 0) {
-        await del(expired, {abortSignal: AbortSignal.timeout(10_000)});
+        await del(expired, {abortSignal: AbortSignal.timeout(BLOB_OP_TIMEOUT_MS)});
         deleted += expired.length;
       }
       if (!result.hasMore || !result.cursor) {

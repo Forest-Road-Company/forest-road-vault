@@ -383,7 +383,15 @@ export function SusdfrLiquidityOperation() {
         });
         setSeed(confirmedSeed);
       } catch (error) {
-        if (!messageFromError(error).toLowerCase().includes("not found")) throw error;
+        if (messageFromError(error).toLowerCase().includes("not found")) {
+          setStatus({
+            phase: "pending",
+            message: "Seed mint transaction is still pending confirmation on-chain.",
+            hash: storedSeed.hash,
+          });
+          return;
+        }
+        throw error;
       }
     }
     const storedWall = readStoredMint("wall", address);
@@ -397,7 +405,15 @@ export function SusdfrLiquidityOperation() {
           }),
         );
       } catch (error) {
-        if (!messageFromError(error).toLowerCase().includes("not found")) throw error;
+        if (messageFromError(error).toLowerCase().includes("not found")) {
+          setStatus({
+            phase: "pending",
+            message: "Buy-wall mint transaction is still pending confirmation on-chain.",
+            hash: storedWall.hash,
+          });
+          return;
+        }
+        throw error;
       }
     }
   }, [address, publicClient, walletMatches]);
@@ -422,7 +438,8 @@ export function SusdfrLiquidityOperation() {
 
   const approveToken = useCallback(
     async (token: typeof USDC | typeof SUSDFR, symbol: "USDC" | "sUSDfr") => {
-      if (!connectedCorrectly || !walletClient || !publicClient || !address) return;
+      if (!connectedCorrectly || !walletClient || !publicClient || !address || inFlightRef.current) return;
+      inFlightRef.current = true;
       try {
         setStatus({phase: "simulating", message: `Checking ${symbol} approval…`});
         const alignment = await probeRpcAlignment(
@@ -463,6 +480,8 @@ export function SusdfrLiquidityOperation() {
         } else {
           setStatus({phase: "error", message: messageFromError(error)});
         }
+      } finally {
+        inFlightRef.current = false;
       }
     },
     [address, connectedCorrectly, loadSnapshot, publicClient, walletClient],

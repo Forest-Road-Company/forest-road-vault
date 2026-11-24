@@ -12,12 +12,14 @@ import {useBlockNumber, useReadContract, useReadContracts} from "wagmi";
 import {
   CONTRACTS,
   EXPLORER_BASE_URL,
+  IS_MAINNET,
   IS_TESTNET,
   NETWORK_NAME,
   SUPPORTS_VAULT_FEE_ACCOUNTING,
 } from "@/config/contracts";
 import {
   BRIDGE_ABI,
+  CONTROLLER_ABI,
   CURATOR_ABI,
   ERC20_ABI,
   QUEUE_ABI,
@@ -70,6 +72,8 @@ export function TransparencyDashboard() {
     useState<CreditPerformanceState>({phase: "loading"});
   const [historyBlock, setHistoryBlock] = useState<bigint>();
   const {data} = useReadContracts({
+    allowFailure: true,
+    batchSize: 65_536,
     query: POLL,
     contracts: [
       {address: CONTRACTS.USDfr!, abi: ERC20_ABI, functionName: "totalSupply"},
@@ -101,25 +105,14 @@ export function TransparencyDashboard() {
       {address: CONTRACTS.WaterfallEngine!, abi: WATERFALL_ABI, functionName: "originationFeeBps", args: [3n]},
       {address: CONTRACTS.WaterfallEngine!, abi: WATERFALL_ABI, functionName: "originationFeeBps", args: [4n]},
       {address: CONTRACTS.WaterfallEngine!, abi: WATERFALL_ABI, functionName: "originationFeeBps", args: [5n]},
-    ],
-  });
-  const {data: freezeData} = useReadContracts({
-    allowFailure: true,
-    query: POLL,
-    contracts: [
+      // Atomic backing-invariant & freeze reads in the same Multicall3 batch so supply and
+      // recognizedBackingValue can never straddle a mint/burn block boundary.
+      {address: CONTRACTS.MintRedeemController!, abi: CONTROLLER_ABI, functionName: "totalUSDfr"},
+      {address: CONTRACTS.ReserveManager!, abi: RESERVES_ABI, functionName: "recognizedBackingValue"},
       {address: CONTRACTS.sUSDfr!, abi: VAULT_STAGE2_ABI, functionName: "unresolvedPastDueExposure"},
       {address: CONTRACTS.ReserveManager!, abi: RESERVES_ABI, functionName: "reserveLossExitsLocked"},
-      {address: CONTRACTS.ReserveManager!, abi: RESERVES_ABI, functionName: "recognizedBackingValue"},
     ],
   });
-  const unresolvedPastDue =
-    freezeData?.[0]?.status === "success" ? (freezeData[0].result as bigint) : undefined;
-  const reserveLossExitsLocked =
-    freezeData?.[1]?.status === "success" ? (freezeData[1].result as boolean) : undefined;
-  const recognizedBacking =
-    freezeData?.[2]?.status === "success" ? (freezeData[2].result as bigint) : undefined;
-  const queueSettlementFrozen =
-    (unresolvedPastDue !== undefined && unresolvedPastDue > 0n) || reserveLossExitsLocked === true;
   const {data: feeData} = useReadContracts({
     query: {enabled: SUPPORTS_VAULT_FEE_ACCOUNTING, ...POLL},
     contracts: [
@@ -135,11 +128,31 @@ export function TransparencyDashboard() {
     ],
   });
 
-  const v = (i: number) => data?.[i]?.result as bigint | undefined;
-  const supply = v(0);
-  // Prefer recognizedBackingValue() (subtracts physical USDC custody shortfalls) with fallback
-  // to totalBackingValue() on pre-recognition testnet proxies.
-  const backing = recognizedBacking ?? v(1);
+  const v = (i: number) =>
+    data?.[i]?.status === "success" ? (data[i].result as bigint) : undefined;
+  const totalUsdfrEntry = data?.[29];
+  const recognizedBackingEntry = data?.[30];
+  // Match MintRedeemController.backingInvariantHolds(): compare economic supply
+  // (totalUSDfr = physical supply + unissued continuous accrual) against recognizedBackingValue
+  // (backing net of physical USDC custody shortfall) from the same atomic multicall.
+  const supply =
+    totalUsdfrEntry?.status === "success"
+      ? (totalUsdfrEntry.result as bigint)
+      : totalUsdfrEntry?.status === "failure"
+        ? v(0)
+        : undefined;
+  const backing =
+    recognizedBackingEntry?.status === "success"
+      ? (recognizedBackingEntry.result as bigint)
+      : !IS_MAINNET && recognizedBackingEntry?.status === "failure"
+        ? v(1)
+        : undefined;
+  const unresolvedPastDue =
+    data?.[31]?.status === "success" ? (data[31].result as bigint) : undefined;
+  const reserveLossExitsLocked =
+    data?.[32]?.status === "success" ? (data[32].result as boolean) : undefined;
+  const queueSettlementFrozen =
+    (unresolvedPastDue !== undefined && unresolvedPastDue > 0n) || reserveLossExitsLocked === true;
   const idle = v(2);
   const deployed = v(3);
   const vaultAssets = v(4);
@@ -155,8 +168,8 @@ export function TransparencyDashboard() {
   const queueLiquidity = v(14);
   const totalQueueRequests = v(15);
   const queueHead = v(16);
-  const protocolFeeBps = data?.[17]?.result as number | undefined;
-  const waterfallFeeRecipient = data?.[18]?.result as string | undefined;
+  const protocolFeeBps = data?.[17]?.status === "success" ? (data[17].result as number) : undefined;
+  const waterfallFeeRecipient = data?.[18]?.status === "success" ? (data[18].result as string) : undefined;
   const curatorPools = [v(19), v(20), v(21), v(22), v(23)];
   const originationFeeBps = [24, 25, 26, 27, 28].map(
     (index) => data?.[index]?.result as number | undefined,
@@ -341,12 +354,18 @@ export function TransparencyDashboard() {
           <div>
             <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy-muted">USDfr supply</p>
             <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">{fmtBand(supply)}</p>
-            <Reconcile addr={CONTRACTS.USDfr!} fn="totalSupply" />
+            <Reconcile
+              addr={totalUsdfrEntry?.status === "success" ? CONTRACTS.MintRedeemController! : CONTRACTS.USDfr!}
+              fn={totalUsdfrEntry?.status === "success" ? "totalUSDfr" : "totalSupply"}
+            />
           </div>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-on-navy-muted">Backing value</p>
             <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">${fmtBand(backing)}</p>
-            <Reconcile addr={CONTRACTS.ReserveManager!} fn={recognizedBacking !== undefined ? "recognizedBackingValue" : "totalBackingValue"} />
+            <Reconcile
+              addr={CONTRACTS.ReserveManager!}
+              fn={recognizedBackingEntry?.status === "success" ? "recognizedBackingValue" : "totalBackingValue"}
+            />
           </div>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-on-navy-muted">

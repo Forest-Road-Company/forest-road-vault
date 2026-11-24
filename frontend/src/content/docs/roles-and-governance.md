@@ -20,7 +20,7 @@ grant itself (no escalation loop).
 | `GUARDIAN_ROLE` | Operations Safe and explicitly validated operational holders | Pause/unpause **user paths only**, never the cascade. |
 | `RESERVE_ADMIN_ROLE` | Governance **timelock** | Ratify bounded reserve losses and account for physically recovered reserve capital. |
 | `MINTER_ROLE` | MintRedeemController | Mint USDfr (on `USDfr`). |
-| `CONTROLLER_ROLE` | MintRedeemController | `ReserveManager.releaseUSDC` (redemption custody-out) **only**. |
+| `CONTROLLER_ROLE` | MintRedeemController | `ReserveManager.{depositUSDC, releaseUSDC}` (mint custody-in and redemption custody-out). |
 | `CREDIT_ROLE` | WaterfallEngine, DefaultManager, ClaimBridge | The **trusted internal-module** role, the only caller of the cross-module value/state primitives (below). Never held by an EOA. |
 | `LOSS_BURNER_ROLE` | DefaultManager, ReserveManager | Burn USDfr to realize an authenticated loss in the cascade. Split from `CREDIT_ROLE` so the repayment engine cannot hold both mint and burn authority. Never held by an EOA. |
 | `FEE_ACCOUNTING_ROLE` | CuratorModule, SGrove, DefaultManager | Checkpoints and locks fee accounting across mechanical junior-capacity changes. Never held by an EOA. |
@@ -38,11 +38,11 @@ hence the timelock + (prod) no-EOA rule.
 
 | Contract | Functions |
 |---|---|
-| CollateralRegistry | `setClass`, `setBorrowerLimit`, `setBorrowerLimitOverride`, `clearBorrowerLimitOverride`, `setStateLimit`, `setComplianceModule`, `setConcentrationFloor` |
-| ComplianceRegistry | `setProtocolExempt` (transfers are sanctions-only, no per-token transfer allow-list) |
+| CollateralRegistry | `setClass`, `setBorrowerLimit`, `setBorrowerLimitOverride`, `clearBorrowerLimitOverride`, `setStateLimit`, `setPastDueWeight`, `setConcentrationFloor` |
+| ComplianceRegistry | `setProtocolExempt`, `setFundingRecipientAllowed` (transfers are sanctions-only, no per-token transfer allow-list) |
 | ClaimBridge | `setRequiredMintAttestations` |
 | sUSDfr | `setRedemptionQueue`, `setPointsModule`, `setImpairmentSource` (validated normal path), `clearUnreadableImpairmentSource` (recovery-only clear), `clearStaleFeeOperation` (evented trusted-module lock recovery), `setYieldVestingPeriod` (launch zero; optional smoothing), `setPerformanceFee` (0–20%, prospective), `setManagementFee` (0–2% annual, prospective), `setFeeRecipient` |
-| ReserveManager | No asset-list, reserve-instrument or DSRA setter exists; canonical USDC is immutable deployment wiring |
+| ReserveManager | `recognizePrincipalImpairment`, `releasePrincipalImpairment`, custody-incident and continuous-accrual wiring/controls; no asset-list, reserve-instrument or DSRA setter exists (canonical USDC is immutable deployment wiring) |
 | USDfr | `setComplianceModule`, `setPointsModule` |
 | CuratorModule | `setCuratorApproved`, `setFirstLossTarget`, **`liftDefaultFreeze`** (audit R4-EC2) |
 | AttestationOracle | `setThreshold` (floored ≥2 for high-value kinds), `revoke` |
@@ -60,30 +60,31 @@ hence the timelock + (prod) no-EOA rule.
 | `ORIGINATOR_ROLE` | `ClaimBridge.originate` | + full attestation mint-gate (m-of-n) + concentration limits |
 | `SERVICER_ROLE` | `WaterfallEngine.{fund, distribute}`, `DefaultManager.{declareDefault, accelerate, realizeLoss, clearPastDue}` | Funding uses signed terms. Payments, defaults, cures and losses consume exact payload-bound attestations; the payment atomically pulls USDC from the signed payer. |
 | `MINTER_ROLE` | `USDfr.{mint, burn}` | Held only by the controller; every mint is backing-asserted. The removed dormant `BURNER_ROLE` is not part of V2. |
-| `CONTROLLER_ROLE` | `ReserveManager.releaseUSDC` | Held only by the controller. |
+| `CONTROLLER_ROLE` | `ReserveManager.{depositUSDC, releaseUSDC}` | Held only by the controller (`CREDIT_ROLE` may also call `depositUSDC` for repayments). |
 | `COMPLIANCE_ADMIN_ROLE` | `ComplianceRegistry.{setAllowed, setAllowedBatch, setJurisdictionBlocked}` | Cannot reach `protocolExempt` (that is `DEFAULT_ADMIN_ROLE`). |
 | `SETTLEMENT_KEEPER_ROLE` | `RedemptionQueue.closeEpoch` | Strict FIFO, the per-epoch liquidity budget, the minimum hold and the pricing rules are all contract-enforced. |
 | `ATTESTER_ROLE` | (signer, not a caller) `AttestationOracle.attest` verifies signatures against holders | m-of-n threshold per kind |
 
-### `CREDIT_ROLE`: trusted internal-module primitives (never an EOA)
+### `CREDIT_ROLE` & `LOSS_BURNER_ROLE`: trusted internal-module primitives (never an EOA)
 These are the cross-module value/state operations. Each is callable **only** by the
-specific sibling module granted the role at deploy, and several are **non-pausable**
-at their own entry point. A guardian pause on `ReserveManager` still blocks the
-principal-write-down leg until a controlled unpause; that accepted operational
-dependency is tested and must be part of incident procedure.
+specific sibling module granted the role at deploy, and the loss-cascade legs are
+**non-pausable** at their own entry points (including `ReserveManager.recordPrincipalWritedown`,
+which has no `whenNotPaused` guard so a guardian pause on `ReserveManager` cannot block a
+realized principal write-down).
 
-| Callee . function | Authorized caller(s) | Pausable? |
-|---|---|---|
-| `MintRedeemController.mintYield` | WaterfallEngine | via mint path |
-| `MintRedeemController.burnLoss` | WaterfallEngine, DefaultManager | **no** (cascade) |
-| `CuratorModule.absorbLoss` | DefaultManager | **no** (cascade) |
-| `CuratorModule.freezeOnDefault` | DefaultManager | **no** |
-| `SGrove.coverShortfall` | DefaultManager | **no** (cascade) |
-| `sUSDfr.beginYieldNotification` / `notifyYield` | WaterfallEngine | **no**; one vault-side lock spans both interest-leg mints, then Waterfall calls permissionless `accrueFees` |
-| `AttestationOracle.consume` | WaterfallEngine | **no** (internal servicing/cascade hook) |
-| `ClaimBridge.transitionState` | WaterfallEngine, DefaultManager | **no** (internal servicing/cascade hook) |
-| `ReserveManager.{recordDeployment, recordFeeCapitalization, recordPayment, recordPrincipalWritedown}` | WaterfallEngine, DefaultManager | **yes** (pausable on `ReserveManager`) |
-| `CollateralRegistry` exposure record/decrease | ClaimBridge, WaterfallEngine, DefaultManager | **no** (internal exposure accounting) |
+| Callee . function | Authorized caller(s) | Role | Pausable? |
+|---|---|---|---|
+| `MintRedeemController.mintYield` | WaterfallEngine | `CREDIT_ROLE` | via mint path |
+| `MintRedeemController.burnLoss` | DefaultManager, ReserveManager | `LOSS_BURNER_ROLE` | **no** (cascade; WaterfallEngine is explicitly excluded) |
+| `CuratorModule.absorbLoss` | DefaultManager | `CREDIT_ROLE` | **no** (cascade) |
+| `CuratorModule.freezeOnDefault` | DefaultManager | `CREDIT_ROLE` | **no** |
+| `SGrove.coverShortfall` | DefaultManager | `CREDIT_ROLE` | **no** (cascade) |
+| `sUSDfr.beginYieldNotification` / `notifyYield` | WaterfallEngine | `CREDIT_ROLE` | **no**; one vault-side lock spans both interest-leg mints, then Waterfall calls permissionless `accrueFees` |
+| `AttestationOracle.consume` | WaterfallEngine, DefaultManager, ClaimBridge, ReserveManager | `CREDIT_ROLE` | **no** (internal servicing/cascade hook) |
+| `ClaimBridge.transitionState` | WaterfallEngine, DefaultManager | `CREDIT_ROLE` | **no** (internal servicing/cascade hook) |
+| `ReserveManager.{recordDeployment, recordFeeCapitalization, recordPikCapitalization, recordPayment}` | WaterfallEngine | `CREDIT_ROLE` | **yes** (pausable on `ReserveManager`) |
+| `ReserveManager.recordPrincipalWritedown` | DefaultManager | `CREDIT_ROLE` | **no** (cascade write-down is not blocked by `ReserveManager` pause) |
+| `CollateralRegistry` exposure record/decrease | ClaimBridge, WaterfallEngine, DefaultManager | `CREDIT_ROLE` | **no** (internal exposure accounting) |
 
 ### `FEE_ACCOUNTING_ROLE`: fee-neutral junior-capacity changes
 

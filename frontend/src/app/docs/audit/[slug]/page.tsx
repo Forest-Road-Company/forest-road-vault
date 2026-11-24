@@ -9,6 +9,8 @@ import remarkGfm from "remark-gfm";
 import { AuditFindingsList } from "@/components/site/AuditFindings";
 import { AUDITS, auditBySlug } from "@/content/audits";
 
+export const dynamicParams = false;
+
 export function generateStaticParams() {
   return AUDITS.map((a) => ({ slug: a.slug }));
 }
@@ -20,7 +22,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const audit = auditBySlug(slug);
-  if (!audit) return { title: "Audit | Forest Road Vault" };
+  if (!audit) notFound();
   return pageMetadata({
     title: `${audit.title} | Forest Road Vault`,
     description: audit.summary,

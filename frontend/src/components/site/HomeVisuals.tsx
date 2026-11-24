@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useReadContracts } from "wagmi";
-import { CONTRACTS } from "@/config/contracts";
-import { BRIDGE_ABI, ERC20_ABI, RESERVES_ABI, VAULT_ABI } from "@/lib/abi";
+import { CONTRACTS, IS_MAINNET } from "@/config/contracts";
+import { BRIDGE_ABI, CONTROLLER_ABI, ERC20_ABI, RESERVES_ABI, VAULT_ABI } from "@/lib/abi";
 import { fmtAmount } from "@/lib/format";
 import { PROTOCOL_POLL } from "@/lib/polling";
 
@@ -62,6 +62,7 @@ const amount = (value: bigint | undefined, decimals = 18) => value === undefined
 export function HomeTransparencyPreview() {
   const { data } = useReadContracts({
     allowFailure: true,
+    batchSize: 65_536,
     query: PROTOCOL_POLL,
     contracts: [
       { address: CONTRACTS.USDfr!, abi: ERC20_ABI, functionName: "totalSupply" },
@@ -71,14 +72,27 @@ export function HomeTransparencyPreview() {
       { address: CONTRACTS.sUSDfr!, abi: VAULT_ABI, functionName: "currentExchangeRate" },
       { address: CONTRACTS.ClaimBridge!, abi: BRIDGE_ABI, functionName: "totalOriginated" },
       { address: CONTRACTS.ReserveManager!, abi: RESERVES_ABI, functionName: "recognizedBackingValue" },
+      { address: CONTRACTS.MintRedeemController!, abi: CONTROLLER_ABI, functionName: "totalUSDfr" },
     ],
   });
   const value = (index: number) =>
     data?.[index]?.status === "success" ? (data[index].result as bigint) : undefined;
-  const supply = value(0);
-  // Prefer recognizedBackingValue() (subtracts physical USDC custody shortfall) with fallback
-  // to totalBackingValue() on pre-recognition testnet deployments.
-  const backing = value(6) ?? value(1);
+  const totalUsdfrEntry = data?.[7];
+  const recognizedEntry = data?.[6];
+  // Match MintRedeemController.backingInvariantHolds(): economic supply (totalUSDfr) vs
+  // recognizedBackingValue (backing net of physical USDC custody shortfall).
+  const supply =
+    totalUsdfrEntry?.status === "success"
+      ? (totalUsdfrEntry.result as bigint)
+      : totalUsdfrEntry?.status === "failure"
+        ? value(0)
+        : undefined;
+  const backing =
+    recognizedEntry?.status === "success"
+      ? (recognizedEntry.result as bigint)
+      : !IS_MAINNET && recognizedEntry?.status === "failure"
+        ? value(1)
+        : undefined;
   const idle = value(2);
   const deployed = value(3);
   const rate = value(4);

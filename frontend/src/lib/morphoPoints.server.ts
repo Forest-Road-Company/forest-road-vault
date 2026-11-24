@@ -3,7 +3,6 @@ import {
   decodeEventLog,
   encodeEventTopics,
   getAddress,
-  http,
   isAddress,
   type Address,
   type Hex,
@@ -11,6 +10,7 @@ import {
 } from "viem";
 import {CONTRACTS, IS_MAINNET, PROTOCOL_DEPLOYMENT_BLOCK} from "@/config/contracts";
 import {ERC20_ABI, ORACLE_WIRING_ABI, OWNER_STATUS_ABI, POINTS_ABI, POINTS_HISTORY_ABI, VAULT_POINTS_ABI} from "@/lib/abi";
+import {createArchiveRpcTransport, isLogSizeLimitError} from "@/lib/archiveTransport.server";
 import {EXPECTED_CHAIN} from "@/lib/chain";
 import {
   MorphoPointsIntegrityError,
@@ -347,17 +347,8 @@ function hex(n: bigint): Hex {
   return `0x${n.toString(16)}`;
 }
 
-const TOO_LARGE_CODES = new Set([-32005, -32008, -32602]);
-
 function answerTooLarge(error: unknown): boolean {
-  for (let e: unknown = error, depth = 0; e && typeof e === "object" && depth < 5; e = (e as {cause?: unknown}).cause, depth++) {
-    const {code, shortMessage, details} = e as {code?: unknown; shortMessage?: unknown; details?: unknown};
-    const text = `${typeof shortMessage === "string" ? shortMessage : ""} ${typeof details === "string" ? details : ""}`;
-    if (typeof code === "number" && TOO_LARGE_CODES.has(code) && /too big|too large|too many|more than|exceed|limit/i.test(text)) {
-      return true;
-    }
-  }
-  return false;
+  return isLogSizeLimitError(error);
 }
 
 function logMatchesTopics(log: RawLog, topics: (Hex | Hex[] | null)[]): boolean {
@@ -590,7 +581,7 @@ async function checkLedgerWiring(deps: MorphoPointsDeps, block: bigint): Promise
  * earlier capped request committed, would replay a history nobody counted, and a missing epoch
  * log would over-award every owner.
  */
-const EPOCH_WAVE_CONCURRENCY = 4;
+const EPOCH_WAVE_CONCURRENCY = 3;
 
 async function extendEpochs(deps: MorphoPointsDeps, h: History, toBlock: bigint, deadline: number): Promise<void> {
   let from = h.epochsScannedTo === 0n ? deps.protocolDeploymentBlock : h.epochsScannedTo + 1n;
@@ -859,7 +850,7 @@ function defaultDeps(): MorphoPointsDeps | null {
   }
   const client = createPublicClient({
     chain: EXPECTED_CHAIN,
-    transport: http(archiveRpcUrl(), {timeout: 15_000, retryCount: 2, batch: true}),
+    transport: createArchiveRpcTransport(archiveRpcUrl()),
   }) as PublicClient;
   return {
     client,
@@ -917,6 +908,7 @@ export async function loadMorphoCollateralPoints(
     if (pending) return pending;
   }
 
+  let snapshotHistory: History | null = null;
   const compute = async (): Promise<MorphoPointsWire> => {
     const finalized = await deps.client.getBlock({blockTag: "finalized"});
     if (finalized.number === null) throw new MorphoPointsNotReadyError("points: no finalized block");
@@ -924,6 +916,7 @@ export async function loadMorphoCollateralPoints(
       throw new MorphoPointsNotReadyError("points: the market's creation block is not finalized yet");
     }
     const snapshot = await snapshotAt(deps, {number: finalized.number, timestamp: finalized.timestamp}, deadline);
+    snapshotHistory = snapshot.history;
     const block = snapshot.asOfBlock;
     const owner = wallet.toLowerCase();
     const [position, exempt, blocked, tracked, walletShares] = await Promise.all([
@@ -988,10 +981,9 @@ export async function loadMorphoCollateralPoints(
   };
 
   if (!useWalletCache) return compute();
-  const committedHistory = history;
   const promise = compute()
     .then((answer) => {
-      if (history === committedHistory) {
+      if (snapshotHistory !== null && history === snapshotHistory) {
         if (walletAnswerCache.size >= MAX_WALLET_CACHE) {
           const oldest = walletAnswerCache.keys().next().value;
           if (oldest !== undefined) walletAnswerCache.delete(oldest);

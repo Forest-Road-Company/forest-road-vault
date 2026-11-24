@@ -27,6 +27,17 @@ type ValidatedBoard = {
   notRanked: {jurisdictionBlocked: number; belowOnePoint: number};
 };
 
+const MAX_UNIX_TIMESTAMP_SECONDS = 4_102_444_800;
+
+function isValidUnixTimestamp(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value > 0 &&
+    value <= MAX_UNIX_TIMESTAMP_SECONDS
+  );
+}
+
 function isSafeNonNegativeInt(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
@@ -42,6 +53,7 @@ function validBoard(value: unknown): ValidatedBoard | null {
     !UINT.test(board.asOfBlock) ||
     typeof board.asOfTimestamp !== "string" ||
     !UINT.test(board.asOfTimestamp) ||
+    !isValidUnixTimestamp(Number(board.asOfTimestamp)) ||
     !isSafeNonNegativeInt(board.ranked) ||
     board.ranked < board.rows.length ||
     typeof board.rankedPoints !== "string" ||
@@ -62,7 +74,7 @@ function validBoard(value: unknown): ValidatedBoard | null {
     rawPendle.enabled === true &&
     typeof rawPendle.asOfBlock === "string" &&
     UINT.test(rawPendle.asOfBlock) &&
-    isSafeNonNegativeInt(rawPendle.asOfTimestamp)
+    isValidUnixTimestamp(rawPendle.asOfTimestamp)
   ) {
     pendle = {enabled: true, asOfBlock: rawPendle.asOfBlock, asOfTimestamp: rawPendle.asOfTimestamp};
   } else {
@@ -218,7 +230,10 @@ export async function GET(request: Request) {
       cache: "no-store",
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
-    if (!upstream.ok) throw new Error(`upstream leaderboard status ${upstream.status}`);
+    if (!upstream.ok) {
+      await upstream.body?.cancel().catch(() => undefined);
+      throw new Error(`upstream leaderboard status ${upstream.status}`);
+    }
     const body: unknown = JSON.parse(await readCappedText(upstream, MAX_BODY_BYTES));
     const validated = validBoard(body);
     if (!validated) throw new Error("upstream leaderboard failed validation");

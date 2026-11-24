@@ -621,11 +621,27 @@ table,
      variable is that no status hue is left out of the set. */
   --color-ok: #5cc79a;
   --color-ok-faint: rgba(92, 199, 154, 0.16);
+}
 
-  /* The focus ring lifts with them. `accent` is 1.60:1 on navy and 2.02:1 on
-     navy-deepest, below the 3:1 WCAG 1.4.11 floor for a non-text indicator, while `accent-light` reads 6.32:1 on navy. Every focusable thing on a
-     navy band (footer columns, hero actions, the closing anchor) resolves
-     this, so none of them can lose its ring by sitting on the material. */
+/* Lift the focus ring inside dark subtrees (`accent` is 1.60:1 on navy, below the
+   3:1 WCAG 1.4.11 floor, while `accent-light` is 6.32:1). Utility `.bg-navy*`
+   selectors target descendants (`*`) rather than the `.bg-navy` element itself, so
+   a `.bg-navy` CTA button sitting on a light background keeps the dark `#2e4e6f`
+   exterior ring (8.62:1 on white) instead of drawing a 2.19:1 pale ring on white. */
+.navy-band,
+.navy-band-deep,
+.hero-frame,
+.kpi-band,
+.page-hero--forest,
+.token-instrument--susdfr,
+.atlas-card--forest,
+.points-community,
+.points-ledger-dark,
+.points-disclosure,
+.bg-navy *,
+.bg-navy-alt *,
+.bg-navy-deep *,
+.bg-navy-deepest * {
   --color-focus: var(--color-accent-light);
   --color-focus-glow: rgba(157, 176, 212, 0.24);
 }
@@ -1654,7 +1670,7 @@ table,
   animation: cascade-flow 7s var(--ease-out-soft) infinite;
 }
 
-.cascade-diagram::after{content:"realised loss";position:absolute;right:24px;top:22px;color:var(--color-danger);font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.75}
+.cascade-diagram::after{content:"realised loss";position:absolute;right:24px;top:22px;color:var(--color-danger);font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase}
 /* Below md the legend runs the full width under a 32px padding, so the decorative label moves up
    into that padding instead of sitting on the legend (owner report, 11 November 2026). */
 @media (max-width: 767.98px){.cascade-diagram::after{top:9px;right:18px}}

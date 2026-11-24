@@ -56,6 +56,12 @@ export function EthereumCuratorPanel() {
   });
   const selected = selection.owner === address ? selection.classId : null;
   const setSelected = (classId: bigint | null) => setSelection({owner: address, classId});
+  const [recoverySelection, setRecoverySelection] = useState<{owner: string | undefined; classId: bigint | null}>({
+    owner: address,
+    classId: null,
+  });
+  const recoverySelected = recoverySelection.owner === address ? recoverySelection.classId : null;
+  const setRecoverySelected = (classId: bigint | null) => setRecoverySelection({owner: address, classId});
   // wagmi resolves the persisted connection after mount; rendering the connect row only then
   // keeps the server and client markup identical.
   const [mounted, setMounted] = useState(false);
@@ -175,7 +181,9 @@ export function EthereumCuratorPanel() {
     && (approvalNeeded || (balance !== undefined && parsed <= balance));
   const canWithdraw = canWrite && !custodyFrozen && parsed !== null && parsed > 0n && parsed <= withdrawable;
   const canSettlePriorPosition = isConnected && rightNetwork && !flow.busy;
-  const recoveryClass = selected ?? CLASS_IDS[0];
+  const defaultRecoveryClass =
+    views.find((v) => !positionViews.some((p) => p.classId === v.classId))?.classId ?? CLASS_IDS[0];
+  const recoveryClass = recoverySelected ?? defaultRecoveryClass;
   const explorer = (a: string) => (EXPLORER_BASE_URL ? `${EXPLORER_BASE_URL}/address/${a}` : null);
 
   const post = () => {
@@ -198,7 +206,7 @@ export function EthereumCuratorPanel() {
       functionName: "claimClosedRound",
       args: [classId, address],
       onSuccess: () => {
-        setSelected(classId);
+        if (positionViews.length === 0) setSelected(classId);
         void stakeReads.refetch();
       },
     });
@@ -319,7 +327,7 @@ export function EthereumCuratorPanel() {
             Prior position class
             <select
               value={recoveryClass.toString()}
-              onChange={(e) => setSelected(BigInt(e.target.value))}
+              onChange={(e) => setRecoverySelected(BigInt(e.target.value))}
               disabled={flow.busy}
               className="op-field mt-1.5 block w-full px-4 py-2.5 text-[14px] text-ink"
             >
@@ -527,7 +535,7 @@ export function EthereumCuratorPanel() {
             Prior position class
             <select
               value={recoveryClass.toString()}
-              onChange={(e) => setSelected(BigInt(e.target.value))}
+              onChange={(e) => setRecoverySelected(BigInt(e.target.value))}
               disabled={flow.busy}
               className="op-field mt-1.5 block w-full px-4 py-2.5 text-[14px] text-ink"
             >

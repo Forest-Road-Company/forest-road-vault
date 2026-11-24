@@ -8,6 +8,8 @@ import { SECTORS } from "@/lib/verticals";
 import { IS_TESTNET } from "@/config/contracts";
 import { ProtocolScene } from "@/components/site/ProtocolScene";
 
+export const dynamicParams = false;
+
 export function generateStaticParams() {
   return SECTORS.map((v) => ({ slug: v.slug }));
 }
@@ -19,7 +21,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const v = SECTORS.find((x) => x.slug === slug);
-  if (!v) return { title: "Sectors | Forest Road Vault" };
+  if (!v) notFound();
   return pageMetadata({
     title: `${v.name} | Forest Road Vault`,
     description: v.financed,

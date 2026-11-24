@@ -21,10 +21,11 @@ import { useReadContracts } from "wagmi";
 import {
   CONTRACTS,
   IS_LOCAL_FORK,
+  IS_MAINNET,
   IS_TESTNET,
   NETWORK_NAME,
 } from "@/config/contracts";
-import { BRIDGE_ABI, ERC20_ABI, RESERVES_ABI } from "@/lib/abi";
+import { BRIDGE_ABI, CONTROLLER_ABI, ERC20_ABI, RESERVES_ABI } from "@/lib/abi";
 import { fmtAmount } from "@/lib/format";
 import { SECTORS } from "@/lib/verticals";
 import { formatPollCadence, PROTOCOL_POLL } from "@/lib/polling";
@@ -42,6 +43,8 @@ const STRUCTURE = [
 
 export function HeroLiveStats() {
   const { data } = useReadContracts({
+    allowFailure: true,
+    batchSize: 65_536,
     query: PROTOCOL_POLL,
     contracts: [
       { address: CONTRACTS.USDfr!, abi: ERC20_ABI, functionName: "totalSupply" },
@@ -55,14 +58,36 @@ export function HeroLiveStats() {
         abi: BRIDGE_ABI,
         functionName: "totalOriginated",
       },
+      {
+        address: CONTRACTS.MintRedeemController!,
+        abi: CONTROLLER_ABI,
+        functionName: "totalUSDfr",
+      },
+      {
+        address: CONTRACTS.ReserveManager!,
+        abi: RESERVES_ABI,
+        functionName: "recognizedBackingValue",
+      },
     ],
   });
 
-  const [supply, backing, facilities] = [
-    data?.[0]?.result as bigint | undefined,
-    data?.[1]?.result as bigint | undefined,
-    data?.[2]?.result as bigint | undefined,
-  ];
+  const val = (index: number) =>
+    data?.[index]?.status === "success" ? (data[index].result as bigint) : undefined;
+  const totalUsdfrEntry = data?.[3];
+  const recognizedEntry = data?.[4];
+  const supply =
+    totalUsdfrEntry?.status === "success"
+      ? (totalUsdfrEntry.result as bigint)
+      : totalUsdfrEntry?.status === "failure"
+        ? val(0)
+        : undefined;
+  const backing =
+    recognizedEntry?.status === "success"
+      ? (recognizedEntry.result as bigint)
+      : !IS_MAINNET && recognizedEntry?.status === "failure"
+        ? val(1)
+        : undefined;
+  const facilities = val(2);
 
   const live = [
     {

@@ -7,7 +7,7 @@ const position = (day: number, start: number) => start * (1 + day / 365);
 export function PointsHeroStage() {
   const positions = [
     { label: "sUSDfr", range: "1× → 2×", level: "31%", value: "1.00×", tone: "light" },
-    { label: "USDfr", range: "3× → 6×", level: "55%", value: "3.00×", tone: "mid" },
+    { label: "USDfr", range: "3× → 6×", level: "55%", value: "3.01×", tone: "mid" },
     { label: "Curator first-loss", range: "5× → 10×", level: "82%", value: "5.01×", tone: "deep" },
   ];
   return (

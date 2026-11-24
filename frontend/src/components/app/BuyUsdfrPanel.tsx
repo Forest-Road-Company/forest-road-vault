@@ -91,7 +91,7 @@ const APPROVE_EXPLANATION =
   "This gives Permit2 an unlimited USDC approval with no expiry until you revoke it by approving zero. It also backs Permit2 authorizations you give to other sites. This card's new signatures authorize only one buy's exact amount for 20 minutes.";
 const MAX_PERMIT2_ALLOWANCE = (1n << 160n) - 1n;
 
-type LockedQuote = {amountIn: bigint; amountOut: bigint; minimum: bigint};
+type LockedQuote = {amountIn: bigint; amountOut: bigint; minimum: bigint; lockedAt: number};
 
 function allowanceExpiry(seconds: number): string {
   const milliseconds = seconds * 1_000;
@@ -409,15 +409,24 @@ export function BuyUsdfrPanel({
       return;
     }
     if (prep.phase === "reviewReuse") {
-      if (!lockedQuote || lockedQuote.amountIn !== parsed || quoteIsStale(quote.dataUpdatedAt)) {
+      if (
+        !lockedQuote ||
+        lockedQuote.amountIn !== parsed ||
+        quoteIsStale(lockedQuote.lockedAt) ||
+        !liveQuote ||
+        minimum === null ||
+        liveQuote.amountOut !== lockedQuote.amountOut ||
+        minimum !== lockedQuote.minimum
+      ) {
+        setLockedQuote(null);
         void quote.refetch();
-        setPrep({phase: "notice", message: "The quote changed during allowance review. Check the new quote, then press Buy again."});
+        setPrep({phase: "notice", message: "The quote changed or expired during allowance review. Check the new quote, then press Buy again."});
         return;
       }
       void buy(lockedQuote.amountIn, lockedQuote.minimum, prep);
       return;
     }
-    setLockedQuote({amountIn: parsed, amountOut: liveQuote!.amountOut, minimum: minimum!});
+    setLockedQuote({amountIn: parsed, amountOut: liveQuote!.amountOut, minimum: minimum!, lockedAt: quote.dataUpdatedAt});
     void buy(parsed, minimum!);
   };
 

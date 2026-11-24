@@ -49,7 +49,9 @@ export function SiteNav() {
       }
       if (event.key !== "Tab") return;
       const menuLinks = menuRef.current
-        ? Array.from(menuRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'))
+        ? Array.from(menuRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled])')).filter(
+            (el) => el.getClientRects().length > 0 && window.getComputedStyle(el).visibility !== "hidden",
+          )
         : [];
       const focusables = [menuButtonRef.current, ...menuLinks].filter((el): el is HTMLElement => el !== null);
       if (focusables.length < 2) return;
