@@ -109,12 +109,15 @@ export function TransparencyDashboard() {
     contracts: [
       {address: CONTRACTS.sUSDfr!, abi: VAULT_STAGE2_ABI, functionName: "unresolvedPastDueExposure"},
       {address: CONTRACTS.ReserveManager!, abi: RESERVES_ABI, functionName: "reserveLossExitsLocked"},
+      {address: CONTRACTS.ReserveManager!, abi: RESERVES_ABI, functionName: "recognizedBackingValue"},
     ],
   });
   const unresolvedPastDue =
     freezeData?.[0]?.status === "success" ? (freezeData[0].result as bigint) : undefined;
   const reserveLossExitsLocked =
     freezeData?.[1]?.status === "success" ? (freezeData[1].result as boolean) : undefined;
+  const recognizedBacking =
+    freezeData?.[2]?.status === "success" ? (freezeData[2].result as bigint) : undefined;
   const queueSettlementFrozen =
     (unresolvedPastDue !== undefined && unresolvedPastDue > 0n) || reserveLossExitsLocked === true;
   const {data: feeData} = useReadContracts({
@@ -134,7 +137,9 @@ export function TransparencyDashboard() {
 
   const v = (i: number) => data?.[i]?.result as bigint | undefined;
   const supply = v(0);
-  const backing = v(1);
+  // Prefer recognizedBackingValue() (subtracts physical USDC custody shortfalls) with fallback
+  // to totalBackingValue() on pre-recognition testnet proxies.
+  const backing = recognizedBacking ?? v(1);
   const idle = v(2);
   const deployed = v(3);
   const vaultAssets = v(4);
@@ -325,7 +330,7 @@ export function TransparencyDashboard() {
             </span>
           ) : (
             <span className="rounded-pill border border-danger bg-danger px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white">
-              violated: this should be impossible
+              backing deficit
             </span>
           )}
         </div>
@@ -341,7 +346,7 @@ export function TransparencyDashboard() {
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-on-navy-muted">Backing value</p>
             <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">${fmtBand(backing)}</p>
-            <Reconcile addr={CONTRACTS.ReserveManager!} fn="totalBackingValue" />
+            <Reconcile addr={CONTRACTS.ReserveManager!} fn={recognizedBacking !== undefined ? "recognizedBackingValue" : "totalBackingValue"} />
           </div>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-on-navy-muted">

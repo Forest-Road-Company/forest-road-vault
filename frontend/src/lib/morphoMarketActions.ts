@@ -34,7 +34,8 @@ export function postActionValues(action: MarketAction, amount: bigint, all: bool
       : amount * (market.totalBorrowShares + VIRTUAL_SHARES) / (market.totalBorrowAssets + 1n);
     if (shares > position.borrowShares) return null;
     const assets = all ? s.account.values.borrowed : amount;
-    market.totalBorrowAssets -= assets;
+    market.totalBorrowAssets =
+      market.totalBorrowAssets > assets ? market.totalBorrowAssets - assets : 0n;
     market.totalBorrowShares -= shares;
     position.borrowShares -= shares;
   }

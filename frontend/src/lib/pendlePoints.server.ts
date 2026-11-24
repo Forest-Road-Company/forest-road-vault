@@ -51,7 +51,6 @@ async function readCappedJson(response: Response, limit: number): Promise<unknow
       if (done) break;
       total += value.byteLength;
       if (total > limit) {
-        await reader.cancel().catch(() => undefined);
         fail("the answer is too large");
       }
       chunks.push(value);
@@ -59,6 +58,8 @@ async function readCappedJson(response: Response, limit: number): Promise<unknow
   } catch (error) {
     if (error instanceof PendlePointsUnavailableError) throw error;
     fail("the points site did not finish answering");
+  } finally {
+    await reader.cancel().catch(() => undefined);
   }
   const bytes = new Uint8Array(total);
   let offset = 0;

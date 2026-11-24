@@ -1,6 +1,6 @@
 "use client";
 
-import {useCallback, useEffect, useMemo, useState} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {formatUnits, type Address, type Hash} from "viem";
 import {mainnet} from "viem/chains";
 import {useAccount, usePublicClient, useWalletClient} from "wagmi";
@@ -159,6 +159,8 @@ export function SusdfrV2LiquidityOperation() {
     isConnected && walletMatches && chainId === mainnet.id && deploymentMatches,
   );
 
+  const inFlightRef = useRef(false);
+
   const loadSnapshot = useCallback(async (): Promise<Snapshot> => {
     if (!publicClient || !address) throw new Error("Connect the treasury wallet first.");
     const block = await publicClient.getBlock();
@@ -243,7 +245,20 @@ export function SusdfrV2LiquidityOperation() {
     }
     const stored = readStoredMint(address);
     if (!stored) return;
-    const receipt = await publicClient.getTransactionReceipt({hash: stored.hash});
+    let receipt;
+    try {
+      receipt = await publicClient.getTransactionReceipt({hash: stored.hash});
+    } catch (error) {
+      if (messageFromError(error).toLowerCase().includes("not found")) {
+        setStatus({
+          phase: "pending",
+          message: "A previously submitted V2 liquidity transaction is still pending on-chain. Wait for confirmation before retrying.",
+          hash: stored.hash,
+        });
+        return;
+      }
+      throw error;
+    }
     if (receipt.status !== "success") throw new Error("The stored V2 liquidity transaction reverted.");
     const plan: V2LiquidityPlan = {
       usdc: BigInt(stored.usdc),
@@ -302,7 +317,8 @@ export function SusdfrV2LiquidityOperation() {
 
   const approveToken = useCallback(
     async (token: typeof USDC | typeof SUSDFR, symbol: "USDC" | "sUSDfr") => {
-      if (!connectedCorrectly || !walletClient || !publicClient || !address) return;
+      if (!connectedCorrectly || !walletClient || !publicClient || !address || inFlightRef.current) return;
+      inFlightRef.current = true;
       try {
         const live = await loadSnapshot();
         if (live.pair !== ZERO_ADDRESS) throw new Error("The V2 pair already exists; approvals are locked.");
@@ -343,13 +359,16 @@ export function SusdfrV2LiquidityOperation() {
         } else {
           setStatus({phase: "error", message: messageFromError(error)});
         }
+      } finally {
+        inFlightRef.current = false;
       }
     },
     [address, connectedCorrectly, loadSnapshot, publicClient, walletClient],
   );
 
   const execute = useCallback(async () => {
-    if (!connectedCorrectly || !walletClient || !publicClient || !address) return;
+    if (!connectedCorrectly || !walletClient || !publicClient || !address || inFlightRef.current) return;
+    inFlightRef.current = true;
     let pendingHash: Hash | undefined;
     try {
       setStatus({phase: "reading", message: "Refreshing the pair, exchange rate, balances and exact allowances…"});
@@ -455,6 +474,8 @@ export function SusdfrV2LiquidityOperation() {
       } else {
         setStatus({phase: "error", message: messageFromError(error), hash: pendingHash});
       }
+    } finally {
+      inFlightRef.current = false;
     }
   }, [address, connectedCorrectly, loadSnapshot, publicClient, walletClient]);
 

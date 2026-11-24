@@ -125,7 +125,11 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   }
 
   // Direct USDfr -> USDC preview: captures both par and sub-par pro-rata settlements.
-  const {data: instantPreviewRaw} = useReadContract({
+  const {
+    data: instantPreviewRaw,
+    isLoading: instantPreviewLoading,
+    isError: instantPreviewError,
+  } = useReadContract({
     address: controller,
     abi: CONTROLLER_ABI,
     functionName: "previewRedeem",
@@ -138,10 +142,12 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
     typeof instantPreviewRaw[1] === "bigint"
       ? {usdcOut: instantPreviewRaw[0], usdfrIn: instantPreviewRaw[1]}
       : null;
+  const instantRedeemable =
+    instantQuote !== null && instantQuote.usdcOut > 0n && instantQuote.usdfrIn > 0n;
   const parUsdcOut = parsed !== null ? parsed / 10n ** 12n : 0n;
   const instantSubPar =
     mode === "instant" &&
-    instantQuote !== null &&
+    instantRedeemable &&
     parUsdcOut > 0n &&
     instantQuote.usdcOut < parUsdcOut;
   const subParQuoteKey =
@@ -291,38 +297,30 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   // mirrors the contracts exactly (never stricter, never looser).
   const actionAllowed = mode === "instant" ? writesEnabled : chainOk;
   // Queue mode needs the share allowance LOADED for an honest Approve/Request label.
-  // Instant mode requires explicit sub-par acknowledgement whenever backing is below 1:1.
+  // Instant mode fails closed until previewRedeem returns a positive quote (never submitting
+  // minUsdcOut = 0 or slipping back to 1-arg redeem), and requires explicit acknowledgement when sub-par.
   const canSubmit =
     actionAllowed && parsed !== null && parsed > 0n && !flow.busy &&
     (mode === "instant"
-      ? !instantSubPar || subParAcknowledged
+      ? instantRedeemable && (!instantSubPar || subParAcknowledged)
       : shareAllowance !== undefined &&
         (needsApproval || (redeemCooldown !== undefined && queueAcknowledged)));
 
   const act = () => {
     if (parsed === null) return;
     if (mode === "instant") {
-      if (instantQuote !== null) {
-        const deadline = instantRedeemDeadline();
-        flow.run({
-          address: controller,
-          abi: CONTROLLER_ABI,
-          functionName: "redeem",
-          args: [parsed, instantQuote.usdcOut, deadline],
-          onSuccess: () => {
-            setAmount("");
-            setAcknowledgedSubParQuote(null);
-          },
-        });
-      } else {
-        flow.run({
-          address: controller,
-          abi: CONTROLLER_ABI,
-          functionName: "redeem",
-          args: [parsed],
-          onSuccess: () => setAmount(""),
-        });
-      }
+      if (!instantRedeemable || instantQuote === null) return;
+      const deadline = instantRedeemDeadline();
+      flow.run({
+        address: controller,
+        abi: CONTROLLER_ABI,
+        functionName: "redeem",
+        args: [parsed, instantQuote.usdcOut, deadline],
+        onSuccess: () => {
+          setAmount("");
+          setAcknowledgedSubParQuote(null);
+        },
+      });
     } else if (needsApproval) {
       flow.run({address: vault, abi: ERC20_ABI, functionName: "approve", args: [queue, parsed]});
     } else if (queueAcknowledged) {
@@ -472,18 +470,32 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
         </div>
       ) : null}
 
-      {mode === "instant" && instantQuote !== null && parsed !== null && parsed > 0n ? (
-        <p className="mt-2 font-mono text-[11px] text-ink-faint">
-          Quoted output:{" "}
-          <span className="text-ink-muted">
-            {fmtAmount(instantQuote.usdcOut, 6, 6)} {STABLE_SYMBOL}
-          </span>{" "}
-          for {fmtAmount(instantQuote.usdfrIn, 18, 6)} USDfr
-          {instantSubPar ? " (pro-rata below 1:1 par)" : " (1:1 par)"}
-        </p>
+      {mode === "instant" && parsed !== null && parsed > 0n ? (
+        instantRedeemable && instantQuote !== null ? (
+          <p className="mt-2 font-mono text-[11px] text-ink-faint">
+            Quoted output:{" "}
+            <span className="text-ink-muted">
+              {fmtAmount(instantQuote.usdcOut, 6, 6)} {STABLE_SYMBOL}
+            </span>{" "}
+            for {fmtAmount(instantQuote.usdfrIn, 18, 6)} USDfr
+            {instantSubPar ? " (pro-rata below 1:1 par)" : " (1:1 par)"}
+          </p>
+        ) : instantQuote !== null ? (
+          <p role="status" className="mt-2 font-mono text-[11px] text-warn">
+            {parUsdcOut === 0n
+              ? `Amount is below the 0.000001 USDfr (1 ${STABLE_SYMBOL} base unit) dust floor.`
+              : `Direct redemption currently quotes 0 ${STABLE_SYMBOL} (paused, frozen, accrual pending, or below the minimum redeemable unit).`}
+          </p>
+        ) : instantPreviewError ? (
+          <p role="status" className="mt-2 font-mono text-[11px] text-warn">
+            Redemption quote unavailable on-chain. Check the amount or retry in a moment.
+          </p>
+        ) : instantPreviewLoading ? (
+          <p className="mt-2 font-mono text-[11px] text-ink-faint">Quoting redemption…</p>
+        ) : null
       ) : null}
 
-      {mode === "instant" && instantSubPar && instantQuote !== null ? (
+      {mode === "instant" && instantSubPar && instantRedeemable && instantQuote !== null ? (
         <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-card border border-warn/50 bg-warn/10 p-3 text-[11px] leading-relaxed text-ink">
           <input
             type="checkbox"
@@ -650,6 +662,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
                       </div>
                       {r.assetsClaimable > 0n ? (
                         <button
+                          type="button"
                           onClick={() =>
                             claimFlow.run({
                               address: queue, abi: QUEUE_ABI, functionName: "claim", args: [r.id],

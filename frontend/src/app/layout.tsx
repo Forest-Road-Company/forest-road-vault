@@ -80,7 +80,7 @@ export default function RootLayout({
             <TestnetBanner />
             <SiteNav />
             <ViewTransition name="page-content" default="page-crossfade">
-              <main id="main-content" className="site-main flex-1">{children}</main>
+              <main id="main-content" tabIndex={-1} className="site-main flex-1 focus:outline-none">{children}</main>
             </ViewTransition>
             <SiteFooter />
           </div>

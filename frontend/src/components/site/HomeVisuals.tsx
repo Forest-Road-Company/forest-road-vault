@@ -61,6 +61,7 @@ const amount = (value: bigint | undefined, decimals = 18) => value === undefined
 
 export function HomeTransparencyPreview() {
   const { data } = useReadContracts({
+    allowFailure: true,
     query: PROTOCOL_POLL,
     contracts: [
       { address: CONTRACTS.USDfr!, abi: ERC20_ABI, functionName: "totalSupply" },
@@ -69,11 +70,15 @@ export function HomeTransparencyPreview() {
       { address: CONTRACTS.ReserveManager!, abi: RESERVES_ABI, functionName: "deployedPrincipal" },
       { address: CONTRACTS.sUSDfr!, abi: VAULT_ABI, functionName: "currentExchangeRate" },
       { address: CONTRACTS.ClaimBridge!, abi: BRIDGE_ABI, functionName: "totalOriginated" },
+      { address: CONTRACTS.ReserveManager!, abi: RESERVES_ABI, functionName: "recognizedBackingValue" },
     ],
   });
-  const value = (index: number) => data?.[index]?.result as bigint | undefined;
+  const value = (index: number) =>
+    data?.[index]?.status === "success" ? (data[index].result as bigint) : undefined;
   const supply = value(0);
-  const backing = value(1);
+  // Prefer recognizedBackingValue() (subtracts physical USDC custody shortfall) with fallback
+  // to totalBackingValue() on pre-recognition testnet deployments.
+  const backing = value(6) ?? value(1);
   const idle = value(2);
   const deployed = value(3);
   const rate = value(4);

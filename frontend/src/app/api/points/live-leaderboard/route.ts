@@ -9,19 +9,27 @@ const MAX_BODY_BYTES = 1_048_576;
 
 type Row = {rank: number; wallet: string; points: string; onchain: string; pendle: string; morpho: string};
 type Venue = {key: string; label: string; address: string; points: string; note: string};
+type PendleMeta = {enabled: false} | {enabled: true; asOfBlock: string; asOfTimestamp: number};
+type MorphoMeta = {enabled: boolean; withheld: number};
 type ValidatedBoard = {
   ok: true;
   enabled: true;
-  asOfBlock?: string;
-  asOfTimestamp?: string;
-  rankedWallets?: number;
+  asOfBlock: string;
+  asOfTimestamp: string;
+  pendle: PendleMeta;
+  morpho: MorphoMeta;
+  ranked: number;
   rankedPoints: string;
-  totalPoints?: string;
-  forestRoadPoints?: string;
   truncated: boolean;
   rows: Row[];
-  venues?: Venue[];
+  forestRoad: {wallets: number; points: string};
+  venues: Venue[];
+  notRanked: {jurisdictionBlocked: number; belowOnePoint: number};
 };
+
+function isSafeNonNegativeInt(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
 
 function validBoard(value: unknown): ValidatedBoard | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -29,16 +37,59 @@ function validBoard(value: unknown): ValidatedBoard | null {
   if (board.ok !== true || board.enabled !== true || !Array.isArray(board.rows) || board.rows.length > LEADERBOARD_MAX_ROWS) {
     return null;
   }
-  if (typeof board.rankedPoints !== "string" || !UINT.test(board.rankedPoints) || typeof board.truncated !== "boolean") {
+  if (
+    typeof board.asOfBlock !== "string" ||
+    !UINT.test(board.asOfBlock) ||
+    typeof board.asOfTimestamp !== "string" ||
+    !UINT.test(board.asOfTimestamp) ||
+    !isSafeNonNegativeInt(board.ranked) ||
+    board.ranked < board.rows.length ||
+    typeof board.rankedPoints !== "string" ||
+    !UINT.test(board.rankedPoints) ||
+    typeof board.truncated !== "boolean"
+  ) {
     return null;
   }
-  if (board.asOfBlock !== undefined && (typeof board.asOfBlock !== "string" || !UINT.test(board.asOfBlock))) return null;
-  if (board.asOfTimestamp !== undefined && (typeof board.asOfTimestamp !== "string" || !UINT.test(board.asOfTimestamp))) return null;
-  if (board.totalPoints !== undefined && (typeof board.totalPoints !== "string" || !UINT.test(board.totalPoints))) return null;
-  if (board.forestRoadPoints !== undefined && (typeof board.forestRoadPoints !== "string" || !UINT.test(board.forestRoadPoints))) return null;
-  if (board.rankedWallets !== undefined && (!Number.isSafeInteger(board.rankedWallets) || (board.rankedWallets as number) < board.rows.length)) {
+
+  // Validate nested `pendle`, `morpho`, `forestRoad`, `notRanked`, and `venues` objects required
+  // unconditionally by PointsLeaderboard.tsx.
+  if (!board.pendle || typeof board.pendle !== "object" || Array.isArray(board.pendle)) return null;
+  const rawPendle = board.pendle as Record<string, unknown>;
+  let pendle: PendleMeta;
+  if (rawPendle.enabled === false) {
+    pendle = {enabled: false};
+  } else if (
+    rawPendle.enabled === true &&
+    typeof rawPendle.asOfBlock === "string" &&
+    UINT.test(rawPendle.asOfBlock) &&
+    isSafeNonNegativeInt(rawPendle.asOfTimestamp)
+  ) {
+    pendle = {enabled: true, asOfBlock: rawPendle.asOfBlock, asOfTimestamp: rawPendle.asOfTimestamp};
+  } else {
     return null;
   }
+
+  if (!board.morpho || typeof board.morpho !== "object" || Array.isArray(board.morpho)) return null;
+  const rawMorpho = board.morpho as Record<string, unknown>;
+  if (typeof rawMorpho.enabled !== "boolean" || !isSafeNonNegativeInt(rawMorpho.withheld)) return null;
+  const morpho: MorphoMeta = {enabled: rawMorpho.enabled, withheld: rawMorpho.withheld};
+
+  if (!board.forestRoad || typeof board.forestRoad !== "object" || Array.isArray(board.forestRoad)) return null;
+  const rawFr = board.forestRoad as Record<string, unknown>;
+  if (!isSafeNonNegativeInt(rawFr.wallets) || typeof rawFr.points !== "string" || !UINT.test(rawFr.points)) return null;
+  const forestRoad = {wallets: rawFr.wallets, points: rawFr.points};
+
+  if (!board.notRanked || typeof board.notRanked !== "object" || Array.isArray(board.notRanked)) return null;
+  const rawNotRanked = board.notRanked as Record<string, unknown>;
+  if (!isSafeNonNegativeInt(rawNotRanked.jurisdictionBlocked) || !isSafeNonNegativeInt(rawNotRanked.belowOnePoint)) {
+    return null;
+  }
+  const notRanked = {
+    jurisdictionBlocked: rawNotRanked.jurisdictionBlocked,
+    belowOnePoint: rawNotRanked.belowOnePoint,
+  };
+
+  if (!Array.isArray(board.venues) || board.venues.length > 50) return null;
 
   const wallets = new Set<string>();
   const rows: Row[] = [];
@@ -79,51 +130,49 @@ function validBoard(value: unknown): ValidatedBoard | null {
   const rankedPoints = BigInt(board.rankedPoints);
   if (board.truncated ? rankedPoints < total : rankedPoints !== total) return null;
 
-  let venues: Venue[] | undefined;
-  if (board.venues !== undefined) {
-    if (!Array.isArray(board.venues) || board.venues.length > 50) return null;
-    venues = [];
-    for (const rawVenue of board.venues) {
-      if (!rawVenue || typeof rawVenue !== "object" || Array.isArray(rawVenue)) return null;
-      const venue = rawVenue as Partial<Venue>;
-      if (
-        typeof venue.key !== "string" ||
-        venue.key.length === 0 ||
-        venue.key.length > 80 ||
-        typeof venue.label !== "string" ||
-        venue.label.length === 0 ||
-        venue.label.length > 160 ||
-        typeof venue.address !== "string" ||
-        !ADDRESS.test(venue.address) ||
-        typeof venue.points !== "string" ||
-        !UINT.test(venue.points) ||
-        typeof venue.note !== "string" ||
-        venue.note.length > 400
-      ) {
-        return null;
-      }
-      venues.push({
-        key: venue.key,
-        label: venue.label,
-        address: venue.address,
-        points: venue.points,
-        note: venue.note,
-      });
+  const venues: Venue[] = [];
+  for (const rawVenue of board.venues) {
+    if (!rawVenue || typeof rawVenue !== "object" || Array.isArray(rawVenue)) return null;
+    const venue = rawVenue as Partial<Venue>;
+    if (
+      typeof venue.key !== "string" ||
+      venue.key.length === 0 ||
+      venue.key.length > 80 ||
+      typeof venue.label !== "string" ||
+      venue.label.length === 0 ||
+      venue.label.length > 160 ||
+      typeof venue.address !== "string" ||
+      !ADDRESS.test(venue.address) ||
+      typeof venue.points !== "string" ||
+      !UINT.test(venue.points) ||
+      typeof venue.note !== "string" ||
+      venue.note.length > 400
+    ) {
+      return null;
     }
+    venues.push({
+      key: venue.key,
+      label: venue.label,
+      address: venue.address,
+      points: venue.points,
+      note: venue.note,
+    });
   }
 
   return {
     ok: true,
     enabled: true,
-    ...(board.asOfBlock !== undefined ? {asOfBlock: board.asOfBlock} : {}),
-    ...(board.asOfTimestamp !== undefined ? {asOfTimestamp: board.asOfTimestamp} : {}),
-    ...(board.rankedWallets !== undefined ? {rankedWallets: board.rankedWallets as number} : {}),
+    asOfBlock: board.asOfBlock,
+    asOfTimestamp: board.asOfTimestamp,
+    pendle,
+    morpho,
+    ranked: board.ranked,
     rankedPoints: board.rankedPoints,
-    ...(board.totalPoints !== undefined ? {totalPoints: board.totalPoints} : {}),
-    ...(board.forestRoadPoints !== undefined ? {forestRoadPoints: board.forestRoadPoints} : {}),
     truncated: board.truncated,
     rows,
-    ...(venues !== undefined ? {venues} : {}),
+    forestRoad,
+    venues,
+    notRanked,
   };
 }
 
@@ -174,7 +223,7 @@ export async function GET(request: Request) {
     const validated = validBoard(body);
     if (!validated) throw new Error("upstream leaderboard failed validation");
     return Response.json(validated, {
-      headers: {"cache-control": "public, s-maxage=300, stale-while-revalidate=600, stale-if-error=600"},
+      headers: {"cache-control": "public, max-age=0, must-revalidate, s-maxage=300, stale-while-revalidate=600, stale-if-error=600"},
     });
   } catch (error) {
     const name = error instanceof Error ? error.name : "UnknownError";
@@ -190,6 +239,6 @@ export async function GET(request: Request) {
 export async function POST() {
   return Response.json(
     {ok: false, error: "Method not allowed."},
-    {status: 405, headers: {"cache-control": "no-store"}},
+    {status: 405, headers: {allow: "GET", "cache-control": "no-store"}},
   );
 }

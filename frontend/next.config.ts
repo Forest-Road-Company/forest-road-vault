@@ -105,7 +105,12 @@ function checkoutHead(): string | null {
 
 function extraConnectOrigins(): string[] {
   const out = new Set<string>();
-  for (const raw of [process.env.NEXT_PUBLIC_RPC_URL, process.env.NEXT_PUBLIC_SOLANA_RPC_URL]) {
+  const rpcRaw = process.env.NEXT_PUBLIC_RPC_URL?.trim();
+  if (!rpcRaw && process.env.NEXT_PUBLIC_CHAIN_ID === "11155111") {
+    // viem's built-in Sepolia default when NEXT_PUBLIC_RPC_URL is unset on testnet builds.
+    out.add("https://11155111.rpc.thirdweb.com");
+  }
+  for (const raw of [rpcRaw, process.env.NEXT_PUBLIC_SOLANA_RPC_URL]) {
     const trimmed = raw?.trim();
     if (!trimmed || trimmed.startsWith("/")) continue;
     try {
@@ -135,7 +140,6 @@ const connectSources = [
   "wss://*.reown.com",
   "https://*.web3modal.org",
   "https://*.web3modal.com",
-  "https://pulse.walletconnect.org",
   "https://api.mainnet-beta.solana.com",
   "wss://api.mainnet-beta.solana.com",
   "https://api.devnet.solana.com",
@@ -148,7 +152,7 @@ const connectSources = [
 
 const contentSecurityPolicy = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ""}`,
+  `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval' https://va.vercel-scripts.com" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://api.web3modal.org https://secure.walletconnect.org",
   "font-src 'self' data: https://fonts.reown.com",

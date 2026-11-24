@@ -41,5 +41,23 @@ describe("pageMetadata", () => {
     });
     expect(metadata.twitter).toMatchObject({title: "Share title", description: "Share description."});
     expect(metadata.robots).toEqual({index: false, follow: false});
+    expect(metadata.alternates).toEqual({canonical: null});
+  });
+
+  it("clears canonical when a route is marked noindex even if a path is supplied", () => {
+    const metadata = pageMetadata({
+      title: "Private op | Forest Road Vault",
+      description: "Private op.",
+      path: "/liquidity",
+      robots: {index: false, follow: false},
+    });
+    expect(metadata.alternates).toEqual({canonical: null});
+
+    const indexed = pageMetadata({
+      title: "Docs | Forest Road Vault",
+      description: "Docs.",
+      path: "/docs",
+    });
+    expect(indexed.alternates).toEqual({canonical: "/docs"});
   });
 });

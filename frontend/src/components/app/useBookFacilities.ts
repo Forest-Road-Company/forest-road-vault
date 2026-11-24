@@ -71,10 +71,10 @@ function decodeBookFacilities(
     return {facilityCount, blockTimestamp: null, facilities: null, capped};
   }
   const timestampEntry = data[0];
-  if (timestampEntry?.status !== "success" || typeof timestampEntry.result !== "bigint") {
-    return {facilityCount, blockTimestamp: null, facilities: null, capped};
-  }
-  const blockTimestamp = timestampEntry.result;
+  const blockTimestamp =
+    timestampEntry?.status === "success" && typeof timestampEntry.result === "bigint"
+      ? timestampEntry.result
+      : null;
   if (facilityCount === 0n) {
     return {facilityCount, blockTimestamp, facilities: [], capped};
   }
@@ -181,6 +181,9 @@ export function useBookFacilities(knownFacilityCount?: bigint) {
   const {data} = useReadContracts({
     contracts,
     allowFailure: true,
+    // Keep the entire facility book + Multicall3.getCurrentBlockTimestamp() inside one atomic
+    // aggregate3 eth_call (viem defaults to 1,024 bytes, which splits at >=8 facilities).
+    batchSize: 65_536,
     query: {
       ...POLL,
       enabled: facilityCount !== undefined && facilityCount <= MAX_CLIENT_FACILITIES,

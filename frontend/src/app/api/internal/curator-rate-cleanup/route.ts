@@ -43,16 +43,21 @@ export async function GET(request: Request) {
   try {
     for (let page = 0; page < MAX_PAGES; page += 1) {
       if (page > 0 && Date.now() - startedAt >= CLEANUP_BUDGET_MS) break;
-      const result = await list({prefix: PREFIX, cursor, limit: 1_000});
+      const result = await list({
+        prefix: PREFIX,
+        cursor,
+        limit: 1_000,
+        abortSignal: AbortSignal.timeout(10_000),
+      });
       const expired = result.blobs
         .filter((blob) => new Date(blob.uploadedAt).getTime() < cutoff)
         .map((blob) => blob.url);
       if (expired.length > 0) {
-        await del(expired);
+        await del(expired, {abortSignal: AbortSignal.timeout(10_000)});
         deleted += expired.length;
       }
-      if (!result.hasMore) {
-        complete = true;
+      if (!result.hasMore || !result.cursor) {
+        complete = !result.hasMore;
         break;
       }
       cursor = result.cursor;

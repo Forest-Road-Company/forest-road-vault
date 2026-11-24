@@ -87,8 +87,8 @@ dependency is tested and must be part of incident procedure.
 
 ### `FEE_ACCOUNTING_ROLE`: fee-neutral junior-capacity changes
 
-CuratorModule brackets first-loss posts/withdrawals, SGrove brackets coverage funding and
-per-event-cap changes, and DefaultManager brackets backstop replacement with
+CuratorModule brackets first-loss posts/withdrawals, SGrove brackets coverage funding,
+and DefaultManager brackets backstop replacement with
 `sUSDfr.beginFeeNeutralMarkedNavChange` /
 `sUSDfr.endFeeNeutralMarkedNavChange`. The vault checkpoints first, snapshots share supply,
 and keeps permissionless fee accrual locked between the calls. It does not infer a hurdle

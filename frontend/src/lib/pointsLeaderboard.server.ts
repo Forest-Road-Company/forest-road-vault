@@ -383,24 +383,43 @@ function blobSnapshotStore(): DiscoverySnapshotStore | undefined {
           return null;
         }
         return parsed as DiscoverySnapshot;
-      } catch {
+      } catch (error) {
+        const name = error instanceof Error ? error.name : "UnknownError";
+        console.error(`leaderboard.snapshot load failed: ${name}`);
         return null;
       }
     },
     async save(snapshot: DiscoverySnapshot): Promise<void> {
-      try {
-        await putBlob(SNAPSHOT_BLOB_PATH, JSON.stringify(snapshot), {
-          access: "private",
-          contentType: "application/json",
-          addRandomSuffix: false,
-          allowOverwrite: true,
-          abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
-        });
-      } catch {
-        // Best-effort cache write; on-chain discovery remains authoritative.
-      }
+      await putBlob(SNAPSHOT_BLOB_PATH, JSON.stringify(snapshot), {
+        access: "private",
+        contentType: "application/json",
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
+      });
     },
   };
+}
+
+/** Await a bounded best-effort snapshot save so Vercel Serverless does not freeze and drop it,
+ *  advancing `lastSavedSnapshotBlock` only after persistence actually succeeds. */
+async function persistDiscoverySnapshot(deps: LeaderboardDeps, d: Discovery): Promise<void> {
+  if (!deps.snapshotStore || d.scannedTo <= lastSavedSnapshotBlock) return;
+  try {
+    await deps.snapshotStore.save({
+      version: 1,
+      key: d.key,
+      scannedTo: d.scannedTo.toString(),
+      wallets: [...d.wallets],
+      curators: [...d.curators],
+    });
+    if (d.scannedTo > lastSavedSnapshotBlock) {
+      lastSavedSnapshotBlock = d.scannedTo;
+    }
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "UnknownError";
+    console.error(`leaderboard.snapshot save failed: ${name}`);
+  }
 }
 
 function discoveryFor(deps: LeaderboardDeps): Discovery {
@@ -475,10 +494,13 @@ async function extendDiscovery(deps: LeaderboardDeps, toBlock: bigint, deadline:
     const snap = await deps.snapshotStore.load(d.key);
     if (snap && discovery === d) {
       const snapBlock = BigInt(snap.scannedTo);
-      if (snapBlock >= deps.protocolDeploymentBlock && snapBlock <= toBlock && snap.wallets.length <= MAX_PARTICIPANTS) {
+      if (snapBlock >= deps.protocolDeploymentBlock && snap.wallets.length <= MAX_PARTICIPANTS) {
         for (const wallet of snap.wallets) d.wallets.add(wallet);
         for (const curator of snap.curators) d.curators.add(curator);
-        d.scannedTo = snapBlock;
+        // A finalized snapshot slightly ahead of a lagging RPC replica still contains every
+        // participant through `toBlock`; clamp the cursor to `toBlock` and let `readOnchain`
+        // verify exact tracked-total completeness at `toBlock`.
+        d.scannedTo = snapBlock <= toBlock ? snapBlock : toBlock;
         lastSavedSnapshotBlock = snapBlock;
       }
     }
@@ -489,6 +511,7 @@ async function extendDiscovery(deps: LeaderboardDeps, toBlock: bigint, deadline:
   while (from <= toBlock) {
     const pastDeadline = deps.now() > deadline;
     if (!first && pastDeadline) {
+      await persistDiscoverySnapshot(deps, d);
       throw new LeaderboardNotReadyError("leaderboard: still indexing participants");
     }
     first = false;
@@ -816,7 +839,9 @@ export async function loadPointsLeaderboard(injected?: LeaderboardDeps, arrivedA
   const pendleAbort = new AbortController();
   const pendlePending = settle(deps.pendle(pendleAbort.signal));
   try {
+    const beforeMorpho = deps.now();
     const morpho = await deps.morpho(started);
+    const morphoElapsed = Math.max(0, deps.now() - beforeMorpho);
     let asOf: {number: bigint; timestamp: bigint};
     if (morpho.enabled) {
       asOf = {number: morpho.asOfBlock, timestamp: morpho.asOfTimestamp};
@@ -829,21 +854,17 @@ export async function loadPointsLeaderboard(injected?: LeaderboardDeps, arrivedA
       throw new LeaderboardNotReadyError("leaderboard: the protocol's deployment block is not finalized yet");
     }
     const {supportsBscCredits} = await checkWiring(deps, asOf.number);
-    const d = await discoverTo(deps, asOf.number, deadline);
+    // Preserve an already-expired arrival deadline for queued requests (L25), while crediting
+    // cold Morpho scan time spent inside this request so discovery gets its own budget (both stay
+    // well inside maxDuration = 120).
+    const discoverDeadline =
+      beforeMorpho > deadline ? deadline : deadline + Math.min(morphoElapsed, REQUEST_BUDGET_MS);
+    const d = await discoverTo(deps, asOf.number, discoverDeadline);
     let onchain: Onchain;
     try {
       onchain = await readOnchain(deps, asOf.number, [...d.wallets], [...d.curators], supportsBscCredits);
       skipSnapshotUntilVerified = false;
-      if (deps.snapshotStore && d.scannedTo > lastSavedSnapshotBlock) {
-        lastSavedSnapshotBlock = d.scannedTo;
-        void deps.snapshotStore.save({
-          version: 1,
-          key: d.key,
-          scannedTo: d.scannedTo.toString(),
-          wallets: [...d.wallets],
-          curators: [...d.curators],
-        });
-      }
+      await persistDiscoverySnapshot(deps, d);
     } catch (error) {
       if (error instanceof LeaderboardIntegrityError && discovery === d) {
         discovery = null;

@@ -34,7 +34,7 @@ function describe(error: unknown): string {
  * server applies to its own last whole answer (ANSWER_STALE_IF_ERROR_MS): a failing loader, an
  * integrity failure included, is never hidden for longer than that.
  */
-const FRESH_CACHE = "public, s-maxage=300, stale-while-revalidate=600, stale-if-error=600";
+const FRESH_CACHE = "public, max-age=0, must-revalidate, s-maxage=300, stale-while-revalidate=600, stale-if-error=600";
 /** How soon the page should ask again after a 503: the instance keeps its discovery progress. */
 const CATCHING_UP_RETRY_SECONDS = 10;
 
@@ -51,7 +51,7 @@ export async function GET(request: Request) {
     const served = await servePointsLeaderboard(arrivedAt);
     if (served.stale) {
       console.error(`points.leaderboard failed, serving the last whole answer: ${describe(served.error)}`);
-      return Response.json(served.answer, {headers: {"cache-control": "public, s-maxage=60"}});
+      return Response.json(served.answer, {headers: {"cache-control": "public, max-age=0, must-revalidate, s-maxage=60"}});
     }
     return Response.json(served.answer, {headers: {"cache-control": FRESH_CACHE}});
   } catch (error) {
@@ -78,6 +78,6 @@ export async function GET(request: Request) {
 export async function POST() {
   return Response.json(
     {ok: false, error: "Method not allowed."},
-    {status: 405, headers: {"cache-control": "no-store"}},
+    {status: 405, headers: {allow: "GET", "cache-control": "no-store"}},
   );
 }

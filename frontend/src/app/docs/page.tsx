@@ -82,9 +82,9 @@ export default function DocsIndex() {
               className="group flex h-full flex-col rounded-card border border-navy-border bg-navy-deep p-8 transition-colors hover:border-on-navy-accent"
             >
               <p className="running-head text-on-navy-accent">{e.eyebrow}</p>
-              <h2 className="display mt-4 text-[25px] leading-tight text-on-navy">
+              <h3 className="display mt-4 text-[25px] leading-tight text-on-navy">
                 {e.title}
-              </h2>
+              </h3>
               <p className="mt-4 text-[14px] leading-relaxed text-on-navy-muted">
                 {e.summary}
               </p>

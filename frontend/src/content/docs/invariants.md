@@ -104,7 +104,7 @@ settlement is bounded by a snapshotted budget (rounding always favors the pool);
 to 0 assets are rejected (audit R3 N-1); a zero-distribution settlement with requests
 queued reverts rather than consuming the epoch (audit R2 A1; anti-DoS).
 
-**Tests.** `invariant_queue_fifoHolds`, `invariant_queue_custodyReconciles`,
+**Tests.** `invariant_queue_fifoHolds`, `invariant_queue_internalAggregateMatchesItems`,
 `invariant_exchangeRate_neverFallsFromQueueOps`.
 
 ## 6. Concentration limits
@@ -173,11 +173,11 @@ hurdle against a pre-flow reference law.
 role-admin graph (all roles admin'd by `DEFAULT_ADMIN_ROLE`, no self-granting loop);
 UUPS `_authorizeUpgrade` is gated by `UPGRADER_ROLE` (the timelock) on role-based
 modules; `FRGovernor` is separately gated by `onlyGovernance`. See
-`docs/access-control-matrix.md`.
+[Roles and governance](/docs/roles-and-governance).
 
 **Tests.** Exhaustive per-function unit tests (authorized + unauthorized caller for every
-role-gated function; 100% branch), plus `Validate.s.sol` asserts the live role topology
-(positive AND negative holdings).
+role-gated function; 100% branch), plus `Validate.s.sol` and `ValidateMainnetProductionV2.s.sol`
+assert the live role topology (positive AND negative holdings).
 
 ## 9. USDC reserve accounting
 
@@ -231,8 +231,8 @@ backing and role revocation have all been independently verified.
   against the real controller/reserve implementations, one full-domain user-flow lemma), the
   modeled cascade arithmetic across nine paths, and two reserve custody-incident properties
   that execute the real linked incident helper. Exact scope and trust boundaries are documented
-  in `docs/formal-methods-amenability.md`; this supplements, rather than replaces, the
-  integrated backing and cascade campaigns.
+  in [Security](/docs/security) and the repository's formal-methods specification; this supplements,
+  rather than replaces, the integrated backing and cascade campaigns.
 - **Gas snapshots:** `forge snapshot` tracked; regressions flagged in review.
 
 *This spec is a living document. Any new value-moving path must add its invariant here and

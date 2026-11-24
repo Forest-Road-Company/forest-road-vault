@@ -206,8 +206,10 @@ export function CuratorVaultPanel() {
       setHistoryState("loading");
       try {
         // Failed transactions carry no state change and are skipped, and only this wallet's own
-        // coupon events count.
-        const sigs = (await connection.getSignaturesForAddress(positionKey, { limit: HISTORY_LIMIT })).filter((x) => !x.err);
+        // coupon events count. Measure truncation before filtering failed txs so failed entries
+        // cannot hide older coupon payouts.
+        const rawSigs = await connection.getSignaturesForAddress(positionKey, { limit: HISTORY_LIMIT });
+        const sigs = rawSigs.filter((x) => !x.err);
         const txs = await fetchTransactionsGently(connection, sigs.map((x) => x.signature));
         if (!live()) return;
         const parser = new EventParser(programId, program.coder);
@@ -222,7 +224,7 @@ export function CuratorVaultPanel() {
           }
         });
         setHistory(rows);
-        setHistoryTruncated(sigs.length >= HISTORY_LIMIT);
+        setHistoryTruncated(rawSigs.length >= HISTORY_LIMIT);
         setHistoryState("ok");
       } catch {
         if (!live()) return;
@@ -369,14 +371,16 @@ export function CuratorVaultPanel() {
           setNotice({ tone: "bad", text: `${label} was sent but not seen confirmed before the transaction expired. Check the position below; if it did not change, try again.` });
         }
       } catch (e) {
-        if (sig) {
-          setNotice({ tone: "bad", text: `${label} was sent (${short(sig)}) but its status could not be read. The position below is re-read from chain.` });
-          if (actionWalletIsCurrent()) await refresh();
-        } else {
-          setNotice({ tone: "bad", text: describeFailure(e, (e as { logs?: string[] }).logs) });
+        if (actionWalletIsCurrent()) {
+          if (sig) {
+            setNotice({ tone: "bad", text: `${label} was sent (${short(sig)}) but its status could not be read. The position below is re-read from chain.` });
+            await refresh();
+          } else {
+            setNotice({ tone: "bad", text: describeFailure(e, (e as { logs?: string[] }).logs) });
+          }
         }
       } finally {
-        setBusy(null);
+        if (actionWalletIsCurrent()) setBusy(null);
       }
     },
     [connection, publicKey, refresh, sendTransaction, setAmount, setNotice],
@@ -744,10 +748,10 @@ export function CuratorVaultPanel() {
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="text-left text-ink-faint">
-                  <th className="py-1.5 font-medium">Period through</th>
-                  <th className="py-1.5 font-medium">Amount</th>
-                  <th className="py-1.5 font-medium">Paid</th>
-                  <th className="py-1.5 font-medium">Transaction</th>
+                  <th scope="col" className="py-1.5 font-medium">Period through</th>
+                  <th scope="col" className="py-1.5 font-medium">Amount</th>
+                  <th scope="col" className="py-1.5 font-medium">Paid</th>
+                  <th scope="col" className="py-1.5 font-medium">Transaction</th>
                 </tr>
               </thead>
               <tbody>

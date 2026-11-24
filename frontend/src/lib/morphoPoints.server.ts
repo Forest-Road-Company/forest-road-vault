@@ -590,34 +590,55 @@ async function checkLedgerWiring(deps: MorphoPointsDeps, block: bigint): Promise
  * earlier capped request committed, would replay a history nobody counted, and a missing epoch
  * log would over-award every owner.
  */
+const EPOCH_WAVE_CONCURRENCY = 4;
+
 async function extendEpochs(deps: MorphoPointsDeps, h: History, toBlock: bigint, deadline: number): Promise<void> {
   let from = h.epochsScannedTo === 0n ? deps.protocolDeploymentBlock : h.epochsScannedTo + 1n;
-  for (let chunks = 0; from <= toBlock; ++chunks) {
-    if (chunks >= MAX_CHUNKS_PER_REQUEST || (chunks > 0 && deps.now() > deadline)) {
+  for (let chunks = 0; from <= toBlock; ) {
+    const pastDeadline = deps.now() > deadline;
+    if (chunks >= MAX_CHUNKS_PER_REQUEST || (chunks > 0 && pastDeadline)) {
       throw new MorphoPointsNotReadyError("points: catching up on rate history");
     }
-    const to = from + BLOCK_CHUNK - 1n < toBlock ? from + BLOCK_CHUNK - 1n : toBlock;
-    const logs = await getLogs(deps, deps.contracts.points, [RATE_EPOCH_TOPIC], from, to);
-    const map = await headers(
-      deps,
-      logs.map((log) => BigInt(log.blockNumber)),
-    );
-    const added: RateEpoch[] = [];
-    for (const log of logs) {
-      const decoded = decodeEventLog({
-        abi: POINTS_HISTORY_ABI,
-        topics: log.topics as [Hex, ...Hex[]],
-        data: log.data,
-        strict: true,
-      });
-      if (decoded.args.index !== BigInt(h.epochs.length + added.length)) {
-        throw new MorphoPointsIntegrityError("points: rate epochs are not contiguous");
-      }
-      added.push({start: headerFor(map, log), ratePerUnitDay: decoded.args.ratePerUnitDay});
+    const remainingChunks = (toBlock - from) / BLOCK_CHUNK + 1n;
+    const maxAllowed = MAX_CHUNKS_PER_REQUEST - chunks;
+    const remainingMs = Math.max(0, deadline - deps.now());
+    const budgetWave = Math.max(1, Math.floor(remainingMs / 1_000));
+    const waveSize =
+      !pastDeadline && remainingChunks > 4n
+        ? Math.min(EPOCH_WAVE_CONCURRENCY, maxAllowed, budgetWave)
+        : 1;
+    const waveRanges: Array<{from: bigint; to: bigint}> = [];
+    for (let i = 0; i < waveSize && from <= toBlock; i += 1) {
+      const to = from + BLOCK_CHUNK - 1n < toBlock ? from + BLOCK_CHUNK - 1n : toBlock;
+      waveRanges.push({from, to});
+      from = to + 1n;
     }
-    for (const epoch of added) h.epochs.push(epoch);
-    h.epochsScannedTo = to;
-    from = to + 1n;
+    const waveLogs = await Promise.all(
+      waveRanges.map((range) => getLogs(deps, deps.contracts.points, [RATE_EPOCH_TOPIC], range.from, range.to)),
+    );
+    for (let i = 0; i < waveLogs.length; i += 1) {
+      const logs = waveLogs[i];
+      const map = await headers(
+        deps,
+        logs.map((log) => BigInt(log.blockNumber)),
+      );
+      const added: RateEpoch[] = [];
+      for (const log of logs) {
+        const decoded = decodeEventLog({
+          abi: POINTS_HISTORY_ABI,
+          topics: log.topics as [Hex, ...Hex[]],
+          data: log.data,
+          strict: true,
+        });
+        if (decoded.args.index !== BigInt(h.epochs.length + added.length)) {
+          throw new MorphoPointsIntegrityError("points: rate epochs are not contiguous");
+        }
+        added.push({start: headerFor(map, log), ratePerUnitDay: decoded.args.ratePerUnitDay});
+      }
+      for (const epoch of added) h.epochs.push(epoch);
+      h.epochsScannedTo = waveRanges[i].to;
+      chunks += 1;
+    }
   }
   if (h.epochsVerifiedTo < h.epochsScannedTo) {
     const count = await deps.client.readContract({
@@ -967,13 +988,16 @@ export async function loadMorphoCollateralPoints(
   };
 
   if (!useWalletCache) return compute();
+  const committedHistory = history;
   const promise = compute()
     .then((answer) => {
-      if (walletAnswerCache.size >= MAX_WALLET_CACHE) {
-        const oldest = walletAnswerCache.keys().next().value;
-        if (oldest !== undefined) walletAnswerCache.delete(oldest);
+      if (history === committedHistory) {
+        if (walletAnswerCache.size >= MAX_WALLET_CACHE) {
+          const oldest = walletAnswerCache.keys().next().value;
+          if (oldest !== undefined) walletAnswerCache.delete(oldest);
+        }
+        walletAnswerCache.set(cacheKey, {answer, at: deps.now()});
       }
-      walletAnswerCache.set(cacheKey, {answer, at: deps.now()});
       return answer;
     })
     .finally(() => {

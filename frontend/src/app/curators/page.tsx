@@ -46,7 +46,7 @@ const facts = [
   {
     value: "Solana and Ethereum",
     label: "subscriptions first",
-    note: "Ethereum is live today through the CuratorModule; Solana through the subscription vault; Canton to follow",
+    note: "Ethereum is live today through the CuratorModule; Solana subscription vault is in devnet preview ahead of mainnet audit; Canton to follow",
   },
 ] as const;
 
@@ -80,7 +80,7 @@ const steps = [
   },
   {
     label: "Subscription",
-    body: "Ethereum-native curators post USDfr into the CuratorModule, which is live, from this page once governance has approved their wallet for a class. Solana-native curators subscribe on this page through a dedicated vault program that records principal, commitment and notice on chain and pays under the agreement; it is audited before it takes a mainnet deposit.",
+    body: "Ethereum-native curators post USDfr into the CuratorModule, which is live, from this page once governance has approved their wallet for a class. Solana-native curators will subscribe on this page through a dedicated vault program (currently in devnet preview) that records principal, commitment and notice on chain and pays under the agreement; it will be audited before taking a mainnet deposit.",
   },
 ];
 
@@ -175,6 +175,7 @@ export default function CuratorsPage() {
       {/* ── How joining works. ──────────────────────────────────────────── */}
       <Section tone="light">
         <NumberedRows
+          headingAs="h2"
           heading="How the programme works."
           aside="Four steps: eligibility and bilateral terms happen off-chain; registration and approved-wallet subscription live below."
           rows={steps}

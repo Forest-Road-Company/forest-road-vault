@@ -124,7 +124,10 @@ describe("curator interest admission", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const response = await POST(request({email: "curator@example.com"}));
     expect(response.status).toBe(502);
-    expect(blob.del).toHaveBeenCalledWith([String(blob.put.mock.calls[0][0])]);
+    expect(blob.del).toHaveBeenCalledWith(
+      [String(blob.put.mock.calls[0][0])],
+      expect.objectContaining({abortSignal: expect.any(AbortSignal)}),
+    );
     log.mockRestore();
   });
 

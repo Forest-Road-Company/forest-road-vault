@@ -332,4 +332,16 @@ describe("PointsLeaderboard", () => {
     await screen.findByRole("table");
     expect(screen.queryByTestId("leaderboard-pendle-off")).not.toBeInTheDocument();
   });
+
+  it("pins wallet explorer links to Ethereum mainnet Etherscan when rendering the staging live-leaderboard endpoint", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(board())));
+    const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
+    render(
+      <QueryClientProvider client={client}>
+        <PointsLeaderboard endpoint="/api/points/live-leaderboard" />
+      </QueryClientProvider>,
+    );
+    const link = await screen.findByRole("link", {name: "0x0000…0b0b"});
+    expect(link).toHaveAttribute("href", `https://etherscan.io/address/${wallet(0xb0b)}`);
+  });
 });

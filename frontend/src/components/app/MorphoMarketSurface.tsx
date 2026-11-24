@@ -58,6 +58,15 @@ export function MorphoMarketSurface() {
   const locked = useRef(false);
   const [preparing, setPreparing] = useState(false);
   const [preparedQuote, setPreparedQuote] = useState<MarketQuoteTiming | null>(null);
+  const [formOwner, setFormOwner] = useState(wallet);
+  if (formOwner !== wallet) {
+    setFormOwner(wallet);
+    setAmount("");
+    setAll(false);
+    setRiskAccepted(false);
+    setSafeStatus({phase: "idle"});
+    setPreparedQuote(null);
+  }
   const flow = useWriteFlow();
   const launchQuery = useQuery({queryKey: ["morpho-launch"], queryFn: loadLaunch, staleTime: 0, retry: 1, refetchInterval: 15_000});
   const launch = !launchQuery.isError ? launchQuery.data ?? CLOSED_MARKET_LAUNCH : CLOSED_MARKET_LAUNCH;

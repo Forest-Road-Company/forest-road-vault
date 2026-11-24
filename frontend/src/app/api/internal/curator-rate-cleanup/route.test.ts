@@ -65,13 +65,23 @@ describe("curator admission-gate cleanup", () => {
       prefix: "curators-rate/",
       cursor: undefined,
       limit: 1_000,
+      abortSignal: expect.any(AbortSignal),
     });
     expect(blob.list).toHaveBeenNthCalledWith(2, {
       prefix: "curators-rate/",
       cursor: "next-page",
       limit: 1_000,
+      abortSignal: expect.any(AbortSignal),
     });
-    expect(blob.del).toHaveBeenNthCalledWith(1, ["https://blob.invalid/old-a"]);
-    expect(blob.del).toHaveBeenNthCalledWith(2, ["https://blob.invalid/old-b"]);
+    expect(blob.del).toHaveBeenNthCalledWith(
+      1,
+      ["https://blob.invalid/old-a"],
+      expect.objectContaining({abortSignal: expect.any(AbortSignal)}),
+    );
+    expect(blob.del).toHaveBeenNthCalledWith(
+      2,
+      ["https://blob.invalid/old-b"],
+      expect.objectContaining({abortSignal: expect.any(AbortSignal)}),
+    );
   });
 });

@@ -245,14 +245,19 @@ export function AppSurface() {
         <YieldPositionPanel />
 
         {/* ── Write cards ────────────────────────────────────────────── */}
-        <div className="app-action-grid mt-8 grid gap-5">
-          {/* Mainnet: Buy through the Uniswap pool (any address, the default tab) or Mint 1:1
-              (KYC-verified). A testnet has no pool and shows the mint card alone. */}
-          <GetUsdfrCard writesEnabled={writesEnabled} chainOk={chainOk} />
-          {/* Staking is permissionless on-chain (2026-07-14), gate on network only, not KYC. */}
-          <StakeCard writesEnabled={chainOk} />
-          <RedeemCard writesEnabled={writesEnabled} chainOk={chainOk} />
-        </div>
+        <section aria-labelledby="vault-actions-heading" className="app-action-section">
+          <h2 id="vault-actions-heading" className="sr-only">
+            Vault actions
+          </h2>
+          <div className="app-action-grid mt-8 grid gap-5">
+            {/* Mainnet: Buy through the Uniswap pool (any address, the default tab) or Mint 1:1
+                (KYC-verified). A testnet has no pool and shows the mint card alone. */}
+            <GetUsdfrCard writesEnabled={writesEnabled} chainOk={chainOk} />
+            {/* Staking is permissionless on-chain (2026-07-14), gate on network only, not KYC. */}
+            <StakeCard writesEnabled={chainOk} />
+            <RedeemCard writesEnabled={writesEnabled} chainOk={chainOk} />
+          </div>
+        </section>
       </div>
 
       <p className="mt-8 text-[13px] leading-relaxed text-ink-faint">

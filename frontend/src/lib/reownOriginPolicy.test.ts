@@ -37,6 +37,8 @@ describe("Reown release origin policy", () => {
     expect(reownRuleAllowsOrigin("https://*.vercel.app", "https://forest-road-vault.vercel.app")).toBe(true);
     expect(reownRuleAllowsOrigin("https://www-*.vercel.app", "https://www-preview.vercel.app")).toBe(false);
     expect(reownRuleAllowsOrigin("capacitor://localhost", "https://forestroadvault.com")).toBe(false);
+    expect(reownRuleAllowsOrigin("https://forestroadvault.com", "https://forestroadvault.com:8443")).toBe(false);
+    expect(reownRuleAllowsOrigin("https://forestroadvault.com:8443", "https://forestroadvault.com:8443")).toBe(true);
   });
 
   it("refuses a release when the deployed Vercel origin is absent", async () => {
