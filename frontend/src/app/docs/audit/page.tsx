@@ -117,7 +117,7 @@ export default function AuditRegisterPage() {
               value: ADVERSARIAL_PROGRAM.liveForkRounds,
               label: "Fork attack rounds",
               note:
-                "One hundred twenty-nine completed rounds against pinned Ethereum state.",
+                "One hundred thirty completed rounds against pinned Ethereum state.",
             },
             {
               value: ADVERSARIAL_PROGRAM.novelLiveScenarios,
@@ -164,7 +164,9 @@ export default function AuditRegisterPage() {
             monitoring and blacklisting. The proof nevertheless caused a
             material permanent loss to an unrelated queued depositor and stayed
             gross-positive across the tested credit outcomes, so the finding
-            remains open. Round 34 also confirmed Medium/Open LMV-11: under a
+            remains open on live proxies (the fix in audited commit ee9b228a
+            passed Corrovera re-audit on 24 November 2026 and awaits Stage 2
+            governance execution following live Stage 1 proposal 0x83a8…f698). Round 34 also confirmed Medium/Open LMV-11: under a
             conditional multi-class loss sequence, a global prepayment ledger
             can shift a realized credit loss between curator classes. The fork
             moved about 261,069 USDfr of curator value but left depositor value,
@@ -491,7 +493,8 @@ export default function AuditRegisterPage() {
             nothing, could not create the authenticated loss, and supply and
             backing remained protected; those constraints keep the finding
             below High, but the depositor dilution is material and remains
-            open pending remediation and independent retesting.
+            open on live proxies until Stage 2 governance activates the
+            Corrovera-verified ee9b228a upgrade.
             Round 76 then tested whether the same fee behavior was a general
             consequence of junior protection absorbing losses. A separate
             one-million-USDfr native custody loss consumed 600,001 USDfr of

@@ -42,6 +42,18 @@ each change actually applied, observed the intended failures, restored the sourc
 and reran the passing cases. This matters because a test that stays green after the behavior it is
 supposed to protect is removed provides no useful evidence.
 
+**LMV remediation release in governance (24 November 2026).** Commit `ee9b228a`
+(`ee9b228ad05e5a5888c1aa496ea53318036d37a3`) addresses `LMV-09`, `LMV-18`, and the smart-contract
+findings from Corrovera Security's November reviews, passed Corrovera's independent delta re-audit
+(`PASS`, 24 November 2026), and completed exact-commit hosted CI (`Security gates` Run #753,
+`66/66` green; `Persisted counterexample gate` Run #664, green). All 15 Stage 1 release-monitor
+components and all 38 new Stage 2 contracts and libraries are finalized on Ethereum mainnet and
+verified `exact_match` on Sourcify. Stage 1 governance proposal
+`0xd14e120817bfd084d717dd230118014889c4909d51eb01ec3694a4255c102ce1` was submitted on 24 November
+2026 ([transaction](https://etherscan.io/tx/0x83a86e829acec35568c6a1040f57dc4ebcb0dbe99f49d524232fc4044948f698);
+voting 25–27 November, earliest execution 29 November). Live protocol proxies remain on their
+pre-LMV implementations until Stage 2 executes.
+
 ## Continuous adversarial testing
 
 Security is an operating discipline, not a launch event. Forest Road continually forks the
@@ -83,7 +95,10 @@ batches, and margins exposed to financing and gas. Neither party knows which loa
 the attacker is an identifiable KYC participant exposed to monitoring and blacklisting. Those
 combined prerequisites drive the Medium rating; they do not refute the technical evidence. The
 [Audit Register](/docs/audit) carries the measurements and current disposition, and LMV-09 remains
-material until remediated and independently retested.
+material until remediated and independently retested. The fix is verified in audited candidate
+`ee9b228a` (Corrovera re-audit `PASS`, 24 November 2026) and staged on Ethereum mainnet; LMV-09
+remains Open on live proxies until Stage 2 governance executes (see
+[Live Deployment Status](/docs/status)).
 
 Round 34 also confirmed **Medium / Open LMV-11**. Under a conditional multi-class sequence, a
 global prepayment ledger can let a later realized credit loss consume junior capital previously
@@ -396,7 +411,10 @@ protection as performance and issued fee shares worth almost exactly **25,000 US
 current 10% rate. The independent queued position lost about **153.26 USDfr** of immediate value.
 The public caller received nothing, could not create the authenticated loss, and supply and backing
 remained protected. Those constraints keep the finding below High, but the depositor dilution is
-material and remains open pending remediation and independent retesting.
+material and remains open pending remediation and independent retesting. The fix is verified in
+audited candidate `ee9b228a` (Corrovera re-audit `PASS`, 24 November 2026) and staged on Ethereum
+mainnet; LMV-18 remains Open on live proxies until Stage 2 governance executes (see
+[Live Deployment Status](/docs/status)).
 
 Round 76 tested whether that fee behavior was a general consequence of junior protection absorbing
 losses. A separate **1,000,000-USDfr native custody loss** consumed **600,001 USDfr** of global
