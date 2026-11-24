@@ -106,6 +106,7 @@ export const CONTROLLER_ABI = [
   {type: "function", name: "redeem", stateMutability: "nonpayable", inputs: [{name: "usdfrAmount", type: "uint256"}], outputs: [{name: "usdcOut", type: "uint256"}]},
   {type: "function", name: "redeem", stateMutability: "nonpayable", inputs: [{name: "usdfrAmount", type: "uint256"}, {name: "minUsdcOut", type: "uint256"}, {name: "deadline", type: "uint256"}], outputs: [{name: "usdcOut", type: "uint256"}]},
   {type: "function", name: "previewRedeem", stateMutability: "view", inputs: [{name: "usdfrAmount", type: "uint256"}], outputs: [{name: "usdcOut", type: "uint256"}, {name: "usdfrIn", type: "uint256"}]},
+  {type: "function", name: "totalUSDfr", stateMutability: "view", inputs: [], outputs: [{name: "supply", type: "uint256"}]},
   {type: "function", name: "paused", stateMutability: "view", inputs: [], outputs: [{type: "bool"}]},
   ...PROTOCOL_ERRORS,
 ] as const;

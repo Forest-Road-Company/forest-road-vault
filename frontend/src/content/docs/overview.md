@@ -23,10 +23,14 @@ sectors.
   redemption of sUSDfr uses an epoch-based FIFO queue.
 
 The reserve ledger is deliberately conservative. An unsolicited USDC transfer cannot
-inflate backing, while anyone may reconcile the ledger downward if live custody is ever
-lower than the amount recorded. That permissionless check cannot move funds or create the
-shortfall; it prevents an operator from hiding one. The protocol then fails closed until an
-exact, timelocked recapitalization restores backing and its temporary authority is revoked.
+inflate backing, while `ReserveManager.recognizedBackingValue()` dynamically subtracts any
+physical USDC custody shortfall (`idleCustodyShortfall()`) and anyone may call
+`reconcileIdleUSDC()` to emit an on-chain observation (`IdleUSDCObserved`) without modifying
+recorded custody. That permissionless check cannot move funds or create a shortfall; it prevents
+an operator from hiding one. During an active custody shortfall, value-sensitive paths fail
+closed until the guardian arms a reserve-loss freeze (`armReserveLossFreeze`), governance
+ratifies a durable write-down (`ratifyAndOpen`), or physically recovered USDC is credited via
+`RESERVE_ADMIN_ROLE` (`creditRecoveredIdleUSDC`).
 
 ## Identified-per-asset collateral
 

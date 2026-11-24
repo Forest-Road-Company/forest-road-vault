@@ -372,7 +372,15 @@ export function LiquidityOperation() {
       try {
         setPilot(await verifyConfirmedMint({publicClient, record: storedPilot}));
       } catch (error) {
-        if (!messageFromError(error).toLowerCase().includes("not found")) throw error;
+        if (messageFromError(error).toLowerCase().includes("not found")) {
+          setStatus({
+            phase: "pending",
+            message: "Pilot mint transaction is still pending confirmation on-chain.",
+            hash: storedPilot.hash,
+          });
+          return;
+        }
+        throw error;
       }
     }
     const storedRemainder = readStoredMint("remainder", address);
@@ -382,7 +390,15 @@ export function LiquidityOperation() {
           await verifyConfirmedMint({publicClient, record: storedRemainder}),
         );
       } catch (error) {
-        if (!messageFromError(error).toLowerCase().includes("not found")) throw error;
+        if (messageFromError(error).toLowerCase().includes("not found")) {
+          setStatus({
+            phase: "pending",
+            message: "Remainder mint transaction is still pending confirmation on-chain.",
+            hash: storedRemainder.hash,
+          });
+          return;
+        }
+        throw error;
       }
     }
   }, [address, publicClient, walletMatches]);
@@ -406,7 +422,8 @@ export function LiquidityOperation() {
 
   const approveToken = useCallback(
     async (token: typeof USDC | typeof USDFR, symbol: "USDC" | "USDfr") => {
-      if (!connectedCorrectly || !walletClient || !publicClient || !address) return;
+      if (!connectedCorrectly || !walletClient || !publicClient || !address || inFlightRef.current) return;
+      inFlightRef.current = true;
       try {
         setStatus({phase: "simulating", message: `Checking ${symbol} approval…`});
         const alignment = await probeRpcAlignment(
@@ -447,6 +464,8 @@ export function LiquidityOperation() {
         } else {
           setStatus({phase: "error", message: messageFromError(error)});
         }
+      } finally {
+        inFlightRef.current = false;
       }
     }, [address, connectedCorrectly, loadSnapshot, publicClient, walletClient],
   );

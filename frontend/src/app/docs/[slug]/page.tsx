@@ -10,6 +10,8 @@ import { PageShell } from "@/components/site/PageShell";
 import { AUDIT_SECTION, DOCS, docBySlug } from "@/content/docs";
 import { pageMetadata, type ShareCard } from "@/lib/shareCards";
 
+export const dynamicParams = false;
+
 export function generateStaticParams() {
   return DOCS.map((d) => ({ slug: d.slug }));
 }
@@ -21,7 +23,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const doc = docBySlug(slug);
-  if (!doc) return { title: "Docs | Forest Road Vault" };
+  if (!doc) notFound();
   const title = `${doc.title} | Forest Road Vault`;
   const card: ShareCard | undefined =
     slug === "overview" ? "overview" : slug === "how-to" ? "how-to" : undefined;

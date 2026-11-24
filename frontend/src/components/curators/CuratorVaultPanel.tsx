@@ -168,7 +168,15 @@ export function CuratorVaultPanel() {
     (value: string) => setAmountState({wallet: walletAddress, value}),
     [walletAddress],
   );
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busyState, setBusyState] = useState<{wallet: string | null; label: string | null}>({
+    wallet: walletAddress,
+    label: null,
+  });
+  const busy = busyState.wallet === walletAddress ? busyState.label : null;
+  const setBusy = useCallback(
+    (label: string | null) => setBusyState({wallet: walletAddress, label}),
+    [walletAddress],
+  );
   const [noticeState, setNoticeState] = useState<{
     wallet: string | null;
     notice: {tone: "ok" | "bad"; text: string} | null;
@@ -348,6 +356,7 @@ export function CuratorVaultPanel() {
         tx.recentBlockhash = blockhash;
         const sim = await connection.simulateTransaction(tx);
         if (sim.value.err) throw Object.assign(new Error("simulation failed"), { logs: sim.value.logs });
+        if (walletAddressRef.current !== actionWallet) return;
         sig = await sendTransaction(tx, connection);
         const outcome = await awaitSignature(connection, sig, lastValidBlockHeight);
         // A confirmation for wallet A must never start a refresh tagged to A after the user has
@@ -383,7 +392,7 @@ export function CuratorVaultPanel() {
         if (actionWalletIsCurrent()) setBusy(null);
       }
     },
-    [connection, publicKey, refresh, sendTransaction, setAmount, setNotice],
+    [connection, publicKey, refresh, sendTransaction, setAmount, setBusy, setNotice],
   );
 
   const parsedAmount = useMemo(() => {

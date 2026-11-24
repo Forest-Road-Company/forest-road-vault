@@ -78,6 +78,19 @@ export function SeverityMix({ findings }: { findings: AuditFinding[] }) {
   );
 }
 
+function renderInlineCode(text: string) {
+  const parts = text.split(/(`[^`]+`)/g);
+  return parts.map((part, index) =>
+    part.startsWith("`") && part.endsWith("`") && part.length > 2 ? (
+      <code key={index} className="rounded bg-surface px-1 py-0.5 font-mono text-[12px] text-ink">
+        {part.slice(1, -1)}
+      </code>
+    ) : (
+      part
+    ),
+  );
+}
+
 export function AuditFindingsList({ findings }: { findings: AuditFinding[] }) {
   return (
     <ul className="mt-6 space-y-3">
@@ -95,10 +108,10 @@ export function AuditFindingsList({ findings }: { findings: AuditFinding[] }) {
             </span>
           </div>
           <p className="mt-2.5 min-w-0 text-[15px] font-medium leading-snug text-ink">
-            {f.title}
+            {renderInlineCode(f.title)}
           </p>
           <p className="mt-1.5 min-w-0 text-[13.5px] leading-relaxed text-ink-muted">
-            {f.note}
+            {renderInlineCode(f.note)}
           </p>
           {f.assessed ? (
             <div className="mt-3 rounded-card border border-line bg-surface/60 p-3.5">
@@ -106,11 +119,11 @@ export function AuditFindingsList({ findings }: { findings: AuditFinding[] }) {
                 Forest Road assessment: {f.assessed.severity}
               </p>
               <p className="mt-1.5 min-w-0 text-[13px] leading-relaxed text-ink-muted">
-                {f.assessed.why}
+                {renderInlineCode(f.assessed.why)}
               </p>
               <p className="mt-1.5 min-w-0 text-[13px] leading-relaxed text-ink-muted">
                 <span className="text-ink">Restores to {f.severity} when: </span>
-                {f.assessed.until}
+                {renderInlineCode(f.assessed.until)}
               </p>
             </div>
           ) : null}

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import {useRef, useState, useSyncExternalStore} from "react";
+import {useEffect, useRef, useState, useSyncExternalStore} from "react";
 import {useQuery, useQueryClient} from "@tanstack/react-query";
 import {useAccount, usePublicClient, useSwitchChain} from "wagmi";
 import {encodeFunctionData, formatUnits, type Hex} from "viem";
@@ -56,6 +56,10 @@ export function MorphoMarketSurface() {
   const now = useNowSeconds(1_000);
   const [safeStatus, setSafeStatus] = useState<{phase: "idle" | "simulating" | "review" | "proposed" | "error"; message?: string; hash?: Hex}>({phase: "idle"});
   const locked = useRef(false);
+  const walletRef = useRef(wallet);
+  useEffect(() => {
+    walletRef.current = wallet;
+  }, [wallet]);
   const [preparing, setPreparing] = useState(false);
   const [preparedQuote, setPreparedQuote] = useState<MarketQuoteTiming | null>(null);
   const [formOwner, setFormOwner] = useState(wallet);
@@ -127,9 +131,11 @@ export function MorphoMarketSurface() {
     locked.current = true;
     setPreparing(true);
     setSafeStatus({phase: "idle"});
+    const actionWallet = wallet;
     try {
       const currentLaunch = await loadLaunch();
-      const current = await readMorphoMarket(client, wallet);
+      const current = await readMorphoMarket(client, actionWallet);
+      if (walletRef.current !== actionWallet) return;
       setPreparedQuote({issuedAt: current.issuedAt, expiresAt: current.expiresAt});
       if (!current.account || (requiresRisk && !riskAccepted)) throw new Error("Refresh and review your position.");
       if (treasurySeed ? !currentLaunch.treasury : !actionOpen(action, currentLaunch)) throw new Error("This action is awaiting launch checks.");
@@ -194,7 +200,9 @@ export function MorphoMarketSurface() {
           : error instanceof Error && error.message.length < 240
             ? error.message
             : "The action could not be prepared. Refresh and try again.";
-      setSafeStatus({phase: "error", message});
+      if (walletRef.current === actionWallet) {
+        setSafeStatus({phase: "error", message});
+      }
     } finally {locked.current = false; setPreparing(false); if (treasurySeed && safe.context) void proposalQuery.refetch();}
   }
 

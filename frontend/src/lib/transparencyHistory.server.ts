@@ -1,10 +1,11 @@
-import {createPublicClient, http} from "viem";
+import {createPublicClient} from "viem";
 import {
   BRIDGE_HISTORY_ABI,
   DEFAULT_HISTORY_ABI,
   VAULT_HISTORY_ABI,
   WATERFALL_HISTORY_ABI,
 } from "@/lib/abi";
+import {createArchiveRpcTransport, isLogSizeLimitError} from "@/lib/archiveTransport.server";
 import {
   CONTRACTS,
   IS_MAINNET,
@@ -22,11 +23,12 @@ import {
 } from "@/lib/transparencyHistory";
 
 const CACHE_TTL_MS = 60_000;
-const ARCHIVE_HISTORY_CONCURRENCY = 6;
+const STALE_IF_ERROR_MS = 600_000;
+const ARCHIVE_HISTORY_CONCURRENCY = 3;
 const MAX_SPLITS_PER_CHUNK = 64;
 
 function isLoopbackOrPrivateHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
   if (
     host === "localhost" ||
     host === "::1" ||
@@ -135,34 +137,6 @@ function mergeBatches(a: TransparencyEventsBatch, b: TransparencyEventsBatch): T
   };
 }
 
-function isLogLimitError(error: unknown): boolean {
-  let cursor: unknown = error;
-  for (let depth = 0; cursor !== null && cursor !== undefined && depth < 5; depth += 1) {
-    const message = cursor instanceof Error ? cursor.message.toLowerCase() : String(cursor).toLowerCase();
-    const code =
-      typeof cursor === "object" && "code" in cursor
-        ? Number((cursor as {code?: unknown}).code)
-        : NaN;
-    if (
-      code === -32005 ||
-      code === -32008 ||
-      message.includes("more than") ||
-      message.includes("too large") ||
-      message.includes("too big") ||
-      message.includes("exceed") ||
-      message.includes("block range") ||
-      message.includes("log response size")
-    ) {
-      return true;
-    }
-    cursor =
-      typeof cursor === "object" && "cause" in cursor
-        ? (cursor as {cause?: unknown}).cause
-        : undefined;
-  }
-  return false;
-}
-
 async function readRangeAdaptive<T>(
   fromBlock: bigint,
   toBlock: bigint,
@@ -172,7 +146,7 @@ async function readRangeAdaptive<T>(
   try {
     return [...(await fetchEvents(fromBlock, toBlock))];
   } catch (error) {
-    if (!isLogLimitError(error) || fromBlock >= toBlock || budget.remaining <= 0) {
+    if (!isLogSizeLimitError(error) || fromBlock >= toBlock || budget.remaining <= 0) {
       throw error;
     }
     budget.remaining -= 1;
@@ -183,10 +157,17 @@ async function readRangeAdaptive<T>(
   }
 }
 
+const COMBINED_HISTORY_ABI = [
+  ...BRIDGE_HISTORY_ABI,
+  ...DEFAULT_HISTORY_ABI,
+  ...WATERFALL_HISTORY_ABI,
+  ...VAULT_FEE_EVENTS_ABI,
+] as const;
+
 function defaultDeps(): TransparencyHistoryDeps {
   const client = createPublicClient({
     chain: EXPECTED_CHAIN,
-    transport: http(archiveRpcUrl(), {timeout: 15_000, retryCount: 2, batch: true}),
+    transport: createArchiveRpcTransport(archiveRpcUrl()),
   });
 
   return {
@@ -205,91 +186,61 @@ function defaultDeps(): TransparencyHistoryDeps {
       return {latest, finalized};
     },
     readRange: async (fromBlock, toBlock) => {
-      const [originated, losses, waterfallLogs, vaultFeeLogs] = await Promise.all([
-        readBlockRangeChunked(
-          fromBlock,
-          toBlock,
-          (chunkFrom, chunkTo) =>
-            readRangeAdaptive(chunkFrom, chunkTo, async (from, to) => {
-              const logs = await client.getContractEvents({
-                address: CONTRACTS.ClaimBridge!,
-                abi: BRIDGE_HISTORY_ABI,
-                eventName: "Originated",
-                fromBlock: from,
-                toBlock: to,
-              });
-              return logs.filter((log) => !log.removed).map((log) => log.args);
-            }),
-          DEFAULT_BLOCK_CHUNK,
-          ARCHIVE_HISTORY_CONCURRENCY,
-        ),
-        readBlockRangeChunked(
-          fromBlock,
-          toBlock,
-          (chunkFrom, chunkTo) =>
-            readRangeAdaptive(chunkFrom, chunkTo, async (from, to) => {
-              const logs = await client.getContractEvents({
-                address: CONTRACTS.DefaultManager!,
-                abi: DEFAULT_HISTORY_ABI,
-                eventName: "LossRealized",
-                fromBlock: from,
-                toBlock: to,
-              });
-              return logs.filter((log) => !log.removed).map((log) => log.args);
-            }),
-          DEFAULT_BLOCK_CHUNK,
-          ARCHIVE_HISTORY_CONCURRENCY,
-        ),
-        // Merge all three WaterfallEngine event streams into one contract sweep per chunk.
-        readBlockRangeChunked(
-          fromBlock,
-          toBlock,
-          (chunkFrom, chunkTo) =>
-            readRangeAdaptive(chunkFrom, chunkTo, async (from, to) => {
-              const logs = await client.getContractEvents({
-                address: CONTRACTS.WaterfallEngine!,
-                abi: WATERFALL_HISTORY_ABI,
-                fromBlock: from,
-                toBlock: to,
-              });
-              return logs.filter((log) => !log.removed);
-            }),
-          DEFAULT_BLOCK_CHUNK,
-          ARCHIVE_HISTORY_CONCURRENCY,
-        ),
-        // Merge both sUSDfr fee-accrual event streams into one contract sweep per chunk.
-        readBlockRangeChunked(
-          fromBlock,
-          toBlock,
-          (chunkFrom, chunkTo) =>
-            readRangeAdaptive(chunkFrom, chunkTo, async (from, to) => {
-              const logs = await client.getContractEvents({
-                address: CONTRACTS.sUSDfr!,
-                abi: VAULT_FEE_EVENTS_ABI,
-                fromBlock: from,
-                toBlock: to,
-              });
-              return logs.filter((log) => !log.removed);
-            }),
-          DEFAULT_BLOCK_CHUNK,
-          ARCHIVE_HISTORY_CONCURRENCY,
-        ),
-      ]);
+      const bridgeAddress = CONTRACTS.ClaimBridge!.toLowerCase();
+      const defaultAddress = CONTRACTS.DefaultManager!.toLowerCase();
+      const waterfallAddress = CONTRACTS.WaterfallEngine!.toLowerCase();
+      const vaultAddress = CONTRACTS.sUSDfr!.toLowerCase();
+      const addresses = [
+        CONTRACTS.ClaimBridge!,
+        CONTRACTS.DefaultManager!,
+        CONTRACTS.WaterfallEngine!,
+        CONTRACTS.sUSDfr!,
+      ];
 
+      // Read all 4 protocol contracts in one multi-address eth_getLogs call per chunk (4x fewer
+      // RPC calls and 8x lower burst concurrency than 4 parallel streams x 6 workers).
+      const logs = await readBlockRangeChunked(
+        fromBlock,
+        toBlock,
+        (chunkFrom, chunkTo) =>
+          readRangeAdaptive(chunkFrom, chunkTo, async (from, to) => {
+            const batch = await client.getContractEvents({
+              address: addresses,
+              abi: COMBINED_HISTORY_ABI,
+              fromBlock: from,
+              toBlock: to,
+            });
+            return batch.filter((log) => !log.removed);
+          }),
+        DEFAULT_BLOCK_CHUNK,
+        ARCHIVE_HISTORY_CONCURRENCY,
+      );
+
+      const originated: TransparencyEventsBatch["originated"] = [];
+      const losses: TransparencyEventsBatch["losses"] = [];
       const funded: TransparencyEventsBatch["funded"] = [];
       const originationFees: TransparencyEventsBatch["originationFees"] = [];
       const distributions: TransparencyEventsBatch["distributions"] = [];
-      for (const log of waterfallLogs) {
-        if (log.eventName === "Funded") funded.push(log.args);
-        else if (log.eventName === "OriginationFeeCharged") originationFees.push(log.args);
-        else if (log.eventName === "Distributed") distributions.push(log.args);
-      }
-
       const performanceFees: TransparencyEventsBatch["performanceFees"] = [];
       const managementFees: TransparencyEventsBatch["managementFees"] = [];
-      for (const log of vaultFeeLogs) {
-        if (log.eventName === "PerformanceFeeAccrued") performanceFees.push(log.args);
-        else if (log.eventName === "ManagementFeeAccrued") managementFees.push(log.args);
+
+      for (const log of logs) {
+        const addr = log.address.toLowerCase();
+        if (log.eventName === "Originated" && addr === bridgeAddress) {
+          originated.push(log.args);
+        } else if (log.eventName === "LossRealized" && addr === defaultAddress) {
+          losses.push(log.args);
+        } else if (log.eventName === "Funded" && addr === waterfallAddress) {
+          funded.push(log.args);
+        } else if (log.eventName === "OriginationFeeCharged" && addr === waterfallAddress) {
+          originationFees.push(log.args);
+        } else if (log.eventName === "Distributed" && addr === waterfallAddress) {
+          distributions.push(log.args);
+        } else if (log.eventName === "PerformanceFeeAccrued" && addr === vaultAddress) {
+          performanceFees.push(log.args);
+        } else if (log.eventName === "ManagementFeeAccrued" && addr === vaultAddress) {
+          managementFees.push(log.args);
+        }
       }
 
       return {
@@ -307,7 +258,7 @@ function defaultDeps(): TransparencyHistoryDeps {
 
 let verifiedChain = false;
 let finalizedCursor: FinalizedCursor | null = null;
-let cachedAnswer: {value: TransparencyHistoryWire; expiresAt: number} | null = null;
+let cachedAnswer: {value: TransparencyHistoryWire; expiresAt: number; staleUntil: number} | null = null;
 let answerInFlight: Promise<TransparencyHistoryWire> | null = null;
 
 /** Test helper: clears module-level caches between isolated test cases. */
@@ -343,16 +294,20 @@ async function computeTransparencyHistory(deps: TransparencyHistoryDeps): Promis
     }
   }
 
+  // If a lagging RPC replica reports `asOfBlock < cursor.finalizedBlock`, keep the monotonic
+  // finalized block number so cached finalized events are never stamped with an older block.
+  const effectiveAsOfBlock =
+    cursor && asOfBlock < cursor.finalizedBlock ? cursor.finalizedBlock : asOfBlock;
   const baseEvents = cursor ? cursor.events : emptyBatch();
   const tailFrom = cursor ? cursor.finalizedBlock + 1n : PROTOCOL_DEPLOYMENT_BLOCK;
   const allEvents =
-    tailFrom <= asOfBlock
-      ? mergeBatches(baseEvents, await deps.readRange(tailFrom, asOfBlock))
+    tailFrom <= effectiveAsOfBlock
+      ? mergeBatches(baseEvents, await deps.readRange(tailFrom, effectiveAsOfBlock))
       : baseEvents;
 
   return serializeTransparencyHistory(
     summarizeTransparencyHistory({
-      asOfBlock,
+      asOfBlock: effectiveAsOfBlock,
       classIds: VERTICALS.map((_, index) => index + 1),
       originated: allEvents.originated,
       funded: allEvents.funded,
@@ -367,20 +322,32 @@ async function computeTransparencyHistory(deps: TransparencyHistoryDeps): Promis
 
 /**
  * Reads all cumulative history at one archive-RPC block and returns JSON-safe totals.
- * Caches finalized logs incrementally, coalesces concurrent cold requests, and reuses answers for 60s.
+ * Caches finalized logs incrementally, coalesces concurrent cold requests, reuses answers for 60s,
+ * and falls back to the last valid answer (up to 10 min) on transient upstream errors.
  */
 export async function loadTransparencyHistory(
   depsOverride?: TransparencyHistoryDeps,
 ): Promise<TransparencyHistoryWire> {
-  const deps = depsOverride ?? defaultDeps();
-  const now = deps.now();
+  const now = depsOverride ? depsOverride.now() : Date.now();
   if (cachedAnswer && now < cachedAnswer.expiresAt) return cachedAnswer.value;
   if (answerInFlight) return answerInFlight;
 
+  const deps = depsOverride ?? defaultDeps();
+  const staleFallback = cachedAnswer && now < cachedAnswer.staleUntil ? cachedAnswer.value : null;
+
   const work = computeTransparencyHistory(deps)
     .then((value) => {
-      cachedAnswer = {value, expiresAt: deps.now() + CACHE_TTL_MS};
+      const finishedAt = deps.now();
+      cachedAnswer = {
+        value,
+        expiresAt: finishedAt + CACHE_TTL_MS,
+        staleUntil: finishedAt + STALE_IF_ERROR_MS,
+      };
       return value;
+    })
+    .catch((error) => {
+      if (staleFallback) return staleFallback;
+      throw error;
     })
     .finally(() => {
       if (answerInFlight === work) answerInFlight = null;

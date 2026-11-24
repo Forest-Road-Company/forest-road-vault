@@ -606,7 +606,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
             inputMode="numeric"
             pattern="[0-9]*"
             placeholder="e.g. 42"
-            className="mt-1.5 w-full rounded-input border border-line bg-surface px-3 py-2 font-mono text-[16px] text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent/60"
+            className="op-field mt-1.5 w-full px-3 py-2 font-mono text-[16px] text-ink placeholder:text-ink-faint"
           />
         </label>
         {lookupIsOutOfRange ? (

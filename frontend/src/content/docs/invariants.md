@@ -34,9 +34,10 @@ aggregate recognized claim from a frozen basis; repayment and PIK-capitalization
 remove accrued value as they post the corresponding receipt or principal without counting it
 twice. Repayments atomically pull the attested payer's USDC before reducing principal or routing
 interest. Every supply-increasing path asserts backing after the mint; write-downs are atomically
-paired with the loss-cascade burns. Direct USDC donations never become recognized backing through
-reconciliation: the reconciliation function is intentionally one-way downward and only
-acknowledges a custody shortfall.
+paired with the loss-cascade burns. Direct USDC donations never become recognized backing:
+`recognizedBackingValue()` dynamically nets any physical USDC custody shortfall
+(`idleCustodyShortfall()`), and permissionless `reconcileIdleUSDC()` emits an observational
+event (`IdleUSDCObserved`) without inflating recorded custody.
 
 **Tests and symbolic checks.** `invariant_backing_supplyNeverExceedsBacking`
 (CreditInvariants, TokenLayerInvariants), `invariant_backing_holdsThroughQueueTraffic`
@@ -186,21 +187,24 @@ protocol's backing ledger. Unsolicited transfers cannot increase backing, and a 
 shortfall cannot be reversed by a later donation.
 
 **Enforcement.** `ReserveManager` is canonical-USDC-specific. Deposit, redemption,
-deployment and repayment paths move USDC and accounting atomically. Reconciliation is
-one-way downward; principal write-downs are durable and facility-bounded.
+deployment and repayment paths move USDC and accounting atomically. Recognized backing
+(`recognizedBackingValue()`) dynamically deducts any physical custody shortfall
+(`idleCustodyShortfall()`); principal write-downs are durable and facility-bounded.
 
-**Why reconciliation is permissionless.** A caller cannot remove funds or invent a loss.
-The function simply compares the live canonical-USDC balance with the already-recorded idle
-ledger and retains the lower number. Leaving it open means no administrator can conceal a
-real custody shortfall from depositors: anyone can force the backing ledger to tell the
-conservative truth. If that reveals under-backing, minting, redemption and servicing fail
-closed instead of letting early exits race the deficit.
+**Why custody observation is permissionless.** Calling `reconcileIdleUSDC()` cannot remove
+funds, invent a loss, or alter the recorded idle ledger: it compares live canonical-USDC custody
+against the recorded idle balance and emits `IdleUSDCObserved(recorded, live, shortfall)` so any
+observer can anchor a live shortfall on-chain. Simultaneously, `recognizedBackingValue()` and
+`MintRedeemController.backingInvariantHolds()` automatically enforce the lower conservative
+figure, failing closed on minting and value-sensitive exits instead of letting early exits race a
+deficit.
 
-Sending USDC directly to the contract cannot undo a write-down or silently improve reported
-backing. The production recovery is an exact recapitalization through the role-gated deposit
-path, executed inside one timelock batch that grants and revokes the timelock's temporary
-deposit authority. User operations stay paused until live custody, the idle ledger, supply,
-backing and role revocation have all been independently verified.
+Sending USDC directly to the contract cannot undo a ratified write-down or silently inflate
+recorded backing above the ledger. Durable idle write-downs require guardian
+`armReserveLossFreeze` followed by timelocked `RESERVE_ADMIN_ROLE` `ratifyAndOpen`, and
+physically recovered USDC is accounted through `RESERVE_ADMIN_ROLE`
+`creditRecoveredIdleUSDC(armId, evidenceHash)` after independent verification of custody, supply,
+and backing.
 
 **Tests.** `invariant_reserves_reconcile`, `invariant_idleReserve_independentRecompute`,
 `invariant_supply_fullyAccounted`, and `ReserveManagerTest`.

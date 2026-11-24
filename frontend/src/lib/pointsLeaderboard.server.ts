@@ -2,7 +2,6 @@ import {get as getBlob, put as putBlob} from "@vercel/blob";
 import {
   createPublicClient,
   getAddress,
-  http,
   isAddress,
   keccak256,
   toHex,
@@ -13,6 +12,7 @@ import {
 import {CONTRACTS, IS_MAINNET, PROTOCOL_DEPLOYMENT_BLOCK} from "@/config/contracts";
 import {LEADERBOARD_MAX_ROWS, POINTS_VENUES} from "@/config/pointsLeaderboard";
 import {OWNER_STATUS_ABI, POINTS_ABI, VAULT_POINTS_ABI} from "@/lib/abi";
+import {createArchiveRpcTransport, isLogSizeLimitError} from "@/lib/archiveTransport.server";
 import {EXPECTED_CHAIN} from "@/lib/chain";
 import {
   isVerifiedPointsModuleImplementation,
@@ -298,24 +298,14 @@ async function getLogs(
   return split();
 }
 
-/** RPC codes providers use to refuse a log answer as too large, as opposed to failing outright. */
-const TOO_LARGE_CODES = new Set([-32005, -32008, -32602]);
-
 /**
  * Whether an `eth_getLogs` failure is a provider's "this answer is too large" refusal (seen live as
  * -32008 "Response is too big"; others answer -32005 "query returned more than 10000 results" or
- * -32602 "Log response size exceeded"). Only the error's code and short message are examined; a
- * transport error, whose message can carry the endpoint URL, never matches.
+ * -32602 "Log response size exceeded"). Excludes rate-limit / throughput errors so HTTP 429 and
+ * `-32005` CUPS limits are never amplified by range splitting.
  */
 export function answerTooLarge(error: unknown): boolean {
-  for (let e: unknown = error, depth = 0; e && typeof e === "object" && depth < 5; e = (e as {cause?: unknown}).cause, depth++) {
-    const {code, shortMessage, details} = e as {code?: unknown; shortMessage?: unknown; details?: unknown};
-    const text = `${typeof shortMessage === "string" ? shortMessage : ""} ${typeof details === "string" ? details : ""}`;
-    if (typeof code === "number" && TOO_LARGE_CODES.has(code) && /too big|too large|too many|more than|exceed|limit/i.test(text)) {
-      return true;
-    }
-  }
-  return false;
+  return isLogSizeLimitError(error);
 }
 
 /**
@@ -346,7 +336,7 @@ async function blockLogs(deps: LeaderboardDeps, sources: readonly Source[], bloc
   return out;
 }
 
-const DISCOVERY_WAVE_CONCURRENCY = 4;
+const DISCOVERY_WAVE_CONCURRENCY = 3;
 const SNAPSHOT_BLOB_PATH = "points-leaderboard/discovery-v1.json";
 const SNAPSHOT_IO_TIMEOUT_MS = 4_000;
 const HEX_ADDRESS_LOWER = /^0x[0-9a-f]{40}$/;
@@ -511,7 +501,6 @@ async function extendDiscovery(deps: LeaderboardDeps, toBlock: bigint, deadline:
   while (from <= toBlock) {
     const pastDeadline = deps.now() > deadline;
     if (!first && pastDeadline) {
-      await persistDiscoverySnapshot(deps, d);
       throw new LeaderboardNotReadyError("leaderboard: still indexing participants");
     }
     first = false;
@@ -809,7 +798,7 @@ function defaultDeps(): LeaderboardDeps | null {
   const forestRoad = forestRoadWallets();
   const client = createPublicClient({
     chain: EXPECTED_CHAIN,
-    transport: http(archiveRpcUrl(), {timeout: 15_000, retryCount: 2, batch: true}),
+    transport: createArchiveRpcTransport(archiveRpcUrl()),
   }) as PublicClient;
   return {
     client,
@@ -868,6 +857,7 @@ export async function loadPointsLeaderboard(injected?: LeaderboardDeps, arrivedA
     } catch (error) {
       if (error instanceof LeaderboardIntegrityError && discovery === d) {
         discovery = null;
+        lastSavedSnapshotBlock = 0n;
         skipSnapshotUntilVerified = true;
         rebuildAfter = deps.now() + REBUILD_BACKOFF_MS;
       }

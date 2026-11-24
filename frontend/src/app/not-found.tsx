@@ -3,10 +3,12 @@ import Link from "next/link";
 import { PageShell } from "@/components/site/PageShell";
 import { pageMetadata } from "@/lib/shareCards";
 
+// Next.js App Router automatically emits `<meta name="robots" content="noindex" />` on 404
+// responses; omitting `robots` avoids duplicate meta tags while `pageMetadata` (with no `path`)
+// still clears `alternates.canonical` so RootLayout's `/` canonical is never inherited.
 export const metadata: Metadata = pageMetadata({
   title: "Page not found | Forest Road Vault",
   description: "The requested page does not exist on Forest Road Vault.",
-  robots: { index: false, follow: false },
 });
 
 export default function NotFound() {

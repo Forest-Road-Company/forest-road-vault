@@ -212,9 +212,14 @@ function respond(body: unknown, status: number, extra: Record<string, string> = 
 function failure(
   name: FailureName,
   known?: {entries: JsonRpcRequest[]; refusals: (JsonRpcError | null)[]; asBatch: boolean},
+  retryAfterSeconds?: number,
 ): Response {
   const {status, code, message} = FAILURES[name];
-  const extra: Record<string, string> = name === "methodNotAllowed" ? {allow: "POST"} : {};
+  const extra: Record<string, string> = {};
+  if (name === "methodNotAllowed") extra.allow = "POST";
+  if (name === "upstreamRateLimited") {
+    extra["retry-after"] = String(retryAfterSeconds ?? 2);
+  }
   if (!known) return respond({jsonrpc: "2.0", id: null, error: {code, message}}, status, extra);
   const answers = known.entries.map((entry, index) => ({
     jsonrpc: "2.0",
@@ -478,8 +483,15 @@ export function rpcProxyEntryRefusal(
 const PUBLIC_CHAINS = new Set([1, 11155111]);
 
 function isLoopbackOrPrivateHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal")
+  ) {
+    return true;
+  }
   if (host.includes(":")) {
     // IPv6 literal, normalized by URL: loopback, unspecified, IPv4-mapped, unique-local, link-local.
     return (
@@ -541,8 +553,24 @@ function urlSecrets(url: URL): string[] {
 
 type UpstreamAnswer =
   | {ok: true; body: unknown; text: string}
-  | {ok: false; failure: "upstreamUnavailable" | "upstreamTimeout" | "upstreamRateLimited" | "upstreamInvalid" | "clientGone"}
+  | {ok: false; failure: "upstreamRateLimited"; retryAfter: number}
+  | {ok: false; failure: "upstreamUnavailable" | "upstreamTimeout" | "upstreamInvalid" | "clientGone"}
   | {ok: false; failure: "tooBig"};
+
+function parseClampedRetryAfterSeconds(header: string | null): number {
+  if (!header) return 2;
+  const trimmed = header.trim();
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.min(5, Math.max(1, Math.ceil(seconds)));
+  }
+  const dateMs = Date.parse(trimmed);
+  if (Number.isFinite(dateMs)) {
+    const deltaSeconds = Math.ceil((dateMs - Date.now()) / 1_000);
+    if (deltaSeconds > 0) return Math.min(5, Math.max(1, deltaSeconds));
+  }
+  return 2;
+}
 
 /**
  * One POST to the upstream. It is abandoned after `timeoutMs`, and also as soon as `clientSignal`
@@ -580,9 +608,10 @@ async function postUpstream(
     return {ok: false, failure: "upstreamUnavailable"};
   }
   if (response.status === 429) {
+    const retryAfter = parseClampedRetryAfterSeconds(response.headers.get("retry-after"));
     await response.body?.cancel().catch(() => undefined);
     logFailure("upstream_http_429");
-    return {ok: false, failure: "upstreamRateLimited"};
+    return {ok: false, failure: "upstreamRateLimited", retryAfter};
   }
   // Alchemy answers a request it judges invalid (bad params, -32602) with HTTP 400 and a JSON-RPC
   // error per entry. That is the provider's answer to the caller, so it passes through, as a 200
@@ -625,9 +654,13 @@ async function postUpstream(
 
 // ── the chain check ──────────────────────────────────────────────────────────
 
-type ChainVerdict = "verified" | "mismatch" | "unavailable";
+type ChainVerdict =
+  | {status: "verified"}
+  | {status: "mismatch"}
+  | {status: "unavailable"}
+  | {status: "rateLimited"; retryAfter: number};
 
-const settledChains = new Map<string, {verdict: Exclude<ChainVerdict, "unavailable">; at: number}>();
+const settledChains = new Map<string, {verdict: "verified" | "mismatch"; at: number}>();
 const pendingChains = new Map<string, Promise<ChainVerdict>>();
 
 /** Clears the per-instance chain-check memory. Tests only. */
@@ -639,30 +672,35 @@ export function resetRpcProxyStateForTests(): void {
 async function probeChain(upstream: string, chainId: number, timeoutMs: number): Promise<ChainVerdict> {
   // Its own short timeout, and never tied to one client's request: concurrent requests share it.
   const answer = await postUpstream(upstream, {jsonrpc: "2.0", id: 1, method: "eth_chainId", params: []}, timeoutMs);
-  if (!answer.ok) return "unavailable";
+  if (!answer.ok) {
+    if (answer.failure === "upstreamRateLimited") {
+      return {status: "rateLimited", retryAfter: answer.retryAfter};
+    }
+    return {status: "unavailable"};
+  }
   const body = answer.body;
   if (!isPlainObject(body) || body.id !== 1 || typeof body.result !== "string" || !/^0x[0-9a-fA-F]{1,16}$/.test(body.result)) {
     logFailure("chain_check_invalid_answer");
-    return "unavailable";
+    return {status: "unavailable"};
   }
   if (BigInt(body.result) !== BigInt(chainId)) {
     logFailure(`chain_mismatch expected=${chainId} reported=${BigInt(body.result).toString()}`);
-    return "mismatch";
+    return {status: "mismatch"};
   }
-  return "verified";
+  return {status: "verified"};
 }
 
 /**
  * Once per instance, chainId and upstream: a verified chain is remembered for the instance; a
  * mismatch is remembered for 60s so a corrected upstream recovers without a redeploy; an
- * unavailable check is not remembered. Concurrent first requests share one probe.
+ * unavailable or rate-limited check is not remembered. Concurrent first requests share one probe.
  */
 async function checkChain(upstream: string, chainId: number, timeoutMs: number): Promise<ChainVerdict> {
   const key = `${chainId}:${upstream}`;
   const settled = settledChains.get(key);
   if (settled) {
     if (settled.verdict === "verified" || Date.now() - settled.at < CHAIN_MISMATCH_TTL_MS) {
-      return settled.verdict;
+      return {status: settled.verdict};
     }
     settledChains.delete(key);
   }
@@ -670,7 +708,9 @@ async function checkChain(upstream: string, chainId: number, timeoutMs: number):
   if (!pending) {
     pending = probeChain(upstream, chainId, timeoutMs)
       .then((verdict) => {
-        if (verdict !== "unavailable") settledChains.set(key, {verdict, at: Date.now()});
+        if (verdict.status === "verified" || verdict.status === "mismatch") {
+          settledChains.set(key, {verdict: verdict.status, at: Date.now()});
+        }
         return verdict;
       })
       .finally(() => pendingChains.delete(key));
@@ -707,7 +747,10 @@ async function forward(
   asBatch: boolean,
   timeoutMs: number,
   clientSignal: AbortSignal,
-): Promise<{ok: true; outcomes: Map<number, {result: unknown} | {error: JsonRpcError}>} | {ok: false; failure: FailureName}> {
+): Promise<
+  | {ok: true; outcomes: Map<number, {result: unknown} | {error: JsonRpcError}>}
+  | {ok: false; failure: FailureName; retryAfter?: number}
+> {
   const outbound = entries.map((entry, index) => ({...entry, id: index + 1}));
   const answer = await postUpstream(upstream.url, asBatch ? outbound : outbound[0], timeoutMs, clientSignal);
   if (!answer.ok && answer.failure === "tooBig") {
@@ -821,8 +864,9 @@ export async function handleRpcProxyRequest(request: Request, options: RpcProxyO
       return failure("unconfigured", known);
     }
     const verdict = await checkChain(upstream.url, chainId, options.probeTimeoutMs ?? RPC_PROXY_CHAIN_PROBE_TIMEOUT_MS);
-    if (verdict === "mismatch") return failure("wrongChain", known);
-    if (verdict === "unavailable") return failure("upstreamUnavailable", known);
+    if (verdict.status === "mismatch") return failure("wrongChain", known);
+    if (verdict.status === "rateLimited") return failure("upstreamRateLimited", known, verdict.retryAfter);
+    if (verdict.status === "unavailable") return failure("upstreamUnavailable", known);
     const forwarded = await forward(
       upstream,
       admitted,
@@ -830,7 +874,7 @@ export async function handleRpcProxyRequest(request: Request, options: RpcProxyO
       options.upstreamTimeoutMs ?? RPC_PROXY_UPSTREAM_TIMEOUT_MS,
       request.signal,
     );
-    if (!forwarded.ok) return failure(forwarded.failure, known);
+    if (!forwarded.ok) return failure(forwarded.failure, known, forwarded.retryAfter);
     outcomes = forwarded.outcomes;
   }
 

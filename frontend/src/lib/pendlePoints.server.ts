@@ -34,11 +34,17 @@ export function resetPendlePointsCache(): void {
   walletInFlight.clear();
 }
 
+/** Upper bound on unix timestamps accepted from upstream (year 2100) so Date#toISOString never throws RangeError. */
+const MAX_UNIX_TIMESTAMP_SECONDS = 4_102_444_800;
+
 async function readCappedJson(response: Response, limit: number): Promise<unknown> {
   const declared = response.headers.get("content-length");
   if (declared !== null) {
     const length = Number(declared);
-    if (!Number.isFinite(length) || length < 0 || length > limit) fail("the answer is too large");
+    if (!Number.isFinite(length) || length < 0 || length > limit) {
+      await response.body?.cancel().catch(() => undefined);
+      fail("the answer is too large");
+    }
   }
   const body = response.body;
   if (!body) fail("the answer is empty");
@@ -120,7 +126,12 @@ export function parsePendlePoints(body: unknown, wallet: Address): PendlePointsA
   if (b.enabled !== true) fail("enabled is not a boolean");
   if (typeof b.wallet !== "string" || b.wallet !== wallet.toLowerCase()) fail("the answer is for another wallet");
   if (typeof b.asOfBlock !== "string" || !/^[1-9]\d{0,19}$/.test(b.asOfBlock)) fail("asOfBlock is not a block number");
-  if (typeof b.asOfTimestamp !== "number" || !Number.isSafeInteger(b.asOfTimestamp) || b.asOfTimestamp <= 0) {
+  if (
+    typeof b.asOfTimestamp !== "number" ||
+    !Number.isSafeInteger(b.asOfTimestamp) ||
+    b.asOfTimestamp <= 0 ||
+    b.asOfTimestamp > MAX_UNIX_TIMESTAMP_SECONDS
+  ) {
     fail("asOfTimestamp is not a time");
   }
   const excluded = b.excluded;
@@ -181,7 +192,10 @@ async function fetchPendlePointsUncached(wallet: Address, fetcher: typeof fetch)
   } catch {
     fail("the points site did not answer");
   }
-  if (!response.ok) fail(`the points site answered ${response.status}`);
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    fail(`the points site answered ${response.status}`);
+  }
   const body = await readCappedJson(response, MAX_WALLET_RESPONSE_BYTES);
   return parsePendlePoints(body, wallet);
 }
@@ -250,7 +264,12 @@ export function parsePendleLeaderboard(body: unknown): PendleLeaderboardAnswer {
   if (b.enabled === false) return {ok: true, enabled: false};
   if (b.enabled !== true) fail("enabled is not a boolean");
   if (typeof b.asOfBlock !== "string" || !/^[1-9]\d{0,19}$/.test(b.asOfBlock)) fail("asOfBlock is not a block number");
-  if (typeof b.asOfTimestamp !== "number" || !Number.isSafeInteger(b.asOfTimestamp) || b.asOfTimestamp <= 0) {
+  if (
+    typeof b.asOfTimestamp !== "number" ||
+    !Number.isSafeInteger(b.asOfTimestamp) ||
+    b.asOfTimestamp <= 0 ||
+    b.asOfTimestamp > MAX_UNIX_TIMESTAMP_SECONDS
+  ) {
     fail("asOfTimestamp is not a time");
   }
   if (!Array.isArray(b.wallets) || b.wallets.length > PENDLE_LEADERBOARD_MAX_WALLETS) fail("wallets is not a bounded list");
@@ -292,7 +311,10 @@ export async function loadPendleLeaderboard(
   } catch {
     fail("the points site did not answer");
   }
-  if (!response.ok) fail(`the points site answered ${response.status}`);
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    fail(`the points site answered ${response.status}`);
+  }
   const body = await readCappedJson(response, MAX_LEADERBOARD_RESPONSE_BYTES);
   return parsePendleLeaderboard(body);
 }

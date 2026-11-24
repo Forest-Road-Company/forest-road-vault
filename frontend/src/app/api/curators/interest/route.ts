@@ -28,7 +28,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 15;
 
 const MAX_BODY_BYTES = 8_192;
-const BLOB_TIMEOUT_MS = 10_000;
+const BLOB_TIMEOUT_MS = 6_000;
 const EMAIL = /^[^@\s]{1,64}@[^@\s.]{1,63}(\.[^@\s.]{1,63})+$/;
 const MAX_EMAIL = 254;
 const CHAINS = new Set(["solana", "ethereum", "canton", "other"]);
@@ -94,7 +94,7 @@ type Admission = {gates: string[]};
 
 async function releaseGates(gates: string[]) {
   if (gates.length === 0) return;
-  await del(gates, {abortSignal: AbortSignal.timeout(3_000)});
+  await del(gates, {abortSignal: AbortSignal.timeout(2_000)});
 }
 
 async function admit(request: Request, secret: string): Promise<Response | Admission> {
