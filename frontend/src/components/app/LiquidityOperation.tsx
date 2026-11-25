@@ -11,7 +11,7 @@ import {
 } from "viem";
 import {mainnet} from "viem/chains";
 import {useAccount, usePublicClient, useWalletClient} from "wagmi";
-import {ReceiptStatusUnknownError, waitForReceiptRobustly} from "@/lib/receiptWait";
+import {isReceiptNotFoundError, ReceiptStatusUnknownError, waitForReceiptRobustly} from "@/lib/receiptWait";
 
 import {ConnectControl} from "@/components/app/ConnectControl";
 import {CHAIN_ID, CONTRACTS, EXPLORER_BASE_URL} from "@/config/contracts";
@@ -145,10 +145,16 @@ function transactionUrl(hash: Hash): string | null {
 async function verifyConfirmedMint(args: {
   publicClient: NonNullable<ReturnType<typeof usePublicClient>>;
   record: StoredMint;
-}): Promise<ConfirmedMint> {
-  const receipt = await args.publicClient.getTransactionReceipt({
-    hash: args.record.hash,
-  });
+}): Promise<ConfirmedMint | null> {
+  let receipt: TransactionReceipt;
+  try {
+    receipt = await args.publicClient.getTransactionReceipt({
+      hash: args.record.hash,
+    });
+  } catch (error) {
+    if (isReceiptNotFoundError(error)) return null;
+    throw error;
+  }
   if (receipt.status !== "success") {
     throw new Error(`${args.record.kind} transaction reverted on-chain.`);
   }
@@ -289,6 +295,7 @@ export function LiquidityOperation() {
   }, [snapshot, pilot]);
 
   const inFlightRef = useRef(false);
+  const [inFlight, setInFlight] = useState(false);
 
   const loadSnapshot = useCallback(async (): Promise<Snapshot> => {
     if (!publicClient || !address) throw new Error("Connect the treasury wallet first.");
@@ -369,37 +376,36 @@ export function LiquidityOperation() {
     }
     const storedPilot = readStoredMint("pilot", address);
     if (storedPilot) {
-      try {
-        setPilot(await verifyConfirmedMint({publicClient, record: storedPilot}));
-      } catch (error) {
-        if (messageFromError(error).toLowerCase().includes("not found")) {
+      const confirmedPilot = await verifyConfirmedMint({publicClient, record: storedPilot});
+      if (!confirmedPilot) {
+        if (!inFlightRef.current) {
           setStatus({
             phase: "pending",
             message: "Pilot mint transaction is still pending confirmation on-chain.",
             hash: storedPilot.hash,
           });
-          return;
         }
-        throw error;
+        return;
       }
+      setPilot(confirmedPilot);
     }
     const storedRemainder = readStoredMint("remainder", address);
     if (storedRemainder) {
-      try {
-        setRemainder(
-          await verifyConfirmedMint({publicClient, record: storedRemainder}),
-        );
-      } catch (error) {
-        if (messageFromError(error).toLowerCase().includes("not found")) {
+      const confirmedRemainder = await verifyConfirmedMint({publicClient, record: storedRemainder});
+      if (!confirmedRemainder) {
+        if (!inFlightRef.current) {
           setStatus({
             phase: "pending",
             message: "Remainder mint transaction is still pending confirmation on-chain.",
             hash: storedRemainder.hash,
           });
-          return;
         }
-        throw error;
+        return;
       }
+      setRemainder(confirmedRemainder);
+    }
+    if (!inFlightRef.current) {
+      setStatus((prev) => (prev.phase === "pending" || prev.phase === "unknown" ? {phase: "idle"} : prev));
     }
   }, [address, publicClient, walletMatches]);
 
@@ -424,6 +430,7 @@ export function LiquidityOperation() {
     async (token: typeof USDC | typeof USDFR, symbol: "USDC" | "USDfr") => {
       if (!connectedCorrectly || !walletClient || !publicClient || !address || inFlightRef.current) return;
       inFlightRef.current = true;
+      setInFlight(true);
       try {
         setStatus({phase: "simulating", message: `Checking ${symbol} approval…`});
         const alignment = await probeRpcAlignment(
@@ -466,6 +473,7 @@ export function LiquidityOperation() {
         }
       } finally {
         inFlightRef.current = false;
+        setInFlight(false);
       }
     }, [address, connectedCorrectly, loadSnapshot, publicClient, walletClient],
   );
@@ -474,6 +482,7 @@ export function LiquidityOperation() {
     async (kind: StoredMint["kind"]) => {
       if (!connectedCorrectly || !walletClient || !publicClient || !address || inFlightRef.current) return;
       inFlightRef.current = true;
+      setInFlight(true);
       let pendingHash: Hash | undefined;
       try {
         setStatus({phase: "reading", message: "Refreshing price, balances, allowances, and nonces…"});
@@ -601,6 +610,7 @@ export function LiquidityOperation() {
           });
         if (receipt.status !== "success") throw new Error("Transaction reverted on-chain.");
         const confirmed = await verifyConfirmedMint({publicClient, record: stored});
+        if (!confirmed) throw new Error("Confirmed transaction receipt could not be verified on-chain.");
         if (kind === "pilot") setPilot(confirmed);
         else setRemainder(confirmed);
         await loadSnapshot();
@@ -620,6 +630,7 @@ export function LiquidityOperation() {
         }
       } finally {
         inFlightRef.current = false;
+        setInFlight(false);
       }
     }, [address, connectedCorrectly, loadSnapshot, pilot, publicClient, walletClient],
   );
@@ -713,7 +724,7 @@ export function LiquidityOperation() {
         <button
           type="button"
           onClick={() => void refresh()}
-          disabled={!walletMatches || loading || busy}
+          disabled={!walletMatches || loading || inFlight}
           className="mt-5 rounded-pill border border-line-strong px-4 py-1.5 text-[12.5px] text-ink-muted disabled:opacity-50"
         >
           {loading ? "Refreshing…" : "Refresh live checks"}

@@ -151,7 +151,9 @@ for (const ROUTE of ROUTES) {
     const answer = await get(port, canonicalPath(ROUTE));
     assert.equal(answer.status, 200, `canonical: ${answer.status} ${answer.body}\n${log}`);
     assert.deepEqual(JSON.parse(answer.body), DISABLED, "the loader must be off for this test (see the header)");
-    assert.equal(answer.headers["cache-control"], "public, max-age=0, must-revalidate, s-maxage=60, stale-while-revalidate=300, stale-if-error=600");
+    assert.equal(answer.headers["cache-control"], "public, max-age=0, must-revalidate");
+    assert.equal(answer.headers["cdn-cache-control"], "public, s-maxage=60, stale-while-revalidate=300, stale-if-error=600");
+    assert.equal(answer.headers["vercel-cdn-cache-control"], "public, s-maxage=60, stale-while-revalidate=300, stale-if-error=600");
   });
 
   // Each of these is the canonical query in another spelling. The handler would send every one of
@@ -176,14 +178,18 @@ for (const ROUTE of ROUTES) {
       assert.equal(answer.status, 200, `${query}: ${answer.status} ${answer.headers.location ?? ""} ${answer.body}`);
       assert.equal(answer.headers.location, undefined);
       assert.deepEqual(JSON.parse(answer.body), DISABLED);
-      assert.equal(answer.headers["cache-control"], "public, max-age=0, must-revalidate, s-maxage=60, stale-while-revalidate=300, stale-if-error=600");
+      assert.equal(answer.headers["cache-control"], "public, max-age=0, must-revalidate");
+      assert.equal(answer.headers["cdn-cache-control"], "public, s-maxage=60, stale-while-revalidate=300, stale-if-error=600");
+      assert.equal(answer.headers["vercel-cdn-cache-control"], "public, s-maxage=60, stale-while-revalidate=300, stale-if-error=600");
     });
   }
 
   test(`${ROUTE}: a lowercase spelling still gets one cacheable 308 to the EIP-55 URL, which the loader answers`, {skip}, async () => {
     const answer = await get(port, `${ROUTE}?wallet=${CANONICAL.toLowerCase()}`);
     assert.equal(answer.status, 308, `lowercase: ${answer.status} ${answer.body}`);
-    assert.equal(answer.headers["cache-control"], "public, max-age=86400, s-maxage=86400");
+    assert.equal(answer.headers["cache-control"], "public, max-age=86400");
+    assert.equal(answer.headers["cdn-cache-control"], "public, s-maxage=86400");
+    assert.equal(answer.headers["vercel-cdn-cache-control"], "public, s-maxage=86400");
     const location = new URL(answer.headers.location ?? "", `http://127.0.0.1:${port}`);
     assert.equal(`${location.pathname}${location.search}`, canonicalPath(ROUTE));
     const followed = await get(port, `${location.pathname}${location.search}`);

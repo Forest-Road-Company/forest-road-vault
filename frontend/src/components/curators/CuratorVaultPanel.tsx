@@ -196,6 +196,8 @@ export function CuratorVaultPanel() {
 
   // Reads are ordered: a late reply from a previous wallet or an earlier refresh is dropped.
   const readSeq = useRef(0);
+  // Synchronous double-submit guard per wallet so rapid clicks before re-render cannot submit twice.
+  const inFlightWalletRef = useRef<string | null>(null);
   const [clusterOk, setClusterOk] = useState<boolean | null>(null);
   const clusterOkRef = useRef<boolean | null>(null);
   // Everything read is tagged with the wallet it was read for; a switch shows "reading" until
@@ -345,6 +347,8 @@ export function CuratorVaultPanel() {
     async (label: string, build: () => Promise<Transaction>) => {
       if (!publicKey) return;
       const actionWallet = publicKey.toBase58();
+      if (inFlightWalletRef.current === actionWallet) return;
+      inFlightWalletRef.current = actionWallet;
       const actionWalletIsCurrent = () => walletAddressRef.current === actionWallet;
       setBusy(label);
       setNotice(null);
@@ -389,7 +393,12 @@ export function CuratorVaultPanel() {
           }
         }
       } finally {
-        if (actionWalletIsCurrent()) setBusy(null);
+        if (inFlightWalletRef.current === actionWallet) {
+          inFlightWalletRef.current = null;
+        }
+        setBusyState((prev) =>
+          prev.wallet === actionWallet ? {wallet: prev.wallet, label: null} : prev,
+        );
       }
     },
     [connection, publicKey, refresh, sendTransaction, setAmount, setBusy, setNotice],

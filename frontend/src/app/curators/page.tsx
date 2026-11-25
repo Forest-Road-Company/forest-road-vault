@@ -61,7 +61,7 @@ const role = [
   },
   {
     title: "Forest Road is the anchor curator",
-    body: "Forest Road originates, underwrites and services every facility in house and posts first-loss capital itself. Capital committed under this programme funds that position; Forest Road remains the party that posts, holds and withdraws it on chain.",
+    body: "Forest Road originates, underwrites and services every facility in house and posts first-loss capital from its AnchorCurator Safe. Capital committed through the bilateral programme either funds that anchor position (including via the Solana vault) or, for separately governance-approved Ethereum-native curators, is posted and withdrawn directly in CuratorModule from their own approved wallet.",
   },
 ];
 

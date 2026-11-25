@@ -246,7 +246,11 @@ export default function AuditRegisterPage() {
             remains open on live proxies (the fix in audited commit ee9b228a
             passed Corrovera re-audit on 24 November 2026 and awaits Stage 2
             governance execution following live Stage 1 proposal 0xd14e…2ce1
-            (submitted in tx 0x83a8…f698)).
+            (submitted in tx 0x83a8…f698)). Likewise, LMV-18 (consumed junior
+            protection inflating performance-fee profit during realizeLoss) remains
+            open on live pre-Stage-2 proxies until Stage 2 executes, and FRV-NEW-02
+            (off-chain liquidation-bot runtime verification) remains open pending
+            the live bot rollout.
             Open findings and accepted risks elsewhere in the register still
             matter, and their assumptions are continuously challenged as the
             deployed state changes. Smart-contract, credit, liquidity, oracle,

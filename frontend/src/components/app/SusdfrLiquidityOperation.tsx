@@ -10,7 +10,7 @@ import {
 } from "viem";
 import {mainnet} from "viem/chains";
 import {useAccount, usePublicClient, useWalletClient} from "wagmi";
-import {ReceiptStatusUnknownError, waitForReceiptRobustly} from "@/lib/receiptWait";
+import {isReceiptNotFoundError, ReceiptStatusUnknownError, waitForReceiptRobustly} from "@/lib/receiptWait";
 
 import {ConnectControl} from "@/components/app/ConnectControl";
 import {CHAIN_ID, CONTRACTS, EXPLORER_BASE_URL} from "@/config/contracts";
@@ -158,14 +158,20 @@ async function verifyConfirmedMint(args: {
   publicClient: NonNullable<ReturnType<typeof usePublicClient>>;
   record: StoredMint;
   seed: ConfirmedMint | null;
-}): Promise<ConfirmedMint> {
+}): Promise<ConfirmedMint | null> {
   const plan = planForStoredMint(args.record.kind, args.seed);
   if (BigInt(args.record.liquidity) !== plan.liquidity) {
     throw new Error("Stored progress names liquidity outside the approved plan.");
   }
-  const receipt = await args.publicClient.getTransactionReceipt({
-    hash: args.record.hash,
-  });
+  let receipt;
+  try {
+    receipt = await args.publicClient.getTransactionReceipt({
+      hash: args.record.hash,
+    });
+  } catch (error) {
+    if (isReceiptNotFoundError(error)) return null;
+    throw error;
+  }
   if (receipt.status !== "success") {
     throw new Error(`${args.record.kind} transaction reverted on-chain.`);
   }
@@ -290,6 +296,7 @@ export function SusdfrLiquidityOperation() {
   }, [seed, snapshot]);
 
   const inFlightRef = useRef(false);
+  const [inFlight, setInFlight] = useState(false);
 
   const loadSnapshot = useCallback(async (): Promise<Snapshot> => {
     if (!publicClient || !address) throw new Error("Connect the treasury wallet first.");
@@ -375,46 +382,44 @@ export function SusdfrLiquidityOperation() {
     let confirmedSeed: ConfirmedMint | null = null;
     const storedSeed = readStoredMint("seed", address);
     if (storedSeed) {
-      try {
-        confirmedSeed = await verifyConfirmedMint({
-          publicClient,
-          record: storedSeed,
-          seed: null,
-        });
-        setSeed(confirmedSeed);
-      } catch (error) {
-        if (messageFromError(error).toLowerCase().includes("not found")) {
+      confirmedSeed = await verifyConfirmedMint({
+        publicClient,
+        record: storedSeed,
+        seed: null,
+      });
+      if (!confirmedSeed) {
+        if (!inFlightRef.current) {
           setStatus({
             phase: "pending",
             message: "Seed mint transaction is still pending confirmation on-chain.",
             hash: storedSeed.hash,
           });
-          return;
         }
-        throw error;
+        return;
       }
+      setSeed(confirmedSeed);
     }
     const storedWall = readStoredMint("wall", address);
     if (storedWall && confirmedSeed) {
-      try {
-        setWall(
-          await verifyConfirmedMint({
-            publicClient,
-            record: storedWall,
-            seed: confirmedSeed,
-          }),
-        );
-      } catch (error) {
-        if (messageFromError(error).toLowerCase().includes("not found")) {
+      const confirmedWall = await verifyConfirmedMint({
+        publicClient,
+        record: storedWall,
+        seed: confirmedSeed,
+      });
+      if (!confirmedWall) {
+        if (!inFlightRef.current) {
           setStatus({
             phase: "pending",
             message: "Buy-wall mint transaction is still pending confirmation on-chain.",
             hash: storedWall.hash,
           });
-          return;
         }
-        throw error;
+        return;
       }
+      setWall(confirmedWall);
+    }
+    if (!inFlightRef.current) {
+      setStatus((prev) => (prev.phase === "pending" || prev.phase === "unknown" ? {phase: "idle"} : prev));
     }
   }, [address, publicClient, walletMatches]);
 
@@ -440,6 +445,7 @@ export function SusdfrLiquidityOperation() {
     async (token: typeof USDC | typeof SUSDFR, symbol: "USDC" | "sUSDfr") => {
       if (!connectedCorrectly || !walletClient || !publicClient || !address || inFlightRef.current) return;
       inFlightRef.current = true;
+      setInFlight(true);
       try {
         setStatus({phase: "simulating", message: `Checking ${symbol} approval…`});
         const alignment = await probeRpcAlignment(
@@ -482,6 +488,7 @@ export function SusdfrLiquidityOperation() {
         }
       } finally {
         inFlightRef.current = false;
+        setInFlight(false);
       }
     },
     [address, connectedCorrectly, loadSnapshot, publicClient, walletClient],
@@ -491,6 +498,7 @@ export function SusdfrLiquidityOperation() {
     async (kind: SusdfrOperationKind) => {
       if (!connectedCorrectly || !walletClient || !publicClient || !address || inFlightRef.current) return;
       inFlightRef.current = true;
+      setInFlight(true);
       let pendingHash: Hash | undefined;
       try {
         setStatus({phase: "reading", message: "Refreshing pool state, balances, allowances, and nonces…"});
@@ -655,6 +663,7 @@ export function SusdfrLiquidityOperation() {
         }
       } finally {
         inFlightRef.current = false;
+        setInFlight(false);
       }
     },
     [address, connectedCorrectly, loadSnapshot, publicClient, seed, walletClient],
@@ -755,7 +764,7 @@ export function SusdfrLiquidityOperation() {
           <button
             type="button"
             onClick={() => void refresh()}
-            disabled={!walletMatches || busy}
+            disabled={!walletMatches || loading || inFlight}
             className="rounded-pill border border-line px-5 py-2 text-[13px] text-ink disabled:opacity-45"
           >
             Refresh checks

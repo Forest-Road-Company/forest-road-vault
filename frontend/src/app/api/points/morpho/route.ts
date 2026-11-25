@@ -19,6 +19,11 @@ export const dynamic = "force-dynamic";
  */
 export const maxDuration = 120;
 
+const BROWSER_CACHE = "public, max-age=0, must-revalidate";
+const FRESH_CDN_CACHE = "public, s-maxage=60, stale-while-revalidate=300, stale-if-error=600";
+const REDIRECT_BROWSER_CACHE = "public, max-age=86400";
+const REDIRECT_CDN_CACHE = "public, s-maxage=86400";
+
 /** One wallet's sUSDfr collateral in the Forest Road Morpho market and the points it has earned. */
 export async function GET(request: Request) {
   const arrivedAt = Date.now();
@@ -50,14 +55,20 @@ export async function GET(request: Request) {
       status: 308,
       headers: {
         location: `/api/points/morpho?wallet=${canonical}`,
-        "cache-control": "public, max-age=86400, s-maxage=86400",
+        "cache-control": REDIRECT_BROWSER_CACHE,
+        "cdn-cache-control": REDIRECT_CDN_CACHE,
+        "vercel-cdn-cache-control": REDIRECT_CDN_CACHE,
       },
     });
   }
   try {
     const result = await loadMorphoCollateralPoints(canonical, undefined, arrivedAt);
     return Response.json(result, {
-      headers: {"cache-control": "public, max-age=0, must-revalidate, s-maxage=60, stale-while-revalidate=300, stale-if-error=600"},
+      headers: {
+        "cache-control": BROWSER_CACHE,
+        "cdn-cache-control": FRESH_CDN_CACHE,
+        "vercel-cdn-cache-control": FRESH_CDN_CACHE,
+      },
     });
   } catch (error) {
     // RPC client errors can carry the endpoint URL, so only the loader's own static messages log.

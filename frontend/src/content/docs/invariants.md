@@ -115,7 +115,9 @@ by an origination.
 
 **Enforcement.** `CollateralRegistry` checks the limits atomically at origination and
 records the exposure increase; `recordExposureDecrease` on write-down keeps the ledger
-exact.
+exact. On live pre-Stage-2 proxies, funding-time concentration rechecks (`LMV-14`, fixed
+in audited candidate `ee9b228a`) are not yet active until Stage 2 governance executes —
+see [Live deployment status](/docs/status).
 
 **Tests.** `invariant_concentration_limitsHold`, `invariant_exposure_reconciles`.
 
@@ -147,7 +149,11 @@ effective-supply fraction. This protects stayers in a drawdown and prevents a le
 priced on junior-supported redemption NAV from shedding deferred fee exposure.
 Junior-capacity changes never mutate the hurdle: they may improve
 the redemption mark but are removed from performance-fee NAV because contributed
-loss protection is not investment profit. The management fee starts at
+loss protection is not investment profit. *(Deployment status note: on live pre-Stage-2
+Ethereum proxies, consumed junior protection during `realizeLoss` still leaves an Open
+finding — `LMV-18` — where realized junior absorption can inflate performance-fee profit
+until Stage 2 governance upgrades the proxies to audited candidate `ee9b228a`; see
+[Live deployment status](/docs/status).)* The management fee starts at
 0%, is prospective, and is capped
 at 2% per 365-day year. Both setters crystallize the old rate first. Management
 is charged first; neither fee removes backing assets; recovery below an old peak is fee-free;

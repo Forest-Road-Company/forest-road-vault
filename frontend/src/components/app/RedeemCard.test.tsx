@@ -33,6 +33,11 @@ let reads: Record<string, unknown> = {};
 
 vi.mock("wagmi", () => ({
   useAccount: () => ({address: "0x1111111111111111111111111111111111111111"}),
+  usePublicClient: () => ({
+    getBlock: vi.fn(async () => ({timestamp: BigInt(NOW)})),
+    getBlockNumber: vi.fn(async () => 100n),
+    getContractEvents: vi.fn(async () => []),
+  }),
   useReadContract: ({functionName}: {functionName: string}) => ({
     data: reads[functionName],
     refetch: vi.fn(),

@@ -44,7 +44,13 @@ import {
 } from "@/lib/rpcProxyShared";
 
 const MORPHO_BLUE_MAINNET = "0xbbbbbbbbbb9cc5e90e3b3af64bdaf62c37eeffcb";
-export const RPC_PROXY_MAX_FULL_BLOCKS_PER_BATCH = 4;
+/** Forest Road's USDC/sUSDfr Morpho Blue market ID; Morpho Blue eth_getLogs must pin topics[1] to this market. */
+export const RPC_PROXY_MORPHO_MARKET_ID =
+  "0xf25b12a81e96dfcc882038cd53ec32a6d74ac46186c867ade041d1cf34e2e897";
+export const RPC_PROXY_MAX_FULL_BLOCKS_PER_BATCH = 1;
+export const RPC_PROXY_MAX_MORPHO_LOG_BLOCK_SPAN = 10_000n;
+export const RPC_PROXY_MAX_CALL_GAS = 30_000_000n;
+export const RPC_PROXY_MAINNET_MIN_HISTORY_BLOCK = 25_000_000n;
 export const RPC_PROXY_MAX_LOG_ADDRESSES = 8;
 export const RPC_PROXY_MAX_TOPIC_ENTRIES = 16;
 const CHAIN_MISMATCH_TTL_MS = 60_000;
@@ -143,6 +149,7 @@ const FAILURES = {
   parseError: {status: 400, code: -32700, message: "Parse error"},
   invalidRequest: {status: 400, code: -32600, message: "Invalid JSON-RPC request"},
   batchTooLarge: {status: 400, code: -32600, message: "Batch too large"},
+  tooManyFullBlocks: {status: 400, code: -32602, message: "Too many full-transaction block reads in one batch"},
   unconfigured: {status: 503, code: -32603, message: "RPC proxy is not configured"},
   wrongChain: {status: 503, code: -32603, message: "RPC proxy upstream serves another chain"},
   upstreamUnavailable: {status: 502, code: -32603, message: "Upstream RPC unavailable"},
@@ -181,6 +188,10 @@ const ENTRY_REFUSALS = {
     code: -32602,
     message: "eth_getLogs topics through this proxy must be at most 4 valid 32-byte topic filters",
   },
+  logsMorphoScope: {
+    code: -32602,
+    message: "Morpho Blue eth_getLogs through this proxy must pin Forest Road's market ID and at most 10,000 blocks",
+  },
   callShape: {
     code: -32602,
     message: "eth_call and eth_estimateGas through this proxy take [transaction] or [transaction, block] with a contract address",
@@ -188,10 +199,6 @@ const ENTRY_REFUSALS = {
   paramsShape: {
     code: -32602,
     message: "Invalid parameters for this method through this proxy",
-  },
-  tooManyFullBlocks: {
-    code: -32602,
-    message: "Too many full-transaction block reads in one batch",
   },
 } as const;
 
@@ -257,12 +264,18 @@ export function rpcProxyOriginAllowed(request: Request): boolean {
   const origin = request.headers.get("origin");
   if (origin === null) return true;
   let originHost: string;
+  let originProtocol: string;
   try {
     const parsed = new URL(origin);
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
     originHost = parsed.host.toLowerCase();
+    originProtocol = parsed.protocol;
   } catch {
     // Includes the opaque origin "null" (sandboxed frames, file: pages).
+    return false;
+  }
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  if ((forwardedProto === "https" || forwardedProto === "http") && originProtocol !== `${forwardedProto}:`) {
     return false;
   }
   return originHost === ownHost(request);
@@ -337,11 +350,30 @@ function logsFilterAddresses(params: unknown[] | undefined): string[] | null {
 
 const QUANTITY = /^0x(0|[1-9a-fA-F][0-9a-fA-F]{0,15})$/;
 const BLOCK_HASH = /^0x[0-9a-fA-F]{64}$/;
-const BLOCK_TAG = /^(latest|earliest|pending|safe|finalized)$/;
+const BLOCK_TAG = /^(latest|pending|safe|finalized)$/;
 const LOG_FILTER_KEYS = new Set(["address", "topics", "fromBlock", "toBlock", "blockHash"]);
+const CALL_TX_KEYS = new Set([
+  "from",
+  "to",
+  "data",
+  "input",
+  "value",
+  "gas",
+  "gasPrice",
+  "maxFeePerGas",
+  "maxPriorityFeePerGas",
+  "type",
+  "accessList",
+  "chainId",
+  "nonce",
+]);
 
-function isBlockSpec(value: unknown): boolean {
-  return typeof value === "string" && (BLOCK_TAG.test(value) || QUANTITY.test(value));
+function isBlockSpec(value: unknown, chainId?: number): boolean {
+  if (typeof value !== "string") return false;
+  if (BLOCK_TAG.test(value)) return true;
+  if (!QUANTITY.test(value)) return false;
+  if (chainId === 1 && BigInt(value) < RPC_PROXY_MAINNET_MIN_HISTORY_BLOCK) return false;
+  return true;
 }
 
 function logsTopicsAllowed(topics: unknown): boolean {
@@ -370,7 +402,7 @@ function logsTopicsAllowed(topics: unknown): boolean {
  * more than {@link RPC_PROXY_MAX_LOG_BLOCK_SPAN} apart. Tags and missing bounds (which default to
  * "latest") are refused: the site always sends numbers, and a tag range has no bound to check.
  */
-function logsRangeAllowed(filter: Record<string, unknown>): boolean {
+function logsRangeAllowed(filter: Record<string, unknown>, chainId?: number, maxSpan = RPC_PROXY_MAX_LOG_BLOCK_SPAN): boolean {
   if (Object.keys(filter).some((key) => !LOG_FILTER_KEYS.has(key))) return false;
   const {fromBlock, toBlock, blockHash} = filter;
   if (blockHash !== undefined) {
@@ -380,7 +412,8 @@ function logsRangeAllowed(filter: Record<string, unknown>): boolean {
   if (!QUANTITY.test(fromBlock) || !QUANTITY.test(toBlock)) return false;
   const from = BigInt(fromBlock);
   const to = BigInt(toBlock);
-  return to >= from && to - from + 1n <= RPC_PROXY_MAX_LOG_BLOCK_SPAN;
+  if (chainId === 1 && from < RPC_PROXY_MAINNET_MIN_HISTORY_BLOCK) return false;
+  return to >= from && to - from + 1n <= maxSpan;
 }
 
 /**
@@ -388,13 +421,18 @@ function logsRangeAllowed(filter: Record<string, unknown>): boolean {
  * and at most a block number or tag. A third parameter (state or block overrides) is refused: it lets
  * a 200-byte request make the upstream build and return megabytes.
  */
-function callShapeAllowed(params: unknown[] | undefined): boolean {
+function callShapeAllowed(params: unknown[] | undefined, chainId?: number): boolean {
   if (!params || params.length < 1 || params.length > 2) return false;
   const [transaction, block] = params;
   if (!isPlainObject(transaction)) return false;
+  if (Object.keys(transaction).some((key) => !CALL_TX_KEYS.has(key))) return false;
   if (typeof transaction.to !== "string" || !ADDRESS.test(transaction.to)) return false;
+  if (transaction.gas !== undefined) {
+    if (typeof transaction.gas !== "string" || !QUANTITY.test(transaction.gas)) return false;
+    if (BigInt(transaction.gas) > RPC_PROXY_MAX_CALL_GAS) return false;
+  }
   if (params.length === 2) {
-    return isBlockSpec(block);
+    return isBlockSpec(block, chainId);
   }
   return true;
 }
@@ -419,16 +457,17 @@ function defaultAllowedLogAddresses(chainId: number): ReadonlySet<string> | null
 /** Null when the entry may be forwarded, otherwise its JSON-RPC refusal. Exported for the census. */
 export function rpcProxyEntryRefusal(
   entry: {method: string; params?: unknown[]},
-  options?: {allowedLogAddresses?: ReadonlySet<string> | null},
+  options?: {allowedLogAddresses?: ReadonlySet<string> | null; chainId?: number},
 ): JsonRpcError | null {
+  const chainId = options?.chainId;
   if (!RPC_PROXY_ALLOWED_METHODS.has(entry.method)) return {...ENTRY_REFUSALS.methodNotFound};
   if (entry.method === "eth_getLogs") {
     const addresses = logsFilterAddresses(entry.params);
     if (!addresses) return {...ENTRY_REFUSALS.logsWithoutAddress};
-    if (entry.params!.length !== 1 || !logsRangeAllowed(entry.params![0] as Record<string, unknown>)) {
+    const filter = entry.params![0] as Record<string, unknown>;
+    if (entry.params!.length !== 1 || !logsRangeAllowed(filter, chainId)) {
       return {...ENTRY_REFUSALS.logsRange};
     }
-    const filter = entry.params![0] as Record<string, unknown>;
     if (!logsTopicsAllowed(filter.topics)) return {...ENTRY_REFUSALS.logsTopics};
     if (
       options?.allowedLogAddresses &&
@@ -436,10 +475,21 @@ export function rpcProxyEntryRefusal(
     ) {
       return {...ENTRY_REFUSALS.logsDisallowedAddress};
     }
+    if (chainId === 1 && addresses.includes(MORPHO_BLUE_MAINNET)) {
+      const topics = Array.isArray(filter.topics) ? filter.topics : null;
+      const marketTopic = typeof topics?.[1] === "string" ? topics[1].toLowerCase() : null;
+      if (
+        addresses.length !== 1 ||
+        marketTopic !== RPC_PROXY_MORPHO_MARKET_ID ||
+        !logsRangeAllowed(filter, chainId, RPC_PROXY_MAX_MORPHO_LOG_BLOCK_SPAN)
+      ) {
+        return {...ENTRY_REFUSALS.logsMorphoScope};
+      }
+    }
     return null;
   }
   if (entry.method === "eth_call" || entry.method === "eth_estimateGas") {
-    return callShapeAllowed(entry.params) ? null : {...ENTRY_REFUSALS.callShape};
+    return callShapeAllowed(entry.params, chainId) ? null : {...ENTRY_REFUSALS.callShape};
   }
   if (entry.method === "eth_getBlockByNumber") {
     const params = entry.params;
@@ -456,7 +506,7 @@ export function rpcProxyEntryRefusal(
       params.length > 2 ||
       typeof params[0] !== "string" ||
       !ADDRESS.test(params[0]) ||
-      (params.length === 2 && !isBlockSpec(params[1]))
+      (params.length === 2 && !isBlockSpec(params[1], chainId))
     ) {
       return {...ENTRY_REFUSALS.paramsShape};
     }
@@ -541,6 +591,7 @@ export function rpcProxyUpstream(
  */
 function urlSecrets(url: URL): string[] {
   const secrets = new Set<string>([url.toString().toLowerCase(), `${url.host}${url.pathname}`.toLowerCase()]);
+  if (url.hostname.length >= 12) secrets.add(url.hostname.toLowerCase());
   if (url.pathname.length >= 12) secrets.add(url.pathname.toLowerCase());
   for (const segment of url.pathname.split("/")) {
     if (segment.length >= 12) secrets.add(segment.toLowerCase());
@@ -840,16 +891,16 @@ export async function handleRpcProxyRequest(request: Request, options: RpcProxyO
       : defaultAllowedLogAddresses(chainId);
   let fullBlockCount = 0;
   const refusals = entries.map((entry) => {
-    const refusal = rpcProxyEntryRefusal(entry, {allowedLogAddresses});
+    const refusal = rpcProxyEntryRefusal(entry, {allowedLogAddresses, chainId});
     if (refusal) return refusal;
     if (entry.method === "eth_getBlockByNumber" && entry.params?.[1] === true) {
       fullBlockCount += 1;
-      if (fullBlockCount > RPC_PROXY_MAX_FULL_BLOCKS_PER_BATCH) {
-        return {...ENTRY_REFUSALS.tooManyFullBlocks};
-      }
     }
     return null;
   });
+  if (fullBlockCount > RPC_PROXY_MAX_FULL_BLOCKS_PER_BATCH) {
+    return failure("tooManyFullBlocks", {entries, refusals, asBatch});
+  }
   const admitted = entries.filter((_, index) => refusals[index] === null);
   let outcomes = new Map<number, {result: unknown} | {error: JsonRpcError}>();
 

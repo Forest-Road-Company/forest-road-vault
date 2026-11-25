@@ -13,10 +13,11 @@
  * oversized block is then behind it). If it still cannot tell, it throws
  * {@link ReceiptStatusUnknownError}, which callers show as "status unknown", never as failed. It
  * never reports success without a receipt, and a receipt with a revert status is returned as it is.
- * The overall wait timeout is not a read failure and is rethrown unchanged.
+ * The overall wait timeout is also converted to {@link ReceiptStatusUnknownError} without
+ * restarting, so a slow pending transaction is never reported as failed.
  */
 
-import type {Hash, PublicClient, TransactionReceipt} from "viem";
+import {TransactionReceiptNotFoundError, type Hash, type PublicClient, type TransactionReceipt} from "viem";
 
 /** How many times the wait is restarted after a read failure before the status is called unknown. */
 export const RECEIPT_WAIT_RESTARTS = 3;
@@ -56,6 +57,31 @@ function isWaitTimeout(error: unknown): boolean {
   return error instanceof Error && error.name === "WaitForTransactionReceiptTimeoutError";
 }
 
+/**
+ * Matches viem's `TransactionReceiptNotFoundError` (whose message reads `"could not be found"`,
+ * not `"not found"`) as well as plain provider receipt/transaction `"not found"` errors when
+ * polling a pending tx. Unrelated RPC errors (e.g. `"Block not found"`, `"Method not found"`)
+ * return false.
+ */
+export function isReceiptNotFoundError(error: unknown): boolean {
+  for (
+    let e: unknown = error, depth = 0;
+    e !== null && e !== undefined && typeof e === "object" && depth < 5;
+    e = (e as {cause?: unknown}).cause, depth += 1
+  ) {
+    if (e instanceof TransactionReceiptNotFoundError) return true;
+    const node = e as {name?: unknown; shortMessage?: unknown; message?: unknown};
+    if (node.name === "TransactionReceiptNotFoundError") return true;
+    const text = [node.shortMessage, node.message]
+      .filter((part): part is string => typeof part === "string")
+      .join(" ");
+    if (/(?:transaction\s+)?receipt\b.*\bnot (?:be )?found|\btransaction\b.*\bnot (?:be )?found/i.test(text)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export async function waitForReceiptRobustly(
   client: ReceiptWaiter,
   args: WaitArgs,
@@ -67,19 +93,39 @@ export async function waitForReceiptRobustly(
     now = Date.now,
   }: ReceiptWaitOptions = {},
 ): Promise<TransactionReceipt> {
+  const effectiveMaxTotalMs = maxTotalMs ?? args.timeout;
   const startedAt = now();
   for (let attempt = 0; ; attempt += 1) {
+    const attemptArgs =
+      effectiveMaxTotalMs !== undefined
+        ? {
+            ...args,
+            timeout: Math.max(
+              1,
+              Math.min(
+                args.timeout ?? effectiveMaxTotalMs,
+                effectiveMaxTotalMs - (now() - startedAt),
+              ),
+            ),
+          }
+        : args;
     try {
-      return await client.waitForTransactionReceipt(args);
+      return await client.waitForTransactionReceipt(attemptArgs);
     } catch (error) {
       // A receipt timeout means the tx was broadcast and may still confirm on-chain. Never report
       // it as a failure (which invites a duplicate submission) and do not restart after a timeout.
       if (isWaitTimeout(error)) throw new ReceiptStatusUnknownError(args.hash, error);
       if (attempt >= restarts) throw new ReceiptStatusUnknownError(args.hash, error);
-      if (maxTotalMs !== undefined && now() - startedAt >= maxTotalMs) {
-        throw new ReceiptStatusUnknownError(args.hash, error);
+      if (effectiveMaxTotalMs !== undefined) {
+        const remainingBeforeSleep = effectiveMaxTotalMs - (now() - startedAt);
+        if (remainingBeforeSleep <= restartDelayMs) {
+          throw new ReceiptStatusUnknownError(args.hash, error);
+        }
       }
       await sleep(restartDelayMs);
+      if (effectiveMaxTotalMs !== undefined && now() - startedAt >= effectiveMaxTotalMs) {
+        throw new ReceiptStatusUnknownError(args.hash, error);
+      }
     }
   }
 }

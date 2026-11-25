@@ -25,8 +25,8 @@ import {probeRpcAlignment, type RpcRequest} from "@/lib/rpcAlignment";
  *   1. every action still succeeds through that refusal;
  *   2. the methods actually answered are EXACTLY the allowlist: a missing entry fails here, and so
  *      does an entry nothing uses;
- *   3. the only method ever refused is eth_newFilter, from the event watcher, which then falls back
- *      to eth_blockNumber and eth_getLogs.
+ *   3. zero methods are refused during normal browser actions (the event watcher polls
+ *      eth_blockNumber + eth_getLogs directly instead of probing eth_newFilter).
  * A viem or Wagmi upgrade that starts sending something new fails this test before it fails a user.
  */
 
@@ -215,20 +215,9 @@ describe("the proxy allowlist is exactly what the site's browser actions send", 
     await client.getLogs({address: VAULT, fromBlock: deployment, toBlock: deployment + TREASURY_HISTORY_CHUNK - 1n, strict: true,
       event: parseAbiItem("event Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares)")});
 
-    // useWatchContractEvent over HTTP: the filter is refused, the watcher falls back to getLogs.
-    const errors: Error[] = [];
-    const logsBefore = node.answered.filter((method) => method === "eth_getLogs").length;
-    const unwatch = client.watchContractEvent({
-      address: VAULT,
-      abi,
-      pollingInterval: 5,
-      onLogs: () => undefined,
-      onError: (error) => errors.push(error),
-    });
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    unwatch();
-    expect(errors).toEqual([]);
-    expect(node.answered.filter((method) => method === "eth_getLogs").length).toBeGreaterThan(logsBefore);
+    // RestartingEventWatcher polls eth_blockNumber + getContractEvents directly (no eth_newFilter).
+    const tip = await client.getBlockNumber();
+    expect(await client.getContractEvents({address: VAULT, abi, fromBlock: tip, toBlock: tip})).toEqual([]);
 
     // rpcAlignment's raw probe (both sides on this transport, as under WalletConnect).
     const alignment = await probeRpcAlignment(client.request as RpcRequest, client.request as RpcRequest, {
@@ -238,6 +227,6 @@ describe("the proxy allowlist is exactly what the site's browser actions send", 
     expect(alignment.aligned).toBe(true);
 
     expect([...new Set(node.answered)].sort()).toEqual([...RPC_PROXY_ALLOWED_METHODS].sort());
-    expect([...new Set(node.refused)]).toEqual(["eth_newFilter"]);
+    expect([...new Set(node.refused)]).toEqual([]);
   });
 });

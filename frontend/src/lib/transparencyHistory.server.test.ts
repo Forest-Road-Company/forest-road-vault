@@ -2,8 +2,10 @@ import {beforeEach, describe, expect, it, vi} from "vitest";
 import {
   loadTransparencyHistory,
   resetTransparencyHistoryCacheForTests,
+  serveTransparencyHistory,
   type TransparencyEventsBatch,
   type TransparencyHistoryDeps,
+  type TransparencyHistorySnapshotStore,
 } from "./transparencyHistory.server";
 import {EXPECTED_CHAIN} from "./chain";
 import {PROTOCOL_DEPLOYMENT_BLOCK} from "@/config/contracts";
@@ -111,5 +113,78 @@ describe("transparencyHistory.server", () => {
       readRange: vi.fn(async () => emptyEvents()),
     };
     await expect(loadTransparencyHistory(deps)).rejects.toThrow(/chain mismatch/i);
+  });
+
+  it("hydrates finalized history from the snapshot store on cold start and persists new finalized blocks", async () => {
+    let saved: {key: string; cursor: {finalizedBlock: bigint; events: TransparencyEventsBatch}} | null = null;
+    const store: TransparencyHistorySnapshotStore = {
+      load: vi.fn(async () => ({
+        finalizedBlock: PROTOCOL_DEPLOYMENT_BLOCK + 100n,
+        events: {
+          ...emptyEvents(),
+          distributions: [{fee: 10n, toVault: 90n}],
+        },
+      })),
+      save: vi.fn(async (key, cursor) => {
+        saved = {key, cursor};
+      }),
+    };
+    const readRange = vi.fn(async (from: bigint, to: bigint) => {
+      if (from === PROTOCOL_DEPLOYMENT_BLOCK + 101n && to === PROTOCOL_DEPLOYMENT_BLOCK + 130n) {
+        return {...emptyEvents(), distributions: [{fee: 5n, toVault: 45n}]};
+      }
+      return emptyEvents();
+    });
+    const deps: TransparencyHistoryDeps = {
+      now: () => 10_000,
+      getChainId: async () => EXPECTED_CHAIN.id,
+      getLatestAndFinalizedBlocks: async () => ({
+        latest: PROTOCOL_DEPLOYMENT_BLOCK + 140n,
+        finalized: PROTOCOL_DEPLOYMENT_BLOCK + 130n,
+      }),
+      readRange,
+      snapshotStore: store,
+      snapshotKey: "test-key",
+    };
+
+    const result = await loadTransparencyHistory(deps);
+    expect(store.load).toHaveBeenCalledTimes(1);
+    // Never rescans deployment..100 because the cold snapshot already covered it.
+    expect(readRange).toHaveBeenCalledTimes(2);
+    expect(readRange).toHaveBeenNthCalledWith(1, PROTOCOL_DEPLOYMENT_BLOCK + 101n, PROTOCOL_DEPLOYMENT_BLOCK + 130n);
+    expect(readRange).toHaveBeenNthCalledWith(2, PROTOCOL_DEPLOYMENT_BLOCK + 131n, PROTOCOL_DEPLOYMENT_BLOCK + 140n);
+    expect(result.revenue.interestFees).toBe("15");
+    expect(result.seniorIncome).toBe("135");
+    expect(store.save).toHaveBeenCalledTimes(1);
+    expect(saved).not.toBeNull();
+  });
+
+  it("serveTransparencyHistory flags stale fallback with its error when refresh fails inside the 10m window", async () => {
+    let clock = 10_000;
+    let shouldFail = false;
+    const deps: TransparencyHistoryDeps = {
+      now: () => clock,
+      getChainId: async () => EXPECTED_CHAIN.id,
+      getLatestAndFinalizedBlocks: async () => {
+        if (shouldFail) throw new Error("archive offline");
+        return {
+          latest: PROTOCOL_DEPLOYMENT_BLOCK + 20n,
+          finalized: PROTOCOL_DEPLOYMENT_BLOCK + 10n,
+        };
+      },
+      readRange: async () => emptyEvents(),
+    };
+
+    const fresh = await serveTransparencyHistory(deps);
+    expect(fresh.stale).toBe(false);
+
+    clock += 90_000;
+    shouldFail = true;
+    const stale = await serveTransparencyHistory(deps);
+    expect(stale.stale).toBe(true);
+    expect(stale.answer).toEqual(fresh.answer);
+    if (stale.stale) {
+      expect(stale.error).toBeInstanceOf(Error);
+    }
   });
 });

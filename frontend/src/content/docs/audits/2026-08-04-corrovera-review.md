@@ -2,9 +2,9 @@
 
 ## What this is
 
-Corrovera Security reviewed the whole protocol, 37 Solidity files, 10,502 lines of
-`contracts/src`: at commit `d2ef15a5`, and the reviewed source is byte-identical to the current
-`contracts/src` tree at `b5245398`. This is the first review of this protocol conducted by a party
+Corrovera Security reviewed the whole V1 protocol, 37 Solidity files, 10,502 lines of
+`contracts/src`: at commit `d2ef15a5` (byte-identical at the time of review to the August 2026 V1
+`contracts/src` tree at `b5245398`, subsequently superseded by Ethereum V2 in September 2026). This is the first review of this protocol conducted by a party
 other than Forest Road.
 
 It is an **AI-assisted security review**, which is the tier Corrovera delivered and the tier we

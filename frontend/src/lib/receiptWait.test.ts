@@ -1,8 +1,9 @@
 // @vitest-environment node
 import {describe, expect, it} from "vitest";
-import {createPublicClient, custom, type Hex} from "viem";
+import {createPublicClient, custom, TransactionReceiptNotFoundError, type Hex} from "viem";
 import {sepolia} from "viem/chains";
 import {
+  isReceiptNotFoundError,
   RECEIPT_STATUS_UNKNOWN_MESSAGE,
   RECEIPT_WAIT_RESTARTS,
   ReceiptStatusUnknownError,
@@ -89,21 +90,21 @@ describe("waitForReceiptRobustly", () => {
 
   it("restarts after the oversized block and returns the receipt once it is mined", async () => {
     const node = stubNode({oversizedBlockReads: new Set([1]), minedAfterBlockReads: 1});
-    const receipt = await waitForReceiptRobustly(node.client, {hash: SENT, timeout: 5_000}, {sleep: noSleep});
+    const receipt = await waitForReceiptRobustly(node.client, {hash: SENT, timeout: 60_000}, {sleep: noSleep});
     expect(receipt.transactionHash).toBe(SENT);
     expect(receipt.status).toBe("success");
   });
 
   it("returns a reverted receipt as reverted, never as success", async () => {
     const node = stubNode({oversizedBlockReads: new Set([1]), minedAfterBlockReads: 1, receiptStatus: "0x0"});
-    const receipt = await waitForReceiptRobustly(node.client, {hash: SENT, timeout: 5_000}, {sleep: noSleep});
+    const receipt = await waitForReceiptRobustly(node.client, {hash: SENT, timeout: 60_000}, {sleep: noSleep});
     expect(receipt.status).toBe("reverted");
   });
 
   it("gives up after its restarts with status unknown, naming the hash, never a success", async () => {
     const node = stubNode({oversizedBlockReads: true, minedAfterBlockReads: Number.POSITIVE_INFINITY});
     const pauses: number[] = [];
-    const failure = await waitForReceiptRobustly(node.client, {hash: SENT, timeout: 5_000}, {
+    const failure = await waitForReceiptRobustly(node.client, {hash: SENT, timeout: 60_000}, {
       sleep: async (ms) => {
         pauses.push(ms);
       },
@@ -115,6 +116,37 @@ describe("waitForReceiptRobustly", () => {
     expect(node.blockReads()).toBe(RECEIPT_WAIT_RESTARTS + 1);
     // One slot apart, so each restart reads a newer block.
     expect(pauses).toEqual(Array(RECEIPT_WAIT_RESTARTS).fill(12_000));
+  });
+
+  it("enforces the cumulative timeout budget across restarts and shrinks each attempt timeout", async () => {
+    let clock = 1_000;
+    const seenTimeouts: Array<number | undefined> = [];
+    const pauses: number[] = [];
+    const waiter = {
+      waitForTransactionReceipt: async (args: {timeout?: number}) => {
+        seenTimeouts.push(args.timeout);
+        clock += 20_000;
+        throw new Error("transient RPC hiccup");
+      },
+    };
+    const failure = await waitForReceiptRobustly(
+      waiter,
+      {hash: SENT, timeout: 50_000},
+      {
+        restarts: 5,
+        restartDelayMs: 12_000,
+        now: () => clock,
+        sleep: async (ms) => {
+          pauses.push(ms);
+          clock += ms;
+        },
+      },
+    ).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ReceiptStatusUnknownError);
+    // Attempt 0: 50s -> spends 20s -> 30s left > 12s -> sleeps 12s (clock +32s, 18s left).
+    // Attempt 1: timeout shrunk to 18s -> spends 20s -> -2s left <= 12s -> stops without sleeping.
+    expect(seenTimeouts).toEqual([50_000, 18_000]);
+    expect(pauses).toEqual([12_000]);
   });
 
   it("turns the overall wait timeout into status unknown with the hash, without restarting", async () => {
@@ -129,5 +161,26 @@ describe("waitForReceiptRobustly", () => {
     expect((failure as ReceiptStatusUnknownError).hash).toBe(SENT);
     expect(((failure as Error).cause as Error).name).toBe("WaitForTransactionReceiptTimeoutError");
     expect(restarts).toBe(0);
+  });
+});
+
+describe("isReceiptNotFoundError", () => {
+  it("matches viem TransactionReceiptNotFoundError and plain receipt/tx not-found errors", () => {
+    expect(isReceiptNotFoundError(new TransactionReceiptNotFoundError({hash: SENT}))).toBe(true);
+    expect(isReceiptNotFoundError(new Error("Transaction receipt not found"))).toBe(true);
+    expect(isReceiptNotFoundError(new Error("transaction could not be found"))).toBe(true);
+    expect(
+      isReceiptNotFoundError(
+        new Error("wrapped", {cause: {name: "TransactionReceiptNotFoundError"}}),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects unrelated not-found RPC errors such as block, header, or method not found", () => {
+    expect(isReceiptNotFoundError(new Error("Block not found"))).toBe(false);
+    expect(isReceiptNotFoundError(new Error("header not found"))).toBe(false);
+    expect(isReceiptNotFoundError(new Error("Method not found"))).toBe(false);
+    expect(isReceiptNotFoundError(new Error("State not found"))).toBe(false);
+    expect(isReceiptNotFoundError(null)).toBe(false);
   });
 });

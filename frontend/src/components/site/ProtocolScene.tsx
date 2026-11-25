@@ -34,7 +34,8 @@ function Frame({ label, children, compact }: { label: string; children: ReactNod
   return (
     <figure
       className={`protocol-scene protocol-scene--${compact ? "compact" : "hero"}`}
-      aria-label={label}
+      aria-label={compact ? undefined : label}
+      aria-hidden={compact || undefined}
       data-viewport-replay=""
       data-viewport-reveal={compact ? undefined : ""}
     >

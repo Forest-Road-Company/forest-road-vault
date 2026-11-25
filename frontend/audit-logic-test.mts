@@ -1629,7 +1629,8 @@ if (!existsSync(new URL("../contracts/src/interfaces/", import.meta.url))) {
       redeemCard.includes("onLogs={onQueueLogs}") &&
       redeemCard.includes("refetchScanned") &&
       redeemCard.includes("...QUEUE_POLL,") &&
-      restartingWatcher.includes("useWatchContractEvent({...props, onError});"),
+      restartingWatcher.includes("publicClient.getContractEvents(") &&
+      !restartingWatcher.includes("useWatchContractEvent("),
   );
   check(
     "redeem: older positions remain discoverable and claimable by request ID",

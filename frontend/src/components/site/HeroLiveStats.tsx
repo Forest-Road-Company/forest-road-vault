@@ -78,7 +78,7 @@ export function HeroLiveStats() {
   const supply =
     totalUsdfrEntry?.status === "success"
       ? (totalUsdfrEntry.result as bigint)
-      : totalUsdfrEntry?.status === "failure"
+      : !IS_MAINNET && totalUsdfrEntry?.status === "failure"
         ? val(0)
         : undefined;
   const backing =

@@ -50,7 +50,9 @@ describe("GET /api/points/morpho", () => {
     const response = await call(`?wallet=${WALLET}`);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ok: true, enabled: false});
-    expect(response.headers.get("cache-control")).toContain("s-maxage=60");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
+    expect(response.headers.get("cdn-cache-control")).toContain("s-maxage=60");
+    expect(response.headers.get("vercel-cdn-cache-control")).toContain("s-maxage=60");
     expect(load).toHaveBeenCalledWith(getAddress(WALLET), undefined, expect.any(Number));
     load.mockClear();
     expect((await call(`?wallet=${MIXED}`)).status).toBe(200);
@@ -80,7 +82,9 @@ describe("GET /api/points/morpho", () => {
     const response = await call(query);
     expect(response.status).toBe(308);
     expect(response.headers.get("location")).toBe(`/api/points/morpho?wallet=${MIXED}`);
-    expect(response.headers.get("cache-control")).toContain("s-maxage=86400");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=86400");
+    expect(response.headers.get("cdn-cache-control")).toBe("public, s-maxage=86400");
+    expect(response.headers.get("vercel-cdn-cache-control")).toBe("public, s-maxage=86400");
     expect(load).not.toHaveBeenCalled();
   });
 

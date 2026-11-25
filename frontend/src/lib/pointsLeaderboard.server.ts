@@ -339,7 +339,32 @@ async function blockLogs(deps: LeaderboardDeps, sources: readonly Source[], bloc
 const DISCOVERY_WAVE_CONCURRENCY = 3;
 const SNAPSHOT_BLOB_PATH = "points-leaderboard/discovery-v1.json";
 const SNAPSHOT_IO_TIMEOUT_MS = 4_000;
+const SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024;
 const HEX_ADDRESS_LOWER = /^0x[0-9a-f]{40}$/;
+
+async function readBoundedBlobText(stream: ReadableStream<Uint8Array>, maxBytes: number): Promise<string | null> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) return null;
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8", {fatal: true}).decode(bytes);
+}
 
 function blobSnapshotStore(): DiscoverySnapshotStore | undefined {
   if (!process.env.BLOB_READ_WRITE_TOKEN) return undefined;
@@ -352,7 +377,8 @@ function blobSnapshotStore(): DiscoverySnapshotStore | undefined {
           abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
         });
         if (!result || result.statusCode !== 200 || !result.stream) return null;
-        const text = await new Response(result.stream).text();
+        const text = await readBoundedBlobText(result.stream, SNAPSHOT_MAX_BYTES);
+        if (text === null) return null;
         const parsed = JSON.parse(text) as Partial<DiscoverySnapshot>;
         if (
           parsed.version !== 1 ||
@@ -501,6 +527,7 @@ async function extendDiscovery(deps: LeaderboardDeps, toBlock: bigint, deadline:
   while (from <= toBlock) {
     const pastDeadline = deps.now() > deadline;
     if (!first && pastDeadline) {
+      await persistDiscoverySnapshot(deps, d);
       throw new LeaderboardNotReadyError("leaderboard: still indexing participants");
     }
     first = false;

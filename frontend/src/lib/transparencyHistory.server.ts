@@ -1,3 +1,4 @@
+import {get as getBlob, put as putBlob} from "@vercel/blob";
 import {createPublicClient} from "viem";
 import {
   BRIDGE_HISTORY_ABI,
@@ -26,6 +27,12 @@ const CACHE_TTL_MS = 60_000;
 const STALE_IF_ERROR_MS = 600_000;
 const ARCHIVE_HISTORY_CONCURRENCY = 3;
 const MAX_SPLITS_PER_CHUNK = 64;
+const LOG_RESULT_LIMIT = 1_000;
+const SNAPSHOT_BLOB_PATH = "transparency-history/finalized-v1.json";
+const SNAPSHOT_IO_TIMEOUT_MS = 4_000;
+const SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024;
+const SNAPSHOT_MAX_EVENTS = 100_000;
+const UINT_STRING = /^(0|[1-9][0-9]*)$/;
 
 function isLoopbackOrPrivateHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
@@ -97,16 +104,213 @@ export interface TransparencyEventsBatch {
   managementFees: Array<{feeAssets?: bigint}>;
 }
 
+export interface TransparencyHistorySnapshotStore {
+  load: (expectedKey: string) => Promise<FinalizedCursor | null>;
+  save: (key: string, cursor: FinalizedCursor) => Promise<void>;
+}
+
 export interface TransparencyHistoryDeps {
   now: () => number;
   getChainId: () => Promise<number>;
   getLatestAndFinalizedBlocks: () => Promise<{latest: bigint; finalized: bigint}>;
   readRange: (fromBlock: bigint, toBlock: bigint) => Promise<TransparencyEventsBatch>;
+  snapshotKey?: string;
+  snapshotStore?: TransparencyHistorySnapshotStore;
 }
 
 interface FinalizedCursor {
   finalizedBlock: bigint;
   events: TransparencyEventsBatch;
+}
+
+async function readBoundedStreamText(stream: ReadableStream<Uint8Array>, maxBytes: number): Promise<string | null> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) return null;
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8", {fatal: true}).decode(bytes);
+}
+
+function parseOptionalBigInt(value: unknown): bigint | undefined | null {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !UINT_STRING.test(value)) return null;
+  return BigInt(value);
+}
+
+function serializeBatch(events: TransparencyEventsBatch) {
+  return {
+    originated: events.originated.map((e) => ({
+      ...(e.tokenId !== undefined ? {tokenId: e.tokenId.toString()} : {}),
+      ...(e.classId !== undefined ? {classId: e.classId.toString()} : {}),
+    })),
+    funded: events.funded.map((e) => ({
+      ...(e.tokenId !== undefined ? {tokenId: e.tokenId.toString()} : {}),
+      ...(e.principal !== undefined ? {principal: e.principal.toString()} : {}),
+    })),
+    losses: events.losses.map((e) => ({
+      ...(e.classId !== undefined ? {classId: e.classId.toString()} : {}),
+      ...(e.loss !== undefined ? {loss: e.loss.toString()} : {}),
+    })),
+    originationFees: events.originationFees.map((e) => ({
+      ...(e.fee !== undefined ? {fee: e.fee.toString()} : {}),
+    })),
+    distributions: events.distributions.map((e) => ({
+      ...(e.fee !== undefined ? {fee: e.fee.toString()} : {}),
+      ...(e.toVault !== undefined ? {toVault: e.toVault.toString()} : {}),
+    })),
+    performanceFees: events.performanceFees.map((e) => ({
+      ...(e.feeAssets !== undefined ? {feeAssets: e.feeAssets.toString()} : {}),
+    })),
+    managementFees: events.managementFees.map((e) => ({
+      ...(e.feeAssets !== undefined ? {feeAssets: e.feeAssets.toString()} : {}),
+    })),
+  };
+}
+
+function parseBatch(raw: unknown): TransparencyEventsBatch | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const list = (key: string): Record<string, unknown>[] | null => {
+    const arr = obj[key];
+    if (!Array.isArray(arr) || arr.length > SNAPSHOT_MAX_EVENTS) return null;
+    for (const item of arr) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    }
+    return arr as Record<string, unknown>[];
+  };
+  const originatedRaw = list("originated");
+  const fundedRaw = list("funded");
+  const lossesRaw = list("losses");
+  const originationFeesRaw = list("originationFees");
+  const distributionsRaw = list("distributions");
+  const performanceFeesRaw = list("performanceFees");
+  const managementFeesRaw = list("managementFees");
+  if (
+    !originatedRaw ||
+    !fundedRaw ||
+    !lossesRaw ||
+    !originationFeesRaw ||
+    !distributionsRaw ||
+    !performanceFeesRaw ||
+    !managementFeesRaw
+  ) {
+    return null;
+  }
+  const originated: TransparencyEventsBatch["originated"] = [];
+  for (const item of originatedRaw) {
+    const tokenId = parseOptionalBigInt(item.tokenId);
+    const classId = parseOptionalBigInt(item.classId);
+    if (tokenId === null || classId === null) return null;
+    originated.push({tokenId, classId});
+  }
+  const funded: TransparencyEventsBatch["funded"] = [];
+  for (const item of fundedRaw) {
+    const tokenId = parseOptionalBigInt(item.tokenId);
+    const principal = parseOptionalBigInt(item.principal);
+    if (tokenId === null || principal === null) return null;
+    funded.push({tokenId, principal});
+  }
+  const losses: TransparencyEventsBatch["losses"] = [];
+  for (const item of lossesRaw) {
+    const classId = parseOptionalBigInt(item.classId);
+    const loss = parseOptionalBigInt(item.loss);
+    if (classId === null || loss === null) return null;
+    losses.push({classId, loss});
+  }
+  const originationFees: TransparencyEventsBatch["originationFees"] = [];
+  for (const item of originationFeesRaw) {
+    const fee = parseOptionalBigInt(item.fee);
+    if (fee === null) return null;
+    originationFees.push({fee});
+  }
+  const distributions: TransparencyEventsBatch["distributions"] = [];
+  for (const item of distributionsRaw) {
+    const fee = parseOptionalBigInt(item.fee);
+    const toVault = parseOptionalBigInt(item.toVault);
+    if (fee === null || toVault === null) return null;
+    distributions.push({fee, toVault});
+  }
+  const performanceFees: TransparencyEventsBatch["performanceFees"] = [];
+  for (const item of performanceFeesRaw) {
+    const feeAssets = parseOptionalBigInt(item.feeAssets);
+    if (feeAssets === null) return null;
+    performanceFees.push({feeAssets});
+  }
+  const managementFees: TransparencyEventsBatch["managementFees"] = [];
+  for (const item of managementFeesRaw) {
+    const feeAssets = parseOptionalBigInt(item.feeAssets);
+    if (feeAssets === null) return null;
+    managementFees.push({feeAssets});
+  }
+  return {originated, funded, losses, originationFees, distributions, performanceFees, managementFees};
+}
+
+function blobSnapshotStore(): TransparencyHistorySnapshotStore | undefined {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return undefined;
+  return {
+    async load(expectedKey: string): Promise<FinalizedCursor | null> {
+      try {
+        const result = await getBlob(SNAPSHOT_BLOB_PATH, {
+          access: "private",
+          useCache: false,
+          abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
+        });
+        if (!result || result.statusCode !== 200 || !result.stream) return null;
+        const text = await readBoundedStreamText(result.stream, SNAPSHOT_MAX_BYTES);
+        if (text === null) return null;
+        const parsed = JSON.parse(text) as Record<string, unknown>;
+        if (
+          parsed.version !== 1 ||
+          parsed.key !== expectedKey ||
+          typeof parsed.finalizedBlock !== "string" ||
+          !/^[1-9][0-9]*$/.test(parsed.finalizedBlock)
+        ) {
+          return null;
+        }
+        const events = parseBatch(parsed.events);
+        if (!events) return null;
+        return {finalizedBlock: BigInt(parsed.finalizedBlock), events};
+      } catch (error) {
+        const name = error instanceof Error ? error.name : "UnknownError";
+        console.error(`transparency.snapshot load failed: ${name}`);
+        return null;
+      }
+    },
+    async save(key: string, cursor: FinalizedCursor): Promise<void> {
+      await putBlob(
+        SNAPSHOT_BLOB_PATH,
+        JSON.stringify({
+          version: 1,
+          key,
+          finalizedBlock: cursor.finalizedBlock.toString(),
+          events: serializeBatch(cursor.events),
+        }),
+        {
+          access: "private",
+          contentType: "application/json",
+          addRandomSuffix: false,
+          allowOverwrite: true,
+          abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
+        },
+      );
+    },
+  };
 }
 
 const VAULT_FEE_EVENTS_ABI = VAULT_HISTORY_ABI.filter(
@@ -143,18 +347,29 @@ async function readRangeAdaptive<T>(
   fetchEvents: (from: bigint, to: bigint) => Promise<readonly T[]>,
   budget: {remaining: number} = {remaining: MAX_SPLITS_PER_CHUNK},
 ): Promise<T[]> {
-  try {
-    return [...(await fetchEvents(fromBlock, toBlock))];
-  } catch (error) {
-    if (!isLogSizeLimitError(error) || fromBlock >= toBlock || budget.remaining <= 0) {
-      throw error;
+  const split = async (): Promise<T[]> => {
+    if (fromBlock >= toBlock || budget.remaining <= 0) {
+      throw new Error("transparency history: log range hit result cap or split limit");
     }
     budget.remaining -= 1;
     const mid = fromBlock + (toBlock - fromBlock) / 2n;
     const left = await readRangeAdaptive(fromBlock, mid, fetchEvents, budget);
     const right = await readRangeAdaptive(mid + 1n, toBlock, fetchEvents, budget);
     return [...left, ...right];
+  };
+  let events: T[];
+  try {
+    events = [...(await fetchEvents(fromBlock, toBlock))];
+  } catch (error) {
+    if (!isLogSizeLimitError(error) || fromBlock >= toBlock || budget.remaining <= 0) {
+      throw error;
+    }
+    return split();
   }
+  if (events.length >= LOG_RESULT_LIMIT && fromBlock < toBlock) {
+    return split();
+  }
+  return events;
 }
 
 const COMBINED_HISTORY_ABI = [
@@ -170,8 +385,20 @@ function defaultDeps(): TransparencyHistoryDeps {
     transport: createArchiveRpcTransport(archiveRpcUrl()),
   });
 
+  const snapshotKey = [
+    CONTRACTS.ClaimBridge!,
+    CONTRACTS.DefaultManager!,
+    CONTRACTS.WaterfallEngine!,
+    CONTRACTS.sUSDfr!,
+    PROTOCOL_DEPLOYMENT_BLOCK.toString(),
+  ]
+    .join(":")
+    .toLowerCase();
+
   return {
     now: () => Date.now(),
+    snapshotKey,
+    snapshotStore: blobSnapshotStore(),
     getChainId: () => client.getChainId(),
     getLatestAndFinalizedBlocks: async () => {
       const [latest, finalizedBlock] = await Promise.all([
@@ -210,7 +437,15 @@ function defaultDeps(): TransparencyHistoryDeps {
               fromBlock: from,
               toBlock: to,
             });
-            return batch.filter((log) => !log.removed);
+            const cleaned = [];
+            for (const log of batch) {
+              if (log.removed) continue;
+              if (log.blockNumber === null || log.blockNumber < from || log.blockNumber > to) {
+                throw new Error("transparency history: RPC returned a log outside the requested range");
+              }
+              cleaned.push(log);
+            }
+            return cleaned;
           }),
         DEFAULT_BLOCK_CHUNK,
         ARCHIVE_HISTORY_CONCURRENCY,
@@ -258,6 +493,8 @@ function defaultDeps(): TransparencyHistoryDeps {
 
 let verifiedChain = false;
 let finalizedCursor: FinalizedCursor | null = null;
+let hydratedFromStore = false;
+let lastSavedFinalizedBlock = 0n;
 let cachedAnswer: {value: TransparencyHistoryWire; expiresAt: number; staleUntil: number} | null = null;
 let answerInFlight: Promise<TransparencyHistoryWire> | null = null;
 
@@ -265,8 +502,23 @@ let answerInFlight: Promise<TransparencyHistoryWire> | null = null;
 export function resetTransparencyHistoryCacheForTests(): void {
   verifiedChain = false;
   finalizedCursor = null;
+  hydratedFromStore = false;
+  lastSavedFinalizedBlock = 0n;
   cachedAnswer = null;
   answerInFlight = null;
+}
+
+async function persistTransparencySnapshot(deps: TransparencyHistoryDeps, cursor: FinalizedCursor): Promise<void> {
+  if (!deps.snapshotStore || !deps.snapshotKey || cursor.finalizedBlock <= lastSavedFinalizedBlock) return;
+  try {
+    await deps.snapshotStore.save(deps.snapshotKey, cursor);
+    if (cursor.finalizedBlock > lastSavedFinalizedBlock) {
+      lastSavedFinalizedBlock = cursor.finalizedBlock;
+    }
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "UnknownError";
+    console.error(`transparency.snapshot save failed: ${name}`);
+  }
 }
 
 async function computeTransparencyHistory(deps: TransparencyHistoryDeps): Promise<TransparencyHistoryWire> {
@@ -282,6 +534,16 @@ async function computeTransparencyHistory(deps: TransparencyHistoryDeps): Promis
   if (asOfBlock < PROTOCOL_DEPLOYMENT_BLOCK) throw new Error("archive RPC is behind deployment");
 
   let cursor = finalizedCursor;
+  if (!cursor && !hydratedFromStore && deps.snapshotStore && deps.snapshotKey && finalized >= PROTOCOL_DEPLOYMENT_BLOCK) {
+    hydratedFromStore = true;
+    const snap = await deps.snapshotStore.load(deps.snapshotKey);
+    if (snap && snap.finalizedBlock >= PROTOCOL_DEPLOYMENT_BLOCK && snap.finalizedBlock <= finalized) {
+      cursor = snap;
+      finalizedCursor = snap;
+      lastSavedFinalizedBlock = snap.finalizedBlock;
+    }
+  }
+
   if (finalized >= PROTOCOL_DEPLOYMENT_BLOCK) {
     if (!cursor) {
       const events = await deps.readRange(PROTOCOL_DEPLOYMENT_BLOCK, finalized);
@@ -291,6 +553,9 @@ async function computeTransparencyHistory(deps: TransparencyHistoryDeps): Promis
       const delta = await deps.readRange(cursor.finalizedBlock + 1n, finalized);
       cursor = {finalizedBlock: finalized, events: mergeBatches(cursor.events, delta)};
       finalizedCursor = cursor;
+    }
+    if (cursor) {
+      await persistTransparencySnapshot(deps, cursor);
     }
   }
 
@@ -320,23 +585,25 @@ async function computeTransparencyHistory(deps: TransparencyHistoryDeps): Promis
   );
 }
 
-/**
- * Reads all cumulative history at one archive-RPC block and returns JSON-safe totals.
- * Caches finalized logs incrementally, coalesces concurrent cold requests, reuses answers for 60s,
- * and falls back to the last valid answer (up to 10 min) on transient upstream errors.
- */
-export async function loadTransparencyHistory(
-  depsOverride?: TransparencyHistoryDeps,
-): Promise<TransparencyHistoryWire> {
-  const now = depsOverride ? depsOverride.now() : Date.now();
-  if (cachedAnswer && now < cachedAnswer.expiresAt) return cachedAnswer.value;
-  if (answerInFlight) return answerInFlight;
+export type ServedTransparencyHistory =
+  | {answer: TransparencyHistoryWire; stale: false}
+  | {answer: TransparencyHistoryWire; stale: true; error: unknown};
 
-  const deps = depsOverride ?? defaultDeps();
+/**
+ * Route-facing loader: caches finalized logs incrementally (plus optional private Blob snapshot),
+ * coalesces concurrent cold requests, reuses answers for 60s, and surfaces stale fallback errors
+ * explicitly so the HTTP route logs failures and shortens CDN TTL instead of re-stamping fresh TTL.
+ */
+export async function serveTransparencyHistory(
+  depsOverride?: TransparencyHistoryDeps,
+): Promise<ServedTransparencyHistory> {
+  const now = depsOverride ? depsOverride.now() : Date.now();
+  if (cachedAnswer && now < cachedAnswer.expiresAt) return {answer: cachedAnswer.value, stale: false};
   const staleFallback = cachedAnswer && now < cachedAnswer.staleUntil ? cachedAnswer.value : null;
 
-  const work = computeTransparencyHistory(deps)
-    .then((value) => {
+  if (!answerInFlight) {
+    const deps = depsOverride ?? defaultDeps();
+    const pending = computeTransparencyHistory(deps).then((value) => {
       const finishedAt = deps.now();
       cachedAnswer = {
         value,
@@ -344,14 +611,29 @@ export async function loadTransparencyHistory(
         staleUntil: finishedAt + STALE_IF_ERROR_MS,
       };
       return value;
-    })
-    .catch((error) => {
-      if (staleFallback) return staleFallback;
-      throw error;
-    })
-    .finally(() => {
-      if (answerInFlight === work) answerInFlight = null;
     });
-  answerInFlight = work;
-  return work;
+    answerInFlight = pending;
+    void pending.then(
+      () => undefined,
+      () => undefined,
+    ).finally(() => {
+      if (answerInFlight === pending) answerInFlight = null;
+    });
+  }
+
+  try {
+    const answer = await answerInFlight;
+    return {answer, stale: false};
+  } catch (error) {
+    if (staleFallback) return {answer: staleFallback, stale: true, error};
+    throw error;
+  }
+}
+
+/** Reads all cumulative history at one archive-RPC block and returns JSON-safe totals. */
+export async function loadTransparencyHistory(
+  depsOverride?: TransparencyHistoryDeps,
+): Promise<TransparencyHistoryWire> {
+  const served = await serveTransparencyHistory(depsOverride);
+  return served.answer;
 }

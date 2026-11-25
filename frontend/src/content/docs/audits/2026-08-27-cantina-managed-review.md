@@ -71,9 +71,6 @@ applied, and that preventing every senior loss is not a protocol invariant.
 
 ## How to read this alongside the rest of the register
 
-This review does not supersede the mainnet-v1 full audit of 16 August. That one covered the
-deployed protocol against live mainnet state and its findings, including the open DV entries,
-remain the substantive picture. This one examined two files in depth and found nothing above
-informational in them.
+This review did not supersede the mainnet-v1 full audit of 16 August, which covered the deployed V1 protocol against live state at that date (and both V1 reviews were subsequently superseded by the September 2026 Ethereum V2 deployment; see `/docs/status` and the newer V2 reviews). This engagement examined two files in depth and found nothing above informational in them.
 
 The full report is published at `github.com/Forest-Road-Company/forest-road-vault` under `audit-reports/`.

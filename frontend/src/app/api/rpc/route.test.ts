@@ -968,13 +968,17 @@ describe("pass-through", () => {
     }
   });
 
-  it("restricts eth_getLogs on mainnet to protocol contracts + Morpho Blue, validates topics, and caps full-block reads per batch", async () => {
+  it("restricts eth_getLogs on mainnet to protocol contracts + scoped Morpho Blue, validates call shape/blocks, and rejects batches with >1 full-block read", async () => {
     upstream.chain = "0x1";
     const usdt = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
     const morpho = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb";
+    const marketId = "0xf25b12a81e96dfcc882038cd53ec32a6d74ac46186c867ade041d1cf34e2e897";
+    const supplyTopic = "0xedf8870433c83823eb071d3df1caa8d008f12f6440918c20d75a3602cda30fe0";
+    const fromBlock = "0x1900000";
+    const toBlock = "0x1900010";
     const disallowed = await read(
       await handleRpcProxyRequest(
-        rpcRequest(call("eth_getLogs", [{address: usdt, fromBlock: "0x1", toBlock: "0x2"}], 1)),
+        rpcRequest(call("eth_getLogs", [{address: usdt, fromBlock, toBlock}], 1)),
         {chainId: 1, upstreamUrl: UPSTREAM},
       ),
     );
@@ -984,14 +988,62 @@ describe("pass-through", () => {
       id: 1,
       error: {code: -32602, message: "eth_getLogs through this proxy only serves protocol contract addresses"},
     });
+    const unscopedMorpho = await read(
+      await handleRpcProxyRequest(
+        rpcRequest(call("eth_getLogs", [{address: morpho, fromBlock, toBlock}], 2)),
+        {chainId: 1, upstreamUrl: UPSTREAM},
+      ),
+    );
+    expect(unscopedMorpho.status).toBe(200);
+    expect(unscopedMorpho.body).toMatchObject({id: 2, error: {code: -32602}});
+
+    const wideMorpho = await read(
+      await handleRpcProxyRequest(
+        rpcRequest(
+          call(
+            "eth_getLogs",
+            [{address: morpho, topics: [supplyTopic, marketId], fromBlock: "0x1900000", toBlock: "0x1903000"}],
+            21,
+          ),
+        ),
+        {chainId: 1, upstreamUrl: UPSTREAM},
+      ),
+    );
+    expect(wideMorpho.status).toBe(200);
+    expect(wideMorpho.body).toMatchObject({id: 21, error: {code: -32602}});
+
     const allowed = await read(
       await handleRpcProxyRequest(
-        rpcRequest(call("eth_getLogs", [{address: morpho, fromBlock: "0x1", toBlock: "0x2"}], 2)),
+        rpcRequest(call("eth_getLogs", [{address: morpho, topics: [supplyTopic, marketId], fromBlock, toBlock}], 22)),
         {chainId: 1, upstreamUrl: UPSTREAM},
       ),
     );
     expect(allowed.status).toBe(200);
-    expect(allowed.body).toEqual({jsonrpc: "2.0", id: 2, result: "ok:eth_getLogs:1"});
+    expect(allowed.body).toEqual({jsonrpc: "2.0", id: 22, result: "ok:eth_getLogs:1"});
+
+    const preProtocolCall = await read(
+      await handleRpcProxyRequest(
+        rpcRequest(call("eth_call", [TX, "0x1"], 23)),
+        {chainId: 1, upstreamUrl: UPSTREAM},
+      ),
+    );
+    expect(preProtocolCall.body).toMatchObject({id: 23, error: {code: -32602}});
+
+    const earliestCall = await read(
+      await handleRpcProxyRequest(
+        rpcRequest(call("eth_call", [TX, "earliest"], 24)),
+        {chainId: 1, upstreamUrl: UPSTREAM},
+      ),
+    );
+    expect(earliestCall.body).toMatchObject({id: 24, error: {code: -32602}});
+
+    const hugeGasCall = await read(
+      await handleRpcProxyRequest(
+        rpcRequest(call("eth_call", [{...TX, gas: "0xffffffff"}, "latest"], 25)),
+        {chainId: 1, upstreamUrl: UPSTREAM},
+      ),
+    );
+    expect(hugeGasCall.body).toMatchObject({id: 25, error: {code: -32602}});
 
     const badTopics = await read(
       await POST(rpcRequest(call("eth_getLogs", [{...LOGS, topics: ["not-a-hash"]}], 3))),
@@ -999,12 +1051,14 @@ describe("pass-through", () => {
     expect(badTopics.body).toMatchObject({id: 3, error: {code: -32602}});
 
     upstream.chain = SEPOLIA;
-    const fiveFullBlocks = Array.from({length: 5}, (_, i) =>
+    const forwardedBefore = forwardedPayloads().length;
+    const twoFullBlocks = Array.from({length: 2}, (_, i) =>
       call("eth_getBlockByNumber", ["0x1", true], i + 1),
     );
-    const capped = (await read(await POST(rpcRequest(fiveFullBlocks)))).body as {id: number; result?: string; error?: {code: number}}[];
-    expect(capped.slice(0, 4).every((entry) => entry.result !== undefined)).toBe(true);
-    expect(capped[4].error?.code).toBe(-32602);
+    const capped = await read(await POST(rpcRequest(twoFullBlocks)));
+    expect(capped.status).toBe(400);
+    expect(forwardedPayloads().length).toBe(forwardedBefore);
+    expect((capped.body as {error?: {code: number}}[]).every((entry) => entry.error?.code === -32602)).toBe(true);
   });
 
   it("accepts JSON-RPC 2.0 upstream answers carrying error: null alongside result", async () => {
@@ -1059,7 +1113,7 @@ describe("the response size budget (a Vercel Function body is capped at 4.5 MB)"
 
   it("replaces only as many entries as it must, largest first", async () => {
     upstream.forward = sized({1: 2_200_000, 2: 2_500_000});
-    const response = await POST(rpcRequest([call("eth_getBlockByNumber", ["0x1", true], 1), call("eth_getBlockByNumber", ["0x2", true], 2), call("eth_blockNumber", [], 3)]));
+    const response = await POST(rpcRequest([call("eth_getBlockByNumber", ["0x1", true], 1), call("eth_getLogs", [LOGS], 2), call("eth_blockNumber", [], 3)]));
     const text = await response.text();
     const body = JSON.parse(text) as {id: number; result?: string; error?: unknown}[];
     expect(Buffer.byteLength(text)).toBeLessThanOrEqual(RPC_PROXY_MAX_RESPONSE_BYTES);

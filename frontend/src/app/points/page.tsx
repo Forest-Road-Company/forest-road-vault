@@ -91,7 +91,7 @@ export default function PointsPage() {
       <section className="points-why">
         <div className="mx-auto grid max-w-6xl gap-12 px-5 py-20 lg:grid-cols-[.8fr_1.2fr] md:py-24">
           <h2 className="display text-[clamp(2.2rem,4vw,3.6rem)] leading-[1.08]">Why USDfr earns more than sUSDfr.</h2>
-          <div className="points-why__copy"><p>sUSDfr stakers already receive the protocol’s variable yield, so their points start at the 1× base and mature to 2×. USDfr holders forgo that yield. They hold a plain, transferable dollar, so points compensate at a governance-set source multiple—3× to 6× today—in lieu of yield. Curator first-loss capital absorbs the first dollar of loss and earns the most.</p><aside><strong>One linear formula.</strong><span>Adding capital partially restarts the clock in proportion to the amount added. Withdrawing never resets what remains; moving capital to a fresh wallet starts it at day zero.</span></aside></div>
+          <div className="points-why__copy"><p>sUSDfr stakers already receive the protocol’s variable yield, so their points start at the 1× base and mature to 2×. USDfr holders forgo that yield. They hold the transferable credit-backed unit, so points compensate at a governance-set source multiple—3× to 6× today—in lieu of yield. Curator first-loss capital absorbs the first dollar of loss and earns the most.</p><aside><strong>One linear formula.</strong><span>Adding capital partially restarts the clock in proportion to the amount added. Withdrawing never resets what remains; moving capital to a fresh wallet starts it at day zero.</span></aside></div>
         </div>
       </section>
 

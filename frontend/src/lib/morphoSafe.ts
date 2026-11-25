@@ -15,8 +15,13 @@ export function encodeSafeCalls(calls: readonly MarketCall[]): Hex {
 function revertData(error: unknown): Hex | undefined {
   let current = error;
   for (let depth = 0; depth < 12 && current && typeof current === "object"; depth++) {
-    const row = current as {data?: unknown; cause?: unknown};
+    const row = current as {data?: unknown; raw?: unknown; cause?: unknown};
     if (typeof row.data === "string" && /^0x[\da-f]+$/i.test(row.data)) return row.data as Hex;
+    if (row.data && typeof row.data === "object") {
+      const nested = (row.data as {data?: unknown}).data;
+      if (typeof nested === "string" && /^0x[\da-f]+$/i.test(nested)) return nested as Hex;
+    }
+    if (typeof row.raw === "string" && /^0x[\da-f]+$/i.test(row.raw)) return row.raw as Hex;
     current = row.cause;
   }
 }

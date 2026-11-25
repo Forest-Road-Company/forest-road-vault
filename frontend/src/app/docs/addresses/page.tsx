@@ -47,7 +47,7 @@ const ROLE: Record<ContractName, string> = {
   USDfr:
     "Minted 1:1 against USDC and redeemable back to USDC. Recognized backing includes idle reserves and deployed loan principal. Holding USDfr earns no yield by itself.",
   sUSDfr:
-    "The yield vault (ERC-4626). Stake USDfr to receive sUSDfr, whose exchange rate rises as loan interest is earned. Exits go through the redemption queue.",
+    "The yield vault (ERC-4626). Stake USDfr to receive sUSDfr, whose exchange rate reflects net loan-book performance after fees and realized losses (and can fall if losses reach senior depositors). Exits go through the redemption queue.",
   GROVE:
     "The governance token. Fixed supply, minted in full to the Forest Road treasury. It carries voting rights and sGROVE staking eligibility, and no automatic right to protocol revenue.",
   sGROVE:

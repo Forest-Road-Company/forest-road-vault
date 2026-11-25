@@ -292,4 +292,29 @@ describe("connected Solana curator controls", () => {
     expect(screen.queryByText(/^Deposit confirmed\.$/)).not.toBeInTheDocument();
     expect(screen.getByText(/vault could not be read/i)).toBeInTheDocument();
   });
+
+  it("clears wallet A's busy lock even if the user switches to wallet B and back to wallet A", async () => {
+    harness.delayStatus = true;
+    const view = render(<CuratorVaultPanel />);
+    await waitForBook();
+    fireEvent.change(screen.getByLabelText("Amount (USDC)"), {target: {value: "1"}});
+    fireEvent.click(screen.getByRole("button", {name: "Deposit"}));
+    await waitFor(() => expect(harness.releaseStatus).not.toBeNull());
+
+    // Switch to wallet B while wallet A's confirmation is in flight, then settle wallet A.
+    harness.walletByte = 6;
+    harness.delayStatus = false;
+    view.rerender(<CuratorVaultPanel />);
+    await waitFor(() => expect(screen.queryByText("Reading the vault…")).not.toBeInTheDocument());
+
+    await act(async () => harness.releaseStatus?.());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Switch back to wallet A: action controls must be enabled, not permanently locked.
+    harness.walletByte = 7;
+    view.rerender(<CuratorVaultPanel />);
+    await waitFor(() => expect(screen.getByLabelText("Amount (USDC)")).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("Amount (USDC)"), {target: {value: "2"}});
+    expect(screen.getByRole("button", {name: "Deposit"})).toBeEnabled();
+  });
 });

@@ -18,8 +18,8 @@ import {RPC_PROXY_ALLOWED_METHODS} from "@/lib/rpcProxy.server";
 
 const SRC = fileURLToPath(new URL("..", import.meta.url));
 
-/** Refused by the proxy on purpose; viem falls back (see the dynamic census). */
-const REFUSED_WITH_FALLBACK = new Set(["eth_newFilter"]);
+/** Normal browser code sends zero methods outside the proxy allowlist. */
+const REFUSED_WITH_FALLBACK = new Set<string>();
 /** Handled by the wallet (injected provider or WalletConnect session), never by this RPC. */
 const WALLET = "wallet";
 
@@ -155,10 +155,10 @@ describe("the static method census of browser code", () => {
     expect(census.unknownWagmi).toEqual([]);
     expect(census.unknownClientCalls).toEqual([]);
     // Not vacuous: the site's actual read paths are found.
-    for (const hook of ["useReadContract", "useReadContracts", "useBlockNumber", "useWatchContractEvent"]) {
+    for (const hook of ["useReadContract", "useReadContracts", "useBlockNumber", "usePublicClient"]) {
       expect(census.seenWagmi.has(hook), hook).toBe(true);
     }
-    for (const call of ["readContract", "getBlock", "getContractEvents", "getLogs", "simulateContract", "waitForTransactionReceipt"]) {
+    for (const call of ["readContract", "getBlock", "getBlockNumber", "getContractEvents", "getLogs", "simulateContract", "waitForTransactionReceipt"]) {
       expect(census.seenClientCalls.has(call), call).toBe(true);
     }
   });

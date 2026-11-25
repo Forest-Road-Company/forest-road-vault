@@ -4,7 +4,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {formatUnits, type Address, type Hash} from "viem";
 import {mainnet} from "viem/chains";
 import {useAccount, usePublicClient, useWalletClient} from "wagmi";
-import {ReceiptStatusUnknownError, waitForReceiptRobustly} from "@/lib/receiptWait";
+import {isReceiptNotFoundError, ReceiptStatusUnknownError, waitForReceiptRobustly} from "@/lib/receiptWait";
 
 import {ConnectControl} from "@/components/app/ConnectControl";
 import {CHAIN_ID, CONTRACTS, EXPLORER_BASE_URL} from "@/config/contracts";
@@ -160,6 +160,7 @@ export function SusdfrV2LiquidityOperation() {
   );
 
   const inFlightRef = useRef(false);
+  const [inFlight, setInFlight] = useState(false);
 
   const loadSnapshot = useCallback(async (): Promise<Snapshot> => {
     if (!publicClient || !address) throw new Error("Connect the treasury wallet first.");
@@ -239,22 +240,34 @@ export function SusdfrV2LiquidityOperation() {
   }, [address, publicClient]);
 
   const restoreProgress = useCallback(async () => {
+    const clearSettledStatus = () => {
+      if (!inFlightRef.current) {
+        setStatus((prev) =>
+          prev.phase === "pending" || prev.phase === "unknown" ? {phase: "idle"} : prev,
+        );
+      }
+    };
     if (!address || !publicClient || !walletMatches) {
       setConfirmed(null);
       return;
     }
     const stored = readStoredMint(address);
-    if (!stored) return;
+    if (!stored) {
+      clearSettledStatus();
+      return;
+    }
     let receipt;
     try {
       receipt = await publicClient.getTransactionReceipt({hash: stored.hash});
     } catch (error) {
-      if (messageFromError(error).toLowerCase().includes("not found")) {
-        setStatus({
-          phase: "pending",
-          message: "A previously submitted V2 liquidity transaction is still pending on-chain. Wait for confirmation before retrying.",
-          hash: stored.hash,
-        });
+      if (isReceiptNotFoundError(error)) {
+        if (!inFlightRef.current) {
+          setStatus({
+            phase: "pending",
+            message: "A previously submitted V2 liquidity transaction is still pending on-chain. Wait for confirmation before retrying.",
+            hash: stored.hash,
+          });
+        }
         return;
       }
       throw error;
@@ -295,6 +308,7 @@ export function SusdfrV2LiquidityOperation() {
       throw new Error("The live pair or treasury LP balance no longer matches the receipt.");
     }
     setConfirmed({hash: stored.hash, evidence});
+    clearSettledStatus();
   }, [address, publicClient, walletMatches]);
 
   const refresh = useCallback(async () => {
@@ -319,6 +333,7 @@ export function SusdfrV2LiquidityOperation() {
     async (token: typeof USDC | typeof SUSDFR, symbol: "USDC" | "sUSDfr") => {
       if (!connectedCorrectly || !walletClient || !publicClient || !address || inFlightRef.current) return;
       inFlightRef.current = true;
+      setInFlight(true);
       try {
         const live = await loadSnapshot();
         if (live.pair !== ZERO_ADDRESS) throw new Error("The V2 pair already exists; approvals are locked.");
@@ -361,6 +376,7 @@ export function SusdfrV2LiquidityOperation() {
         }
       } finally {
         inFlightRef.current = false;
+        setInFlight(false);
       }
     },
     [address, connectedCorrectly, loadSnapshot, publicClient, walletClient],
@@ -369,6 +385,7 @@ export function SusdfrV2LiquidityOperation() {
   const execute = useCallback(async () => {
     if (!connectedCorrectly || !walletClient || !publicClient || !address || inFlightRef.current) return;
     inFlightRef.current = true;
+    setInFlight(true);
     let pendingHash: Hash | undefined;
     try {
       setStatus({phase: "reading", message: "Refreshing the pair, exchange rate, balances and exact allowances…"});
@@ -476,6 +493,7 @@ export function SusdfrV2LiquidityOperation() {
       }
     } finally {
       inFlightRef.current = false;
+      setInFlight(false);
     }
   }, [address, connectedCorrectly, loadSnapshot, publicClient, walletClient]);
 
@@ -630,7 +648,7 @@ export function SusdfrV2LiquidityOperation() {
             <button
               type="button"
               onClick={() => void refresh()}
-              disabled={!walletMatches || busy}
+              disabled={!walletMatches || loading || inFlight}
               className="rounded-pill border border-line px-5 py-2 text-[13px] text-ink disabled:opacity-45"
             >
               Refresh checks

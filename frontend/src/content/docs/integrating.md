@@ -86,7 +86,8 @@ either token is not.
 ## `sUSDfr.decimals()` is 24
 
 The vault uses a six-decimal virtual-share offset over an 18-decimal asset, so `decimals()` returns
-`24` and par is `1e18`, not `1e12`. This is OpenZeppelin's standard inflation-attack defence and is
+`24` and par for one whole share (`convertToAssets(1e24)` and `currentExchangeRate()`) is `1e18`
+USDfr base units (whereas `convertToAssets(1e18)` returns `1e12`). This is OpenZeppelin's standard inflation-attack defence and is
 spec-legal, but it has repeatedly caught reviewers who assumed 18. Any hardcoded scaling constant
 against `sUSDfr` share amounts should be derived from `decimals()`.
 

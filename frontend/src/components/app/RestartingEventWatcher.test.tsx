@@ -97,8 +97,8 @@ describe("the queue watcher after a long sleep (review N1)", () => {
     await vi.waitFor(() => expect(logReads(node).some((call) => !call.refused)).toBe(true), {timeout: 3_000});
     const restarts = warnings().filter((line) => line.startsWith("test.queue_watcher_restart"));
     expect(restarts[0]).toBe("test.queue_watcher_restart InvalidParamsRpcError");
-    // The expected eth_newFilter refusal is not an error and restarts nothing.
-    expect(node.calls.some((call) => call.method === "eth_newFilter" && call.refused)).toBe(true);
+    // Direct HTTP polling never probes eth_newFilter through the RPC proxy.
+    expect(node.calls.some((call) => call.method === "eth_newFilter")).toBe(false);
   });
 
   it("does not hide a non-refusal error, and restarts at most once per delay, never in a tight loop", async () => {

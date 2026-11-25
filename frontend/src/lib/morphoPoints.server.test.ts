@@ -1092,4 +1092,50 @@ describe("loadMorphoCollateralLeaderboard against the per-wallet answer, owner b
     // The leaderboard reads every known owner's position, DAVE's included, and refuses to serve.
     await expect(loadMorphoCollateralLeaderboard(deps())).rejects.toBeInstanceOf(MorphoPointsIntegrityError);
   });
+
+  it("hydrates cold history from snapshotStore and still fails closed when live reconciliation disagrees", async () => {
+    let savedSnapshot: Parameters<NonNullable<MorphoPointsDeps["snapshotStore"]>["save"]>[1] | null = null;
+    let saveCalls = 0;
+    const store: NonNullable<MorphoPointsDeps["snapshotStore"]> = {
+      load: async () => savedSnapshot,
+      save: async (_key, snapshot) => {
+        saveCalls += 1;
+        savedSnapshot = snapshot;
+      },
+    };
+    // Warm build saves the finalized history snapshot.
+    const first = await loadMorphoCollateralLeaderboard(deps({snapshotStore: store}));
+    if (!first.enabled) throw new Error("expected an enabled board");
+    expect(saveCalls).toBeGreaterThan(0);
+    expect(savedSnapshot).not.toBeNull();
+
+    // Simulate a cold serverless container hydrated from Blob: zero log rescans for 100..200.
+    resetMorphoPointsCache();
+    const logsBefore = chain.getLogsCalls;
+    const hydrated = await loadMorphoCollateralLeaderboard(deps({snapshotStore: store}));
+    if (!hydrated.enabled) throw new Error("expected an enabled board");
+    expect(hydrated.asOfBlock).toBe(200n);
+    expect(hydrated.points.get(ALICE.toLowerCase())).toBe(first.points.get(ALICE.toLowerCase()));
+    expect(chain.getLogsCalls).toBe(logsBefore);
+
+    // Internally consistent but tampered snapshot events MUST still fail closed via live on-chain reconciliation.
+    resetMorphoPointsCache();
+    let bumped = false;
+    savedSnapshot = {
+      ...savedSnapshot!,
+      events: savedSnapshot!.events.map((ev) => {
+        if (!bumped && ev.owner.toLowerCase() === ALICE.toLowerCase() && ev.kind === "supply") {
+          bumped = true;
+          return {...ev, assets: ev.assets + 1n};
+        }
+        return ev;
+      }),
+      balances: savedSnapshot!.balances.map(([owner, bal]) =>
+        owner.toLowerCase() === ALICE.toLowerCase() ? [owner, bal + 1n] : [owner, bal],
+      ),
+    };
+    await expect(loadMorphoCollateralLeaderboard(deps({snapshotStore: store}))).rejects.toBeInstanceOf(
+      MorphoPointsIntegrityError,
+    );
+  });
 });
