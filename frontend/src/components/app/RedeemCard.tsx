@@ -686,7 +686,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
                       key={r.id.toString()}
                       className="flex items-center justify-between gap-3 rounded-card border border-line bg-surface px-3.5 py-2.5"
                     >
-                      <div className="font-mono text-[11px] leading-relaxed text-ink-muted">
+                      <div className="min-w-0 font-mono text-[11px] leading-relaxed text-ink-muted">
                         <span className="text-ink-faint">#{r.id.toString()}</span>{" "}
                         {r.sharesRemaining > 0n ? (
                           <>

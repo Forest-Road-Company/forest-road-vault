@@ -254,9 +254,9 @@ export function MorphoMarketSurface() {
       <p className="mt-5 text-[13px] text-ink-faint">{fresh ? `Read at Ethereum block ${snapshot!.block.toLocaleString("en-US")}. Displayed rates are averages since the market's last update and change with utilization.` : "Current market figures are unavailable. Refresh before making a decision."}</p>
     </section>
     {networkReason ? <div role="status" className="border-l-2 border-accent pl-4 text-sm text-ink-muted">{networkReason}
-      {IS_MAINNET && wallet && !correctNetwork && !safe.context ? <button type="button" className="u-link ml-2 text-accent" onClick={() => switchChain({chainId: 1})}>Switch to Ethereum</button> : null}
+      {IS_MAINNET && wallet && !correctNetwork && !safe.context ? <button type="button" className="u-link ml-2 inline-flex min-h-[24px] items-center text-accent" onClick={() => switchChain({chainId: 1})}>Switch to Ethereum</button> : null}
       {switchChainError ? <p role="alert" className="mt-2 text-danger">{switchChainError.message.length < 180 ? switchChainError.message : "Could not switch networks. Switch to Ethereum mainnet in your wallet."}</p> : null}</div> : null}
-    {marketQuery.isError ? <div role="alert" className="text-sm text-danger">Market data could not be verified. No balances have been assumed. <button type="button" className="u-link" onClick={() => void marketQuery.refetch()}>Retry</button></div> : null}
+    {marketQuery.isError ? <div role="alert" className="text-sm text-danger">Market data could not be verified. No balances have been assumed. <button type="button" className="u-link inline-flex min-h-[24px] items-center" onClick={() => void marketQuery.refetch()}>Retry</button></div> : null}
     {safe.error ? <p role="alert" className="text-sm text-danger">{safe.error}</p> : null}
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
       <section className="market-console__action panel min-w-0 p-6 sm:p-8" aria-label="Manage market position">
@@ -280,7 +280,7 @@ export function MorphoMarketSurface() {
         {account ? <p className="mt-3 text-[13px] text-ink-muted">Wallet: {fmtAmount(account.usdc, 6, 6)} USDC · {fmtAmount(account.collateral, MORPHO_MARKET.collateralDecimals, 6)} sUSDfr</p> : null}
         {action === "borrow" || action === "withdrawCollateral" ? <p className="mt-2 text-[13px] text-ink-muted">Typed amounts and Max retain an 80% LTV buffer. Max also leaves interest headroom until quote expiry, covering head age and read latency without assuming a collateral price increase. This is a page-level limit, not protection from liquidation. The on-chain threshold is 86%; collateral value and interest can change.</p> : null}
         {(action === "repay" || action === "withdraw") && !treasurySeed ? <label className="mt-4 flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={all} disabled={busy} onChange={e => setAll(e.target.checked)} />
+          <input type="checkbox" checked={all} disabled={busy} onChange={e => setAll(e.target.checked)} className="h-4 w-4 shrink-0" />
           {action === "repay" ? "Repay all debt, including accrued interest" : "Withdraw all lending shares"}</label> : null}
         {repayAll ? <p className="mt-2 text-[13px] leading-relaxed text-ink-muted">The balance and allowance checks cover five minutes from quote issuance, including head age, read latency, rising rates and a small rounding margin. A new approval adds 0.1% to that estimate. Only the actual debt is repaid; unused allowance may remain. Other market transactions can require a fresh quote.</p> : null}
         {displayedQuote ? <div className="mt-3 space-y-1 text-xs leading-relaxed text-ink-muted">
@@ -297,7 +297,7 @@ export function MorphoMarketSurface() {
           {preview ? <p>Estimated post-action LTV: {formatLtv(preview)}. Rechecked before signing; execution conditions can change.</p> : null}
         </div> : null}
         {requiresRisk ? <label className="mt-5 flex items-start gap-3 text-sm leading-relaxed text-ink-muted">
-          <input type="checkbox" checked={riskAccepted} disabled={busy} onChange={e => setRiskAccepted(e.target.checked)} className="mt-1" />
+          <input type="checkbox" checked={riskAccepted} disabled={busy} onChange={e => setRiskAccepted(e.target.checked)} className="mt-1 h-4 w-4 shrink-0" />
           <span>I understand the <Link href="/risk" className="u-link text-accent">market risks</Link>, including credit losses, liquidation and limited withdrawal liquidity.</span></label> : null}
         <ActionButton label={treasurySeed ? "Review 50,000-USDC supply in Safe" : safe.context ? `Review ${titles[action].toLowerCase()} in Safe` : needsApproval ? `Approve ${symbol}` : titles[action]}
           busyLabel={safeProposed ? "Awaiting Safe execution…" : safeStatus.phase === "review" ? "Review in Safe…" : safeStatus.phase === "simulating" ? "Simulating Safe batch…" : busyLabelFor(flow.status)}

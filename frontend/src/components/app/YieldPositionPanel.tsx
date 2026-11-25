@@ -492,7 +492,7 @@ export function YieldPositionPanel() {
             <div className="mt-3 flex flex-wrap items-end gap-x-4 gap-y-2">
               <p
                 data-figure
-                className="display text-[clamp(2rem,4vw,3.375rem)] leading-none text-on-navy"
+                className="display min-w-0 [overflow-wrap:anywhere] text-[clamp(2rem,4vw,3.375rem)] leading-none text-on-navy"
               >
                 {fmtAmount(metrics.projectedPositionIncome, 18, 4)}
               </p>

@@ -114,7 +114,7 @@ const ADDRESS_FONT = "font-mono [font-variant-ligatures:no-contextual]";
 function WalletLink({wallet, explorerBaseUrl}: {wallet: string; explorerBaseUrl: string | null}) {
   const href = explorer(wallet, explorerBaseUrl);
   return href ? (
-    <a href={href} target="_blank" rel="noreferrer" className={`${ADDRESS_FONT} text-accent underline-offset-4 hover:underline`}>
+    <a href={href} target="_blank" rel="noreferrer" className={`${ADDRESS_FONT} inline-flex min-h-[24px] items-center text-accent underline-offset-4 hover:underline`}>
       {shortAddress(wallet)}
     </a>
   ) : (
