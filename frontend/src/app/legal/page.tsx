@@ -43,8 +43,9 @@ export default function LegalPage() {
         </p>
         <p>
           <span className="text-ink">Token characterization is a matter for counsel.</span>{" "}
-          The protocol&apos;s instruments (USDfr, sUSDfr, GROVE, and sGROVE) have
-          the characterization set out in the definitive legal materials; nothing
+          The protocol&apos;s instruments (USDfr, sUSDfr, GROVE, sGROVE, curator
+          positions, and points) have the characterization set out in the definitive
+          legal materials; nothing
           on this site independently claims they are or are not securities.{" "}
           Securities-counsel review, definitive legal and onboarding documents,
           external security review, and economic and operational approvals remain

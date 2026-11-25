@@ -52,7 +52,7 @@ export function PointsMaturityLab() {
         </div>
       </div>
       <label><span>Move through the first year</span><input type="range" min="0" max="365" value={day} onChange={(event)=>setDay(Number(event.target.value))} /></label>
-      <dl>{[["sUSDfr",factors[0]],["USDfr",factors[1]],["Curator",factors[2]]].map(([label,value])=><div key={String(label)}><dt>{label}</dt><dd>{Number(value).toFixed(2)}×</dd></div>)}</dl>
+      <dl aria-live="polite">{[["sUSDfr",factors[0]],["USDfr",factors[1]],["Curator",factors[2]]].map(([label,value])=><div key={String(label)}><dt>{label}</dt><dd>{Number(value).toFixed(2)}×</dd></div>)}</dl>
     </div>
   );
 }

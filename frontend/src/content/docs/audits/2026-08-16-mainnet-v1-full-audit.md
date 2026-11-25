@@ -1,4 +1,6 @@
-This is the first review conducted against a **live Ethereum mainnet deployment** rather than
+> **Historical Ethereum V1 record.** This review audited the August 2026 Ethereum V1 mainnet deployment, which was superseded by Ethereum V2 in September 2026. Present-tense statements below reflect the 16 August 2026 V1 launch snapshot; see [Live deployment status](/docs/status) and newer V2 reviews for current mainnet state.
+
+This was the first review conducted against a **live Ethereum mainnet deployment** rather than
 against source or a testnet. It supersedes the same-day deployment audit, which examined bytecode,
 roles, parameters and disclosure but declared two gaps explicitly: no fork reproduction, so no
 finding could reach *confirmed*, and no independent adversarial cross-examination. This engagement

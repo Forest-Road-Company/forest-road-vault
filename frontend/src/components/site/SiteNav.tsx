@@ -21,7 +21,9 @@ export function SiteNav() {
   const pathname = usePathname();
   const isAppRoute = pathname === "/app" || pathname.startsWith("/app/");
   const [open, setOpen] = useState(false);
+  const [menuMaxHeight, setMenuMaxHeight] = useState<number | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
+  const barRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
 
@@ -70,11 +72,18 @@ export function SiteNav() {
         setOpen(false);
       }
     };
+    const updateMenuHeight = () => {
+      const bottom = barRef.current?.getBoundingClientRect().bottom ?? 64;
+      setMenuMaxHeight(Math.max(120, Math.floor(window.innerHeight - bottom)));
+    };
+    updateMenuHeight();
+    window.addEventListener("resize", updateMenuHeight);
     desktopQuery?.addEventListener("change", onViewportChange);
     window.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown);
     return () => {
       document.body.style.overflow = "";
+      window.removeEventListener("resize", updateMenuHeight);
       desktopQuery?.removeEventListener("change", onViewportChange);
       window.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("pointerdown", onPointerDown);
@@ -91,7 +100,7 @@ export function SiteNav() {
       style={{ viewTransitionName: "site-header" }}
     >
       <nav aria-label="Primary">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-5 sm:gap-6">
+        <div ref={barRef} className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-5 sm:gap-6">
         <Link
           href="/"
           onClick={() => setOpen(false)}
@@ -192,7 +201,8 @@ export function SiteNav() {
         <div
           ref={menuRef}
           id="site-menu"
-          className="border-t border-line bg-bg lg:hidden"
+          style={menuMaxHeight !== null ? { maxHeight: `${menuMaxHeight}px` } : undefined}
+          className="max-h-[calc(100dvh-4rem)] overflow-y-auto overscroll-contain border-t border-line bg-bg lg:hidden"
         >
           <div className="mx-auto max-w-6xl px-5 py-3">
             {links.map((l) => {

@@ -236,4 +236,24 @@ describe("the staged liquidity operation", () => {
     expect(screen.getByText("Unlocked")).toBeInTheDocument();
     expect(screen.getByRole("button", {name: /review and submit remainder/i})).toBeEnabled();
   });
+
+  it("surfaces a non-receipt RPC error instead of reporting a stored pilot transaction as pending", async () => {
+    const plan = buildPilotPlan(LIVE_SQRT_PRICE);
+    window.localStorage.setItem(
+      `frv:uniswap-v4-liquidity:v1:pilot:${LIQUIDITY_OPERATOR.toLowerCase()}`,
+      JSON.stringify({
+        version: 1,
+        kind: "pilot",
+        owner: LIQUIDITY_OPERATOR,
+        hash: PILOT_HASH,
+        liquidity: plan.liquidity.toString(),
+      }),
+    );
+    publicClient.getTransactionReceipt.mockRejectedValue(new Error("Block not found on archive node"));
+
+    render(<LiquidityOperation />);
+
+    expect(await screen.findByText(/Block not found on archive node/i)).toBeInTheDocument();
+    expect(screen.queryByText(/still pending on chain/i)).not.toBeInTheDocument();
+  });
 });

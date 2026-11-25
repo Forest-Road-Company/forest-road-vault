@@ -313,8 +313,8 @@ export function EthereumCuratorPanel() {
         </p>
         <p className="mt-3 text-[13px] leading-relaxed text-ink-faint">
           Forest Road&apos;s position belongs to the AnchorCurator Safe. A Safe owner&apos;s personal
-          wallet does not display or control that position; open this surface through the Safe or
-          submit the calls from its transaction builder.
+          wallet does not display or control that position; connect the Safe over WalletConnect or
+          submit the calls from the Safe Transaction Builder.
         </p>
         <div className="mt-5 border-t border-line pt-5">
           <p className="text-[13px] font-semibold text-ink">Previously posted capital?</p>

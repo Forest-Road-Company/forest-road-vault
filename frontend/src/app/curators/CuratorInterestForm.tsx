@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Registration of interest for the curator programme. It records a contact and
@@ -41,6 +41,7 @@ export function CuratorInterestForm() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const confirmRef = useRef<HTMLDivElement | null>(null);
   // The server-rendered form must not fall back to a native GET if somebody clicks before React
   // has attached `submit`. Enable it one task after hydration; the initial server and client
   // markup stay identical, and every accepted click goes through the JSON validation path below.
@@ -49,6 +50,9 @@ export function CuratorInterestForm() {
     const task = setTimeout(() => setHydrated(true), 0);
     return () => clearTimeout(task);
   }, []);
+  useEffect(() => {
+    if (done) confirmRef.current?.focus();
+  }, [done]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -75,7 +79,13 @@ export function CuratorInterestForm() {
 
   if (done) {
     return (
-      <div className="op-field px-5 py-5 text-[14.5px] leading-relaxed text-ink-muted">
+      <div
+        ref={confirmRef}
+        tabIndex={-1}
+        role="status"
+        aria-live="polite"
+        className="op-field px-5 py-5 text-[14.5px] leading-relaxed text-ink-muted focus:outline-none"
+      >
         <p className="font-semibold text-ink">Registered.</p>
         <p className="mt-1">
           Forest Road will be in touch about eligibility and the agreement. Nothing
@@ -84,6 +94,9 @@ export function CuratorInterestForm() {
       </div>
     );
   }
+
+  const emailInvalid = Boolean(error && /email/i.test(error));
+  const walletInvalid = Boolean(error && /wallet/i.test(error));
 
   return (
     <form onSubmit={submit} noValidate className="space-y-5">
@@ -111,6 +124,8 @@ export function CuratorInterestForm() {
             autoComplete="email"
             placeholder="you@example.com"
             value={email}
+            aria-invalid={emailInvalid || undefined}
+            aria-describedby={error ? "ci-error" : undefined}
             onChange={(e) => setEmail(e.target.value)}
             className={control}
           />
@@ -187,6 +202,8 @@ export function CuratorInterestForm() {
             spellCheck={false}
             autoComplete="off"
             value={wallet}
+            aria-invalid={walletInvalid || undefined}
+            aria-describedby={error ? "ci-error" : undefined}
             onChange={(e) => setWallet(e.target.value)}
             className={`${control} font-mono sm:text-[13.5px]`}
           />
@@ -210,7 +227,7 @@ export function CuratorInterestForm() {
       </div>
 
       {error ? (
-        <p role="alert" className="text-[13.5px] text-danger">
+        <p id="ci-error" role="alert" className="text-[13.5px] text-danger">
           {error}
         </p>
       ) : null}

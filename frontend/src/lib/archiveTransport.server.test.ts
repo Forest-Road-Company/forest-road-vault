@@ -51,5 +51,34 @@ describe("archiveTransport.server", () => {
     expect(response.status).toBe(200);
     expect(baseFetch).toHaveBeenCalledTimes(3);
     expect(delays).toEqual([2_000, 1_575]);
+    // Enforces redirect: "error" and cache: "no-store" even when caller omits them.
+    expect(baseFetch.mock.calls[0]?.[1]).toMatchObject({redirect: "error", cache: "no-store"});
+  });
+
+  it("caps cumulative rate-limit backoff and overrides caller redirect/cache options", async () => {
+    const delays: number[] = [];
+    const baseFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("rate limited", {status: 429, headers: {"retry-after": "5"}}));
+
+    const archiveFetch = createArchiveFetch(baseFetch, {
+      sleep: async (ms) => {
+        delays.push(ms);
+      },
+      random: () => 0,
+    });
+
+    const response = await archiveFetch("https://archive.invalid", {
+      method: "POST",
+      body: "{}",
+      redirect: "follow",
+      cache: "force-cache",
+    });
+    expect(response.status).toBe(429);
+    // Retry-After: 5 is clamped to MAX_RETRY_DELAY_MS (4_000ms); two 4_000ms sleeps fit under 9_500ms,
+    // and the third would exceed the cumulative cap so the loop exits after 3 total fetches.
+    expect(delays).toEqual([4_000, 4_000]);
+    expect(baseFetch).toHaveBeenCalledTimes(3);
+    expect(baseFetch.mock.calls[0]?.[1]).toMatchObject({redirect: "error", cache: "no-store"});
   });
 });

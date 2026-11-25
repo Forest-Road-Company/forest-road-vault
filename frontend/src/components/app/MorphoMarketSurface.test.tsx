@@ -18,7 +18,7 @@ vi.mock("@/config/contracts", () => ({IS_MAINNET:true,EXPLORER_BASE_URL:"https:/
 vi.mock("wagmi", () => ({useAccount:()=>({address:h.address,chainId:h.chainId}),
   usePublicClient:()=>({getCode:h.getCode,getLogs:h.getLogs,readContract:h.readContract}),useSwitchChain:()=>({switchChain:h.switchChain})}));
 vi.mock("./ConnectControl",()=>({ConnectControl:()=> <span>Connect wallet</span>}));
-vi.mock("./useWriteFlow",()=>({useWriteFlow:()=>({status:{phase:"idle"},busy:false,run:h.run})}));
+vi.mock("./useWriteFlow",()=>({useWriteFlow:()=>({status:{phase:"idle"},busy:false,run:h.run,reset:vi.fn()})}));
 vi.mock("./useMorphoSafe",()=>({useMorphoSafe:()=>({context:h.safe,error:null})}));
 vi.mock("@/lib/morphoMarketReader",()=>({readMorphoMarket:h.read}));
 vi.mock("@/lib/morphoSafe",()=>({simulateSafeMarketCalls:h.simulate}));

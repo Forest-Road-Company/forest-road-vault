@@ -1,6 +1,7 @@
-import {render, screen, waitFor} from "@testing-library/react";
+import {fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
-import {type Address, zeroAddress} from "viem";
+import {type Address, type Hex, zeroAddress} from "viem";
+import {ReceiptStatusUnknownError} from "@/lib/receiptWait";
 
 import {SusdfrV2LiquidityOperation} from "./SusdfrV2LiquidityOperation";
 import {
@@ -21,12 +22,33 @@ const mockState = vi.hoisted(() => ({
   pair: "0x0000000000000000000000000000000000000000",
   usdcAllowance: 0n,
   susdfrAllowance: 0n,
+  waitReceipt: vi.fn(),
+  walletClient: undefined as
+    | {
+        transport: {request: ReturnType<typeof vi.fn>};
+        writeContract: ReturnType<typeof vi.fn>;
+      }
+    | undefined,
   publicClient: {
     getBlock: vi.fn(async () => ({number: 26_056_536n, timestamp: 1_790_360_000n})),
     getTransactionReceipt: vi.fn(),
     readContract: vi.fn(),
+    simulateContract: vi.fn(async () => ({})),
+    request: vi.fn(),
   },
 }));
+
+vi.mock("@/lib/rpcAlignment", () => ({
+  probeRpcAlignment: vi.fn(async () => ({aligned: true})),
+}));
+
+vi.mock("@/lib/receiptWait", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/receiptWait")>();
+  return {
+    ...actual,
+    waitForReceiptRobustly: (...args: unknown[]) => mockState.waitReceipt(...args),
+  };
+});
 
 vi.mock("@/config/contracts", () => ({
   CHAIN_ID: 1,
@@ -44,7 +66,7 @@ vi.mock("@/components/app/ConnectControl", () => ({
 vi.mock("wagmi", () => ({
   useAccount: () => ({address: mockState.connectedAddress, chainId: 1, isConnected: true}),
   usePublicClient: () => mockState.publicClient,
-  useWalletClient: () => ({data: undefined}),
+  useWalletClient: () => ({data: mockState.walletClient}),
 }));
 
 beforeEach(() => {
@@ -52,6 +74,8 @@ beforeEach(() => {
   mockState.pair = zeroAddress;
   mockState.usdcAllowance = 0n;
   mockState.susdfrAllowance = 0n;
+  mockState.walletClient = undefined;
+  mockState.waitReceipt.mockReset();
   mockState.publicClient.getTransactionReceipt.mockReset();
   mockState.publicClient.readContract.mockReset();
   mockState.publicClient.readContract.mockImplementation(
@@ -130,5 +154,28 @@ describe("the guarded V2 full-range operation", () => {
     render(<SusdfrV2LiquidityOperation />);
     expect(await screen.findByText(new RegExp(V2_ROUTER.slice(0, 6), "i"))).toBeInTheDocument();
     expect(SUSDFR).toBe("0xAF559d1D59B33ca4b950AB2091372Af8a773E234");
+  });
+
+  it("clears an unknown approval status lock on Refresh checks so the operator is never permanently stuck", async () => {
+    const txHash = `0x${"ab".repeat(32)}` as Hex;
+    mockState.walletClient = {
+      transport: {request: vi.fn()},
+      writeContract: vi.fn(async () => txHash),
+    };
+    mockState.waitReceipt.mockRejectedValueOnce(new ReceiptStatusUnknownError(txHash, new Error("timeout")));
+
+    render(<SusdfrV2LiquidityOperation />);
+    const approveUsdc = await screen.findByRole("button", {name: "Approve 25,000 USDC"});
+    await waitFor(() => expect(approveUsdc).toBeEnabled());
+
+    fireEvent.click(approveUsdc);
+    await waitFor(() => expect(screen.getByRole("button", {name: "Approve exact sUSDfr"})).toBeDisabled());
+    expect(screen.getByText(/its status could not be confirmed/i)).toBeInTheDocument();
+
+    // Simulate approval confirming on-chain, then operator clicking Refresh checks.
+    mockState.usdcAllowance = V2_USDC_AMOUNT;
+    fireEvent.click(screen.getByRole("button", {name: "Refresh checks"}));
+    await waitFor(() => expect(screen.getByRole("button", {name: "Approve exact sUSDfr"})).toBeEnabled());
+    expect(screen.queryByText(/its status could not be confirmed/i)).not.toBeInTheDocument();
   });
 });

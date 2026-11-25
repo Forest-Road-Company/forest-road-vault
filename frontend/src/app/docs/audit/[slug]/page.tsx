@@ -106,11 +106,29 @@ export default async function AuditReportPage({
         </p>
       </div>
 
+      {audit.date < "2026-09-01" ? (
+        <div className="mt-4 rounded-card border border-line bg-surface p-4 text-[13px] leading-relaxed text-ink-muted">
+          <strong className="text-ink">Historical Ethereum V1 snapshot.</strong> This review predates
+          the September 2026 Ethereum V2 deployment that superseded V1. Present-tense statements in
+          the archived narrative below describe the state on {audit.dateLabel}; see{" "}
+          <Link href="/docs/status" className="u-link text-accent">
+            Live deployment status
+          </Link>{" "}
+          and the newer V2 reviews in the{" "}
+          <Link href="/docs/audit" className="u-link text-accent">
+            Audit register
+          </Link>{" "}
+          for current mainnet state.
+        </div>
+      ) : null}
+
       <dl className="mt-8 grid gap-x-8 gap-y-4 sm:grid-cols-2">
         <Meta term="Scope" value={audit.scope} />
         <Meta term="Method" value={audit.method} />
         {audit.baseline ? <Meta term="Reviewed baseline" value={audit.baseline} mono /> : null}
-        {audit.archive ? <Meta term="Internal report" value={audit.archive} mono /> : null}
+        {audit.archive ? (
+          <Meta term={audit.external ? "Report archive" : "Internal report"} value={audit.archive} mono />
+        ) : null}
       </dl>
 
       <h2 className="display mt-12 border-t border-line pt-6 text-[25px] leading-tight text-ink">

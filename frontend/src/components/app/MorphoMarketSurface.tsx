@@ -118,7 +118,7 @@ export function MorphoMarketSurface() {
   const displayedQuote = (busy || safeProposed) && preparedQuote ? preparedQuote : marketQuery.data;
   const quoteExpired = !!displayedQuote && displayNow !== null && displayNow >= displayedQuote.expiresAt;
   const resetSafeProposal = () => {setSafeStatus({phase: "idle"}); setPreparedQuote(null);};
-  const switchAction = (next: MarketAction) => {if (busy) return; setAction(next); setAmount(""); setAll(false); setRiskAccepted(false); resetSafeProposal();};
+  const switchAction = (next: MarketAction) => {if (busy) return; setAction(next); setAmount(""); setAll(false); setRiskAccepted(false); resetSafeProposal(); flow.reset();};
   const maximum = account ? action === "supply" ? account.usdc
     : action === "repay" ? min(account.usdc, max(0n, account.values.borrowed - 1n))
     : action === "supplyCollateral" ? account.collateral : action === "withdrawCollateral" ? safeCollateralMaximum(snapshot!)
@@ -239,6 +239,7 @@ export function MorphoMarketSurface() {
           <p>Approve exactly 50,000 USDC, then supply 50,000 USDC in one Safe transaction.</p>
           <p className="mt-2 text-ink-muted">The Treasury owns the lending shares. A 100,000-USDC starting balance leaves 50,000 USDC reserved for PT.</p>
         </div> : <AmountInput value={amount} onChange={v => {setAmount(v); setAll(false);}} symbol={symbol} maxDecimals={decimals}
+          invalid={Boolean(limitReason && !all && amount !== "")}
           disabled={busy || repayAll || withdrawAll} onMax={account ? () => {
             const close = action === "repay" ? account.position.borrowShares > 0n && account.usdc >= repayment!.required
               : action === "withdraw" && account.position.supplyShares > 0n && account.values.supplied <= snapshot!.liquidity;
@@ -250,8 +251,8 @@ export function MorphoMarketSurface() {
           <input type="checkbox" checked={all} disabled={busy} onChange={e => setAll(e.target.checked)} />
           {action === "repay" ? "Repay all debt, including accrued interest" : "Withdraw all lending shares"}</label> : null}
         {repayAll ? <p className="mt-2 text-[13px] leading-relaxed text-ink-muted">The balance and allowance checks cover five minutes from quote issuance, including head age, read latency, rising rates and a small rounding margin. A new approval adds 0.1% to that estimate. Only the actual debt is repaid; unused allowance may remain. Other market transactions can require a fresh quote.</p> : null}
-        {displayedQuote ? <div role="status" className="mt-3 space-y-1 text-xs leading-relaxed text-ink-muted">
-          <p>{quoteExpired ? "Quote expired. Refresh and review again before signing." : "Quote valid for five minutes from issuance."} Expires {new Date(displayedQuote.expiresAt).toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC")}.</p>
+        {displayedQuote ? <div className="mt-3 space-y-1 text-xs leading-relaxed text-ink-muted">
+          <p role={quoteExpired ? "alert" : undefined}>{quoteExpired ? "Quote expired. Refresh and review again before signing." : "Quote valid for five minutes from issuance."} Expires {new Date(displayedQuote.expiresAt).toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC")}.</p>
           <p>This is not an on-chain deadline. Expiry cannot cancel a wallet request or Safe proposal already handed over. After expiry, refresh and review before signing; later execution is not protected.</p>
           {quoteExpired && !busy ? <button type="button" className="u-link" onClick={() => void marketQuery.refetch()}>Refresh quote</button> : null}
         </div> : null}
@@ -266,10 +267,12 @@ export function MorphoMarketSurface() {
           busyLabel={safeProposed ? "Awaiting Safe execution…" : safeStatus.phase === "review" ? "Review in Safe…" : safeStatus.phase === "simulating" ? "Simulating Safe batch…" : busyLabelFor(flow.status)}
           busy={busy || safeProposed} disabled={!!disabledReason} onClick={() => void submit()} />
         {disabledReason ? <p role="status" className="mt-3 text-[13px] leading-relaxed text-ink-muted">{disabledReason}</p> : null}
-        {flow.status.phase === "pending" ? <p role="status" className="mt-4 text-sm text-ink-muted">
-          Transaction submitted; its outcome is still being checked. Check your wallet before submitting again.{" "}
-          <a href={`https://etherscan.io/tx/${flow.status.hash}`} className="u-link text-accent" target="_blank" rel="noreferrer">View transaction</a>
-        </p> : <StatusLine status={flow.status} />}
+        <StatusLine status={flow.status} />
+        {flow.status.phase === "pending" && flow.status.delayed && !flow.status.stopped ? (
+          <button type="button" className="u-link mt-2 text-xs text-ink-muted" onClick={flow.stopWaiting}>
+            Stop checking this transaction
+          </button>
+        ) : null}
         {safeStatus.phase === "error" ? <p role="alert" className="mt-4 text-sm text-danger">{safeStatus.message}</p> : null}
         {safeProposed ? <div role="status" className="mt-4 break-words text-sm leading-relaxed text-ink-muted">
           Safe review returned a proposal reference. Funds have not been confirmed as moved. The Safe&apos;s owners must review its nonce, signatures and execution.

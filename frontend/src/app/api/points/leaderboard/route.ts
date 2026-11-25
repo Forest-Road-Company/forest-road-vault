@@ -33,8 +33,15 @@ function describe(error: unknown): string {
  * Every cached answer therefore stays within fifteen minutes of being served, the same bound the
  * server applies to its own last whole answer (ANSWER_STALE_IF_ERROR_MS): a failing loader, an
  * integrity failure included, is never hidden for longer than that.
+ *
+ * Browser directives stay on `Cache-Control` while shared-cache directives sit on
+ * `CDN-Cache-Control` and `Vercel-CDN-Cache-Control` without `must-revalidate`, avoiding RFC 9111
+ * directive conflict with `stale-while-revalidate` / `stale-if-error` and keeping Vercel Edge from
+ * stripping client revalidation directives.
  */
-const FRESH_CACHE = "public, max-age=0, must-revalidate, s-maxage=300, stale-while-revalidate=600, stale-if-error=600";
+const BROWSER_CACHE = "public, max-age=0, must-revalidate";
+const FRESH_CDN_CACHE = "public, s-maxage=300, stale-while-revalidate=600, stale-if-error=600";
+const STALE_CDN_CACHE = "public, s-maxage=60";
 /** How soon the page should ask again after a 503: the instance keeps its discovery progress. */
 const CATCHING_UP_RETRY_SECONDS = 10;
 
@@ -51,9 +58,21 @@ export async function GET(request: Request) {
     const served = await servePointsLeaderboard(arrivedAt);
     if (served.stale) {
       console.error(`points.leaderboard failed, serving the last whole answer: ${describe(served.error)}`);
-      return Response.json(served.answer, {headers: {"cache-control": "public, max-age=0, must-revalidate, s-maxage=60"}});
+      return Response.json(served.answer, {
+        headers: {
+          "cache-control": BROWSER_CACHE,
+          "cdn-cache-control": STALE_CDN_CACHE,
+          "vercel-cdn-cache-control": STALE_CDN_CACHE,
+        },
+      });
     }
-    return Response.json(served.answer, {headers: {"cache-control": FRESH_CACHE}});
+    return Response.json(served.answer, {
+      headers: {
+        "cache-control": BROWSER_CACHE,
+        "cdn-cache-control": FRESH_CDN_CACHE,
+        "vercel-cdn-cache-control": FRESH_CDN_CACHE,
+      },
+    });
   } catch (error) {
     console.error(`points.leaderboard failed: ${describe(error)}`);
     const catchingUp = error instanceof LeaderboardNotReadyError || error instanceof MorphoPointsNotReadyError;

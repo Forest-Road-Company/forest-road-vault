@@ -12,7 +12,7 @@
 
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {parseUnits, zeroAddress, type Address} from "viem";
-import {useAccount, useReadContract, useReadContracts} from "wagmi";
+import {useAccount, usePublicClient, useReadContract, useReadContracts} from "wagmi";
 import {CONTRACTS, IS_TESTNET, STABLE_SYMBOL} from "@/config/contracts";
 import {CONTROLLER_ABI, ERC20_ABI, IMPAIRMENT_SOURCE_ABI, QUEUE_ABI, RESERVES_ABI, SHARE_DECIMALS, VAULT_ABI, VAULT_STAGE2_ABI} from "@/lib/abi";
 import {fmtAmount, fmtCountdown} from "@/lib/format";
@@ -47,11 +47,13 @@ type QueuePosition = {
 
 export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; chainOk: boolean}) {
   const {address} = useAccount();
+  const publicClient = usePublicClient();
   const [mode, setMode] = useState<Mode>("instant");
   const [amount, setAmount] = useState("");
   const [lookupIdText, setLookupIdText] = useState("");
   const [acknowledgedCooldown, setAcknowledgedCooldown] = useState<bigint | null>(null);
   const [acknowledgedSubParQuote, setAcknowledgedSubParQuote] = useState<string | null>(null);
+  const preparingInstantRef = useRef(false);
   const flow = useWriteFlow();
   const claimFlow = useWriteFlow();
 
@@ -309,18 +311,34 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   const act = () => {
     if (parsed === null) return;
     if (mode === "instant") {
-      if (!instantRedeemable || instantQuote === null) return;
-      const deadline = instantRedeemDeadline();
-      flow.run({
-        address: controller,
-        abi: CONTROLLER_ABI,
-        functionName: "redeem",
-        args: [parsed, instantQuote.usdcOut, deadline],
-        onSuccess: () => {
-          setAmount("");
-          setAcknowledgedSubParQuote(null);
-        },
-      });
+      if (!instantRedeemable || instantQuote === null || preparingInstantRef.current) return;
+      const runInstant = (deadline: bigint) => {
+        flow.run({
+          address: controller,
+          abi: CONTROLLER_ABI,
+          functionName: "redeem",
+          args: [parsed, instantQuote.usdcOut, deadline],
+          onSuccess: () => {
+            setAmount("");
+            setAcknowledgedSubParQuote(null);
+          },
+        });
+      };
+      if (!publicClient) {
+        runInstant(instantRedeemDeadline());
+        return;
+      }
+      preparingInstantRef.current = true;
+      void publicClient
+        .getBlock()
+        .then((block) => block.timestamp + 1_200n)
+        .catch(() => instantRedeemDeadline())
+        .then((deadline) => {
+          runInstant(deadline);
+        })
+        .finally(() => {
+          preparingInstantRef.current = false;
+        });
     } else if (needsApproval) {
       flow.run({address: vault, abi: ERC20_ABI, functionName: "approve", args: [queue, parsed]});
     } else if (queueAcknowledged) {
@@ -395,7 +413,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
 
       <p className="mt-2 text-[13px] leading-relaxed text-ink-muted">
         {mode === "instant"
-          ? `Redeem USDfr for ${STABLE_SYMBOL} 1:1 against idle reserves: instant, floored to a whole ${STABLE_SYMBOL} unit.`
+          ? `Redeem USDfr for ${STABLE_SYMBOL} against idle reserves (1:1 at par while backing holds, or sub-par if impaired): instant, floored to a whole ${STABLE_SYMBOL} base unit (0.000001 ${STABLE_SYMBOL}).`
           : "Unstake through the non-cancellable redemption queue. A request first completes its minimum hold, then fills FIFO as liquidity allows. Actual settlement can take longer."}
       </p>
 

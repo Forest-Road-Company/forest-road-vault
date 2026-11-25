@@ -1,10 +1,12 @@
 import {http, type HttpTransport} from "viem";
 
 const ARCHIVE_TIMEOUT_MS = 15_000;
-const MAX_RATE_LIMIT_RETRIES = 4;
+const MAX_RATE_LIMIT_RETRIES = 3;
 const BASE_BACKOFF_MS = 700;
-const MAX_BACKOFF_MS = 4_500;
-const MAX_RETRY_AFTER_MS = 5_000;
+const MAX_BACKOFF_MS = 3_500;
+const MAX_RETRY_AFTER_MS = 4_000;
+/** Cap total backoff sleep per request well below ARCHIVE_TIMEOUT_MS so retries never trigger layered viem timeouts. */
+const MAX_CUMULATIVE_BACKOFF_MS = 9_500;
 
 /** JSON-RPC error codes providers use for oversized `eth_getLogs` answers. */
 const TOO_LARGE_CODES = new Set([-32005, -32008, -32602]);
@@ -125,17 +127,23 @@ export function createArchiveFetch(
   const random = options?.random ?? Math.random;
 
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const safeInit: RequestInit = {...init, redirect: "error", cache: "no-store"};
+    let sleptMs = 0;
     for (let attempt = 0; ; attempt += 1) {
-      const response = await baseFetch(input, init);
+      const response = await baseFetch(input, safeInit);
       if ((response.status !== 429 && response.status !== 503) || attempt >= maxRetries) {
         return response;
       }
       const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
-      await response.body?.cancel().catch(() => undefined);
       const jitter = Math.floor(random() * 350);
       const delayMs =
         retryAfterMs ?? Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * (1 << attempt)) + jitter;
-      await sleep(delayMs, init?.signal);
+      if (sleptMs + delayMs > MAX_CUMULATIVE_BACKOFF_MS) {
+        return response;
+      }
+      await response.body?.cancel().catch(() => undefined);
+      sleptMs += delayMs;
+      await sleep(delayMs, safeInit.signal);
     }
   };
 }
@@ -145,13 +153,14 @@ export function createArchiveFetch(
  * - `batch: false` avoids viem's batch-429 lone-error-object crash that bypasses `Retry-After`
  *   and prevents multi-call `eth_getLogs` burst coalescing. (Contract `multicall()` still packs
  *   contract reads into a single `Multicall3` `eth_call`.)
- * - `fetchFn` retries HTTP 429/503 across >1s upstream CUPS buckets with jitter + `Retry-After`.
- * - `retryDelay: 750` prevents sub-second lockstep retries on transient transport errors.
+ * - `fetchFn` forces `redirect: "error"` and `cache: "no-store"`, and retries HTTP 429/503 across
+ *   >1s upstream CUPS buckets with jitter + `Retry-After` inside a bounded cumulative sleep cap.
+ * - `retryCount: 1` avoids layered retry amplification on top of `createArchiveFetch`.
  */
 export function createArchiveRpcTransport(url: string): HttpTransport {
   return http(url, {
     timeout: ARCHIVE_TIMEOUT_MS,
-    retryCount: 2,
+    retryCount: 1,
     retryDelay: 750,
     batch: false,
     fetchFn: createArchiveFetch(),

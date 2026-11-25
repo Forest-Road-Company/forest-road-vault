@@ -84,7 +84,7 @@ export function HomeTransparencyPreview() {
   const supply =
     totalUsdfrEntry?.status === "success"
       ? (totalUsdfrEntry.result as bigint)
-      : totalUsdfrEntry?.status === "failure"
+      : !IS_MAINNET && totalUsdfrEntry?.status === "failure"
         ? value(0)
         : undefined;
   const backing =
@@ -131,7 +131,18 @@ export function HomeTransparencyPreview() {
         <p>Supply, backing, deployed principal, the vault rate and facilities are public reads—not an off-chain summary.</p>
       </div>
       <div className="home-transparency__console" data-viewport-replay="" data-viewport-reveal="">
-        <div className="home-transparency__status"><span className={invariantStatus === "deficit" ? "text-danger" : undefined}><i /> {statusLabel}</span><b>SUPPLY ≤ BACKING</b></div>
+        <div className="home-transparency__status" data-status={invariantStatus}>
+          <span className={invariantStatus === "deficit" ? "text-danger" : undefined}>
+            <i /> {statusLabel}
+          </span>
+          <b>
+            {invariantStatus === "deficit"
+              ? "SUPPLY > BACKING"
+              : invariantStatus === "pending"
+                ? "CHECKING INVARIANT"
+                : "SUPPLY ≤ BACKING"}
+          </b>
+        </div>
         <div className="home-transparency__balance">
           <div><small>USDfr supply</small><strong>{amount(supply)}</strong><span><i style={{ width: supplyBarWidth }} /></span></div>
           <em>{invariantStatus === "deficit" ? ">" : "≤"}</em>

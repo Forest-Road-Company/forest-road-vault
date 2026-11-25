@@ -1,3 +1,4 @@
+import {get as getBlob, put as putBlob} from "@vercel/blob";
 import {
   createPublicClient,
   decodeEventLog,
@@ -259,6 +260,20 @@ export function decodeCollateralLog(
   }
 }
 
+export type MorphoHistorySnapshot = {
+  epochsScannedTo: bigint;
+  epochs: RateEpoch[];
+  scannedTo: bigint;
+  events: CollateralEvent[];
+  owners: string[];
+  balances: Array<[string, bigint]>;
+};
+
+export type MorphoHistorySnapshotStore = {
+  load: (expectedKey: string) => Promise<MorphoHistorySnapshot | null>;
+  save: (key: string, snapshot: MorphoHistorySnapshot) => Promise<void>;
+};
+
 /** Everything the loader reads through; injectable so tests can drive it without a network. */
 export type MorphoPointsDeps = {
   client: PublicClient;
@@ -266,6 +281,7 @@ export type MorphoPointsDeps = {
   contracts: {usdc: Address; susdfr: Address; controller: Address; points: Address; compliance: Address};
   protocolDeploymentBlock: bigint;
   now: () => number;
+  snapshotStore?: MorphoHistorySnapshotStore;
 };
 
 /**
@@ -282,6 +298,7 @@ type Snapshot = {
 type History = {
   key: string;
   verified: boolean;
+  hydratedFromStore: boolean;
   events: CollateralEvent[];
   scannedTo: bigint;
   epochs: RateEpoch[];
@@ -294,8 +311,186 @@ type History = {
   snapshot: Snapshot | null;
 };
 
+const MORPHO_SNAPSHOT_BLOB_PATH = "morpho-points/history-v1.json";
+const MORPHO_SNAPSHOT_IO_TIMEOUT_MS = 4_000;
+const MORPHO_SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024;
+const MORPHO_SNAPSHOT_MAX_EVENTS = 100_000;
+const MORPHO_SNAPSHOT_MAX_EPOCHS = 10_000;
+const MORPHO_SNAPSHOT_MAX_OWNERS = 20_000;
+const UINT_STR = /^(0|[1-9][0-9]*)$/;
+const LOWER_ADDR = /^0x[0-9a-f]{40}$/;
+
+async function readBoundedBlobText(stream: ReadableStream<Uint8Array>, maxBytes: number): Promise<string | null> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) return null;
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8", {fatal: true}).decode(bytes);
+}
+
+function blobMorphoHistoryStore(): MorphoHistorySnapshotStore | undefined {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return undefined;
+  return {
+    async load(expectedKey: string): Promise<MorphoHistorySnapshot | null> {
+      try {
+        const result = await getBlob(MORPHO_SNAPSHOT_BLOB_PATH, {
+          access: "private",
+          useCache: false,
+          abortSignal: AbortSignal.timeout(MORPHO_SNAPSHOT_IO_TIMEOUT_MS),
+        });
+        if (!result || result.statusCode !== 200 || !result.stream) return null;
+        const text = await readBoundedBlobText(result.stream, MORPHO_SNAPSHOT_MAX_BYTES);
+        if (text === null) return null;
+        const parsed = JSON.parse(text) as Record<string, unknown>;
+        if (
+          parsed.version !== 1 ||
+          parsed.key !== expectedKey ||
+          typeof parsed.epochsScannedTo !== "string" ||
+          !UINT_STR.test(parsed.epochsScannedTo) ||
+          typeof parsed.scannedTo !== "string" ||
+          !UINT_STR.test(parsed.scannedTo) ||
+          !Array.isArray(parsed.epochs) ||
+          parsed.epochs.length > MORPHO_SNAPSHOT_MAX_EPOCHS ||
+          !Array.isArray(parsed.events) ||
+          parsed.events.length > MORPHO_SNAPSHOT_MAX_EVENTS ||
+          !Array.isArray(parsed.owners) ||
+          parsed.owners.length > MORPHO_SNAPSHOT_MAX_OWNERS ||
+          !Array.isArray(parsed.balances) ||
+          parsed.balances.length > MORPHO_SNAPSHOT_MAX_OWNERS
+        ) {
+          return null;
+        }
+        const epochs: RateEpoch[] = [];
+        for (const rawEpoch of parsed.epochs) {
+          if (!rawEpoch || typeof rawEpoch !== "object" || Array.isArray(rawEpoch)) return null;
+          const e = rawEpoch as Record<string, unknown>;
+          if (
+            typeof e.start !== "string" ||
+            !UINT_STR.test(e.start) ||
+            typeof e.ratePerUnitDay !== "string" ||
+            !UINT_STR.test(e.ratePerUnitDay)
+          ) {
+            return null;
+          }
+          epochs.push({start: BigInt(e.start), ratePerUnitDay: BigInt(e.ratePerUnitDay)});
+        }
+        const events: CollateralEvent[] = [];
+        for (const rawEvent of parsed.events) {
+          if (!rawEvent || typeof rawEvent !== "object" || Array.isArray(rawEvent)) return null;
+          const ev = rawEvent as Record<string, unknown>;
+          if (
+            (ev.kind !== "supply" && ev.kind !== "withdraw" && ev.kind !== "liquidate") ||
+            typeof ev.blockNumber !== "string" ||
+            !UINT_STR.test(ev.blockNumber) ||
+            typeof ev.logIndex !== "number" ||
+            !Number.isSafeInteger(ev.logIndex) ||
+            ev.logIndex < 0 ||
+            typeof ev.timestamp !== "string" ||
+            !UINT_STR.test(ev.timestamp) ||
+            typeof ev.owner !== "string" ||
+            !isAddress(ev.owner) ||
+            typeof ev.assets !== "string" ||
+            !UINT_STR.test(ev.assets)
+          ) {
+            return null;
+          }
+          events.push({
+            kind: ev.kind,
+            blockNumber: BigInt(ev.blockNumber),
+            logIndex: ev.logIndex,
+            timestamp: BigInt(ev.timestamp),
+            owner: getAddress(ev.owner),
+            assets: BigInt(ev.assets),
+          });
+        }
+        const owners: string[] = [];
+        for (const owner of parsed.owners) {
+          if (typeof owner !== "string" || !LOWER_ADDR.test(owner)) return null;
+          owners.push(owner);
+        }
+        const balances: Array<[string, bigint]> = [];
+        for (const entry of parsed.balances) {
+          if (
+            !Array.isArray(entry) ||
+            entry.length !== 2 ||
+            typeof entry[0] !== "string" ||
+            !LOWER_ADDR.test(entry[0]) ||
+            typeof entry[1] !== "string" ||
+            !UINT_STR.test(entry[1])
+          ) {
+            return null;
+          }
+          balances.push([entry[0], BigInt(entry[1])]);
+        }
+        return {
+          epochsScannedTo: BigInt(parsed.epochsScannedTo),
+          epochs,
+          scannedTo: BigInt(parsed.scannedTo),
+          events,
+          owners,
+          balances,
+        };
+      } catch (error) {
+        const name = error instanceof Error ? error.name : "UnknownError";
+        console.error(`morpho.snapshot load failed: ${name}`);
+        return null;
+      }
+    },
+    async save(key: string, snapshot: MorphoHistorySnapshot): Promise<void> {
+      await putBlob(
+        MORPHO_SNAPSHOT_BLOB_PATH,
+        JSON.stringify({
+          version: 1,
+          key,
+          epochsScannedTo: snapshot.epochsScannedTo.toString(),
+          epochs: snapshot.epochs.map((e) => ({
+            start: e.start.toString(),
+            ratePerUnitDay: e.ratePerUnitDay.toString(),
+          })),
+          scannedTo: snapshot.scannedTo.toString(),
+          events: snapshot.events.map((ev) => ({
+            kind: ev.kind,
+            blockNumber: ev.blockNumber.toString(),
+            logIndex: ev.logIndex,
+            timestamp: ev.timestamp.toString(),
+            owner: ev.owner,
+            assets: ev.assets.toString(),
+          })),
+          owners: snapshot.owners,
+          balances: snapshot.balances.map(([owner, bal]) => [owner, bal.toString()]),
+        }),
+        {
+          access: "private",
+          contentType: "application/json",
+          addRandomSuffix: false,
+          allowOverwrite: true,
+          abortSignal: AbortSignal.timeout(MORPHO_SNAPSHOT_IO_TIMEOUT_MS),
+        },
+      );
+    },
+  };
+}
+
 let history: History | null = null;
 let rebuildAfter = 0;
+let skipHistorySnapshotUntilVerified = false;
+let lastSavedHistoryCursor = "";
 let queue: Promise<unknown> = Promise.resolve();
 let inflight: {target: bigint; promise: Promise<Snapshot>} | null = null;
 const blockHeaderCache = new Map<bigint, {hash: Hex; timestamp: bigint}>();
@@ -306,6 +501,8 @@ const walletAnswerInFlight = new Map<string, Promise<MorphoPointsWire>>();
 export function resetMorphoPointsCache(): void {
   history = null;
   rebuildAfter = 0;
+  skipHistorySnapshotUntilVerified = false;
+  lastSavedHistoryCursor = "";
   queue = Promise.resolve();
   inflight = null;
   blockHeaderCache.clear();
@@ -313,10 +510,36 @@ export function resetMorphoPointsCache(): void {
   walletAnswerInFlight.clear();
 }
 
+function historyCursorKey(h: History): string {
+  return `${h.key}:${h.epochsScannedTo}:${h.scannedTo}`;
+}
+
+async function persistHistorySnapshot(deps: MorphoPointsDeps, h: History): Promise<void> {
+  if (!deps.snapshotStore || (h.epochsScannedTo === 0n && h.scannedTo === 0n)) return;
+  const cursor = historyCursorKey(h);
+  if (cursor === lastSavedHistoryCursor) return;
+  try {
+    await deps.snapshotStore.save(h.key, {
+      epochsScannedTo: h.epochsScannedTo,
+      epochs: [...h.epochs],
+      scannedTo: h.scannedTo,
+      events: [...h.events],
+      owners: [...h.owners],
+      balances: [...h.balances.entries()],
+    });
+    lastSavedHistoryCursor = cursor;
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "UnknownError";
+    console.error(`morpho.snapshot save failed: ${name}`);
+  }
+}
+
 /** Drops `h` after an integrity failure, unless a newer history has already replaced it. */
 function dropHistory(deps: MorphoPointsDeps, h: History): void {
   if (history !== h) return;
   history = null;
+  skipHistorySnapshotUntilVerified = true;
+  lastSavedHistoryCursor = "";
   blockHeaderCache.clear();
   walletAnswerCache.clear();
   rebuildAfter = deps.now() + REBUILD_BACKOFF_MS;
@@ -331,6 +554,7 @@ function historyFor(deps: MorphoPointsDeps): History {
   history = {
     key,
     verified: false,
+    hydratedFromStore: false,
     events: [],
     scannedTo: 0n,
     epochs: [],
@@ -581,7 +805,7 @@ async function checkLedgerWiring(deps: MorphoPointsDeps, block: bigint): Promise
  * earlier capped request committed, would replay a history nobody counted, and a missing epoch
  * log would over-award every owner.
  */
-const EPOCH_WAVE_CONCURRENCY = 3;
+const EPOCH_WAVE_CONCURRENCY = 4;
 
 async function extendEpochs(deps: MorphoPointsDeps, h: History, toBlock: bigint, deadline: number): Promise<void> {
   let from = h.epochsScannedTo === 0n ? deps.protocolDeploymentBlock : h.epochsScannedTo + 1n;
@@ -787,7 +1011,62 @@ async function buildSnapshot(
 ): Promise<Snapshot> {
   const h = historyFor(deps);
   if (h.snapshot && h.snapshot.asOfBlock >= asOf.number) return h.snapshot;
+  let hydratedThisBuild = false;
   try {
+    if (
+      h.scannedTo === 0n &&
+      h.epochsScannedTo === 0n &&
+      !h.hydratedFromStore &&
+      !skipHistorySnapshotUntilVerified &&
+      deps.snapshotStore
+    ) {
+      h.hydratedFromStore = true;
+      const snap = await deps.snapshotStore.load(h.key);
+      if (
+        snap &&
+        history === h &&
+        snap.epochsScannedTo <= asOf.number &&
+        snap.scannedTo <= asOf.number &&
+        (snap.epochsScannedTo === 0n || snap.epochsScannedTo >= deps.protocolDeploymentBlock) &&
+        (snap.scannedTo === 0n || snap.scannedTo >= deps.config.fromBlock)
+      ) {
+        // Verify internal event-to-balance consistency before hydrating from external storage.
+        const derivedBalances = new Map<string, bigint>();
+        let consistent = true;
+        for (const event of snap.events) {
+          const owner = event.owner.toLowerCase();
+          const current = derivedBalances.get(owner) ?? 0n;
+          const next = event.kind === "supply" ? current + event.assets : current - event.assets;
+          if (next < 0n) {
+            consistent = false;
+            break;
+          }
+          derivedBalances.set(owner, next);
+        }
+        if (consistent && derivedBalances.size === snap.balances.length) {
+          for (const [owner, bal] of snap.balances) {
+            if (derivedBalances.get(owner) !== bal) {
+              consistent = false;
+              break;
+            }
+          }
+        } else {
+          consistent = false;
+        }
+        if (consistent) {
+          for (const epoch of snap.epochs) h.epochs.push(epoch);
+          h.epochsScannedTo = snap.epochsScannedTo;
+          // Leave epochsVerifiedTo = 0n so extendEpochs ALWAYS verifies rateEpochCount on-chain.
+          h.epochsVerifiedTo = 0n;
+          for (const event of snap.events) h.events.push(event);
+          for (const owner of snap.owners) h.owners.add(owner);
+          for (const [owner, bal] of derivedBalances) h.balances.set(owner, bal);
+          h.scannedTo = snap.scannedTo;
+          lastSavedHistoryCursor = historyCursorKey(h);
+          hydratedThisBuild = true;
+        }
+      }
+    }
     if (!h.verified) {
       await verifyMarket(deps, asOf.number);
       h.verified = true;
@@ -796,11 +1075,13 @@ async function buildSnapshot(
     await extendEpochs(deps, h, asOf.number, deadline);
     const reconciledAt = await extendCollateral(deps, h, asOf.number, deadline);
     const owners = replayCollateralPoints(h.events, h.epochs, asOf.timestamp);
-    // The last chunk was just reconciled at this very block (MORPHO-31); only a build that
-    // scanned no chunk up to it needs the check here.
-    if (reconciledAt !== asOf.number) {
+    // The last chunk was just reconciled at this very block (MORPHO-31); a build that hydrated
+    // from Blob or scanned no chunk up to `asOf.number` reconciles every known owner here.
+    if (hydratedThisBuild || reconciledAt !== asOf.number) {
       await reconcileAt(deps, [...h.owners], (owner) => owners.get(owner)?.collateral ?? 0n, asOf.number);
     }
+    skipHistorySnapshotUntilVerified = false;
+    await persistHistorySnapshot(deps, h);
     h.snapshot = {
       asOfBlock: asOf.number,
       asOfTimestamp: asOf.timestamp,
@@ -810,7 +1091,11 @@ async function buildSnapshot(
     };
     return h.snapshot;
   } catch (error) {
-    if (error instanceof MorphoPointsIntegrityError) dropHistory(deps, h);
+    if (error instanceof MorphoPointsNotReadyError && history === h) {
+      await persistHistorySnapshot(deps, h);
+    } else if (error instanceof MorphoPointsIntegrityError) {
+      dropHistory(deps, h);
+    }
     throw error;
   }
 }
@@ -864,6 +1149,7 @@ function defaultDeps(): MorphoPointsDeps | null {
     },
     protocolDeploymentBlock: PROTOCOL_DEPLOYMENT_BLOCK,
     now: () => Date.now(),
+    snapshotStore: blobMorphoHistoryStore(),
   };
 }
 

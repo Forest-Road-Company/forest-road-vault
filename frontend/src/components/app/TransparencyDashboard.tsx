@@ -138,7 +138,7 @@ export function TransparencyDashboard() {
   const supply =
     totalUsdfrEntry?.status === "success"
       ? (totalUsdfrEntry.result as bigint)
-      : totalUsdfrEntry?.status === "failure"
+      : !IS_MAINNET && totalUsdfrEntry?.status === "failure"
         ? v(0)
         : undefined;
   const backing =
@@ -342,7 +342,7 @@ export function TransparencyDashboard() {
               holding
             </span>
           ) : (
-            <span className="rounded-pill border border-danger bg-danger px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white">
+            <span className="rounded-pill border border-danger bg-danger px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-navy-deepest">
               backing deficit
             </span>
           )}
@@ -355,8 +355,8 @@ export function TransparencyDashboard() {
             <p className="text-[11px] font-semibold tracking-[0.04em] text-on-navy-muted">USDfr supply</p>
             <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">{fmtBand(supply)}</p>
             <Reconcile
-              addr={totalUsdfrEntry?.status === "success" ? CONTRACTS.MintRedeemController! : CONTRACTS.USDfr!}
-              fn={totalUsdfrEntry?.status === "success" ? "totalUSDfr" : "totalSupply"}
+              addr={IS_MAINNET || totalUsdfrEntry?.status === "success" ? CONTRACTS.MintRedeemController! : CONTRACTS.USDfr!}
+              fn={IS_MAINNET || totalUsdfrEntry?.status === "success" ? "totalUSDfr" : "totalSupply"}
             />
           </div>
           <div>
@@ -364,7 +364,7 @@ export function TransparencyDashboard() {
             <p className="tnum display mt-1 text-[clamp(22px,2vw,36px)] leading-[1.06] text-on-navy [overflow-wrap:anywhere]">${fmtBand(backing)}</p>
             <Reconcile
               addr={CONTRACTS.ReserveManager!}
-              fn={recognizedBackingEntry?.status === "success" ? "recognizedBackingValue" : "totalBackingValue"}
+              fn={IS_MAINNET || recognizedBackingEntry?.status === "success" ? "recognizedBackingValue" : "totalBackingValue"}
             />
           </div>
           <div>
@@ -439,7 +439,7 @@ export function TransparencyDashboard() {
       <div className="transparency-modules mt-5">
         <Panel title="Reserves" eyebrow="Liquidity" kind="reserves" addr={CONTRACTS.ReserveManager!}>
           <Row k="Idle USDC reserve" val={`$${fmt(idle)}`} />
-          <Row k="Deployed principal" val={`$${fmt(deployed)}`} />
+          <Row k="Deployed credit (principal + accrued)" val={`$${fmt(deployed)}`} />
         </Panel>
 
         <Panel title="sGROVE backstop" eyebrow="Loss protection" kind="backstop" addr={CONTRACTS.sGROVE!}>
