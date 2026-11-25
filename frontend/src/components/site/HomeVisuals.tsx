@@ -128,7 +128,7 @@ export function HomeTransparencyPreview() {
     <div className="home-transparency">
       <div className="home-transparency__head">
         <div><p className="scene-kicker"><i /> Live contract state</p><h2 className="display mt-5 text-[31px] leading-[1.12] md:text-[46px]">Transparency should move at the speed of the book.</h2></div>
-        <p>Supply, backing, deployed principal, the vault rate and facilities are public reads—not an off-chain summary.</p>
+        <p>Supply, backing, deployed credit, the vault rate and facilities are public reads—not an off-chain summary.</p>
       </div>
       <div className="home-transparency__console" data-viewport-replay="" data-viewport-reveal="">
         <div className="home-transparency__status" data-status={invariantStatus}>
@@ -145,12 +145,12 @@ export function HomeTransparencyPreview() {
         </div>
         <div className="home-transparency__balance">
           <div><small>USDfr supply</small><strong>{amount(supply)}</strong><span><i style={{ width: supplyBarWidth }} /></span></div>
-          <em>{invariantStatus === "deficit" ? ">" : "≤"}</em>
+          <em>{invariantStatus === "deficit" ? ">" : invariantStatus === "pending" ? "…" : "≤"}</em>
           <div><small>Backing value</small><strong>${amount(backing)}</strong><span><i style={{ width: backingBarWidth }} /></span></div>
         </div>
         <div className="home-transparency__metrics">
           <div><small>Idle reserve</small><strong>${amount(idle)}</strong></div>
-          <div><small>Deployed principal</small><strong>${amount(deployed)}</strong></div>
+          <div><small>Deployed credit (principal + accrued)</small><strong>${amount(deployed)}</strong></div>
           <div><small>sUSDfr / USDfr</small><strong>{rate === undefined ? "—" : fmtAmount(rate, 18, 4)}</strong></div>
           <div><small>Facilities originated</small><strong>{facilities?.toString() ?? "—"}</strong></div>
         </div>

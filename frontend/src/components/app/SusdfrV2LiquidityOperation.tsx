@@ -312,13 +312,20 @@ export function SusdfrV2LiquidityOperation() {
   }, [address, publicClient, walletMatches]);
 
   const refresh = useCallback(async () => {
-    if (!address || !publicClient || !walletMatches) return;
+    if (!address || !publicClient || !walletMatches) {
+      setSnapshot(null);
+      setConfirmed(null);
+      if (!inFlightRef.current) setStatus({phase: "idle"});
+      return;
+    }
     setLoading(true);
     try {
       await loadSnapshot();
       await restoreProgress();
     } catch (error) {
-      setStatus({phase: "error", message: messageFromError(error)});
+      if (!inFlightRef.current) {
+        setStatus({phase: "error", message: messageFromError(error)});
+      }
     } finally {
       setLoading(false);
     }
@@ -448,6 +455,8 @@ export function SusdfrV2LiquidityOperation() {
       writeStoredMint(stored);
       setStatus({phase: "pending", message: "Transaction submitted. Verifying the fresh pair and LP tokens…", hash});
       const receipt = await waitForReceiptRobustly(publicClient, {hash, timeout: RECEIPT_TIMEOUT});
+      const minedHash = receipt.transactionHash;
+      pendingHash = minedHash;
       if (receipt.status !== "success") throw new Error("The V2 liquidity transaction reverted.");
       const evidence = verifyV2MintReceipt({
         logs: receipt.logs as readonly V2ReceiptLog[],
@@ -478,12 +487,13 @@ export function SusdfrV2LiquidityOperation() {
       ) {
         throw new Error("The mined pair identity or treasury LP balance does not match the receipt.");
       }
-      setConfirmed({hash, evidence});
+      writeStoredMint({...stored, hash: minedHash});
+      setConfirmed({hash: minedHash, evidence});
       await loadSnapshot();
       setStatus({
         phase: "success",
         message: `Full-range position confirmed. The treasury received ${formatToken(evidence.lpTokens, 18)} UNI-V2 LP tokens.`,
-        hash,
+        hash: minedHash,
       });
     } catch (error) {
       if (error instanceof ReceiptStatusUnknownError) {

@@ -105,9 +105,51 @@ describe("/api/points/live-leaderboard", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("recovers after a transient upstream failure and refreshes after the 60s instance cache expires", async () => {
+    let now = 1_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchSpy = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("transient network error"))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(validPayload({asOfBlock: "26486001"})), {
+          status: 200,
+          headers: {"content-type": "application/json"},
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(validPayload({asOfBlock: "26486099"})), {
+          status: 200,
+          headers: {"content-type": "application/json"},
+        }),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      const failed = await GET(new Request("https://staging.test/api/points/live-leaderboard"));
+      expect(failed.status).toBe(502);
+
+      // Must NOT wedge on the rejected promise; the next request retries upstream and succeeds.
+      const recovered = await GET(new Request("https://staging.test/api/points/live-leaderboard"));
+      expect(recovered.status).toBe(200);
+      expect(((await recovered.json()) as {asOfBlock: string}).asOfBlock).toBe("26486001");
+
+      // After 60s TTL expires, must NOT return the old resolved promise forever; must fetch fresh data.
+      now += 61_000;
+      const refreshed = await GET(new Request("https://staging.test/api/points/live-leaderboard"));
+      expect(refreshed.status).toBe(200);
+      expect(((await refreshed.json()) as {asOfBlock: string}).asOfBlock).toBe("26486099");
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    } finally {
+      errSpy.mockRestore();
+      nowSpy.mockRestore();
+    }
+  });
+
   it.each([
     ["first rank not 1", validPayload({rows: [{rank: 2, wallet: WALLET, points: "100", onchain: "100", pendle: "0", morpho: "0"}]})],
-    ["truncated rankedPoints less than row sum", validPayload({truncated: true, rankedPoints: "50"})],
+    ["truncated rankedPoints less than row sum", validPayload({ranked: 2, truncated: true, rankedPoints: "50"})],
+    ["truncated true when ranked equals rows length", validPayload({ranked: 1, truncated: true})],
     ["ranked exceeds rows when truncated is false", validPayload({ranked: 5, truncated: false})],
     ["invalid venue address", validPayload({venues: [{key: "bad", label: "Bad", address: "not-an-address", points: "0", note: ""}]})],
   ])("rejects invalid upstream payload (%s) with 502", async (_label, payload) => {

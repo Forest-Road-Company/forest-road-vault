@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useSelectedLayoutSegment } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 /* Risk is deliberately not in the top nav. It stays reachable from the footer
@@ -18,8 +18,11 @@ const links = [
 ] as const;
 
 export function SiteNav() {
-  const pathname = usePathname();
-  const isAppRoute = pathname === "/app" || pathname.startsWith("/app/");
+  // Using the selected layout segment instead of usePathname keeps SSR and client
+  // hydration identical on statically prerendered 404 routes under known prefixes
+  // (e.g. /docs/unknown), and prevents a 404 page from marking a nav section active.
+  const segment = useSelectedLayoutSegment();
+  const isAppRoute = segment === "app";
   const [open, setOpen] = useState(false);
   const [menuMaxHeight, setMenuMaxHeight] = useState<number | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
@@ -90,8 +93,7 @@ export function SiteNav() {
     };
   }, [open]);
 
-  const isActive = (href: string) =>
-    pathname === href || pathname.startsWith(`${href}/`);
+  const isActive = (href: string) => segment === href.slice(1);
 
   return (
     <header

@@ -1096,11 +1096,16 @@ describe("loadMorphoCollateralLeaderboard against the per-wallet answer, owner b
   it("hydrates cold history from snapshotStore and still fails closed when live reconciliation disagrees", async () => {
     let savedSnapshot: Parameters<NonNullable<MorphoPointsDeps["snapshotStore"]>["save"]>[1] | null = null;
     let saveCalls = 0;
+    let clearCalls = 0;
     const store: NonNullable<MorphoPointsDeps["snapshotStore"]> = {
       load: async () => savedSnapshot,
       save: async (_key, snapshot) => {
         saveCalls += 1;
         savedSnapshot = snapshot;
+      },
+      clear: async () => {
+        clearCalls += 1;
+        savedSnapshot = null;
       },
     };
     // Warm build saves the finalized history snapshot.
@@ -1137,5 +1142,7 @@ describe("loadMorphoCollateralLeaderboard against the per-wallet answer, owner b
     await expect(loadMorphoCollateralLeaderboard(deps({snapshotStore: store}))).rejects.toBeInstanceOf(
       MorphoPointsIntegrityError,
     );
+    expect(clearCalls).toBe(1);
+    expect(savedSnapshot).toBeNull();
   });
 });

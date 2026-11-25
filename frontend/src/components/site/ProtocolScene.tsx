@@ -122,7 +122,7 @@ function TransparencyScene({ compact }: { compact: boolean }) {
         <b><i /> illustrative diagram — live figures below</b>
         <div className="protocol-backing-mix__bar">
           <span style={style({ "--mix": "50%" })}>Idle reserve</span>
-          <span style={style({ "--mix": "50%" })}>Deployed principal</span>
+          <span style={style({ "--mix": "50%" })}>Deployed credit</span>
         </div>
       </div>
     </Frame>

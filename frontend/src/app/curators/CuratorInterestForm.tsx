@@ -116,7 +116,7 @@ export function CuratorInterestForm() {
         <label htmlFor="ci-email" className={label}>
           Email
         </label>
-        <div className={field}>
+        <div className={field} data-invalid={emailInvalid ? "true" : undefined}>
           <input
             id="ci-email"
             type="email"
@@ -125,7 +125,7 @@ export function CuratorInterestForm() {
             placeholder="you@example.com"
             value={email}
             aria-invalid={emailInvalid || undefined}
-            aria-describedby={error ? "ci-error" : undefined}
+            aria-describedby={emailInvalid ? "ci-error" : undefined}
             onChange={(e) => setEmail(e.target.value)}
             className={control}
           />
@@ -194,7 +194,7 @@ export function CuratorInterestForm() {
         <label htmlFor="ci-wallet" className={label}>
           Wallet address <span className="font-normal normal-case tracking-normal text-ink-faint">(optional; the wallet you would fund from)</span>
         </label>
-        <div className={field}>
+        <div className={field} data-invalid={walletInvalid ? "true" : undefined}>
           <input
             id="ci-wallet"
             type="text"
@@ -203,7 +203,7 @@ export function CuratorInterestForm() {
             autoComplete="off"
             value={wallet}
             aria-invalid={walletInvalid || undefined}
-            aria-describedby={error ? "ci-error" : undefined}
+            aria-describedby={walletInvalid ? "ci-error" : undefined}
             onChange={(e) => setWallet(e.target.value)}
             className={`${control} font-mono sm:text-[13.5px]`}
           />

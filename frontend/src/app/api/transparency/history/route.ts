@@ -1,3 +1,4 @@
+import {methodNotAllowed} from "@/lib/httpMethod.server";
 import {serveTransparencyHistory} from "@/lib/transparencyHistory.server";
 
 export const runtime = "nodejs";
@@ -45,9 +46,5 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST() {
-  return Response.json(
-    {ok: false, error: "Method not allowed."},
-    {status: 405, headers: {allow: "GET", "cache-control": "no-store"}},
-  );
-}
+const refuse = () => methodNotAllowed("GET");
+export {refuse as POST, refuse as PUT, refuse as PATCH, refuse as DELETE, refuse as OPTIONS};

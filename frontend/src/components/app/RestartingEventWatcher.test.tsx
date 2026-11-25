@@ -108,8 +108,10 @@ describe("the queue watcher after a long sleep (review N1)", () => {
     const restarts = warnings().filter((line) => line.startsWith("test.queue_watcher_restart"));
     expect(restarts.length).toBeGreaterThanOrEqual(1);
     expect(restarts, JSON.stringify(restarts)).toEqual(restarts.map(() => "test.queue_watcher_restart InternalRpcError"));
-    // Polls every 10 ms and fails every log read, yet restarts no more than once per 40 ms.
-    expect(logReads(node).length).toBeGreaterThan(restarts.length * 2);
+    // Stops polling during the 40 ms restart cooldown so each failure triggers at most one restart
+    // without firing duplicate failing eth_getLogs polls while waiting to recover.
+    expect(logReads(node).length).toBeGreaterThanOrEqual(restarts.length);
+    expect(logReads(node).length).toBeLessThanOrEqual(restarts.length + 1);
     expect(restarts.length).toBeLessThanOrEqual(400 / 40 + 1);
   });
 });

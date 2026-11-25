@@ -48,12 +48,14 @@ export function RestartingEventWatcher({
     onLogsRef.current = onLogs;
   }, [onLogs]);
 
-  useEffect(
-    () => () => {
-      if (pending.current) clearTimeout(pending.current);
-    },
-    [],
-  );
+  useEffect(() => {
+    return () => {
+      if (pending.current) {
+        clearTimeout(pending.current);
+        pending.current = null;
+      }
+    };
+  }, [publicClient, address, abi, pollingInterval, delay, label]);
 
   const onError = useCallback(
     (error: Error) => {
@@ -70,11 +72,13 @@ export function RestartingEventWatcher({
   useEffect(() => {
     if (!publicClient || !address) return;
     let cancelled = false;
+    let failed = false;
     let inFlight = false;
     let previousBlockNumber: bigint | null = null;
+    let interval: ReturnType<typeof setInterval> | null = null;
 
     const tick = async () => {
-      if (cancelled || inFlight) return;
+      if (cancelled || failed || inFlight) return;
       inFlight = true;
       try {
         const blockNumber = await publicClient.getBlockNumber();
@@ -95,6 +99,11 @@ export function RestartingEventWatcher({
         if (logs.length > 0) onLogsRef.current(logs as Log[]);
       } catch (err) {
         if (cancelled) return;
+        failed = true;
+        if (interval !== null) {
+          clearInterval(interval);
+          interval = null;
+        }
         onError(err instanceof Error ? err : new Error(String(err)));
       } finally {
         inFlight = false;
@@ -102,10 +111,10 @@ export function RestartingEventWatcher({
     };
 
     void tick();
-    const interval = setInterval(() => void tick(), pollingInterval);
+    interval = setInterval(() => void tick(), pollingInterval);
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (interval !== null) clearInterval(interval);
     };
   }, [publicClient, address, abi, pollingInterval, onError, generation]);
 

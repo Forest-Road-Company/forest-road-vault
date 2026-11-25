@@ -53,9 +53,30 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   const [lookupIdText, setLookupIdText] = useState("");
   const [acknowledgedCooldown, setAcknowledgedCooldown] = useState<bigint | null>(null);
   const [acknowledgedSubParQuote, setAcknowledgedSubParQuote] = useState<string | null>(null);
+  const [preparingInstant, setPreparingInstant] = useState(false);
+  const [prepOwner, setPrepOwner] = useState(address);
+  if (prepOwner !== address) {
+    setPrepOwner(address);
+    if (preparingInstant) setPreparingInstant(false);
+  }
   const preparingInstantRef = useRef(false);
+  const mountedRef = useRef(true);
+  const instantPrepGenRef = useRef(0);
   const flow = useWriteFlow();
   const claimFlow = useWriteFlow();
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      instantPrepGenRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    instantPrepGenRef.current += 1;
+    preparingInstantRef.current = false;
+  }, [address]);
 
   const usdfr = CONTRACTS.USDfr!;
   const vault = CONTRACTS.sUSDfr!;
@@ -301,15 +322,16 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   // Queue mode needs the share allowance LOADED for an honest Approve/Request label.
   // Instant mode fails closed until previewRedeem returns a positive quote (never submitting
   // minUsdcOut = 0 or slipping back to 1-arg redeem), and requires explicit acknowledgement when sub-par.
+  const writeBusy = flow.busy || preparingInstant;
   const canSubmit =
-    actionAllowed && parsed !== null && parsed > 0n && !flow.busy &&
+    actionAllowed && parsed !== null && parsed > 0n && !writeBusy &&
     (mode === "instant"
       ? instantRedeemable && (!instantSubPar || subParAcknowledged)
       : shareAllowance !== undefined &&
         (needsApproval || (redeemCooldown !== undefined && queueAcknowledged)));
 
   const act = () => {
-    if (parsed === null) return;
+    if (parsed === null || writeBusy) return;
     if (mode === "instant") {
       if (!instantRedeemable || instantQuote === null || preparingInstantRef.current) return;
       const runInstant = (deadline: bigint) => {
@@ -328,16 +350,22 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
         runInstant(instantRedeemDeadline());
         return;
       }
+      const prepGen = ++instantPrepGenRef.current;
       preparingInstantRef.current = true;
+      setPreparingInstant(true);
       void publicClient
         .getBlock()
         .then((block) => block.timestamp + 1_200n)
         .catch(() => instantRedeemDeadline())
         .then((deadline) => {
+          if (!mountedRef.current || instantPrepGenRef.current !== prepGen) return;
           runInstant(deadline);
         })
         .finally(() => {
-          preparingInstantRef.current = false;
+          if (instantPrepGenRef.current === prepGen) {
+            preparingInstantRef.current = false;
+            if (mountedRef.current) setPreparingInstant(false);
+          }
         });
     } else if (needsApproval) {
       flow.run({address: vault, abi: ERC20_ABI, functionName: "approve", args: [queue, parsed]});
@@ -393,8 +421,11 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
               // AUDIT FIX (RC-05): switching mode resets both flows, so it must be
               // unavailable while either has a write in flight, otherwise the
               // in-flight transaction is orphaned and its outcome never surfaces.
-              disabled={flow.busy || claimFlow.busy}
+              disabled={writeBusy || claimFlow.busy}
               onClick={() => {
+                instantPrepGenRef.current += 1;
+                preparingInstantRef.current = false;
+                setPreparingInstant(false);
                 setMode(m);
                 setAmount("");
                 setAcknowledgedCooldown(null);
@@ -465,15 +496,17 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
       <AmountInput
         value={amount}
         onChange={(value) => {
+          instantPrepGenRef.current += 1;
           setAmount(value);
           setAcknowledgedSubParQuote(null);
         }}
         symbol={symbol}
         maxDecimals={decimals}
-        disabled={!actionAllowed || flow.busy}
+        disabled={!actionAllowed || writeBusy}
         onMax={
           balanceShown !== undefined && balanceShown > 0n
             ? () => {
+                instantPrepGenRef.current += 1;
                 setAmount(fmtAmount(balanceShown, decimals, decimals).replace(/,/g, ""));
                 setAcknowledgedSubParQuote(null);
               }
@@ -521,7 +554,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
             onChange={(event) =>
               setAcknowledgedSubParQuote(event.target.checked ? subParQuoteKey : null)
             }
-            disabled={!writesEnabled || flow.busy}
+            disabled={!writesEnabled || writeBusy}
             className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-accent)]"
           />
           <span>
@@ -579,7 +612,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
                 event.target.checked && redeemCooldown !== undefined ? redeemCooldown : null,
               )
             }
-            disabled={!chainOk || flow.busy || redeemCooldown === undefined}
+            disabled={!chainOk || writeBusy || redeemCooldown === undefined}
             className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-accent)]"
           />
           <span>
@@ -597,8 +630,8 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
               ? "Approve sUSDfr"
               : "Request redemption"
         }
-        busyLabel={busyLabelFor(flow.status)}
-        busy={flow.busy}
+        busyLabel={preparingInstant ? "Preparing…" : busyLabelFor(flow.status)}
+        busy={writeBusy}
         disabled={!canSubmit}
         onClick={act}
       />

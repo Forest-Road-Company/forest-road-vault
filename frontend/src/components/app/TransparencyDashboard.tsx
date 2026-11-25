@@ -420,7 +420,7 @@ export function TransparencyDashboard() {
         </div>
         <p className="mt-7 max-w-4xl border-t border-on-navy-line pt-5 text-[13px] leading-relaxed text-on-navy-muted">
           Backing is the protocol&apos;s accounting claim: idle reserves plus
-          outstanding loan principal. Gross collateral &amp; reserves replaces loan
+          deployed loan principal and accrued interest. Gross collateral &amp; reserves replaces loan
           principal with the broader collateral reference: receivables scale their
           live outstanding principal by the signed LTV, so the reference amortizes
           with the loan and falls on a write-down, and digital-asset loans use the

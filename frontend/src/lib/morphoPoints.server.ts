@@ -1,4 +1,4 @@
-import {get as getBlob, put as putBlob} from "@vercel/blob";
+import {BlobPreconditionFailedError, del as delBlob, get as getBlob, put as putBlob} from "@vercel/blob";
 import {
   createPublicClient,
   decodeEventLog,
@@ -272,6 +272,7 @@ export type MorphoHistorySnapshot = {
 export type MorphoHistorySnapshotStore = {
   load: (expectedKey: string) => Promise<MorphoHistorySnapshot | null>;
   save: (key: string, snapshot: MorphoHistorySnapshot) => Promise<void>;
+  clear?: () => Promise<void>;
 };
 
 /** Everything the loader reads through; injectable so tests can drive it without a network. */
@@ -299,6 +300,8 @@ type History = {
   key: string;
   verified: boolean;
   hydratedFromStore: boolean;
+  /** True after hydrating from external Blob storage until full on-chain reconcileAt succeeds. */
+  needsFullReconcile: boolean;
   events: CollateralEvent[];
   scannedTo: bigint;
   epochs: RateEpoch[];
@@ -344,6 +347,11 @@ async function readBoundedBlobText(stream: ReadableStream<Uint8Array>, maxBytes:
   return new TextDecoder("utf-8", {fatal: true}).decode(bytes);
 }
 
+function isMorphoBlobConflict(error: unknown): boolean {
+  if (error instanceof BlobPreconditionFailedError) return true;
+  return error instanceof Error && /already exists|precondition/i.test(error.message);
+}
+
 function blobMorphoHistoryStore(): MorphoHistorySnapshotStore | undefined {
   if (!process.env.BLOB_READ_WRITE_TOKEN) return undefined;
   return {
@@ -354,7 +362,12 @@ function blobMorphoHistoryStore(): MorphoHistorySnapshotStore | undefined {
           useCache: false,
           abortSignal: AbortSignal.timeout(MORPHO_SNAPSHOT_IO_TIMEOUT_MS),
         });
-        if (!result || result.statusCode !== 200 || !result.stream) return null;
+        if (!result) {
+          observedBlobEtag = null;
+          return null;
+        }
+        if (result.statusCode !== 200 || !result.stream) return null;
+        observedBlobEtag = result.blob.etag;
         const text = await readBoundedBlobText(result.stream, MORPHO_SNAPSHOT_MAX_BYTES);
         if (text === null) return null;
         const parsed = JSON.parse(text) as Record<string, unknown>;
@@ -453,36 +466,72 @@ function blobMorphoHistoryStore(): MorphoHistorySnapshotStore | undefined {
       }
     },
     async save(key: string, snapshot: MorphoHistorySnapshot): Promise<void> {
-      await putBlob(
-        MORPHO_SNAPSHOT_BLOB_PATH,
-        JSON.stringify({
-          version: 1,
-          key,
-          epochsScannedTo: snapshot.epochsScannedTo.toString(),
-          epochs: snapshot.epochs.map((e) => ({
-            start: e.start.toString(),
-            ratePerUnitDay: e.ratePerUnitDay.toString(),
-          })),
-          scannedTo: snapshot.scannedTo.toString(),
-          events: snapshot.events.map((ev) => ({
-            kind: ev.kind,
-            blockNumber: ev.blockNumber.toString(),
-            logIndex: ev.logIndex,
-            timestamp: ev.timestamp.toString(),
-            owner: ev.owner,
-            assets: ev.assets.toString(),
-          })),
-          owners: snapshot.owners,
-          balances: snapshot.balances.map(([owner, bal]) => [owner, bal.toString()]),
-        }),
-        {
-          access: "private",
-          contentType: "application/json",
-          addRandomSuffix: false,
-          allowOverwrite: true,
-          abortSignal: AbortSignal.timeout(MORPHO_SNAPSHOT_IO_TIMEOUT_MS),
-        },
-      );
+      const payload = JSON.stringify({
+        version: 1,
+        key,
+        epochsScannedTo: snapshot.epochsScannedTo.toString(),
+        epochs: snapshot.epochs.map((e) => ({
+          start: e.start.toString(),
+          ratePerUnitDay: e.ratePerUnitDay.toString(),
+        })),
+        scannedTo: snapshot.scannedTo.toString(),
+        events: snapshot.events.map((ev) => ({
+          kind: ev.kind,
+          blockNumber: ev.blockNumber.toString(),
+          logIndex: ev.logIndex,
+          timestamp: ev.timestamp.toString(),
+          owner: ev.owner,
+          assets: ev.assets.toString(),
+        })),
+        owners: snapshot.owners,
+        balances: snapshot.balances.map(([owner, bal]) => [owner, bal.toString()]),
+      });
+      if (Buffer.byteLength(payload, "utf8") > MORPHO_SNAPSHOT_MAX_BYTES) {
+        console.error("morpho.snapshot save skipped: payload exceeds size cap");
+        return;
+      }
+      try {
+        const saved = await putBlob(
+          MORPHO_SNAPSHOT_BLOB_PATH,
+          payload,
+          observedBlobEtag !== null
+            ? {
+                access: "private",
+                contentType: "application/json",
+                addRandomSuffix: false,
+                allowOverwrite: true,
+                ifMatch: observedBlobEtag,
+                abortSignal: AbortSignal.timeout(MORPHO_SNAPSHOT_IO_TIMEOUT_MS),
+              }
+            : {
+                access: "private",
+                contentType: "application/json",
+                addRandomSuffix: false,
+                allowOverwrite: false,
+                abortSignal: AbortSignal.timeout(MORPHO_SNAPSHOT_IO_TIMEOUT_MS),
+              },
+        );
+        observedBlobEtag = saved.etag;
+      } catch (error) {
+        if (isMorphoBlobConflict(error)) return;
+        throw error;
+      }
+    },
+    async clear(): Promise<void> {
+      try {
+        const etag = observedBlobEtag;
+        observedBlobEtag = null;
+        await delBlob(
+          MORPHO_SNAPSHOT_BLOB_PATH,
+          etag
+            ? {ifMatch: etag, abortSignal: AbortSignal.timeout(MORPHO_SNAPSHOT_IO_TIMEOUT_MS)}
+            : {abortSignal: AbortSignal.timeout(MORPHO_SNAPSHOT_IO_TIMEOUT_MS)},
+        );
+      } catch (error) {
+        if (isMorphoBlobConflict(error)) return;
+        const name = error instanceof Error ? error.name : "UnknownError";
+        console.error(`morpho.snapshot clear failed: ${name}`);
+      }
     },
   };
 }
@@ -491,6 +540,9 @@ let history: History | null = null;
 let rebuildAfter = 0;
 let skipHistorySnapshotUntilVerified = false;
 let lastSavedHistoryCursor = "";
+let observedBlobEtag: string | null = null;
+let observedRemoteEpochsTo = 0n;
+let observedRemoteScannedTo = 0n;
 let queue: Promise<unknown> = Promise.resolve();
 let inflight: {target: bigint; promise: Promise<Snapshot>} | null = null;
 const blockHeaderCache = new Map<bigint, {hash: Hex; timestamp: bigint}>();
@@ -503,6 +555,9 @@ export function resetMorphoPointsCache(): void {
   rebuildAfter = 0;
   skipHistorySnapshotUntilVerified = false;
   lastSavedHistoryCursor = "";
+  observedBlobEtag = null;
+  observedRemoteEpochsTo = 0n;
+  observedRemoteScannedTo = 0n;
   queue = Promise.resolve();
   inflight = null;
   blockHeaderCache.clear();
@@ -516,9 +571,23 @@ function historyCursorKey(h: History): string {
 
 async function persistHistorySnapshot(deps: MorphoPointsDeps, h: History): Promise<void> {
   if (!deps.snapshotStore || (h.epochsScannedTo === 0n && h.scannedTo === 0n)) return;
+  if (h.epochsScannedTo < observedRemoteEpochsTo || h.scannedTo < observedRemoteScannedTo) return;
   const cursor = historyCursorKey(h);
   if (cursor === lastSavedHistoryCursor) return;
   try {
+    // Never persist unverified partial rate epochs: verify rateEpochCount at epochsScannedTo first.
+    if (h.epochsScannedTo > 0n && h.epochsVerifiedTo < h.epochsScannedTo) {
+      const count = await deps.client.readContract({
+        address: deps.contracts.points,
+        abi: POINTS_ABI,
+        functionName: "rateEpochCount",
+        blockNumber: h.epochsScannedTo,
+      });
+      if (count !== BigInt(h.epochs.length)) {
+        return;
+      }
+      h.epochsVerifiedTo = h.epochsScannedTo;
+    }
     await deps.snapshotStore.save(h.key, {
       epochsScannedTo: h.epochsScannedTo,
       epochs: [...h.epochs],
@@ -528,6 +597,8 @@ async function persistHistorySnapshot(deps: MorphoPointsDeps, h: History): Promi
       balances: [...h.balances.entries()],
     });
     lastSavedHistoryCursor = cursor;
+    if (h.epochsScannedTo > observedRemoteEpochsTo) observedRemoteEpochsTo = h.epochsScannedTo;
+    if (h.scannedTo > observedRemoteScannedTo) observedRemoteScannedTo = h.scannedTo;
   } catch (error) {
     const name = error instanceof Error ? error.name : "UnknownError";
     console.error(`morpho.snapshot save failed: ${name}`);
@@ -540,13 +611,21 @@ function dropHistory(deps: MorphoPointsDeps, h: History): void {
   history = null;
   skipHistorySnapshotUntilVerified = true;
   lastSavedHistoryCursor = "";
+  observedRemoteEpochsTo = 0n;
+  observedRemoteScannedTo = 0n;
   blockHeaderCache.clear();
   walletAnswerCache.clear();
   rebuildAfter = deps.now() + REBUILD_BACKOFF_MS;
 }
 
 function historyFor(deps: MorphoPointsDeps): History {
-  const key = `${deps.config.marketId}:${deps.config.fromBlock}:${deps.config.oracle.toLowerCase()}`;
+  const key = [
+    deps.config.marketId,
+    deps.config.fromBlock.toString(),
+    deps.config.oracle.toLowerCase(),
+    deps.contracts.points.toLowerCase(),
+    deps.protocolDeploymentBlock.toString(),
+  ].join(":");
   if (history && history.key === key) return history;
   if (deps.now() < rebuildAfter) {
     throw new MorphoPointsNotReadyError("points: rebuilding history after an integrity failure");
@@ -555,6 +634,7 @@ function historyFor(deps: MorphoPointsDeps): History {
     key,
     verified: false,
     hydratedFromStore: false,
+    needsFullReconcile: false,
     events: [],
     scannedTo: 0n,
     epochs: [],
@@ -1011,7 +1091,6 @@ async function buildSnapshot(
 ): Promise<Snapshot> {
   const h = historyFor(deps);
   if (h.snapshot && h.snapshot.asOfBlock >= asOf.number) return h.snapshot;
-  let hydratedThisBuild = false;
   try {
     if (
       h.scannedTo === 0n &&
@@ -1022,48 +1101,68 @@ async function buildSnapshot(
     ) {
       h.hydratedFromStore = true;
       const snap = await deps.snapshotStore.load(h.key);
-      if (
-        snap &&
-        history === h &&
-        snap.epochsScannedTo <= asOf.number &&
-        snap.scannedTo <= asOf.number &&
-        (snap.epochsScannedTo === 0n || snap.epochsScannedTo >= deps.protocolDeploymentBlock) &&
-        (snap.scannedTo === 0n || snap.scannedTo >= deps.config.fromBlock)
-      ) {
-        // Verify internal event-to-balance consistency before hydrating from external storage.
-        const derivedBalances = new Map<string, bigint>();
-        let consistent = true;
-        for (const event of snap.events) {
-          const owner = event.owner.toLowerCase();
-          const current = derivedBalances.get(owner) ?? 0n;
-          const next = event.kind === "supply" ? current + event.assets : current - event.assets;
-          if (next < 0n) {
-            consistent = false;
-            break;
-          }
-          derivedBalances.set(owner, next);
-        }
-        if (consistent && derivedBalances.size === snap.balances.length) {
-          for (const [owner, bal] of snap.balances) {
-            if (derivedBalances.get(owner) !== bal) {
+      if (snap && history === h) {
+        if (snap.epochsScannedTo > observedRemoteEpochsTo) observedRemoteEpochsTo = snap.epochsScannedTo;
+        if (snap.scannedTo > observedRemoteScannedTo) observedRemoteScannedTo = snap.scannedTo;
+        if (
+          snap.epochsScannedTo <= asOf.number &&
+          snap.scannedTo <= asOf.number &&
+          (snap.epochsScannedTo === 0n || snap.epochsScannedTo >= deps.protocolDeploymentBlock) &&
+          (snap.scannedTo === 0n || snap.scannedTo >= deps.config.fromBlock)
+        ) {
+          // Verify internal event bounds, balance uniqueness, and owner-set parity before hydrating.
+          const derivedBalances = new Map<string, bigint>();
+          let consistent = true;
+          for (const event of snap.events) {
+            if (event.blockNumber < deps.config.fromBlock || event.blockNumber > snap.scannedTo) {
               consistent = false;
               break;
             }
+            const owner = event.owner.toLowerCase();
+            const current = derivedBalances.get(owner) ?? 0n;
+            const next = event.kind === "supply" ? current + event.assets : current - event.assets;
+            if (next < 0n) {
+              consistent = false;
+              break;
+            }
+            derivedBalances.set(owner, next);
           }
-        } else {
-          consistent = false;
-        }
-        if (consistent) {
-          for (const epoch of snap.epochs) h.epochs.push(epoch);
-          h.epochsScannedTo = snap.epochsScannedTo;
-          // Leave epochsVerifiedTo = 0n so extendEpochs ALWAYS verifies rateEpochCount on-chain.
-          h.epochsVerifiedTo = 0n;
-          for (const event of snap.events) h.events.push(event);
-          for (const owner of snap.owners) h.owners.add(owner);
-          for (const [owner, bal] of derivedBalances) h.balances.set(owner, bal);
-          h.scannedTo = snap.scannedTo;
-          lastSavedHistoryCursor = historyCursorKey(h);
-          hydratedThisBuild = true;
+          if (consistent && derivedBalances.size === snap.balances.length) {
+            const seenBalanceOwners = new Set<string>();
+            for (const [owner, bal] of snap.balances) {
+              if (seenBalanceOwners.has(owner) || derivedBalances.get(owner) !== bal) {
+                consistent = false;
+                break;
+              }
+              seenBalanceOwners.add(owner);
+            }
+          } else {
+            consistent = false;
+          }
+          const ownerSet = new Set(snap.owners);
+          if (consistent && (ownerSet.size !== snap.owners.length || ownerSet.size !== derivedBalances.size)) {
+            consistent = false;
+          }
+          if (consistent) {
+            for (const owner of derivedBalances.keys()) {
+              if (!ownerSet.has(owner)) {
+                consistent = false;
+                break;
+              }
+            }
+          }
+          if (consistent) {
+            for (const epoch of snap.epochs) h.epochs.push(epoch);
+            h.epochsScannedTo = snap.epochsScannedTo;
+            // Leave epochsVerifiedTo = 0n so extendEpochs ALWAYS verifies rateEpochCount on-chain.
+            h.epochsVerifiedTo = 0n;
+            for (const event of snap.events) h.events.push(event);
+            for (const owner of snap.owners) h.owners.add(owner);
+            for (const [owner, bal] of derivedBalances) h.balances.set(owner, bal);
+            h.scannedTo = snap.scannedTo;
+            h.needsFullReconcile = true;
+            lastSavedHistoryCursor = historyCursorKey(h);
+          }
         }
       }
     }
@@ -1075,10 +1174,12 @@ async function buildSnapshot(
     await extendEpochs(deps, h, asOf.number, deadline);
     const reconciledAt = await extendCollateral(deps, h, asOf.number, deadline);
     const owners = replayCollateralPoints(h.events, h.epochs, asOf.timestamp);
-    // The last chunk was just reconciled at this very block (MORPHO-31); a build that hydrated
-    // from Blob or scanned no chunk up to `asOf.number` reconciles every known owner here.
-    if (hydratedThisBuild || reconciledAt !== asOf.number) {
+    // The last chunk was just reconciled at this very block (MORPHO-31); a history that hydrated
+    // from Blob (even across multiple catch-up requests) or scanned no chunk up to `asOf.number`
+    // reconciles every known owner here.
+    if (h.needsFullReconcile || reconciledAt !== asOf.number) {
       await reconcileAt(deps, [...h.owners], (owner) => owners.get(owner)?.collateral ?? 0n, asOf.number);
+      h.needsFullReconcile = false;
     }
     skipHistorySnapshotUntilVerified = false;
     await persistHistorySnapshot(deps, h);
@@ -1095,6 +1196,7 @@ async function buildSnapshot(
       await persistHistorySnapshot(deps, h);
     } else if (error instanceof MorphoPointsIntegrityError) {
       dropHistory(deps, h);
+      await deps.snapshotStore?.clear?.().catch(() => undefined);
     }
     throw error;
   }

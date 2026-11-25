@@ -1,4 +1,4 @@
-import {get as getBlob, put as putBlob} from "@vercel/blob";
+import {BlobPreconditionFailedError, del as delBlob, get as getBlob, put as putBlob} from "@vercel/blob";
 import {
   createPublicClient,
   getAddress,
@@ -134,6 +134,7 @@ export type DiscoverySnapshot = {
 export type DiscoverySnapshotStore = {
   load: (key: string) => Promise<DiscoverySnapshot | null>;
   save: (snapshot: DiscoverySnapshot) => Promise<void>;
+  clear?: () => Promise<void>;
 };
 
 /** Everything the loader reads through; injectable so tests can drive it without a network. */
@@ -203,6 +204,7 @@ export const ANSWER_STALE_IF_ERROR_MS = 15 * 60_000;
 
 let lastAnswer: {answer: LeaderboardWire; at: number} | null = null;
 let answerInFlight: Promise<LeaderboardWire> | null = null;
+let observedBlobEtag: string | null = null;
 
 /** Clears the per-instance discovery and answers. Tests only. */
 export function resetPointsLeaderboardCache(): void {
@@ -210,6 +212,7 @@ export function resetPointsLeaderboardCache(): void {
   rebuildAfter = 0;
   skipSnapshotUntilVerified = false;
   lastSavedSnapshotBlock = 0n;
+  observedBlobEtag = null;
   queue = Promise.resolve();
   lastAnswer = null;
   answerInFlight = null;
@@ -366,6 +369,11 @@ async function readBoundedBlobText(stream: ReadableStream<Uint8Array>, maxBytes:
   return new TextDecoder("utf-8", {fatal: true}).decode(bytes);
 }
 
+function isBlobConflict(error: unknown): boolean {
+  if (error instanceof BlobPreconditionFailedError) return true;
+  return error instanceof Error && /already exists|precondition/i.test(error.message);
+}
+
 function blobSnapshotStore(): DiscoverySnapshotStore | undefined {
   if (!process.env.BLOB_READ_WRITE_TOKEN) return undefined;
   return {
@@ -376,7 +384,12 @@ function blobSnapshotStore(): DiscoverySnapshotStore | undefined {
           useCache: false,
           abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
         });
-        if (!result || result.statusCode !== 200 || !result.stream) return null;
+        if (!result) {
+          observedBlobEtag = null;
+          return null;
+        }
+        if (result.statusCode !== 200 || !result.stream) return null;
+        observedBlobEtag = result.blob.etag;
         const text = await readBoundedBlobText(result.stream, SNAPSHOT_MAX_BYTES);
         if (text === null) return null;
         const parsed = JSON.parse(text) as Partial<DiscoverySnapshot>;
@@ -406,13 +419,53 @@ function blobSnapshotStore(): DiscoverySnapshotStore | undefined {
       }
     },
     async save(snapshot: DiscoverySnapshot): Promise<void> {
-      await putBlob(SNAPSHOT_BLOB_PATH, JSON.stringify(snapshot), {
-        access: "private",
-        contentType: "application/json",
-        addRandomSuffix: false,
-        allowOverwrite: true,
-        abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
-      });
+      const payload = JSON.stringify(snapshot);
+      if (Buffer.byteLength(payload, "utf8") > SNAPSHOT_MAX_BYTES) {
+        console.error("leaderboard.snapshot save skipped: payload exceeds size cap");
+        return;
+      }
+      try {
+        const saved = await putBlob(
+          SNAPSHOT_BLOB_PATH,
+          payload,
+          observedBlobEtag !== null
+            ? {
+                access: "private",
+                contentType: "application/json",
+                addRandomSuffix: false,
+                allowOverwrite: true,
+                ifMatch: observedBlobEtag,
+                abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
+              }
+            : {
+                access: "private",
+                contentType: "application/json",
+                addRandomSuffix: false,
+                allowOverwrite: false,
+                abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
+              },
+        );
+        observedBlobEtag = saved.etag;
+      } catch (error) {
+        if (isBlobConflict(error)) return;
+        throw error;
+      }
+    },
+    async clear(): Promise<void> {
+      try {
+        const etag = observedBlobEtag;
+        observedBlobEtag = null;
+        await delBlob(
+          SNAPSHOT_BLOB_PATH,
+          etag
+            ? {ifMatch: etag, abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS)}
+            : {abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS)},
+        );
+      } catch (error) {
+        if (isBlobConflict(error)) return;
+        const name = error instanceof Error ? error.name : "UnknownError";
+        console.error(`leaderboard.snapshot clear failed: ${name}`);
+      }
     },
   };
 }
@@ -887,6 +940,7 @@ export async function loadPointsLeaderboard(injected?: LeaderboardDeps, arrivedA
         lastSavedSnapshotBlock = 0n;
         skipSnapshotUntilVerified = true;
         rebuildAfter = deps.now() + REBUILD_BACKOFF_MS;
+        await deps.snapshotStore?.clear?.().catch(() => undefined);
       }
       throw error;
     }

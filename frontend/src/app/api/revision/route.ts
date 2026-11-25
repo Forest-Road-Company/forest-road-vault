@@ -1,3 +1,5 @@
+import {methodNotAllowed} from "@/lib/httpMethod.server";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -27,3 +29,6 @@ export async function GET() {
     },
   );
 }
+
+const refuse = () => methodNotAllowed("GET");
+export {refuse as POST, refuse as PUT, refuse as PATCH, refuse as DELETE, refuse as OPTIONS};
