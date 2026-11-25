@@ -30,11 +30,12 @@ function makeFlow(): FlowStub {
 
 /** Values the card reads from chain, keyed by the contract function it calls. */
 let reads: Record<string, unknown> = {};
+let getBlockImpl: () => Promise<{timestamp: bigint}> = async () => ({timestamp: BigInt(NOW)});
 
 vi.mock("wagmi", () => ({
   useAccount: () => ({address: "0x1111111111111111111111111111111111111111"}),
   usePublicClient: () => ({
-    getBlock: vi.fn(async () => ({timestamp: BigInt(NOW)})),
+    getBlock: () => getBlockImpl(),
     getBlockNumber: vi.fn(async () => 100n),
     getContractEvents: vi.fn(async () => []),
   }),
@@ -78,6 +79,7 @@ async function openQueueMode(user: ReturnType<typeof userEvent.setup>) {
 afterEach(() => {
   flows.length = 0;
   busyFlows = false;
+  getBlockImpl = async () => ({timestamp: BigInt(NOW)});
 });
 
 describe("RedeemCard, queue disclosure (FRV-FS-02)", () => {
@@ -274,5 +276,33 @@ describe("RedeemCard, in-flight write protection (RC-05)", () => {
     });
     render(<RedeemCard writesEnabled chainOk />);
     expect(screen.getByText(/Completed requests \(1\)/i)).toBeInTheDocument();
+  });
+
+  it("locks mode toggle while fetching chain block timestamp and cancels stale instant redeem on unmount", async () => {
+    let resolveBlock!: (value: {timestamp: bigint}) => void;
+    getBlockImpl = () =>
+      new Promise<{timestamp: bigint}>((resolve) => {
+        resolveBlock = resolve;
+      });
+    reads = baseReads({previewRedeem: [100n * 10n ** 18n, 100_000_000n]});
+    const user = userEvent.setup();
+    const view = render(<RedeemCard writesEnabled chainOk />);
+
+    await user.type(screen.getByPlaceholderText("0.00"), "100");
+    await user.click(screen.getByRole("button", {name: /Redeem to/i}));
+
+    // While awaiting getBlock(), controls must stay locked so the user cannot switch mode or double-submit.
+    const route = screen.getByRole("group", {name: "Redemption route"});
+    for (const button of within(route).getAllByRole("button")) {
+      expect(button).toBeDisabled();
+    }
+    expect(screen.getByRole("button", {name: /Preparing/i})).toBeDisabled();
+
+    // Unmount before getBlock() resolves: stale instant redeem must never invoke flow.run().
+    view.unmount();
+    resolveBlock({timestamp: BigInt(NOW)});
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(flows.flatMap((f) => f.run.mock.calls)).toHaveLength(0);
   });
 });

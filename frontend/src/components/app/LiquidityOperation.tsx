@@ -410,12 +410,20 @@ export function LiquidityOperation() {
   }, [address, publicClient, walletMatches]);
 
   const refresh = useCallback(async () => {
-    if (!address || !publicClient || !walletMatches) return;
+    if (!address || !publicClient || !walletMatches) {
+      setSnapshot(null);
+      setPilot(null);
+      setRemainder(null);
+      if (!inFlightRef.current) setStatus({phase: "idle"});
+      return;
+    }
     setLoading(true);
     try {
       await Promise.all([loadSnapshot(), restoreProgress()]);
     } catch (error) {
-      setStatus({phase: "error", message: messageFromError(error)});
+      if (!inFlightRef.current) {
+        setStatus({phase: "error", message: messageFromError(error)});
+      }
     } finally {
       setLoading(false);
     }
@@ -608,8 +616,12 @@ export function LiquidityOperation() {
             hash,
             timeout: RECEIPT_TIMEOUT,
           });
+        const minedHash = receipt.transactionHash;
+        pendingHash = minedHash;
         if (receipt.status !== "success") throw new Error("Transaction reverted on-chain.");
-        const confirmed = await verifyConfirmedMint({publicClient, record: stored});
+        const minedRecord: StoredMint = {...stored, hash: minedHash};
+        writeStoredMint(minedRecord);
+        const confirmed = await verifyConfirmedMint({publicClient, record: minedRecord});
         if (!confirmed) throw new Error("Confirmed transaction receipt could not be verified on-chain.");
         if (kind === "pilot") setPilot(confirmed);
         else setRemainder(confirmed);
@@ -620,7 +632,7 @@ export function LiquidityOperation() {
             kind === "pilot"
               ? `Pilot confirmed as Uniswap position ${confirmed.evidence.tokenId}. The remainder is now unlocked.`
               : `Remaining position confirmed as token ${confirmed.evidence.tokenId}. The staged operation is complete.`,
-          hash,
+          hash: minedHash,
         });
       } catch (error) {
         if (error instanceof ReceiptStatusUnknownError) {

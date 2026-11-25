@@ -56,9 +56,12 @@ export function MorphoMarketSurface() {
   const now = useNowSeconds(1_000);
   const [safeStatus, setSafeStatus] = useState<{phase: "idle" | "simulating" | "review" | "proposed" | "error"; message?: string; hash?: Hex}>({phase: "idle"});
   const locked = useRef(false);
+  const submitGenRef = useRef(0);
   const walletRef = useRef(wallet);
   useEffect(() => {
     walletRef.current = wallet;
+    submitGenRef.current += 1;
+    locked.current = false;
   }, [wallet]);
   const [preparing, setPreparing] = useState(false);
   const [preparedQuote, setPreparedQuote] = useState<MarketQuoteTiming | null>(null);
@@ -70,6 +73,7 @@ export function MorphoMarketSurface() {
     setRiskAccepted(false);
     setSafeStatus({phase: "idle"});
     setPreparedQuote(null);
+    setPreparing(false);
   }
   const flow = useWriteFlow();
   const launchQuery = useQuery({queryKey: ["morpho-launch"], queryFn: loadLaunch, staleTime: 0, retry: 1, refetchInterval: 15_000});
@@ -128,6 +132,7 @@ export function MorphoMarketSurface() {
 
   async function submit() {
     if (disabledReason || busy || safeProposed || locked.current || !client || !wallet || !snapshot) return;
+    const gen = ++submitGenRef.current;
     locked.current = true;
     setPreparing(true);
     setSafeStatus({phase: "idle"});
@@ -188,7 +193,12 @@ export function MorphoMarketSurface() {
           void proposalQuery.refetch();
         }
       } else {
-        await flow.run({...(!treasurySeed && approve ? approval : target), keepPendingUntilReceipt: true,
+        // Hand off busy tracking to useWriteFlow so a wallet switch immediately unlocks the new wallet.
+        if (submitGenRef.current === gen) {
+          locked.current = false;
+          setPreparing(false);
+        }
+        void flow.run({...(!treasurySeed && approve ? approval : target), keepPendingUntilReceipt: true,
           assertBeforeWallet: () => assertMarketQuoteCurrent(current),
           onSuccess: () => {void cache.invalidateQueries({queryKey: ["morpho-market"]}); if (!approve) {setAmount(""); setAll(false);}}});
       }
@@ -203,7 +213,13 @@ export function MorphoMarketSurface() {
       if (walletRef.current === actionWallet) {
         setSafeStatus({phase: "error", message});
       }
-    } finally {locked.current = false; setPreparing(false); if (treasurySeed && safe.context) void proposalQuery.refetch();}
+    } finally {
+      if (submitGenRef.current === gen) {
+        locked.current = false;
+        setPreparing(false);
+      }
+      if (treasurySeed && safe.context) void proposalQuery.refetch();
+    }
   }
 
   const borrowApr = snapshot ? apr(snapshot.rate) : "—";
@@ -240,6 +256,7 @@ export function MorphoMarketSurface() {
           <p className="mt-2 text-ink-muted">The Treasury owns the lending shares. A 100,000-USDC starting balance leaves 50,000 USDC reserved for PT.</p>
         </div> : <AmountInput value={amount} onChange={v => {setAmount(v); setAll(false);}} symbol={symbol} maxDecimals={decimals}
           invalid={Boolean(limitReason && !all && amount !== "")}
+          ariaDescribedBy={limitReason && !all && amount !== "" ? "morpho-disabled-reason" : undefined}
           disabled={busy || repayAll || withdrawAll} onMax={account ? () => {
             const close = action === "repay" ? account.position.borrowShares > 0n && account.usdc >= repayment!.required
               : action === "withdraw" && account.position.supplyShares > 0n && account.values.supplied <= snapshot!.liquidity;
@@ -252,7 +269,11 @@ export function MorphoMarketSurface() {
           {action === "repay" ? "Repay all debt, including accrued interest" : "Withdraw all lending shares"}</label> : null}
         {repayAll ? <p className="mt-2 text-[13px] leading-relaxed text-ink-muted">The balance and allowance checks cover five minutes from quote issuance, including head age, read latency, rising rates and a small rounding margin. A new approval adds 0.1% to that estimate. Only the actual debt is repaid; unused allowance may remain. Other market transactions can require a fresh quote.</p> : null}
         {displayedQuote ? <div className="mt-3 space-y-1 text-xs leading-relaxed text-ink-muted">
-          <p role={quoteExpired ? "alert" : undefined}>{quoteExpired ? "Quote expired. Refresh and review again before signing." : "Quote valid for five minutes from issuance."} Expires {new Date(displayedQuote.expiresAt).toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC")}.</p>
+          {quoteExpired ? (
+            <p key="expired" role="alert">Quote expired. Refresh and review again before signing. Expires {new Date(displayedQuote.expiresAt).toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC")}.</p>
+          ) : (
+            <p key="valid">Quote valid for five minutes from issuance. Expires {new Date(displayedQuote.expiresAt).toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC")}.</p>
+          )}
           <p>This is not an on-chain deadline. Expiry cannot cancel a wallet request or Safe proposal already handed over. After expiry, refresh and review before signing; later execution is not protected.</p>
           {quoteExpired && !busy ? <button type="button" className="u-link" onClick={() => void marketQuery.refetch()}>Refresh quote</button> : null}
         </div> : null}
@@ -266,7 +287,7 @@ export function MorphoMarketSurface() {
         <ActionButton label={treasurySeed ? "Review 50,000-USDC supply in Safe" : safe.context ? `Review ${titles[action].toLowerCase()} in Safe` : needsApproval ? `Approve ${symbol}` : titles[action]}
           busyLabel={safeProposed ? "Awaiting Safe execution…" : safeStatus.phase === "review" ? "Review in Safe…" : safeStatus.phase === "simulating" ? "Simulating Safe batch…" : busyLabelFor(flow.status)}
           busy={busy || safeProposed} disabled={!!disabledReason} onClick={() => void submit()} />
-        {disabledReason ? <p role="status" className="mt-3 text-[13px] leading-relaxed text-ink-muted">{disabledReason}</p> : null}
+        {disabledReason ? <p id="morpho-disabled-reason" role="status" className="mt-3 text-[13px] leading-relaxed text-ink-muted">{disabledReason}</p> : null}
         <StatusLine status={flow.status} />
         {flow.status.phase === "pending" && flow.status.delayed && !flow.status.stopped ? (
           <button type="button" className="u-link mt-2 text-xs text-ink-muted" onClick={flow.stopWaiting}>

@@ -1045,6 +1045,14 @@ describe("pass-through", () => {
     );
     expect(hugeGasCall.body).toMatchObject({id: 25, error: {code: -32602}});
 
+    const preDeploymentBlock = await read(
+      await handleRpcProxyRequest(
+        rpcRequest(call("eth_getBlockByNumber", ["0x1", false], 26)),
+        {chainId: 1, upstreamUrl: UPSTREAM},
+      ),
+    );
+    expect(preDeploymentBlock.body).toMatchObject({id: 26, error: {code: -32602}});
+
     const badTopics = await read(
       await POST(rpcRequest(call("eth_getLogs", [{...LOGS, topics: ["not-a-hash"]}], 3))),
     );

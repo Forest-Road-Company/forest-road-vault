@@ -1,5 +1,6 @@
 import {createHash, timingSafeEqual} from "node:crypto";
 import {del, list} from "@vercel/blob";
+import {methodNotAllowed} from "@/lib/httpMethod.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -81,3 +82,6 @@ export async function GET(request: Request) {
     {headers: NO_STORE},
   );
 }
+
+const refuse = () => methodNotAllowed("GET");
+export {refuse as POST, refuse as PUT, refuse as PATCH, refuse as DELETE, refuse as OPTIONS};

@@ -361,11 +361,15 @@ body {
 }
 
 /* Resolved through a variable, not `accent` directly, so the navy subtrees
-   below can lift it the same way they lift the status hues. */
-:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 3px;
-  border-radius: 3px;
+   below can lift it the same way they lift the status hues. Kept inside
+   `@layer base` so Tailwind utility overrides (`outline-none`, `focus:outline-*`)
+   work per the CSS cascade, and without forcing `border-radius` so pills and
+   cards retain their own geometry when focused. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 3px;
+  }
 }
 
 a {

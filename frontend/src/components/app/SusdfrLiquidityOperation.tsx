@@ -424,13 +424,21 @@ export function SusdfrLiquidityOperation() {
   }, [address, publicClient, walletMatches]);
 
   const refresh = useCallback(async () => {
-    if (!address || !publicClient || !walletMatches) return;
+    if (!address || !publicClient || !walletMatches) {
+      setSnapshot(null);
+      setSeed(null);
+      setWall(null);
+      if (!inFlightRef.current) setStatus({phase: "idle"});
+      return;
+    }
     setLoading(true);
     try {
       await loadSnapshot();
       await restoreProgress();
     } catch (error) {
-      setStatus({phase: "error", message: messageFromError(error)});
+      if (!inFlightRef.current) {
+        setStatus({phase: "error", message: messageFromError(error)});
+      }
     } finally {
       setLoading(false);
     }
@@ -614,6 +622,8 @@ export function SusdfrLiquidityOperation() {
           hash,
           timeout: RECEIPT_TIMEOUT,
         });
+        const minedHash = receipt.transactionHash;
+        pendingHash = minedHash;
         if (receipt.status !== "success") throw new Error("Transaction reverted on-chain.");
         const evidence = verifySusdfrMintReceipt({
           logs: receipt.logs as readonly SusdfrReceiptLog[],
@@ -637,9 +647,10 @@ export function SusdfrLiquidityOperation() {
         if (positionLiquidity !== plan.liquidity || positionOwner.toLowerCase() !== address.toLowerCase()) {
           throw new Error("The mined Uniswap position does not match the approved owner and liquidity.");
         }
-        const confirmed = {hash, plan, evidence};
+        const confirmed = {hash: minedHash, plan, evidence};
         writeStoredMint({
           ...stored,
+          hash: minedHash,
           tokenId: evidence.tokenId.toString(),
           usdcSpent: evidence.usdcSpent.toString(),
           susdfrSpent: evidence.susdfrSpent.toString(),
@@ -653,7 +664,7 @@ export function SusdfrLiquidityOperation() {
             kind === "seed"
               ? `Pool and seed confirmed as position ${evidence.tokenId}. The USDC-only wall is unlocked.`
               : `USDC-only wall confirmed as position ${evidence.tokenId}. The operation is complete.`,
-          hash,
+          hash: minedHash,
         });
       } catch (error) {
         if (error instanceof ReceiptStatusUnknownError) {

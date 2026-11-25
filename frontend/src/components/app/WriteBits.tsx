@@ -27,6 +27,7 @@ export function AmountInput({
   maxDecimals,
   disabled,
   invalid,
+  ariaDescribedBy,
   onMax,
 }: {
   value: string;
@@ -39,6 +40,7 @@ export function AmountInput({
   /** Draws the field's error state. The message itself belongs to the caller,
    *  next to the field, so the reason is never left implicit in a red border. */
   invalid?: boolean;
+  ariaDescribedBy?: string;
   onMax?: () => void;
 }) {
   return (
@@ -59,6 +61,7 @@ export function AmountInput({
            on first keystroke. */
         aria-label={`Amount in ${symbol}`}
         aria-invalid={invalid || undefined}
+        aria-describedby={ariaDescribedBy}
         onChange={(e) => {
           const v = e.target.value;
           // digits + one dot, fraction capped at token precision, reject pasted

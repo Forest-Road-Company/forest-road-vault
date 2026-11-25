@@ -1,4 +1,5 @@
 import {getAddress, isAddress} from "viem";
+import {methodNotAllowed} from "@/lib/httpMethod.server";
 import {
   loadMorphoCollateralPoints,
   MorphoPointsIntegrityError,
@@ -90,9 +91,5 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST() {
-  return Response.json(
-    {ok: false, error: "Method not allowed."},
-    {status: 405, headers: {allow: "GET", "cache-control": "no-store"}},
-  );
-}
+const refuse = () => methodNotAllowed("GET");
+export {refuse as POST, refuse as PUT, refuse as PATCH, refuse as DELETE, refuse as OPTIONS};

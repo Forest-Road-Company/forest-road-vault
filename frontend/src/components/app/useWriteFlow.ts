@@ -89,6 +89,13 @@ export function useWriteFlow() {
     // this generation gate also suppresses its eventual callback/onSuccess.
     flowGeneration.current += 1;
   }, [address]);
+  const unmountedRef = useRef(false);
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+    };
+  }, []);
   useEffect(() => () => {
     // An unmounted card must not keep launching receipt polls or report into a later mount.
     flowGeneration.current += 1;
@@ -110,6 +117,7 @@ export function useWriteFlow() {
       /** Last synchronous guard after all RPC work, immediately before wallet handoff. */
       assertBeforeWallet?: () => void;
     }) => {
+      if (unmountedRef.current) return;
       if (!address) {
         setStatus({
           phase: "error",

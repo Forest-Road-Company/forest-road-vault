@@ -168,15 +168,8 @@ export function CuratorVaultPanel() {
     (value: string) => setAmountState({wallet: walletAddress, value}),
     [walletAddress],
   );
-  const [busyState, setBusyState] = useState<{wallet: string | null; label: string | null}>({
-    wallet: walletAddress,
-    label: null,
-  });
-  const busy = busyState.wallet === walletAddress ? busyState.label : null;
-  const setBusy = useCallback(
-    (label: string | null) => setBusyState({wallet: walletAddress, label}),
-    [walletAddress],
-  );
+  const [busyByWallet, setBusyByWallet] = useState<Record<string, {runId: number; label: string}>>({});
+  const busy = walletAddress ? (busyByWallet[walletAddress]?.label ?? null) : null;
   const [noticeState, setNoticeState] = useState<{
     wallet: string | null;
     notice: {tone: "ok" | "bad"; text: string} | null;
@@ -196,8 +189,9 @@ export function CuratorVaultPanel() {
 
   // Reads are ordered: a late reply from a previous wallet or an earlier refresh is dropped.
   const readSeq = useRef(0);
-  // Synchronous double-submit guard per wallet so rapid clicks before re-render cannot submit twice.
-  const inFlightWalletRef = useRef<string | null>(null);
+  // Synchronous per-wallet double-submit guard so rapid clicks or A -> B -> A switches cannot submit twice.
+  const inFlightByWalletRef = useRef<Map<string, number>>(new Map());
+  const runIdSeqRef = useRef(0);
   const [clusterOk, setClusterOk] = useState<boolean | null>(null);
   const clusterOkRef = useRef<boolean | null>(null);
   // Everything read is tagged with the wallet it was read for; a switch shows "reading" until
@@ -347,10 +341,11 @@ export function CuratorVaultPanel() {
     async (label: string, build: () => Promise<Transaction>) => {
       if (!publicKey) return;
       const actionWallet = publicKey.toBase58();
-      if (inFlightWalletRef.current === actionWallet) return;
-      inFlightWalletRef.current = actionWallet;
+      if (inFlightByWalletRef.current.has(actionWallet)) return;
+      const runId = ++runIdSeqRef.current;
+      inFlightByWalletRef.current.set(actionWallet, runId);
       const actionWalletIsCurrent = () => walletAddressRef.current === actionWallet;
-      setBusy(label);
+      setBusyByWallet((prev) => ({...prev, [actionWallet]: {runId, label}}));
       setNotice(null);
       let sig: string | null = null;
       try {
@@ -393,15 +388,18 @@ export function CuratorVaultPanel() {
           }
         }
       } finally {
-        if (inFlightWalletRef.current === actionWallet) {
-          inFlightWalletRef.current = null;
+        if (inFlightByWalletRef.current.get(actionWallet) === runId) {
+          inFlightByWalletRef.current.delete(actionWallet);
         }
-        setBusyState((prev) =>
-          prev.wallet === actionWallet ? {wallet: prev.wallet, label: null} : prev,
-        );
+        setBusyByWallet((prev) => {
+          if (prev[actionWallet]?.runId !== runId) return prev;
+          const next = {...prev};
+          delete next[actionWallet];
+          return next;
+        });
       }
     },
-    [connection, publicKey, refresh, sendTransaction, setAmount, setBusy, setNotice],
+    [connection, publicKey, refresh, sendTransaction, setAmount, setNotice],
   );
 
   const parsedAmount = useMemo(() => {

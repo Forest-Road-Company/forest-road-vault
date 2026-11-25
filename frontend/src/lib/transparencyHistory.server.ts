@@ -1,4 +1,4 @@
-import {get as getBlob, put as putBlob} from "@vercel/blob";
+import {BlobPreconditionFailedError, del as delBlob, get as getBlob, put as putBlob} from "@vercel/blob";
 import {createPublicClient} from "viem";
 import {
   BRIDGE_HISTORY_ABI,
@@ -9,6 +9,7 @@ import {
 import {createArchiveRpcTransport, isLogSizeLimitError} from "@/lib/archiveTransport.server";
 import {
   CONTRACTS,
+  IS_LOCAL_FORK,
   IS_MAINNET,
   PROTOCOL_DEPLOYMENT_BLOCK,
   RPC_PROXY_MODE,
@@ -28,7 +29,7 @@ const STALE_IF_ERROR_MS = 600_000;
 const ARCHIVE_HISTORY_CONCURRENCY = 3;
 const MAX_SPLITS_PER_CHUNK = 64;
 const LOG_RESULT_LIMIT = 1_000;
-const SNAPSHOT_BLOB_PATH = "transparency-history/finalized-v1.json";
+const SNAPSHOT_BLOB_PATH = `transparency-history/chain-${EXPECTED_CHAIN.id}-finalized-v1.json`;
 const SNAPSHOT_IO_TIMEOUT_MS = 4_000;
 const SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024;
 const SNAPSHOT_MAX_EVENTS = 100_000;
@@ -107,6 +108,7 @@ export interface TransparencyEventsBatch {
 export interface TransparencyHistorySnapshotStore {
   load: (expectedKey: string) => Promise<FinalizedCursor | null>;
   save: (key: string, cursor: FinalizedCursor) => Promise<void>;
+  clear?: () => Promise<void>;
 }
 
 export interface TransparencyHistoryDeps {
@@ -145,6 +147,11 @@ async function readBoundedStreamText(stream: ReadableStream<Uint8Array>, maxByte
     offset += chunk.byteLength;
   }
   return new TextDecoder("utf-8", {fatal: true}).decode(bytes);
+}
+
+function parseRequiredBigInt(value: unknown): bigint | null {
+  if (typeof value !== "string" || !UINT_STRING.test(value)) return null;
+  return BigInt(value);
 }
 
 function parseOptionalBigInt(value: unknown): bigint | undefined | null {
@@ -214,55 +221,60 @@ function parseBatch(raw: unknown): TransparencyEventsBatch | null {
   }
   const originated: TransparencyEventsBatch["originated"] = [];
   for (const item of originatedRaw) {
-    const tokenId = parseOptionalBigInt(item.tokenId);
-    const classId = parseOptionalBigInt(item.classId);
+    const tokenId = parseRequiredBigInt(item.tokenId);
+    const classId = parseRequiredBigInt(item.classId);
     if (tokenId === null || classId === null) return null;
     originated.push({tokenId, classId});
   }
   const funded: TransparencyEventsBatch["funded"] = [];
   for (const item of fundedRaw) {
-    const tokenId = parseOptionalBigInt(item.tokenId);
-    const principal = parseOptionalBigInt(item.principal);
+    const tokenId = parseRequiredBigInt(item.tokenId);
+    const principal = parseRequiredBigInt(item.principal);
     if (tokenId === null || principal === null) return null;
     funded.push({tokenId, principal});
   }
   const losses: TransparencyEventsBatch["losses"] = [];
   for (const item of lossesRaw) {
-    const classId = parseOptionalBigInt(item.classId);
-    const loss = parseOptionalBigInt(item.loss);
+    const classId = parseRequiredBigInt(item.classId);
+    const loss = parseRequiredBigInt(item.loss);
     if (classId === null || loss === null) return null;
     losses.push({classId, loss});
   }
   const originationFees: TransparencyEventsBatch["originationFees"] = [];
   for (const item of originationFeesRaw) {
-    const fee = parseOptionalBigInt(item.fee);
+    const fee = parseRequiredBigInt(item.fee);
     if (fee === null) return null;
     originationFees.push({fee});
   }
   const distributions: TransparencyEventsBatch["distributions"] = [];
   for (const item of distributionsRaw) {
-    const fee = parseOptionalBigInt(item.fee);
+    const fee = parseRequiredBigInt(item.fee);
     const toVault = parseOptionalBigInt(item.toVault);
     if (fee === null || toVault === null) return null;
     distributions.push({fee, toVault});
   }
   const performanceFees: TransparencyEventsBatch["performanceFees"] = [];
   for (const item of performanceFeesRaw) {
-    const feeAssets = parseOptionalBigInt(item.feeAssets);
+    const feeAssets = parseRequiredBigInt(item.feeAssets);
     if (feeAssets === null) return null;
     performanceFees.push({feeAssets});
   }
   const managementFees: TransparencyEventsBatch["managementFees"] = [];
   for (const item of managementFeesRaw) {
-    const feeAssets = parseOptionalBigInt(item.feeAssets);
+    const feeAssets = parseRequiredBigInt(item.feeAssets);
     if (feeAssets === null) return null;
     managementFees.push({feeAssets});
   }
   return {originated, funded, losses, originationFees, distributions, performanceFees, managementFees};
 }
 
+function isBlobConflict(error: unknown): boolean {
+  if (error instanceof BlobPreconditionFailedError) return true;
+  return error instanceof Error && /already exists|precondition/i.test(error.message);
+}
+
 function blobSnapshotStore(): TransparencyHistorySnapshotStore | undefined {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) return undefined;
+  if (!process.env.BLOB_READ_WRITE_TOKEN || IS_LOCAL_FORK) return undefined;
   return {
     async load(expectedKey: string): Promise<FinalizedCursor | null> {
       try {
@@ -271,7 +283,12 @@ function blobSnapshotStore(): TransparencyHistorySnapshotStore | undefined {
           useCache: false,
           abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
         });
-        if (!result || result.statusCode !== 200 || !result.stream) return null;
+        if (!result) {
+          observedBlobEtag = null;
+          return null;
+        }
+        if (result.statusCode !== 200 || !result.stream) return null;
+        observedBlobEtag = result.blob.etag;
         const text = await readBoundedStreamText(result.stream, SNAPSHOT_MAX_BYTES);
         if (text === null) return null;
         const parsed = JSON.parse(text) as Record<string, unknown>;
@@ -293,22 +310,58 @@ function blobSnapshotStore(): TransparencyHistorySnapshotStore | undefined {
       }
     },
     async save(key: string, cursor: FinalizedCursor): Promise<void> {
-      await putBlob(
-        SNAPSHOT_BLOB_PATH,
-        JSON.stringify({
-          version: 1,
-          key,
-          finalizedBlock: cursor.finalizedBlock.toString(),
-          events: serializeBatch(cursor.events),
-        }),
-        {
-          access: "private",
-          contentType: "application/json",
-          addRandomSuffix: false,
-          allowOverwrite: true,
-          abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
-        },
-      );
+      const payload = JSON.stringify({
+        version: 1,
+        key,
+        finalizedBlock: cursor.finalizedBlock.toString(),
+        events: serializeBatch(cursor.events),
+      });
+      if (Buffer.byteLength(payload, "utf8") > SNAPSHOT_MAX_BYTES) {
+        console.error("transparency.snapshot save skipped: payload exceeds size cap");
+        return;
+      }
+      try {
+        const saved = await putBlob(
+          SNAPSHOT_BLOB_PATH,
+          payload,
+          observedBlobEtag !== null
+            ? {
+                access: "private",
+                contentType: "application/json",
+                addRandomSuffix: false,
+                allowOverwrite: true,
+                ifMatch: observedBlobEtag,
+                abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
+              }
+            : {
+                access: "private",
+                contentType: "application/json",
+                addRandomSuffix: false,
+                allowOverwrite: false,
+                abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
+              },
+        );
+        observedBlobEtag = saved.etag;
+      } catch (error) {
+        if (isBlobConflict(error)) return;
+        throw error;
+      }
+    },
+    async clear(): Promise<void> {
+      try {
+        const etag = observedBlobEtag;
+        observedBlobEtag = null;
+        await delBlob(
+          SNAPSHOT_BLOB_PATH,
+          etag
+            ? {ifMatch: etag, abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS)}
+            : {abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS)},
+        );
+      } catch (error) {
+        if (isBlobConflict(error)) return;
+        const name = error instanceof Error ? error.name : "UnknownError";
+        console.error(`transparency.snapshot clear failed: ${name}`);
+      }
     },
   };
 }
@@ -366,8 +419,9 @@ async function readRangeAdaptive<T>(
     }
     return split();
   }
-  if (events.length >= LOG_RESULT_LIMIT && fromBlock < toBlock) {
-    return split();
+  if (events.length >= LOG_RESULT_LIMIT) {
+    if (fromBlock < toBlock) return split();
+    throw new Error("transparency history: single block reached log result limit");
   }
   return events;
 }
@@ -386,6 +440,7 @@ function defaultDeps(): TransparencyHistoryDeps {
   });
 
   const snapshotKey = [
+    EXPECTED_CHAIN.id.toString(),
     CONTRACTS.ClaimBridge!,
     CONTRACTS.DefaultManager!,
     CONTRACTS.WaterfallEngine!,
@@ -494,7 +549,9 @@ function defaultDeps(): TransparencyHistoryDeps {
 let verifiedChain = false;
 let finalizedCursor: FinalizedCursor | null = null;
 let hydratedFromStore = false;
+let skipSnapshotUntilVerified = false;
 let lastSavedFinalizedBlock = 0n;
+let observedBlobEtag: string | null = null;
 let cachedAnswer: {value: TransparencyHistoryWire; expiresAt: number; staleUntil: number} | null = null;
 let answerInFlight: Promise<TransparencyHistoryWire> | null = null;
 
@@ -503,7 +560,9 @@ export function resetTransparencyHistoryCacheForTests(): void {
   verifiedChain = false;
   finalizedCursor = null;
   hydratedFromStore = false;
+  skipSnapshotUntilVerified = false;
   lastSavedFinalizedBlock = 0n;
+  observedBlobEtag = null;
   cachedAnswer = null;
   answerInFlight = null;
 }
@@ -534,13 +593,23 @@ async function computeTransparencyHistory(deps: TransparencyHistoryDeps): Promis
   if (asOfBlock < PROTOCOL_DEPLOYMENT_BLOCK) throw new Error("archive RPC is behind deployment");
 
   let cursor = finalizedCursor;
-  if (!cursor && !hydratedFromStore && deps.snapshotStore && deps.snapshotKey && finalized >= PROTOCOL_DEPLOYMENT_BLOCK) {
+  if (
+    !cursor &&
+    !hydratedFromStore &&
+    !skipSnapshotUntilVerified &&
+    deps.snapshotStore &&
+    deps.snapshotKey &&
+    finalized >= PROTOCOL_DEPLOYMENT_BLOCK
+  ) {
     hydratedFromStore = true;
     const snap = await deps.snapshotStore.load(deps.snapshotKey);
-    if (snap && snap.finalizedBlock >= PROTOCOL_DEPLOYMENT_BLOCK && snap.finalizedBlock <= finalized) {
-      cursor = snap;
-      finalizedCursor = snap;
-      lastSavedFinalizedBlock = snap.finalizedBlock;
+    if (snap && snap.finalizedBlock >= PROTOCOL_DEPLOYMENT_BLOCK) {
+      if (snap.finalizedBlock > lastSavedFinalizedBlock) {
+        lastSavedFinalizedBlock = snap.finalizedBlock;
+      }
+      if (snap.finalizedBlock <= finalized) {
+        cursor = snap;
+      }
     }
   }
 
@@ -548,14 +617,9 @@ async function computeTransparencyHistory(deps: TransparencyHistoryDeps): Promis
     if (!cursor) {
       const events = await deps.readRange(PROTOCOL_DEPLOYMENT_BLOCK, finalized);
       cursor = {finalizedBlock: finalized, events};
-      finalizedCursor = cursor;
     } else if (finalized > cursor.finalizedBlock) {
       const delta = await deps.readRange(cursor.finalizedBlock + 1n, finalized);
       cursor = {finalizedBlock: finalized, events: mergeBatches(cursor.events, delta)};
-      finalizedCursor = cursor;
-    }
-    if (cursor) {
-      await persistTransparencySnapshot(deps, cursor);
     }
   }
 
@@ -570,19 +634,37 @@ async function computeTransparencyHistory(deps: TransparencyHistoryDeps): Promis
       ? mergeBatches(baseEvents, await deps.readRange(tailFrom, effectiveAsOfBlock))
       : baseEvents;
 
-  return serializeTransparencyHistory(
-    summarizeTransparencyHistory({
-      asOfBlock: effectiveAsOfBlock,
-      classIds: VERTICALS.map((_, index) => index + 1),
-      originated: allEvents.originated,
-      funded: allEvents.funded,
-      losses: allEvents.losses,
-      originationFees: allEvents.originationFees,
-      distributions: allEvents.distributions,
-      performanceFees: allEvents.performanceFees,
-      managementFees: allEvents.managementFees,
-    }),
-  );
+  let wire: TransparencyHistoryWire;
+  try {
+    wire = serializeTransparencyHistory(
+      summarizeTransparencyHistory({
+        asOfBlock: effectiveAsOfBlock,
+        classIds: VERTICALS.map((_, index) => index + 1),
+        originated: allEvents.originated,
+        funded: allEvents.funded,
+        losses: allEvents.losses,
+        originationFees: allEvents.originationFees,
+        distributions: allEvents.distributions,
+        performanceFees: allEvents.performanceFees,
+        managementFees: allEvents.managementFees,
+      }),
+    );
+  } catch (error) {
+    // Never retain or persist a malformed cursor or snapshot that fails summarization.
+    finalizedCursor = null;
+    hydratedFromStore = false;
+    skipSnapshotUntilVerified = true;
+    lastSavedFinalizedBlock = 0n;
+    await deps.snapshotStore?.clear?.().catch(() => undefined);
+    throw error;
+  }
+
+  if (cursor) {
+    finalizedCursor = cursor;
+    skipSnapshotUntilVerified = false;
+    await persistTransparencySnapshot(deps, cursor);
+  }
+  return wire;
 }
 
 export type ServedTransparencyHistory =

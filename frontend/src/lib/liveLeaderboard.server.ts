@@ -59,7 +59,7 @@ export function validLiveBoard(value: unknown): ValidatedLiveBoard | null {
     typeof board.rankedPoints !== "string" ||
     !UINT.test(board.rankedPoints) ||
     typeof board.truncated !== "boolean" ||
-    (board.ranked > board.rows.length && !board.truncated)
+    board.truncated !== (board.ranked > board.rows.length)
   ) {
     return null;
   }
@@ -191,7 +191,10 @@ export function validLiveBoard(value: unknown): ValidatedLiveBoard | null {
 
 async function readCappedText(response: Response, limit: number): Promise<string> {
   const length = Number(response.headers.get("content-length") ?? "0");
-  if (Number.isFinite(length) && length > limit) throw new Error("upstream leaderboard response too large");
+  if (Number.isFinite(length) && length > limit) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("upstream leaderboard response too large");
+  }
   if (!response.body) return "";
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -247,9 +250,15 @@ export async function loadLiveLeaderboard(now = Date.now): Promise<ValidatedLive
       cachedBoard = {board: validated, expiresAt: now() + INSTANCE_CACHE_MS};
       return validated;
     })();
-    inFlightBoard = pending.finally(() => {
-      if (inFlightBoard === pending) inFlightBoard = null;
-    });
+    inFlightBoard = pending;
+    void pending
+      .then(
+        () => undefined,
+        () => undefined,
+      )
+      .finally(() => {
+        if (inFlightBoard === pending) inFlightBoard = null;
+      });
   }
   return inFlightBoard;
 }

@@ -73,7 +73,7 @@ export default function RootLayout({
           <div className="site-stack flex min-h-dvh flex-col">
             <a
               href="#main-content"
-              className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-pill focus:border focus:border-line-strong focus:bg-raised focus:px-4 focus:py-2 focus:text-[13px] focus:font-semibold focus:text-navy focus:shadow-lg focus:outline-2 focus:outline-offset-2 focus:outline-on-navy-accent"
+              className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-pill focus:border-2 focus:border-navy focus:bg-raised focus:px-4 focus:py-2 focus:text-[13px] focus:font-semibold focus:text-navy focus:shadow-lg focus:ring-2 focus:ring-white/95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
             >
               Skip to main content
             </a>

@@ -187,4 +187,60 @@ describe("transparencyHistory.server", () => {
       expect(stale.error).toBeInstanceOf(Error);
     }
   });
+
+  it("does not overwrite a newer Blob snapshot when a lagging RPC replica reports an older finalized block", async () => {
+    const store: TransparencyHistorySnapshotStore = {
+      load: vi.fn(async () => ({
+        finalizedBlock: PROTOCOL_DEPLOYMENT_BLOCK + 500n,
+        events: emptyEvents(),
+      })),
+      save: vi.fn(async () => undefined),
+    };
+    const deps: TransparencyHistoryDeps = {
+      now: () => 10_000,
+      getChainId: async () => EXPECTED_CHAIN.id,
+      getLatestAndFinalizedBlocks: async () => ({
+        latest: PROTOCOL_DEPLOYMENT_BLOCK + 200n,
+        finalized: PROTOCOL_DEPLOYMENT_BLOCK + 100n,
+      }),
+      readRange: async () => emptyEvents(),
+      snapshotStore: store,
+      snapshotKey: "test-key",
+    };
+    await loadTransparencyHistory(deps);
+    expect(store.load).toHaveBeenCalledTimes(1);
+    expect(store.save).not.toHaveBeenCalled();
+  });
+
+  it("clears a malformed snapshot on summarization failure instead of wedging the instance", async () => {
+    const clear = vi.fn(async () => undefined);
+    const store: TransparencyHistorySnapshotStore = {
+      load: vi.fn(async () => ({
+        finalizedBlock: PROTOCOL_DEPLOYMENT_BLOCK + 100n,
+        // Funded tokenId 999 without an Originated event triggers summarizeTransparencyHistory failure.
+        events: {...emptyEvents(), funded: [{tokenId: 999n, principal: 1_000n}]},
+      })),
+      save: vi.fn(async () => undefined),
+      clear,
+    };
+    const deps: TransparencyHistoryDeps = {
+      now: () => 10_000,
+      getChainId: async () => EXPECTED_CHAIN.id,
+      getLatestAndFinalizedBlocks: async () => ({
+        latest: PROTOCOL_DEPLOYMENT_BLOCK + 120n,
+        finalized: PROTOCOL_DEPLOYMENT_BLOCK + 100n,
+      }),
+      readRange: async () => emptyEvents(),
+      snapshotStore: store,
+      snapshotKey: "test-key",
+    };
+
+    await expect(loadTransparencyHistory(deps)).rejects.toThrow();
+    expect(clear).toHaveBeenCalledTimes(1);
+
+    // Subsequent call rebuilds cleanly from RPC without re-hydrating the poisoned snapshot.
+    const recovered = await loadTransparencyHistory(deps);
+    expect(recovered.asOfBlock).toBe((PROTOCOL_DEPLOYMENT_BLOCK + 120n).toString());
+    expect(store.load).toHaveBeenCalledTimes(1);
+  });
 });

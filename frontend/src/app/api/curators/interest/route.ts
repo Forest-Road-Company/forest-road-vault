@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import {BlobPreconditionFailedError, del, put} from "@vercel/blob";
+import {methodNotAllowed} from "@/lib/httpMethod.server";
 import {rpcProxyOriginAllowed} from "@/lib/rpcProxy.server";
 
 /**
@@ -237,9 +238,5 @@ export async function POST(request: Request) {
   return json({ ok: true }, 200);
 }
 
-export async function GET() {
-  return Response.json(
-    { ok: false, error: "Method not allowed." },
-    { status: 405, headers: { allow: "POST", "cache-control": "no-store" } },
-  );
-}
+const refuse = () => methodNotAllowed("POST");
+export {refuse as GET, refuse as HEAD, refuse as PUT, refuse as PATCH, refuse as DELETE, refuse as OPTIONS};

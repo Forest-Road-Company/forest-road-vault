@@ -1,4 +1,5 @@
 import {IS_MAINNET} from "@/config/contracts";
+import {methodNotAllowed} from "@/lib/httpMethod.server";
 import {loadLiveLeaderboard} from "@/lib/liveLeaderboard.server";
 
 export const runtime = "nodejs";
@@ -35,10 +36,6 @@ export async function GET(request: Request) {
   }
 }
 
-/** Refuse mutation-shaped requests explicitly and prevent an intermediary from caching the 405. */
-export async function POST() {
-  return Response.json(
-    {ok: false, error: "Method not allowed."},
-    {status: 405, headers: {allow: "GET", "cache-control": "no-store"}},
-  );
-}
+/** Refuse mutation-shaped and unmapped requests explicitly with no-store. */
+const refuse = () => methodNotAllowed("GET");
+export {refuse as POST, refuse as PUT, refuse as PATCH, refuse as DELETE, refuse as OPTIONS};

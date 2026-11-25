@@ -1665,7 +1665,8 @@ if (!existsSync(new URL("../contracts/src/interfaces/", import.meta.url))) {
   // write is in flight, otherwise the in-flight transaction is orphaned.
   check(
     "redeem: the mode toggle is disabled while either write flow is busy",
-    redeemCard.includes("disabled={flow.busy || claimFlow.busy}"),
+    redeemCard.includes("const writeBusy = flow.busy || preparingInstant;") &&
+      redeemCard.includes("disabled={writeBusy || claimFlow.busy}"),
   );
   check(
     "write flow: reset refuses to orphan an in-flight transaction",

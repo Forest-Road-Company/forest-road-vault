@@ -493,7 +493,7 @@ export function rpcProxyEntryRefusal(
   }
   if (entry.method === "eth_getBlockByNumber") {
     const params = entry.params;
-    if (!params || params.length !== 2 || !isBlockSpec(params[0]) || typeof params[1] !== "boolean") {
+    if (!params || params.length !== 2 || !isBlockSpec(params[0], chainId) || typeof params[1] !== "boolean") {
       return {...ENTRY_REFUSALS.paramsShape};
     }
     return null;
@@ -774,7 +774,9 @@ async function checkChain(upstream: string, chainId: number, timeoutMs: number):
 
 /** An upstream answer entry for one of our ids, rebuilt with only the JSON-RPC fields. */
 function upstreamEntry(value: unknown): {id: number; outcome: {result: unknown} | {error: JsonRpcError}} | null {
-  if (!isPlainObject(value) || value.jsonrpc !== "2.0" || typeof value.id !== "number") return null;
+  if (!isPlainObject(value) || value.jsonrpc !== "2.0" || typeof value.id !== "number" || !Number.isInteger(value.id)) {
+    return null;
+  }
   if ("error" in value && value.error !== undefined && value.error !== null) {
     const error = value.error;
     if (!isPlainObject(error) || typeof error.code !== "number" || typeof error.message !== "string") {

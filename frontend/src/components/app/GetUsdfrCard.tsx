@@ -38,14 +38,15 @@ function TestnetBuyPreview({onShowMint}: {onShowMint: () => void}) {
       </p>
 
       <div
+        role="img"
         className="action-card-route action-card-route--buy mt-5"
         aria-label="USDC routes through the Uniswap v4 pool and returns USDfr"
       >
-        <span><b>USDC</b><small>you pay</small></span>
-        <i aria-hidden><em /></i>
-        <span className="action-card-route__core"><b>v4</b><small>Uniswap pool</small></span>
-        <i aria-hidden><em /></i>
-        <span><b>USDfr</b><small>you receive</small></span>
+        <span aria-hidden="true"><b>USDC</b><small>you pay</small></span>
+        <i aria-hidden="true"><em /></i>
+        <span aria-hidden="true" className="action-card-route__core"><b>v4</b><small>Uniswap pool</small></span>
+        <i aria-hidden="true"><em /></i>
+        <span aria-hidden="true"><b>USDfr</b><small>you receive</small></span>
       </div>
 
       <div className="op-field mt-5 px-4 py-3" data-disabled="true">

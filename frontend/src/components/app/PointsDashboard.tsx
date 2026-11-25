@@ -402,8 +402,8 @@ export function PointsDashboard() {
               <p className="mt-4 text-[11px] leading-relaxed text-ink-faint">
                 Every source has the same 1×→2× maturity factor over 365 days:
                 currently sUSDfr {maturityRangeLabel(10_000)}, USDfr{" "}
-                {maturityRangeLabel(usdfrMultiplier ?? 30_000)}, and curator
-                first-loss {maturityRangeLabel(curatorMultiplier ?? 50_000)}. Governance
+                {maturityRangeLabel(usdfrMultiplier)}, and curator
+                first-loss {maturityRangeLabel(curatorMultiplier)}. Governance
                 changes append forward-only rate epochs.
               </p>
             </div>
