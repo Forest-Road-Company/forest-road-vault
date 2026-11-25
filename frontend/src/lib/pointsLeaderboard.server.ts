@@ -133,7 +133,7 @@ export type DiscoverySnapshot = {
 
 export type DiscoverySnapshotStore = {
   load: (key: string) => Promise<DiscoverySnapshot | null>;
-  save: (snapshot: DiscoverySnapshot) => Promise<void>;
+  save: (snapshot: DiscoverySnapshot) => Promise<boolean | void>;
   clear?: () => Promise<void>;
 };
 
@@ -374,7 +374,25 @@ function isBlobConflict(error: unknown): boolean {
   return error instanceof Error && /already exists|precondition/i.test(error.message);
 }
 
-function blobSnapshotStore(): DiscoverySnapshotStore | undefined {
+function parseRemoteScannedTo(text: string, expectedKey: string): bigint | null {
+  try {
+    const parsed = JSON.parse(text) as Partial<DiscoverySnapshot>;
+    if (
+      parsed.version !== 1 ||
+      parsed.key !== expectedKey ||
+      typeof parsed.scannedTo !== "string" ||
+      !/^[1-9][0-9]*$/.test(parsed.scannedTo)
+    ) {
+      return null;
+    }
+    return BigInt(parsed.scannedTo);
+  } catch {
+    return null;
+  }
+}
+
+/** Private Vercel Blob store for participant discovery snapshots; exported for direct CAS tests. */
+export function blobDiscoverySnapshotStore(): DiscoverySnapshotStore | undefined {
   if (!process.env.BLOB_READ_WRITE_TOKEN) return undefined;
   return {
     async load(expectedKey: string): Promise<DiscoverySnapshot | null> {
@@ -389,7 +407,7 @@ function blobSnapshotStore(): DiscoverySnapshotStore | undefined {
           return null;
         }
         if (result.statusCode !== 200 || !result.stream) return null;
-        observedBlobEtag = result.blob.etag;
+        observedBlobEtag = result.blob.etag || null;
         const text = await readBoundedBlobText(result.stream, SNAPSHOT_MAX_BYTES);
         if (text === null) return null;
         const parsed = JSON.parse(text) as Partial<DiscoverySnapshot>;
@@ -418,23 +436,23 @@ function blobSnapshotStore(): DiscoverySnapshotStore | undefined {
         return null;
       }
     },
-    async save(snapshot: DiscoverySnapshot): Promise<void> {
+    async save(snapshot: DiscoverySnapshot): Promise<boolean> {
       const payload = JSON.stringify(snapshot);
       if (Buffer.byteLength(payload, "utf8") > SNAPSHOT_MAX_BYTES) {
         console.error("leaderboard.snapshot save skipped: payload exceeds size cap");
-        return;
+        return false;
       }
-      try {
-        const saved = await putBlob(
+      const attemptPut = async (etag: string | null) =>
+        putBlob(
           SNAPSHOT_BLOB_PATH,
           payload,
-          observedBlobEtag !== null
+          etag
             ? {
                 access: "private",
                 contentType: "application/json",
                 addRandomSuffix: false,
                 allowOverwrite: true,
-                ifMatch: observedBlobEtag,
+                ifMatch: etag,
                 abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
               }
             : {
@@ -445,10 +463,50 @@ function blobSnapshotStore(): DiscoverySnapshotStore | undefined {
                 abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
               },
         );
-        observedBlobEtag = saved.etag;
+      try {
+        const saved = await attemptPut(observedBlobEtag);
+        observedBlobEtag = saved.etag || null;
+        return true;
       } catch (error) {
-        if (isBlobConflict(error)) return;
-        throw error;
+        if (!isBlobConflict(error)) throw error;
+        // One bounded CAS conflict resolution: refresh ETag and compare monotonic scannedTo so
+        // concurrent instances or post-timeout/post-clear instances never wedge permanently.
+        const remote = await getBlob(SNAPSHOT_BLOB_PATH, {
+          access: "private",
+          useCache: false,
+          abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
+        });
+        if (!remote) {
+          observedBlobEtag = null;
+          try {
+            const retried = await attemptPut(null);
+            observedBlobEtag = retried.etag || null;
+            return true;
+          } catch (retryError) {
+            if (isBlobConflict(retryError)) return false;
+            throw retryError;
+          }
+        }
+        if (remote.statusCode !== 200 || !remote.stream) return false;
+        const freshEtag = remote.blob.etag || null;
+        observedBlobEtag = freshEtag;
+        const text = await readBoundedBlobText(remote.stream, SNAPSHOT_MAX_BYTES);
+        const remoteScannedTo = text !== null ? parseRemoteScannedTo(text, snapshot.key) : null;
+        if (remoteScannedTo !== null && remoteScannedTo >= BigInt(snapshot.scannedTo)) {
+          if (remoteScannedTo > lastSavedSnapshotBlock) {
+            lastSavedSnapshotBlock = remoteScannedTo;
+          }
+          return true;
+        }
+        if (!freshEtag) return false;
+        try {
+          const retried = await attemptPut(freshEtag);
+          observedBlobEtag = retried.etag || null;
+          return true;
+        } catch (retryError) {
+          if (isBlobConflict(retryError)) return false;
+          throw retryError;
+        }
       }
     },
     async clear(): Promise<void> {
@@ -475,13 +533,14 @@ function blobSnapshotStore(): DiscoverySnapshotStore | undefined {
 async function persistDiscoverySnapshot(deps: LeaderboardDeps, d: Discovery): Promise<void> {
   if (!deps.snapshotStore || d.scannedTo <= lastSavedSnapshotBlock) return;
   try {
-    await deps.snapshotStore.save({
+    const saved = await deps.snapshotStore.save({
       version: 1,
       key: d.key,
       scannedTo: d.scannedTo.toString(),
       wallets: [...d.wallets],
       curators: [...d.curators],
     });
+    if (saved === false) return;
     if (d.scannedTo > lastSavedSnapshotBlock) {
       lastSavedSnapshotBlock = d.scannedTo;
     }
@@ -889,7 +948,7 @@ function defaultDeps(): LeaderboardDeps | null {
     pendle: (signal) => loadPendleLeaderboard(undefined, signal),
     forestRoad,
     venues: POINTS_VENUES,
-    snapshotStore: blobSnapshotStore(),
+    snapshotStore: blobDiscoverySnapshotStore(),
   };
 }
 

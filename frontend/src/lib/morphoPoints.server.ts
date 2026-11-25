@@ -271,7 +271,7 @@ export type MorphoHistorySnapshot = {
 
 export type MorphoHistorySnapshotStore = {
   load: (expectedKey: string) => Promise<MorphoHistorySnapshot | null>;
-  save: (key: string, snapshot: MorphoHistorySnapshot) => Promise<void>;
+  save: (key: string, snapshot: MorphoHistorySnapshot) => Promise<boolean | void>;
   clear?: () => Promise<void>;
 };
 
@@ -352,7 +352,33 @@ function isMorphoBlobConflict(error: unknown): boolean {
   return error instanceof Error && /already exists|precondition/i.test(error.message);
 }
 
-function blobMorphoHistoryStore(): MorphoHistorySnapshotStore | undefined {
+function parseRemoteMorphoCursors(
+  text: string,
+  expectedKey: string,
+): {epochsScannedTo: bigint; scannedTo: bigint} | null {
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    if (
+      parsed.version !== 1 ||
+      parsed.key !== expectedKey ||
+      typeof parsed.epochsScannedTo !== "string" ||
+      !UINT_STR.test(parsed.epochsScannedTo) ||
+      typeof parsed.scannedTo !== "string" ||
+      !UINT_STR.test(parsed.scannedTo)
+    ) {
+      return null;
+    }
+    return {
+      epochsScannedTo: BigInt(parsed.epochsScannedTo),
+      scannedTo: BigInt(parsed.scannedTo),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Private Vercel Blob store for Morpho history snapshots; exported for direct CAS tests. */
+export function blobMorphoHistoryStore(): MorphoHistorySnapshotStore | undefined {
   if (!process.env.BLOB_READ_WRITE_TOKEN) return undefined;
   return {
     async load(expectedKey: string): Promise<MorphoHistorySnapshot | null> {
@@ -367,7 +393,7 @@ function blobMorphoHistoryStore(): MorphoHistorySnapshotStore | undefined {
           return null;
         }
         if (result.statusCode !== 200 || !result.stream) return null;
-        observedBlobEtag = result.blob.etag;
+        observedBlobEtag = result.blob.etag || null;
         const text = await readBoundedBlobText(result.stream, MORPHO_SNAPSHOT_MAX_BYTES);
         if (text === null) return null;
         const parsed = JSON.parse(text) as Record<string, unknown>;
@@ -465,7 +491,7 @@ function blobMorphoHistoryStore(): MorphoHistorySnapshotStore | undefined {
         return null;
       }
     },
-    async save(key: string, snapshot: MorphoHistorySnapshot): Promise<void> {
+    async save(key: string, snapshot: MorphoHistorySnapshot): Promise<boolean> {
       const payload = JSON.stringify({
         version: 1,
         key,
@@ -488,19 +514,19 @@ function blobMorphoHistoryStore(): MorphoHistorySnapshotStore | undefined {
       });
       if (Buffer.byteLength(payload, "utf8") > MORPHO_SNAPSHOT_MAX_BYTES) {
         console.error("morpho.snapshot save skipped: payload exceeds size cap");
-        return;
+        return false;
       }
-      try {
-        const saved = await putBlob(
+      const attemptPut = async (etag: string | null) =>
+        putBlob(
           MORPHO_SNAPSHOT_BLOB_PATH,
           payload,
-          observedBlobEtag !== null
+          etag
             ? {
                 access: "private",
                 contentType: "application/json",
                 addRandomSuffix: false,
                 allowOverwrite: true,
-                ifMatch: observedBlobEtag,
+                ifMatch: etag,
                 abortSignal: AbortSignal.timeout(MORPHO_SNAPSHOT_IO_TIMEOUT_MS),
               }
             : {
@@ -511,10 +537,64 @@ function blobMorphoHistoryStore(): MorphoHistorySnapshotStore | undefined {
                 abortSignal: AbortSignal.timeout(MORPHO_SNAPSHOT_IO_TIMEOUT_MS),
               },
         );
-        observedBlobEtag = saved.etag;
+      try {
+        const saved = await attemptPut(observedBlobEtag);
+        observedBlobEtag = saved.etag || null;
+        return true;
       } catch (error) {
-        if (isMorphoBlobConflict(error)) return;
-        throw error;
+        if (!isMorphoBlobConflict(error)) throw error;
+        // One bounded CAS conflict resolution: refresh ETag and compare monotonic cursors so a
+        // warm instance never wedges after another lambda updates, creates, or clears the Blob.
+        const remote = await getBlob(MORPHO_SNAPSHOT_BLOB_PATH, {
+          access: "private",
+          useCache: false,
+          abortSignal: AbortSignal.timeout(MORPHO_SNAPSHOT_IO_TIMEOUT_MS),
+        });
+        if (!remote) {
+          observedBlobEtag = null;
+          try {
+            const retried = await attemptPut(null);
+            observedBlobEtag = retried.etag || null;
+            return true;
+          } catch (retryError) {
+            if (isMorphoBlobConflict(retryError)) return false;
+            throw retryError;
+          }
+        }
+        if (remote.statusCode !== 200 || !remote.stream) return false;
+        const freshEtag = remote.blob.etag || null;
+        observedBlobEtag = freshEtag;
+        const text = await readBoundedBlobText(remote.stream, MORPHO_SNAPSHOT_MAX_BYTES);
+        const remoteCursors = text !== null ? parseRemoteMorphoCursors(text, key) : null;
+        if (remoteCursors) {
+          if (remoteCursors.epochsScannedTo > observedRemoteEpochsTo) {
+            observedRemoteEpochsTo = remoteCursors.epochsScannedTo;
+          }
+          if (remoteCursors.scannedTo > observedRemoteScannedTo) {
+            observedRemoteScannedTo = remoteCursors.scannedTo;
+          }
+          if (
+            remoteCursors.epochsScannedTo >= snapshot.epochsScannedTo &&
+            remoteCursors.scannedTo >= snapshot.scannedTo
+          ) {
+            return true;
+          }
+          if (
+            snapshot.epochsScannedTo < remoteCursors.epochsScannedTo ||
+            snapshot.scannedTo < remoteCursors.scannedTo
+          ) {
+            return false;
+          }
+        }
+        if (!freshEtag) return false;
+        try {
+          const retried = await attemptPut(freshEtag);
+          observedBlobEtag = retried.etag || null;
+          return true;
+        } catch (retryError) {
+          if (isMorphoBlobConflict(retryError)) return false;
+          throw retryError;
+        }
       }
     },
     async clear(): Promise<void> {
@@ -588,7 +668,7 @@ async function persistHistorySnapshot(deps: MorphoPointsDeps, h: History): Promi
       }
       h.epochsVerifiedTo = h.epochsScannedTo;
     }
-    await deps.snapshotStore.save(h.key, {
+    const saved = await deps.snapshotStore.save(h.key, {
       epochsScannedTo: h.epochsScannedTo,
       epochs: [...h.epochs],
       scannedTo: h.scannedTo,
@@ -596,6 +676,7 @@ async function persistHistorySnapshot(deps: MorphoPointsDeps, h: History): Promi
       owners: [...h.owners],
       balances: [...h.balances.entries()],
     });
+    if (saved === false) return;
     lastSavedHistoryCursor = cursor;
     if (h.epochsScannedTo > observedRemoteEpochsTo) observedRemoteEpochsTo = h.epochsScannedTo;
     if (h.scannedTo > observedRemoteScannedTo) observedRemoteScannedTo = h.scannedTo;
@@ -1102,15 +1183,12 @@ async function buildSnapshot(
       h.hydratedFromStore = true;
       const snap = await deps.snapshotStore.load(h.key);
       if (snap && history === h) {
-        if (snap.epochsScannedTo > observedRemoteEpochsTo) observedRemoteEpochsTo = snap.epochsScannedTo;
-        if (snap.scannedTo > observedRemoteScannedTo) observedRemoteScannedTo = snap.scannedTo;
         if (
-          snap.epochsScannedTo <= asOf.number &&
-          snap.scannedTo <= asOf.number &&
           (snap.epochsScannedTo === 0n || snap.epochsScannedTo >= deps.protocolDeploymentBlock) &&
           (snap.scannedTo === 0n || snap.scannedTo >= deps.config.fromBlock)
         ) {
-          // Verify internal event bounds, balance uniqueness, and owner-set parity before hydrating.
+          // Verify internal event bounds, balance uniqueness, and owner-set parity before updating
+          // remote watermarks or hydrating (so a corrupt Blob with inflated cursors never blocks healing).
           const derivedBalances = new Map<string, bigint>();
           let consistent = true;
           for (const event of snap.events) {
@@ -1152,16 +1230,20 @@ async function buildSnapshot(
             }
           }
           if (consistent) {
-            for (const epoch of snap.epochs) h.epochs.push(epoch);
-            h.epochsScannedTo = snap.epochsScannedTo;
-            // Leave epochsVerifiedTo = 0n so extendEpochs ALWAYS verifies rateEpochCount on-chain.
-            h.epochsVerifiedTo = 0n;
-            for (const event of snap.events) h.events.push(event);
-            for (const owner of snap.owners) h.owners.add(owner);
-            for (const [owner, bal] of derivedBalances) h.balances.set(owner, bal);
-            h.scannedTo = snap.scannedTo;
-            h.needsFullReconcile = true;
-            lastSavedHistoryCursor = historyCursorKey(h);
+            if (snap.epochsScannedTo > observedRemoteEpochsTo) observedRemoteEpochsTo = snap.epochsScannedTo;
+            if (snap.scannedTo > observedRemoteScannedTo) observedRemoteScannedTo = snap.scannedTo;
+            if (snap.epochsScannedTo <= asOf.number && snap.scannedTo <= asOf.number) {
+              for (const epoch of snap.epochs) h.epochs.push(epoch);
+              h.epochsScannedTo = snap.epochsScannedTo;
+              // Leave epochsVerifiedTo = 0n so extendEpochs ALWAYS verifies rateEpochCount on-chain.
+              h.epochsVerifiedTo = 0n;
+              for (const event of snap.events) h.events.push(event);
+              for (const owner of snap.owners) h.owners.add(owner);
+              for (const [owner, bal] of derivedBalances) h.balances.set(owner, bal);
+              h.scannedTo = snap.scannedTo;
+              h.needsFullReconcile = true;
+              lastSavedHistoryCursor = historyCursorKey(h);
+            }
           }
         }
       }
@@ -1348,6 +1430,7 @@ export async function loadMorphoCollateralPoints(
     const collateral = mine?.collateral ?? 0n;
     if (position[2] !== collateral) {
       dropHistory(deps, snapshot.history);
+      await deps.snapshotStore?.clear?.().catch(() => undefined);
       throw new MorphoPointsIntegrityError("points: replayed collateral disagrees with Morpho Blue");
     }
     const base = {
@@ -1461,7 +1544,8 @@ export async function loadMorphoCollateralLeaderboard(
       }),
     );
     for (const {batch, reads} of waveResults) {
-      batch.forEach((entry, j) => {
+      for (let j = 0; j < batch.length; j += 1) {
+        const entry = batch[j]!;
         const [position, exempt, blocked, tracked, walletShares] = reads.slice(j * OWNER_READS, (j + 1) * OWNER_READS) as [
           readonly [bigint, bigint, bigint],
           boolean,
@@ -1471,15 +1555,16 @@ export async function loadMorphoCollateralLeaderboard(
         ];
         if (position[2] !== entry.collateral) {
           dropHistory(deps, snapshot.history);
+          await deps.snapshotStore?.clear?.().catch(() => undefined);
           throw new MorphoPointsIntegrityError("points: replayed collateral disagrees with Morpho Blue");
         }
-        if (exempt || blocked) return;
+        if (exempt || blocked) continue;
         if (tracked[0] > walletShares) {
           withheld += 1;
-          return;
+          continue;
         }
         if (entry.points > 0n) points.set(entry.owner.toLowerCase(), entry.points);
-      });
+      }
     }
   }
   return {enabled: true, asOfBlock: block, asOfTimestamp: snapshot.asOfTimestamp, points, withheld};

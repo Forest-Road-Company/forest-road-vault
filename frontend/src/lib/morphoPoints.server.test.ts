@@ -1145,4 +1145,42 @@ describe("loadMorphoCollateralLeaderboard against the per-wallet answer, owner b
     expect(clearCalls).toBe(1);
     expect(savedSnapshot).toBeNull();
   });
+
+  it("clears snapshotStore on post-snapshot MorphoPointsIntegrityError in both per-wallet and leaderboard paths", async () => {
+    let savedSnapshot: Parameters<NonNullable<MorphoPointsDeps["snapshotStore"]>["save"]>[1] | null = null;
+    let clearCalls = 0;
+    const store: NonNullable<MorphoPointsDeps["snapshotStore"]> = {
+      load: async () => savedSnapshot,
+      save: async (_key, snapshot) => {
+        savedSnapshot = snapshot;
+      },
+      clear: async () => {
+        clearCalls += 1;
+        savedSnapshot = null;
+      },
+    };
+    // 1. Leaderboard post-snapshot position disagreement clears persisted Blob snapshot.
+    await loadMorphoCollateralLeaderboard(deps({snapshotStore: store}));
+    expect(savedSnapshot).not.toBeNull();
+    chain.multicallPositionOverride.set(GRACE.toLowerCase(), 1n);
+    await expect(loadMorphoCollateralLeaderboard(deps({snapshotStore: store}))).rejects.toBeInstanceOf(
+      MorphoPointsIntegrityError,
+    );
+    expect(clearCalls).toBe(1);
+    expect(savedSnapshot).toBeNull();
+
+    // 2. Per-wallet position disagreement for an owner omitted from history also clears persisted Blob snapshot.
+    chain.multicallPositionOverride.clear();
+    resetMorphoPointsCache();
+    const UNSEEN: Address = "0x0000000000000000000000000000000000009999";
+    await loadMorphoCollateralLeaderboard(deps({snapshotStore: store}));
+    expect(savedSnapshot).not.toBeNull();
+    chain.changes.push({block: 199n, logIndex: 9, kind: "supply", owner: UNSEEN, assets: 3n * SHARE});
+    chain.hiddenLogs.add("199:9");
+    await expect(loadMorphoCollateralPoints(UNSEEN, deps({snapshotStore: store}))).rejects.toBeInstanceOf(
+      MorphoPointsIntegrityError,
+    );
+    expect(clearCalls).toBe(2);
+    expect(savedSnapshot).toBeNull();
+  });
 });

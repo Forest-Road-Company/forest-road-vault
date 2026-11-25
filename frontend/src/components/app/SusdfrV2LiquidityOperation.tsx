@@ -115,6 +115,10 @@ function writeStoredMint(row: StoredMint): void {
   window.localStorage.setItem(storageKey(row.owner), JSON.stringify(row));
 }
 
+function clearStoredMint(owner: Address): void {
+  window.localStorage.removeItem(storageKey(owner));
+}
+
 function StatusLine({status}: {status: OperationStatus}) {
   if (status.phase === "idle") return null;
   const isError = status.phase === "error";
@@ -161,8 +165,15 @@ export function SusdfrV2LiquidityOperation() {
 
   const inFlightRef = useRef(false);
   const [inFlight, setInFlight] = useState(false);
+  const refreshSeqRef = useRef(0);
+  useEffect(
+    () => () => {
+      refreshSeqRef.current += 1;
+    },
+    [],
+  );
 
-  const loadSnapshot = useCallback(async (): Promise<Snapshot> => {
+  const loadSnapshot = useCallback(async (shouldCommit: () => boolean = () => true): Promise<Snapshot> => {
     if (!publicClient || !address) throw new Error("Connect the treasury wallet first.");
     const block = await publicClient.getBlock();
     const blockNumber = block.number;
@@ -235,20 +246,20 @@ export function SusdfrV2LiquidityOperation() {
       susdfrAllowance,
       plan: buildV2LiquidityPlan({sharesForTargetAssets: shares, assetsRepresented}),
     };
-    setSnapshot(next);
+    if (shouldCommit()) setSnapshot(next);
     return next;
   }, [address, publicClient]);
 
-  const restoreProgress = useCallback(async () => {
+  const restoreProgress = useCallback(async (shouldCommit: () => boolean = () => true) => {
     const clearSettledStatus = () => {
-      if (!inFlightRef.current) {
+      if (shouldCommit() && !inFlightRef.current) {
         setStatus((prev) =>
           prev.phase === "pending" || prev.phase === "unknown" ? {phase: "idle"} : prev,
         );
       }
     };
     if (!address || !publicClient || !walletMatches) {
-      setConfirmed(null);
+      if (shouldCommit()) setConfirmed(null);
       return;
     }
     const stored = readStoredMint(address);
@@ -261,7 +272,7 @@ export function SusdfrV2LiquidityOperation() {
       receipt = await publicClient.getTransactionReceipt({hash: stored.hash});
     } catch (error) {
       if (isReceiptNotFoundError(error)) {
-        if (!inFlightRef.current) {
+        if (shouldCommit() && !inFlightRef.current) {
           setStatus({
             phase: "pending",
             message: "A previously submitted V2 liquidity transaction is still pending on-chain. Wait for confirmation before retrying.",
@@ -272,6 +283,7 @@ export function SusdfrV2LiquidityOperation() {
       }
       throw error;
     }
+    if (!shouldCommit()) return;
     if (receipt.status !== "success") throw new Error("The stored V2 liquidity transaction reverted.");
     const plan: V2LiquidityPlan = {
       usdc: BigInt(stored.usdc),
@@ -299,6 +311,7 @@ export function SusdfrV2LiquidityOperation() {
         args: [address],
       }),
     ]);
+    if (!shouldCommit()) return;
     if (
       factoryPair.toLowerCase() !== evidence.pair.toLowerCase() ||
       token0.toLowerCase() !== USDC.toLowerCase() ||
@@ -312,22 +325,26 @@ export function SusdfrV2LiquidityOperation() {
   }, [address, publicClient, walletMatches]);
 
   const refresh = useCallback(async () => {
+    const seq = ++refreshSeqRef.current;
+    const isCurrent = () => refreshSeqRef.current === seq;
     if (!address || !publicClient || !walletMatches) {
       setSnapshot(null);
       setConfirmed(null);
       if (!inFlightRef.current) setStatus({phase: "idle"});
+      setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      await loadSnapshot();
-      await restoreProgress();
+      await loadSnapshot(isCurrent);
+      if (!isCurrent()) return;
+      await restoreProgress(isCurrent);
     } catch (error) {
-      if (!inFlightRef.current) {
+      if (isCurrent() && !inFlightRef.current) {
         setStatus({phase: "error", message: messageFromError(error)});
       }
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, [address, loadSnapshot, publicClient, restoreProgress, walletMatches]);
 
@@ -371,10 +388,24 @@ export function SusdfrV2LiquidityOperation() {
           gas: V2_APPROVAL_GAS,
         });
         setStatus({phase: "pending", message: `${symbol} approval is pending.`, hash});
-        const receipt = await waitForReceiptRobustly(publicClient, {hash, timeout: RECEIPT_TIMEOUT});
+        let replacementReason: "cancelled" | "replaced" | "repriced" | null = null;
+        const receipt = await waitForReceiptRobustly(publicClient, {
+          hash,
+          timeout: RECEIPT_TIMEOUT,
+          onReplaced: ({reason}) => {
+            replacementReason = reason;
+          },
+        });
+        const minedHash = receipt.transactionHash;
+        if (replacementReason === "cancelled") {
+          throw new Error(`${symbol} approval was cancelled in the wallet.`);
+        }
+        if (replacementReason === "replaced") {
+          throw new Error(`${symbol} approval was replaced by a different transaction.`);
+        }
         if (receipt.status !== "success") throw new Error(`${symbol} approval reverted.`);
         await loadSnapshot();
-        setStatus({phase: "success", message: `${symbol} approval confirmed.`, hash});
+        setStatus({phase: "success", message: `${symbol} approval confirmed.`, hash: minedHash});
       } catch (error) {
         if (error instanceof ReceiptStatusUnknownError) {
           setStatus({phase: "unknown", message: error.message, hash: error.hash});
@@ -454,10 +485,29 @@ export function SusdfrV2LiquidityOperation() {
       };
       writeStoredMint(stored);
       setStatus({phase: "pending", message: "Transaction submitted. Verifying the fresh pair and LP tokens…", hash});
-      const receipt = await waitForReceiptRobustly(publicClient, {hash, timeout: RECEIPT_TIMEOUT});
+      let replacementReason: "cancelled" | "replaced" | "repriced" | null = null;
+      const receipt = await waitForReceiptRobustly(publicClient, {
+        hash,
+        timeout: RECEIPT_TIMEOUT,
+        onReplaced: ({reason}) => {
+          replacementReason = reason;
+        },
+      });
       const minedHash = receipt.transactionHash;
       pendingHash = minedHash;
-      if (receipt.status !== "success") throw new Error("The V2 liquidity transaction reverted.");
+      if (replacementReason === "cancelled") {
+        clearStoredMint(address);
+        throw new Error("Transaction was cancelled in the wallet. No liquidity position was created.");
+      }
+      if (replacementReason === "replaced") {
+        clearStoredMint(address);
+        throw new Error("Transaction was replaced by a different transaction. Check the explorer and refresh before retrying.");
+      }
+      if (receipt.status !== "success") {
+        clearStoredMint(address);
+        throw new Error("The V2 liquidity transaction reverted.");
+      }
+      writeStoredMint({...stored, hash: minedHash});
       const evidence = verifyV2MintReceipt({
         logs: receipt.logs as readonly V2ReceiptLog[],
         owner: address,
@@ -670,7 +720,7 @@ export function SusdfrV2LiquidityOperation() {
       <StatusLine status={status} />
 
       <div className="mt-6 rounded-card border border-line bg-card p-5 text-[12.5px] leading-relaxed text-ink-faint">
-        <p>Factory {shortAddress(V2_FACTORY)} · Router {shortAddress(V2_ROUTER)} · transaction gas limit {V2_ADD_LIQUIDITY_GAS.toLocaleString()}.</p>
+        <p>Factory {shortAddress(V2_FACTORY)} · Router {shortAddress(V2_ROUTER)} · transaction gas limit {V2_ADD_LIQUIDITY_GAS.toLocaleString("en-US")}.</p>
         <p className="mt-2">
           Approvals are exact rather than unlimited. The liquidity deadline is 30 minutes. Pair identity, token destinations, exact spends, opening reserves and LP ownership are checked from the mined receipt.
         </p>

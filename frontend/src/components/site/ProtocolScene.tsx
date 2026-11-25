@@ -104,7 +104,7 @@ function LifecycleScene({ compact }: { compact: boolean }) {
 
 function TransparencyScene({ compact }: { compact: boolean }) {
   return (
-    <Frame label="Illustrative diagram: USDfr supply cannot exceed recognized backing, composed of idle reserves and deployed principal; live values are below" compact={compact}>
+    <Frame label="Illustrative diagram: USDfr supply cannot exceed recognized backing, composed of idle reserves and deployed credit (principal and accrued interest); live values are below" compact={compact}>
       <div className="protocol-reconcile">
         <div className="protocol-reconcile__metric">
           <span>USDfr supply</span><strong>On-chain</strong>

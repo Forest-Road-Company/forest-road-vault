@@ -107,7 +107,7 @@ export interface TransparencyEventsBatch {
 
 export interface TransparencyHistorySnapshotStore {
   load: (expectedKey: string) => Promise<FinalizedCursor | null>;
-  save: (key: string, cursor: FinalizedCursor) => Promise<void>;
+  save: (key: string, cursor: FinalizedCursor) => Promise<boolean | void>;
   clear?: () => Promise<void>;
 }
 
@@ -150,12 +150,6 @@ async function readBoundedStreamText(stream: ReadableStream<Uint8Array>, maxByte
 }
 
 function parseRequiredBigInt(value: unknown): bigint | null {
-  if (typeof value !== "string" || !UINT_STRING.test(value)) return null;
-  return BigInt(value);
-}
-
-function parseOptionalBigInt(value: unknown): bigint | undefined | null {
-  if (value === undefined) return undefined;
   if (typeof value !== "string" || !UINT_STRING.test(value)) return null;
   return BigInt(value);
 }
@@ -249,7 +243,7 @@ function parseBatch(raw: unknown): TransparencyEventsBatch | null {
   const distributions: TransparencyEventsBatch["distributions"] = [];
   for (const item of distributionsRaw) {
     const fee = parseRequiredBigInt(item.fee);
-    const toVault = parseOptionalBigInt(item.toVault);
+    const toVault = parseRequiredBigInt(item.toVault);
     if (fee === null || toVault === null) return null;
     distributions.push({fee, toVault});
   }
@@ -273,7 +267,25 @@ function isBlobConflict(error: unknown): boolean {
   return error instanceof Error && /already exists|precondition/i.test(error.message);
 }
 
-function blobSnapshotStore(): TransparencyHistorySnapshotStore | undefined {
+function parseRemoteFinalizedBlock(text: string, expectedKey: string): bigint | null {
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    if (
+      parsed.version !== 1 ||
+      parsed.key !== expectedKey ||
+      typeof parsed.finalizedBlock !== "string" ||
+      !/^[1-9][0-9]*$/.test(parsed.finalizedBlock)
+    ) {
+      return null;
+    }
+    return BigInt(parsed.finalizedBlock);
+  } catch {
+    return null;
+  }
+}
+
+/** Private Vercel Blob store for finalized transparency history; exported for direct CAS tests. */
+export function blobTransparencySnapshotStore(): TransparencyHistorySnapshotStore | undefined {
   if (!process.env.BLOB_READ_WRITE_TOKEN || IS_LOCAL_FORK) return undefined;
   return {
     async load(expectedKey: string): Promise<FinalizedCursor | null> {
@@ -288,7 +300,7 @@ function blobSnapshotStore(): TransparencyHistorySnapshotStore | undefined {
           return null;
         }
         if (result.statusCode !== 200 || !result.stream) return null;
-        observedBlobEtag = result.blob.etag;
+        observedBlobEtag = result.blob.etag || null;
         const text = await readBoundedStreamText(result.stream, SNAPSHOT_MAX_BYTES);
         if (text === null) return null;
         const parsed = JSON.parse(text) as Record<string, unknown>;
@@ -309,7 +321,7 @@ function blobSnapshotStore(): TransparencyHistorySnapshotStore | undefined {
         return null;
       }
     },
-    async save(key: string, cursor: FinalizedCursor): Promise<void> {
+    async save(key: string, cursor: FinalizedCursor): Promise<boolean> {
       const payload = JSON.stringify({
         version: 1,
         key,
@@ -318,19 +330,19 @@ function blobSnapshotStore(): TransparencyHistorySnapshotStore | undefined {
       });
       if (Buffer.byteLength(payload, "utf8") > SNAPSHOT_MAX_BYTES) {
         console.error("transparency.snapshot save skipped: payload exceeds size cap");
-        return;
+        return false;
       }
-      try {
-        const saved = await putBlob(
+      const attemptPut = async (etag: string | null) =>
+        putBlob(
           SNAPSHOT_BLOB_PATH,
           payload,
-          observedBlobEtag !== null
+          etag
             ? {
                 access: "private",
                 contentType: "application/json",
                 addRandomSuffix: false,
                 allowOverwrite: true,
-                ifMatch: observedBlobEtag,
+                ifMatch: etag,
                 abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
               }
             : {
@@ -341,10 +353,50 @@ function blobSnapshotStore(): TransparencyHistorySnapshotStore | undefined {
                 abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
               },
         );
-        observedBlobEtag = saved.etag;
+      try {
+        const saved = await attemptPut(observedBlobEtag);
+        observedBlobEtag = saved.etag || null;
+        return true;
       } catch (error) {
-        if (isBlobConflict(error)) return;
-        throw error;
+        if (!isBlobConflict(error)) throw error;
+        // One bounded CAS conflict resolution: refresh ETag and compare monotonic finalizedBlock
+        // so concurrent instances or post-timeout/post-clear instances never wedge permanently.
+        const remote = await getBlob(SNAPSHOT_BLOB_PATH, {
+          access: "private",
+          useCache: false,
+          abortSignal: AbortSignal.timeout(SNAPSHOT_IO_TIMEOUT_MS),
+        });
+        if (!remote) {
+          observedBlobEtag = null;
+          try {
+            const retried = await attemptPut(null);
+            observedBlobEtag = retried.etag || null;
+            return true;
+          } catch (retryError) {
+            if (isBlobConflict(retryError)) return false;
+            throw retryError;
+          }
+        }
+        if (remote.statusCode !== 200 || !remote.stream) return false;
+        const freshEtag = remote.blob.etag || null;
+        observedBlobEtag = freshEtag;
+        const text = await readBoundedStreamText(remote.stream, SNAPSHOT_MAX_BYTES);
+        const remoteFinalized = text !== null ? parseRemoteFinalizedBlock(text, key) : null;
+        if (remoteFinalized !== null && remoteFinalized >= cursor.finalizedBlock) {
+          if (remoteFinalized > lastSavedFinalizedBlock) {
+            lastSavedFinalizedBlock = remoteFinalized;
+          }
+          return true;
+        }
+        if (!freshEtag) return false;
+        try {
+          const retried = await attemptPut(freshEtag);
+          observedBlobEtag = retried.etag || null;
+          return true;
+        } catch (retryError) {
+          if (isBlobConflict(retryError)) return false;
+          throw retryError;
+        }
       }
     },
     async clear(): Promise<void> {
@@ -453,7 +505,7 @@ function defaultDeps(): TransparencyHistoryDeps {
   return {
     now: () => Date.now(),
     snapshotKey,
-    snapshotStore: blobSnapshotStore(),
+    snapshotStore: blobTransparencySnapshotStore(),
     getChainId: () => client.getChainId(),
     getLatestAndFinalizedBlocks: async () => {
       const [latest, finalizedBlock] = await Promise.all([
@@ -570,7 +622,8 @@ export function resetTransparencyHistoryCacheForTests(): void {
 async function persistTransparencySnapshot(deps: TransparencyHistoryDeps, cursor: FinalizedCursor): Promise<void> {
   if (!deps.snapshotStore || !deps.snapshotKey || cursor.finalizedBlock <= lastSavedFinalizedBlock) return;
   try {
-    await deps.snapshotStore.save(deps.snapshotKey, cursor);
+    const saved = await deps.snapshotStore.save(deps.snapshotKey, cursor);
+    if (saved === false) return;
     if (cursor.finalizedBlock > lastSavedFinalizedBlock) {
       lastSavedFinalizedBlock = cursor.finalizedBlock;
     }

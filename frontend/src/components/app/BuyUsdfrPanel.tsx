@@ -128,6 +128,7 @@ export function BuyUsdfrPanel({
   const flow = useWriteFlow();
   const slippageId = useId();
   const slippageHintId = useId();
+  const balanceErrorId = useId();
 
   const [amount, setAmount] = useState("");
   const [slippageText, setSlippageText] = useState(formatBpsPercent(DEFAULT_SLIPPAGE_BPS).replace("%", ""));
@@ -464,6 +465,7 @@ export function BuyUsdfrPanel({
         maxDecimals={USDC_DECIMALS}
         disabled={busy}
         invalid={exceedsBalance}
+        ariaDescribedBy={exceedsBalance ? balanceErrorId : undefined}
         onMax={
           balance !== undefined && balance > 0n
             ? () => changeAmount(fmtAmount(balance, USDC_DECIMALS, USDC_DECIMALS).replace(/,/g, ""))
@@ -471,7 +473,7 @@ export function BuyUsdfrPanel({
         }
       />
       {exceedsBalance ? (
-        <p className="mt-2 text-[13px] text-danger">This is more than the wallet&apos;s USDC balance.</p>
+        <p id={balanceErrorId} role="alert" className="mt-2 text-[13px] text-danger">This is more than the wallet&apos;s USDC balance.</p>
       ) : null}
 
       {parsed !== null && parsed > 0n ? (

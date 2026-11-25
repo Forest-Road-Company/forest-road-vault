@@ -104,6 +104,10 @@ function writeStoredMint(record: StoredMint): void {
   );
 }
 
+function clearStoredMint(kind: SusdfrOperationKind, owner: Address): void {
+  window.localStorage.removeItem(storageKey(kind, owner));
+}
+
 function readStoredMint(kind: SusdfrOperationKind, owner: Address): StoredMint | null {
   const encoded = window.localStorage.getItem(storageKey(kind, owner));
   if (!encoded) return null;
@@ -297,8 +301,15 @@ export function SusdfrLiquidityOperation() {
 
   const inFlightRef = useRef(false);
   const [inFlight, setInFlight] = useState(false);
+  const refreshSeqRef = useRef(0);
+  useEffect(
+    () => () => {
+      refreshSeqRef.current += 1;
+    },
+    [],
+  );
 
-  const loadSnapshot = useCallback(async (): Promise<Snapshot> => {
+  const loadSnapshot = useCallback(async (shouldCommit: () => boolean = () => true): Promise<Snapshot> => {
     if (!publicClient || !address) throw new Error("Connect the treasury wallet first.");
     const [
       block,
@@ -369,14 +380,16 @@ export function SusdfrLiquidityOperation() {
         nonce: susdfrPermit[2],
       },
     };
-    setSnapshot(next);
+    if (shouldCommit()) setSnapshot(next);
     return next;
   }, [address, publicClient]);
 
-  const restoreProgress = useCallback(async () => {
+  const restoreProgress = useCallback(async (shouldCommit: () => boolean = () => true) => {
     if (!address || !publicClient || !walletMatches) {
-      setSeed(null);
-      setWall(null);
+      if (shouldCommit()) {
+        setSeed(null);
+        setWall(null);
+      }
       return;
     }
     let confirmedSeed: ConfirmedMint | null = null;
@@ -387,6 +400,7 @@ export function SusdfrLiquidityOperation() {
         record: storedSeed,
         seed: null,
       });
+      if (!shouldCommit()) return;
       if (!confirmedSeed) {
         if (!inFlightRef.current) {
           setStatus({
@@ -406,6 +420,7 @@ export function SusdfrLiquidityOperation() {
         record: storedWall,
         seed: confirmedSeed,
       });
+      if (!shouldCommit()) return;
       if (!confirmedWall) {
         if (!inFlightRef.current) {
           setStatus({
@@ -418,29 +433,33 @@ export function SusdfrLiquidityOperation() {
       }
       setWall(confirmedWall);
     }
-    if (!inFlightRef.current) {
+    if (shouldCommit() && !inFlightRef.current) {
       setStatus((prev) => (prev.phase === "pending" || prev.phase === "unknown" ? {phase: "idle"} : prev));
     }
   }, [address, publicClient, walletMatches]);
 
   const refresh = useCallback(async () => {
+    const seq = ++refreshSeqRef.current;
+    const isCurrent = () => refreshSeqRef.current === seq;
     if (!address || !publicClient || !walletMatches) {
       setSnapshot(null);
       setSeed(null);
       setWall(null);
       if (!inFlightRef.current) setStatus({phase: "idle"});
+      setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      await loadSnapshot();
-      await restoreProgress();
+      await loadSnapshot(isCurrent);
+      if (!isCurrent()) return;
+      await restoreProgress(isCurrent);
     } catch (error) {
-      if (!inFlightRef.current) {
+      if (isCurrent() && !inFlightRef.current) {
         setStatus({phase: "error", message: messageFromError(error)});
       }
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, [address, loadSnapshot, publicClient, restoreProgress, walletMatches]);
 
@@ -481,13 +500,24 @@ export function SusdfrLiquidityOperation() {
           gas: TOKEN_APPROVAL_GAS,
         });
         setStatus({phase: "pending", message: `${symbol} approval is pending.`, hash});
+        let replacementReason: "cancelled" | "replaced" | "repriced" | null = null;
         const receipt = await waitForReceiptRobustly(publicClient, {
           hash,
           timeout: RECEIPT_TIMEOUT,
+          onReplaced: ({reason}) => {
+            replacementReason = reason;
+          },
         });
+        const minedHash = receipt.transactionHash;
+        if (replacementReason === "cancelled") {
+          throw new Error(`${symbol} approval was cancelled in the wallet.`);
+        }
+        if (replacementReason === "replaced") {
+          throw new Error(`${symbol} approval was replaced by a different transaction.`);
+        }
         if (receipt.status !== "success") throw new Error(`${symbol} approval reverted.`);
         await loadSnapshot();
-        setStatus({phase: "success", message: `${symbol} approval confirmed.`, hash});
+        setStatus({phase: "success", message: `${symbol} approval confirmed.`, hash: minedHash});
       } catch (error) {
         if (error instanceof ReceiptStatusUnknownError) {
           setStatus({phase: "unknown", message: error.message, hash: error.hash});
@@ -618,13 +648,29 @@ export function SusdfrLiquidityOperation() {
           message: "Transaction submitted. Waiting for receipt and exact position checks…",
           hash,
         });
+        let replacementReason: "cancelled" | "replaced" | "repriced" | null = null;
         const receipt = await waitForReceiptRobustly(publicClient, {
           hash,
           timeout: RECEIPT_TIMEOUT,
+          onReplaced: ({reason}) => {
+            replacementReason = reason;
+          },
         });
         const minedHash = receipt.transactionHash;
         pendingHash = minedHash;
-        if (receipt.status !== "success") throw new Error("Transaction reverted on-chain.");
+        if (replacementReason === "cancelled") {
+          clearStoredMint(kind, address);
+          throw new Error("Transaction was cancelled in the wallet. No liquidity position was created.");
+        }
+        if (replacementReason === "replaced") {
+          clearStoredMint(kind, address);
+          throw new Error("Transaction was replaced by a different transaction. Check the explorer and refresh before retrying.");
+        }
+        if (receipt.status !== "success") {
+          clearStoredMint(kind, address);
+          throw new Error("Transaction reverted on-chain.");
+        }
+        writeStoredMint({...stored, hash: minedHash});
         const evidence = verifySusdfrMintReceipt({
           logs: receipt.logs as readonly SusdfrReceiptLog[],
           owner: address,
@@ -738,7 +784,7 @@ export function SusdfrLiquidityOperation() {
           <div>
             <dt className="running-head">Pool state</dt>
             <dd className="mt-1 text-[14px] text-ink">
-              {snapshot ? (snapshot.sqrtPriceX96 === 0n ? "Uninitialized" : `Tick ${snapshot.tick.toLocaleString()}`) : "Not read"}
+              {snapshot ? (snapshot.sqrtPriceX96 === 0n ? "Uninitialized" : `Tick ${snapshot.tick.toLocaleString("en-US")}`) : "Not read"}
             </dd>
           </div>
           <div>
@@ -857,7 +903,7 @@ export function SusdfrLiquidityOperation() {
 
       <div className="mt-6 rounded-card border border-line bg-card p-5 text-[12.5px] leading-relaxed text-ink-faint">
         <p>
-          Pool {SUSDFR_POOL_ID.slice(0, 12)}… · Position Manager {shortAddress(V4_POSITION_MANAGER)} · transaction gas limit {SUSDFR_LIQUIDITY_TX_GAS.toLocaleString()}.
+          Pool {SUSDFR_POOL_ID.slice(0, 12)}… · Position Manager {shortAddress(V4_POSITION_MANAGER)} · transaction gas limit {SUSDFR_LIQUIDITY_TX_GAS.toLocaleString("en-US")}.
         </p>
         <p className="mt-2">
           Aggregate USDC cap: {formatToken(TOTAL_USDC_CAP, 6)}. Seed cap: {formatToken(SEED_USDC_CAP, 6)}. Permit2 allowances expire after one hour; signatures can be submitted for 30 minutes.

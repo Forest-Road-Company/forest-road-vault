@@ -316,7 +316,7 @@ export function TransparencyDashboard() {
   return (
     <div className="transparency-console mt-12">
       <div className="transparency-ledger-rail" role="region" aria-label="Live transparency reconciliation path" data-viewport-replay="" data-viewport-reveal="">
-        <div><span><i /> RPC head</span><strong>{blockNumber?.toLocaleString() ?? "reading"}</strong></div>
+        <div><span><i /> RPC head</span><strong>{blockNumber?.toLocaleString("en-US") ?? "reading"}</strong></div>
         <b aria-hidden><i /></b>
         <div><span>USDfr supply</span><strong>{fmtBand(supply)}</strong></div>
         <b aria-hidden><i /></b>

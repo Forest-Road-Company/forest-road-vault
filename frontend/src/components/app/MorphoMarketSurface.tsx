@@ -63,6 +63,13 @@ export function MorphoMarketSurface() {
     submitGenRef.current += 1;
     locked.current = false;
   }, [wallet]);
+  useEffect(
+    () => () => {
+      submitGenRef.current += 1;
+      locked.current = false;
+    },
+    [],
+  );
   const [preparing, setPreparing] = useState(false);
   const [preparedQuote, setPreparedQuote] = useState<MarketQuoteTiming | null>(null);
   const [formOwner, setFormOwner] = useState(wallet);
@@ -137,16 +144,19 @@ export function MorphoMarketSurface() {
     setPreparing(true);
     setSafeStatus({phase: "idle"});
     const actionWallet = wallet;
+    const isCurrentSubmit = () => submitGenRef.current === gen && walletRef.current === actionWallet;
     try {
       const currentLaunch = await loadLaunch();
+      if (!isCurrentSubmit()) return;
       const current = await readMorphoMarket(client, actionWallet);
-      if (walletRef.current !== actionWallet) return;
+      if (!isCurrentSubmit()) return;
       setPreparedQuote({issuedAt: current.issuedAt, expiresAt: current.expiresAt});
       if (!current.account || (requiresRisk && !riskAccepted)) throw new Error("Refresh and review your position.");
       if (treasurySeed ? !currentLaunch.treasury : !actionOpen(action, currentLaunch)) throw new Error("This action is awaiting launch checks.");
       const error = validateAmount(action, parsed, all, current);
       if (error) throw new Error(error);
       const walletCode = await client.getCode({address: wallet});
+      if (!isCurrentSubmit()) return;
       if (!safe.context && walletCode && walletCode !== "0x" && !walletCode.startsWith("0xef0100")) {
         throw new Error("Open this page inside your Safe to submit an atomic batch from that wallet.");
       }
@@ -169,17 +179,21 @@ export function MorphoMarketSurface() {
           calls = treasurySupplyCalls(); assertTreasurySupplyCalls(calls);
           if (readTreasuryProposal(window.localStorage)) throw new Error("A Treasury seed proposal is already recorded. Reconcile the Safe queue before continuing.");
           await assertNoTreasurySupply(client, current.block);
+          if (!isCurrentSubmit()) return;
         } else {
           const data = encodeFunctionData(target as Parameters<typeof encodeFunctionData>[0]);
           calls = [...(approve ? [{to: approval.address, value: "0" as const, data: encodeFunctionData(approval)}] : []),
             {to: target.address, value: "0", data}];
         }
         await simulateSafeMarketCalls(client, wallet, calls);
+        if (!isCurrentSubmit()) return;
         const info = await safe.context.sdk.safe.getInfo();
+        if (!isCurrentSubmit()) return;
         if (info.chainId !== 1 || info.safeAddress.toLowerCase() !== wallet.toLowerCase()) throw new Error("The connected Safe changed. Refresh before continuing.");
         if (treasurySeed) {
           if (info.threshold !== 2 || info.owners.length !== 4) throw new Error("The Treasury Safe governance differs from the reviewed 2-of-4 configuration.");
           const nonce = await client.readContract({address: wallet, abi: MARKET_SAFE_ABI, functionName: "nonce"});
+          if (!isCurrentSubmit()) return;
           if (nonce !== current.account.safeNonce) throw new Error("The Treasury nonce changed. Refresh and review again.");
         }
         assertMarketQuoteCurrent(current);
@@ -187,17 +201,18 @@ export function MorphoMarketSurface() {
         const intent = treasurySeed ? reserveTreasuryProposal(window.localStorage, current.account.safeNonce!) : null;
         assertMarketQuoteCurrent(current);
         const result = await safe.context.sdk.txs.send({txs: calls});
-        setSafeStatus({phase: "proposed", hash: result.safeTxHash as Hex});
         if (intent) {
           saveTreasuryProposal(window.localStorage, intent, result.safeTxHash);
-          void proposalQuery.refetch();
+        }
+        if (isCurrentSubmit()) {
+          setSafeStatus({phase: "proposed", hash: result.safeTxHash as Hex});
+          if (intent) void proposalQuery.refetch();
         }
       } else {
+        if (!isCurrentSubmit()) return;
         // Hand off busy tracking to useWriteFlow so a wallet switch immediately unlocks the new wallet.
-        if (submitGenRef.current === gen) {
-          locked.current = false;
-          setPreparing(false);
-        }
+        locked.current = false;
+        setPreparing(false);
         void flow.run({...(!treasurySeed && approve ? approval : target), keepPendingUntilReceipt: true,
           assertBeforeWallet: () => assertMarketQuoteCurrent(current),
           onSuccess: () => {void cache.invalidateQueries({queryKey: ["morpho-market"]}); if (!approve) {setAmount(""); setAll(false);}}});
@@ -210,7 +225,7 @@ export function MorphoMarketSurface() {
           : error instanceof Error && error.message.length < 240
             ? error.message
             : "The action could not be prepared. Refresh and try again.";
-      if (walletRef.current === actionWallet) {
+      if (isCurrentSubmit()) {
         setSafeStatus({phase: "error", message});
       }
     } finally {
@@ -218,7 +233,7 @@ export function MorphoMarketSurface() {
         locked.current = false;
         setPreparing(false);
       }
-      if (treasurySeed && safe.context) void proposalQuery.refetch();
+      if (treasurySeed && safe.context && isCurrentSubmit()) void proposalQuery.refetch();
     }
   }
 
@@ -236,7 +251,7 @@ export function MorphoMarketSurface() {
         <Metric label="Lending APR · variable" value={snapshot ? apr(snapshot.supplyRate) : "—"} />
         <Metric label="Borrowing APR · variable" value={borrowApr} />
       </dl>
-      <p className="mt-5 text-[13px] text-ink-faint">{fresh ? `Read at Ethereum block ${snapshot!.block.toLocaleString()}. Displayed rates are averages since the market's last update and change with utilization.` : "Current market figures are unavailable. Refresh before making a decision."}</p>
+      <p className="mt-5 text-[13px] text-ink-faint">{fresh ? `Read at Ethereum block ${snapshot!.block.toLocaleString("en-US")}. Displayed rates are averages since the market's last update and change with utilization.` : "Current market figures are unavailable. Refresh before making a decision."}</p>
     </section>
     {networkReason ? <div role="status" className="border-l-2 border-accent pl-4 text-sm text-ink-muted">{networkReason}
       {IS_MAINNET && wallet && !correctNetwork && !safe.context ? <button type="button" className="u-link ml-2 text-accent" onClick={() => switchChain({chainId: 1})}>Switch to Ethereum</button> : null}
