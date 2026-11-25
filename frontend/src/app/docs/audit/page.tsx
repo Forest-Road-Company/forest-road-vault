@@ -253,8 +253,10 @@ export default function AuditRegisterPage() {
             (submitted in tx 0x83a8…f698)). Likewise, LMV-18 (consumed junior
             protection inflating performance-fee profit during realizeLoss) remains
             open on live pre-Stage-2 proxies until Stage 2 executes, and FRV-NEW-02
-            (off-chain liquidation-bot runtime verification) remains open pending
-            the live bot rollout.
+            (the ee9b228a liquidation-bot rollout, deployed and live-verified on
+            25 November 2026 with startup guard and live RPC stateOverride checks)
+            is retained open in the register pending independent Corrovera
+            confirmation and live liquidation execution.
             Open findings and accepted risks elsewhere in the register still
             matter, and their assumptions are continuously challenged as the
             deployed state changes. Smart-contract, credit, liquidity, oracle,

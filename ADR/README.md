@@ -52,7 +52,7 @@ operating rules" and "brief Part n" point at internal governing documents that a
 | [0040](0040-governed-borrower-payout-allowlist.md) | Timelock-controlled loan-proceeds destinations enforced at origination and funding | Accepted / Deployed on Ethereum V2 |
 | [0041](0041-morpho-quote-issuance-and-expiry.md) | Morpho quotes protect five minutes from completed issuance and expire before wallet or Safe handoff | Accepted / Deployed in production |
 | [0042](0042-class-1-state-key-convention.md) | Class 1 state key: `keccak256("FRV:state:US-XX")`, USPS code from fixed list, permanent once used | Accepted (2026-11-04) |
-| [0043](0043-morpho-blue-market-and-exit-value-oracle.md) | Morpho Blue USDC/sUSDfr market, immutable `SUSDfrExitValueOracle`, bounded liquidation bot | Accepted / Deployed (`FRV-NEW-02` bot rollout Open) |
+| [0043](0043-morpho-blue-market-and-exit-value-oracle.md) | Morpho Blue USDC/sUSDfr market, immutable `SUSDfrExitValueOracle`, bounded liquidation bot | Accepted / Deployed (`ee9b228a` bot live 25 Nov; `FRV-NEW-02` retained Open pending external confirmation) |
 | [0044](0044-solana-curator-subscription-vault.md) | Solana curator subscription vault (reproducible devnet program, Corrovera reviewed) | Devnet preview (mainnet gated) |
 | [0045](0045-bsc-layerzero-oft-token-bridge.md) | Phase 1 Ethereum↔BSC LayerZero `SUSDfrOFT` token bridge (lockbox-backed; no BSC credit book) | Accepted / Deployed (Nov 2026) |
 | [0046](0046-aws-kms-policy-signers-for-keepers.md) | AWS KMS policy-restricted signers and fail-closed raw-key guards for off-chain keepers/bots | Accepted / Deployed (Oct–Nov 2026) |

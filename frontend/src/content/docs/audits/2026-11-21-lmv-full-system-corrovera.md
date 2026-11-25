@@ -34,9 +34,11 @@ remediated in candidate commits `74ac92a7` and `ee9b228a`, verified across Corro
 November delta audits (`PASS`), and passed exact-commit hosted CI (`66/66`). Those fixes are
 staged on Ethereum mainnet and activate when Stage 2 governance executes.
 
-`FRV-NEW-02` remains **Open**: deploying the reviewed `liquidation-bot` image with `HV-01` and
-`JO-08` and verifying live runtime identity remain required operational release gates prior to
-Stage 2 clearance.
+**Update (25 November 2026):** Audited commit `ee9b228a` (`liquidation-bot` with `HV-01` and
+`JO-08`) was rolled out and live-verified on production Railway (startup guard V2 passed, live RPC
+`eth_estimateGas` `stateOverride` verified, SEND/KMS/journal/singleton healthy). `FRV-NEW-02` is
+retained **Open** in the register pending independent Corrovera confirmation and live liquidation
+execution when a position becomes liquidatable.
 
 ## Scope and evidence limits
 
