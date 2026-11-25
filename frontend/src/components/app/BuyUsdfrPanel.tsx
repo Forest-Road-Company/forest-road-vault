@@ -641,7 +641,7 @@ export function BuyUsdfrPanel({
         </p>
       ) : null}
       {flow.status.phase === "pending" && flow.status.delayed && !flow.status.stopped ? (
-        <button type="button" className="u-link mt-2 text-[11.5px] text-ink-muted" onClick={flow.stopWaiting}>
+        <button type="button" className="u-link mt-2 inline-flex min-h-[24px] items-center text-[11.5px] text-ink-muted" onClick={flow.stopWaiting}>
           Stop checking this transaction
         </button>
       ) : null}
@@ -669,9 +669,9 @@ export function BuyUsdfrPanel({
 /** One line of the quote: a short term on the left, its value on the right. */
 function QuoteRow({term, children}: {term: string; children: React.ReactNode}) {
   return (
-    <div className="flex items-baseline justify-between gap-3">
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
       <dt className="shrink-0">{term}</dt>
-      <dd className="min-w-0 text-right text-ink-muted">{children}</dd>
+      <dd className="min-w-0 [overflow-wrap:anywhere] text-right text-ink-muted">{children}</dd>
     </div>
   );
 }

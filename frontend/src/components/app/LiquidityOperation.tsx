@@ -719,9 +719,9 @@ export function LiquidityOperation() {
     <div className="mx-auto max-w-4xl">
       <div className="rounded-card border border-line bg-raised p-5 md:p-7">
         <div className="flex flex-wrap items-start justify-between gap-5">
-          <div>
+          <div className="min-w-0">
             <p className="running-head text-accent">Execution identity</p>
-            <p className="mt-2 font-mono text-[12px] text-ink">
+            <p className="mt-2 break-all font-mono text-[12px] text-ink">
               {LIQUIDITY_OPERATOR}
             </p>
             <p className="mt-2 max-w-[66ch] text-[13px] leading-relaxed text-ink-muted">
@@ -821,8 +821,8 @@ export function LiquidityOperation() {
       ) : null}
 
       <section className="mt-6 rounded-card border border-line bg-raised p-5 md:p-7">
-        <div className="flex items-center justify-between gap-4">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0">
             <p className="running-head text-accent">Step 1</p>
             <h2 className="mt-1 text-[22px] font-semibold text-ink">50 USDC pilot</h2>
           </div>
@@ -859,8 +859,8 @@ export function LiquidityOperation() {
       </section>
 
       <section className={`mt-6 rounded-card border p-5 md:p-7 ${pilot ? "border-line bg-raised" : "border-dashed border-line-strong bg-card"}`}>
-        <div className="flex items-center justify-between gap-4">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0">
             <p className="running-head text-accent">Step 2</p>
             <h2 className="mt-1 text-[22px] font-semibold text-ink">Original target remainder</h2>
           </div>

@@ -77,16 +77,19 @@ export function SiteNav() {
     };
     const updateMenuHeight = () => {
       const bottom = barRef.current?.getBoundingClientRect().bottom ?? 64;
-      setMenuMaxHeight(Math.max(120, Math.floor(window.innerHeight - bottom)));
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      setMenuMaxHeight(Math.max(120, Math.floor(viewportHeight - bottom)));
     };
     updateMenuHeight();
     window.addEventListener("resize", updateMenuHeight);
+    window.visualViewport?.addEventListener("resize", updateMenuHeight);
     desktopQuery?.addEventListener("change", onViewportChange);
     window.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown);
     return () => {
       document.body.style.overflow = "";
       window.removeEventListener("resize", updateMenuHeight);
+      window.visualViewport?.removeEventListener("resize", updateMenuHeight);
       desktopQuery?.removeEventListener("change", onViewportChange);
       window.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("pointerdown", onPointerDown);
@@ -106,7 +109,7 @@ export function SiteNav() {
         <Link
           href="/"
           onClick={() => setOpen(false)}
-          className="flex flex-none items-center"
+          className="flex min-h-11 flex-none items-center py-2"
         >
           {/* The current brand lockup (owner, 11 November 2026): the tree, FOREST ROAD, a rule, VAULT.
               It is tightly cropped (about 13.9:1), so it is sized by width. */}

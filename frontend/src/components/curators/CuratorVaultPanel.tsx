@@ -478,7 +478,7 @@ export function CuratorVaultPanel() {
       <p className="text-[13px] text-ink-muted">
         Connected <span className="font-mono text-ink">{short(publicKey.toBase58())}</span>
       </p>
-      <button type="button" onClick={() => void disconnect()} className="text-[12.5px] text-ink-faint underline-offset-4 hover:underline">
+      <button type="button" onClick={() => void disconnect()} className="inline-flex min-h-[24px] items-center text-[12.5px] text-ink-faint underline-offset-4 hover:underline">
         Disconnect
       </button>
     </div>
@@ -585,9 +585,9 @@ export function CuratorVaultPanel() {
   const accrual30d = accrue(p.principal, epochs, now, now + 30n * 86_400n, 0n).whole;
 
   const row = (label: string, value: string) => (
-    <div className="flex items-baseline justify-between gap-4 border-b border-line py-2 text-[13.5px]">
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-line py-2 text-[13.5px]">
       <span className="text-ink-muted">{label}</span>
-      <span className="font-mono text-ink">{value}</span>
+      <span className="min-w-0 break-all text-right font-mono text-ink">{value}</span>
     </div>
   );
 
@@ -650,7 +650,7 @@ export function CuratorVaultPanel() {
               onChange={(e) => {
                 if (/^\d*\.?\d{0,6}$/.test(e.target.value)) setAmount(e.target.value);
               }}
-              className="w-full bg-transparent font-mono text-[15px] text-ink outline-none placeholder:text-ink-faint"
+              className="min-w-0 w-full bg-transparent font-mono text-[16px] text-ink outline-none placeholder:text-ink-faint lg:text-[15px]"
             />
             <span className="text-[12.5px] font-semibold text-ink-faint">USDC</span>
           </div>
@@ -779,19 +779,19 @@ export function CuratorVaultPanel() {
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="text-left text-ink-faint">
-                  <th scope="col" className="py-1.5 font-medium">Period through</th>
-                  <th scope="col" className="py-1.5 font-medium">Amount</th>
-                  <th scope="col" className="py-1.5 font-medium">Paid</th>
-                  <th scope="col" className="py-1.5 font-medium">Transaction</th>
+                  <th scope="col" className="whitespace-nowrap py-1.5 pr-4 font-medium">Period through</th>
+                  <th scope="col" className="whitespace-nowrap py-1.5 pr-4 font-medium">Amount</th>
+                  <th scope="col" className="whitespace-nowrap py-1.5 pr-4 font-medium">Paid</th>
+                  <th scope="col" className="whitespace-nowrap py-1.5 font-medium">Transaction</th>
                 </tr>
               </thead>
               <tbody>
                 {history.map((h) => (
                   <tr key={h.signature} className="border-t border-line">
-                    <td className="py-1.5 font-mono">{utc(h.periodEnd)}</td>
-                    <td className="py-1.5 font-mono">{formatUnits(h.amount, DECIMALS)} USDC</td>
-                    <td className="py-1.5 font-mono">{h.when ? utc(h.when) : "…"}</td>
-                    <td className="py-1.5 font-mono">
+                    <td className="whitespace-nowrap py-1.5 pr-4 font-mono">{utc(h.periodEnd)}</td>
+                    <td className="whitespace-nowrap py-1.5 pr-4 font-mono">{formatUnits(h.amount, DECIMALS)} USDC</td>
+                    <td className="whitespace-nowrap py-1.5 pr-4 font-mono">{h.when ? utc(h.when) : "…"}</td>
+                    <td className="whitespace-nowrap py-1.5 font-mono">
                       <a href={CURATOR_VAULT.explorerTx(h.signature)} target="_blank" rel="noreferrer" className="text-accent underline-offset-4 hover:underline">
                         {short(h.signature)}
                       </a>

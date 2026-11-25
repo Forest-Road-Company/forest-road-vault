@@ -67,7 +67,7 @@ function SourceCard({
           {maturityRangeLabel(multiplierBps)}
         </span>
       </div>
-      <p className="display mt-4 text-[32px] leading-none text-ink">
+      <p className="display mt-4 [overflow-wrap:anywhere] text-[clamp(1.5rem,7vw,2rem)] leading-none text-ink">
         {points !== undefined ? fmtAmount(points, 18, 4) : "–"}
       </p>
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
@@ -230,7 +230,7 @@ export function MorphoCollateralCard({
         </p>
       ) : (
         <>
-          <p className="display mt-4 text-[32px] leading-none text-ink">
+          <p className="display mt-4 [overflow-wrap:anywhere] text-[clamp(1.5rem,7vw,2rem)] leading-none text-ink">
             {fmtAmount(BigInt(data.points), 18, 4)}
           </p>
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">

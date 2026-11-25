@@ -746,9 +746,9 @@ export function SusdfrLiquidityOperation() {
     <div className="mx-auto max-w-4xl">
       <div className="rounded-card border border-line bg-raised p-5 md:p-7">
         <div className="flex flex-wrap items-start justify-between gap-5">
-          <div>
+          <div className="min-w-0">
             <p className="running-head text-accent">Execution identity</p>
-            <p className="mt-2 font-mono text-[12px] text-ink">{LIQUIDITY_OPERATOR}</p>
+            <p className="mt-2 break-all font-mono text-[12px] text-ink">{LIQUIDITY_OPERATOR}</p>
             <p className="mt-2 max-w-[68ch] text-[13px] leading-relaxed text-ink-muted">
               Mainnet only. This initializes one fixed USDC/sUSDfr v4 pool at 1.0061,
               then creates a USDC-only wall from 0.84994 to 0.94990. The aggregate
@@ -830,8 +830,8 @@ export function SusdfrLiquidityOperation() {
       </div>
 
       <section className="mt-6 rounded-card border border-line bg-raised p-5 md:p-7">
-        <div className="flex items-center justify-between gap-4">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0">
             <p className="running-head text-accent">Step 1</p>
             <h2 className="mt-1 text-[22px] font-semibold text-ink">Initialize + 50 USDC seed</h2>
           </div>
@@ -862,8 +862,8 @@ export function SusdfrLiquidityOperation() {
       </section>
 
       <section className={`mt-6 rounded-card border p-5 md:p-7 ${seed ? "border-line bg-raised" : "border-dashed border-line-strong bg-card"}`}>
-        <div className="flex items-center justify-between gap-4">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0">
             <p className="running-head text-accent">Step 2</p>
             <h2 className="mt-1 text-[22px] font-semibold text-ink">USDC-only 0.85–0.95 wall</h2>
           </div>
