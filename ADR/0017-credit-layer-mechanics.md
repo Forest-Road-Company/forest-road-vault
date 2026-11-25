@@ -110,10 +110,11 @@ accounting default.
 
 ## 4. Marked-to-market fast path details (ADR-0015 refinements)
 
-- **Freshness asymmetry (protocol-protective):** protective triggers (`marginCall`,
-  `liquidate`) accept the latest mark at any age; **curing** a margin call requires a
-  fresh mark within the class `maxMarkAge`. A desk cannot escape a margin call on
-  stale evidence, and withheld marks cannot block protective action.
+- **Freshness (owner clarification, 2026-10-07):** `marginCall`, `clearMarginCall`
+  and `liquidate` all require a fresh attested mark within the class `maxMarkAge`,
+  as locked by ADR-0030. The owner accepts that an aged breach mark cannot itself
+  authorize a permissionless protective action; a fresh mark or an exact signed
+  legal default is required. This supersedes the earlier any-age protective rule.
 - **Triggers are permissionless** — the attested mark is the entire evidence; the
   protocol only checks thresholds. Liquidation fires on hard breach
   (`ltv >= liquidationLtv`) or on cure expiry *still in margin-call breach* (a

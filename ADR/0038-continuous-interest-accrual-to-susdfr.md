@@ -1,15 +1,9 @@
 # ADR-0038: Continuous accrual of earned-but-unreceived interest into the senior exchange rate
 
-**Subsequent owner answers received 2026-09-11:**
-[the received directions](../docs/remediation/CONTINUOUS_ACCRUAL_OWNER_DIRECTIONS_2026-09-11.md)
-authorize batch engineering for approximately 100 loans, fixed-rate cash initially, and
-both configured interest and performance fees on streamed cash and PIK. Earlier cash-only
-and no-PIK protocol fee policy is superseded. Implementation has resumed; final integration
-and validation remain unfinished. Pending-question passages below are historical.
-
-**Status:** owner-directed implementation in progress. The mechanism below records the
-received 2026-09-10/11 directions and replaces the earlier conditional panel status.
-It authorizes no broadcast and does not change the live Ethereum deployment. The original
+**Status:** Deployed and active on Ethereum V2 from genesis (September 2026, block 26,006,832).
+Owner directions received 2026-09-10/11 authorized batch engineering for approximately 100 loans,
+fixed-rate cash and PIK accrual, and both protocol interest fees and vault performance fees on
+streamed cash and PIK. Pending-question passages below are preserved as historical design context.
 design discussion is retained with its subsequent decisions; implementation and final
 validation are still incomplete.
 

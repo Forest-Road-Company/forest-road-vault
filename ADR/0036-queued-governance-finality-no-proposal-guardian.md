@@ -1,6 +1,7 @@
 # ADR-0036 — Queued governance is final; mainnet v1 has no proposal guardian
 
-**Status:** Accepted — Forest Road decision, 2026-08-14 (recorded internally as **G1c**).
+**Status:** Accepted and deployed on Ethereum V2 (Forest Road decision, 2026-08-14, recorded
+internally as **G1c**; Timelock two-day delay and finality confirmed in live V2 governance).
 
 **Amends:** [ADR-0013](0013-governance-forest-road-controlled.md) (governance topology). Relates to
 [ADR-0008](0008-uups-upgradeability.md) (upgrade authorisation through the timelock).

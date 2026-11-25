@@ -16,7 +16,7 @@ export default function SusdfrV2LiquidityPage() {
     <PageShell
       section="Treasury operation"
       title="sUSDfr / USDC full-range liquidity"
-      lede="A wallet-bound Uniswap V2 flow for exactly 25,000 USDC plus $25,000 worth of sUSDfr, with the opening ratio read from the live vault."
+      lede="Internal wallet-bound execution and reconciliation surface for Forest Road's full-range sUSDfr / USDC Uniswap V2 position (25,000 USDC plus $25,000 worth of sUSDfr priced from the live vault)."
       visual={<ProtocolScene scene="markets" />}
     >
       <SusdfrV2LiquidityOperation />

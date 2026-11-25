@@ -47,6 +47,10 @@ export default function AuditRegisterPage() {
   const rounds = AUDITS.length;
   const findings = totalFindings();
   const openCount = strictlyOpenFindings().length;
+  const v2OpenCount = AUDITS.filter((a) => a.date >= "2026-09-20")
+    .flatMap((a) => a.findings)
+    .filter((f) => f.disposition === "Open").length;
+  const historicalOpenCount = openCount - v2OpenCount;
   const acceptedDeferredCount = acceptedOrDeferredFindings().length;
 
   const external = AUDITS.filter((a) => Boolean(a.external));
@@ -77,7 +81,7 @@ export default function AuditRegisterPage() {
             {
               value: openCount,
               label: "Open (all historical rounds)",
-              note: `Includes historical V1/pre-V2 entries alongside live V2 open items; ${acceptedDeferredCount} additional entries are formally accepted or deferred.`,
+              note: `${v2OpenCount} live V2 structured item (FRV-NEW-02; LMV-09 and LMV-18 also remain open on live proxies until Stage 2 executes — see Status) plus ${historicalOpenCount} preserved historical V1/pre-V2 entries; ${acceptedDeferredCount} additional entries are accepted or deferred.`,
             },
           ]}
         />

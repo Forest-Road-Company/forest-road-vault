@@ -1,8 +1,8 @@
 # ADR-0016 — Participation points: on-chain activity only, time-weighted, per wallet
 
-**Status:** Resolved (Forest Road direction, 2026-07-14; frontend completion
-2026-07-24). Parameters are governance-tunable. The program remains an explicit
-pre-mainnet securities-counsel review item.
+**Status:** Deployed on Ethereum V2 (`PointsModule`, per-wallet participation ledger; extended
+off-chain to Morpho collateral and Pendle SY/YT/LP pass-through on `/points`). Parameters remain
+governance-tunable; nothing in this program is a token, yield or promise of future value.
 
 ## Decision
 

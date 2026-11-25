@@ -1,6 +1,6 @@
 # Formal methods — proved properties and limits
 
-**Status:** current engineering assessment and release-gate specification.
+**Status:** current engineering assessment and release-gate specification (updated 25 November 2026).
 
 CLAUDE.md §1.5 names the loss cascade and backing invariant as candidates for symbolic
 or SMT-based checking. Both now have Halmos artifacts and both run in CI. This document
@@ -18,16 +18,24 @@ The `symbolic` CI job pins Halmos 0.3.3 and runs:
 ```text
 halmos --match-contract BackingSymbolic
 halmos --match-contract CascadeSymbolic
+halmos --match-contract ReserveIncidentSymbolic
 ```
 
 The functions are `check_`-prefixed, so ordinary `forge test` intentionally ignores
-them. A failure, timeout, or counterexample in either Halmos command fails the symbolic
+them. A failure, timeout, or counterexample in any Halmos command fails the symbolic
 job.
 
-Current local result on 2026-07-30:
+Verified Halmos property inventory (8 properties across 3 contracts, passing in hosted CI security
+gates including exact-commit Run #753 on audited LMV candidate `ee9b228a`, 24 November 2026):
 
-- `BackingSymbolic`: 5 properties, 68 paths, zero counterexamples;
-- `CascadeSymbolic`: 1 property, 9 paths, zero counterexamples.
+- `BackingSymbolic` (`contracts/test/symbolic/BackingSymbolic.t.sol`): 5 properties, 68 paths,
+  zero counterexamples;
+- `CascadeSymbolic` (`contracts/test/symbolic/CascadeSymbolic.t.sol`): 1 property, 9 paths,
+  zero counterexamples;
+- `ReserveIncidentSymbolic` (`contracts/test/symbolic/ReserveIncidentSymbolic.t.sol`): 2 properties
+  (`check_armPreservesIdentityAndEvidence` and `check_legacyClosePreservesUsedIdentity`), proving
+  monotonic arm/incident IDs, evidence-hash persistence, and replay-protection preservation across
+  `ReserveIncidentLib` arm and close transitions, zero counterexamples.
 
 ## 2. Backing transition proof
 
@@ -154,5 +162,7 @@ The correct assurance statement is therefore:
 
 > The core backing transitions have five symbolic preservation properties against the
 > real controller/reserve accounting code plus an exact user-flow arithmetic lemma; the
-> cascade split has a symbolic arithmetic proof; the composed protocol is additionally
-> tested with stateful and fork campaigns and is not claimed to be fully formally verified.
+> cascade split has a symbolic arithmetic proof; the custody-incident arm/close lifecycle
+> has two symbolic identity-preservation properties (`ReserveIncidentSymbolic`); the
+> composed protocol is additionally tested with stateful and fork campaigns and is not
+> claimed to be fully formally verified.

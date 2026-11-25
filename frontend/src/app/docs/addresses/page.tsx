@@ -323,7 +323,7 @@ export default function AddressesPage() {
                 <span className="text-[13.5px] font-medium text-ink">sUSDfr BSC LayerZero OFT lockbox</span>
                 <span className="text-[13px] leading-relaxed text-ink-muted">
                   Escrow adapter on Ethereum locking bridged sUSDfr represented on BNB Smart Chain (
-                  <code className="font-mono text-[12px]">SUSDfrOFTAdapter</code>). Excluded from personal wallet leaderboard ranks.
+                  <code className="font-mono text-[12px]">SUSDfrOFTAdapter</code>; Phase 1 token bridge only — the separate BSC credit protocol is not deployed on BSC mainnet). Excluded from personal wallet leaderboard ranks.
                 </span>
                 <span className="min-w-0"><AddressLink address={LIVE_MAINNET_INTEGRATIONS.bscOftLockbox} /></span>
               </li>

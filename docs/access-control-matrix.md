@@ -1,20 +1,21 @@
 # Access-Control Matrix — Forest Road Vault
 
-> **LIVE MAINNET PRINCIPALS (chain 1, deployed block 25,768,251).** This matrix describes roles
-> abstractly; these are the addresses actually holding them, so a reader can check the matrix
-> against chain state rather than trust it. Manifest: `contracts/deployments/1-production-v1.json`.
+> **LIVE MAINNET PRINCIPALS (Ethereum V2, chain 1, deployed block 26,006,832, September 2026;
+> verified 25 November 2026).** This matrix describes roles abstractly; these are the live
+> Ethereum V2 principals actually holding them, so a reader can check the matrix directly against
+> chain state. Full live contract list: `https://forestroadvault.com/docs/addresses`.
 >
 > | Principal | Address | Holds |
 > |---|---|---|
-> | **Timelock** | `0x263289d62352f9326456d1430466337484c806Dc` | `DEFAULT_ADMIN` and `UPGRADER` on **every** module |
-> | **opsAdmin** (Safe) | `0x297e88C997c2e0EDF70A5F817AAdcA2858Aa6c04` | 16 operational roles — `GUARDIAN` on every pausable module, `COMPLIANCE_ADMIN`, `SERVICER`, `ORIGINATOR`, `SETTLEMENT_KEEPER` |
-> | **queueKeeper** (EOA) | `0x1Df7Adb9911e59d78c023B09E68711F97e05f4Cc` | `queue.SETTLEMENT_KEEPER_ROLE` |
+> | **Timelock (V2)** | `0x28B36b6a48eD3f7409464c811A9eD538A824120E` | `DEFAULT_ADMIN_ROLE`, `UPGRADER_ROLE` and `RESERVE_ADMIN_ROLE` across all role-gated V2 modules |
+> | **Operations Safe (`opsAdmin`)** | `0x297e88C997c2e0EDF70A5F817AAdcA2858Aa6c04` | Operational roles — `GUARDIAN_ROLE` on pausable modules, `COMPLIANCE_ADMIN_ROLE`, `SERVICER_ROLE`, `ORIGINATOR_ROLE`, and `SETTLEMENT_KEEPER_ROLE` backstop |
+> | **queueKeeper (AWS KMS)** | `0xd355EFFB157c59Ccd0Adf2B4BeB78d83bed3cEad` | `RedemptionQueue.SETTLEMENT_KEEPER_ROLE` (rotated 30 October 2026 via FRV-009; legacy EOA `0x1Df7Adb9911e59d78c023B09E68711F97e05f4Cc` revoked) |
 > | **deployer** (EOA) | `0x89575b4FCfe2cf6833e96dE71765c6Ad15eAc11b` | **none** — bootstrap authority surrendered at handover |
 >
-> Verified on-chain by `tools/run-foundry-readonly-mainnet-validation.mjs`: no authority role and no
-> timelock `PROPOSER`/`CANCELLER` survives on any EOA or named genesis principal. The deployer
-> cannot even grant itself admin on the timelock — a real transaction attempting it reverts
-> `AccessControlUnauthorizedAccount`.
+> Verified on-chain against Ethereum V2 mainnet: no authority role (`DEFAULT_ADMIN_ROLE`,
+> `UPGRADER_ROLE`, `RESERVE_ADMIN_ROLE`) and no timelock `PROPOSER`/`CANCELLER` survives on any
+> EOA or named genesis principal. The retired Ethereum V1 deployment (`block 25,768,251`,
+> Timelock `0x263289d62352f9326456d1430466337484c806Dc`) is superseded and inactive.
 
 
 **Audience:** external auditors. Derived 1:1 from `src/libraries/Roles.sol`,
@@ -50,6 +51,11 @@ grant itself (no escalation loop).
 | `SERVICER_ROLE` | Ops (Forest Road) | Facility funding, repayment distribution, default, acceleration, loss realization, and cure operations. |
 | `SETTLEMENT_KEEPER_ROLE` | Dedicated queue keeper + ops-Safe backstop | Drive RedemptionQueue.closeEpoch and choose when its contract-bounded liquidity snapshot is taken. |
 <!-- END GENERATED PRIVILEGE ROLES -->
+
+> **Note on `CREDIT_ROLE` scope:** In addition to the credit modules listed in the generated
+> summary table above, `ReserveManager` also holds `CREDIT_ROLE` on `CuratorModule`, `SGrove` and
+> `AttestationOracle` so custody-loss cascades (`absorbGlobalLoss` / `coverShortfall`) execute
+> atomically (as confirmed in the compiler-generated wiring table below).
 
 ## Canonical privilege-audit module inventory
 
@@ -88,18 +94,18 @@ hence the timelock + (prod) no-EOA rule.
 
 | Contract | Functions |
 |---|---|
-| CollateralRegistry | `setClass`, `setBorrowerLimit`, **`setBorrowerLimitOverride`**, **`clearBorrowerLimitOverride`**, `setStateLimit`, `setComplianceModule`, `setConcentrationFloor` |
-| ComplianceRegistry | `setProtocolExempt` |
-| ClaimBridge | `setRequiredMintAttestations` (audit R7: the ONLY ClaimBridge governance setter — the oracle is wired once at `initialize` and is immutable thereafter; `setRedemptionQueue`/`setPointsModule` live on sUSDfr, `setAttestationOracle` on ReserveManager — corrected below) |
+| CollateralRegistry | `setClass`, `setBorrowerLimit`, **`setBorrowerLimitOverride`**, **`clearBorrowerLimitOverride`**, `setStateLimit`, `setPastDueWeight`, `setComplianceModule`, `setConcentrationFloor` |
+| ComplianceRegistry | `setProtocolExempt`, **`setFundingRecipientAllowed`** (ADR-0040 Timelock-only borrower payout allowlist; live on V2) |
+| ClaimBridge | `setRequiredMintAttestations`, **`enableMixedInterest`** (ADR-0039 mixed cash/PIK facility activation; the oracle is wired once at `initialize` and is immutable thereafter) |
 | sUSDfr | `setRedemptionQueue`, `setPointsModule`, **`setImpairmentSource`** (ADR-0022 Option Y — validates and wires both impairment views; zero = exits price at realized NAV), **`clearUnreadableImpairmentSource`** (recovery-only clear after a bounded source read demonstrably fails; cannot replace a readable source), **`clearStaleFeeOperation`** (evented recovery of a lock left by a faulty trusted module), **`setYieldVestingPeriod`** (ADR-0023 — optional senior-yield smoothing, capped at `MAX_YIELD_VESTING_PERIOD`; launch default zero = instant recognition), **`setPerformanceFee`** (ADR-0031 — prospective global-HWM rate, 0–2,000 bps; old rate crystallizes first), **`setManagementFee`** (ADR-0031 — prospective annual rate, 0–200 bps; old rate crystallizes first), **`setFeeRecipient`** (replacement must already be protocol-exempt; it is installed before the checkpoint so a blocked old recipient cannot prevent recovery and any pending shares mint to the replacement) |
-| ReserveManager | `setLossController`, `setReserveLossModules`, `setGuardianReserveLossArmsEnabled`, `cancelAndDisable`, `finalizeAndDisable`; no generic asset or reserve-instrument setter. The legacy `writeDownIdleUSDC` selector always reverts. |
-| USDfr | `setComplianceModule` |
+| ReserveManager | `setLossController`, `setReserveLossModules`, `setGuardianReserveLossArmsEnabled`, `cancelAndDisable`, `finalizeAndDisable`, `recognizePrincipalImpairment`, `releasePrincipalImpairment`, plus continuous-accrual / mixed-interest wiring controls; no generic asset or reserve-instrument setter. The legacy `writeDownIdleUSDC` selector always reverts. |
+| USDfr | `setComplianceModule`, `setPointsModule` |
 | CuratorModule | `setCuratorApproved`, `setFirstLossTarget`, **`liftDefaultFreeze`** (audit R4-EC2) |
 | AttestationOracle | `setThreshold` (floored ≥2 for high-value kinds), `revoke` |
 | RedemptionQueue | `setEpochDuration` (the ADR-0022 settlement HEARTBEAT, not the hold), `setEpochLiquidityBps`, **`setRedeemCooldown`** (ADR-0022 Option X — the forced per-request holding period; applies uniformly to in-flight requests, so a lengthening is bounded by the timelock delay), `setMinRedemptionValue` |
 | WaterfallEngine | `setProtocolFee`, `setOriginationFee`, `setFeeRecipient`, **`setDefaultManager`** (ADR-0022 — wires the clean-resolve impairment hook; zero disables it) |
 | DefaultManager | `setRemedyRef`, `setCureWindow`, **`setGraceWindow`** (H-5 — per-class past-due grace, capped at `DEFAULT_REDEEM_COOLDOWN`), `setBackstop` |
-| AssessedImpairmentSource | `setAssessment`, `clearAssessment`, `setBaseSource` (ADR-0027 — time-limited professional senior-loss mark; assessment can only lower the live zero-recovery base and is invalidated by any revision/state-hash change) |
+| AssessedImpairmentSource | `setAssessment`, `clearAssessment`, `setBaseSource` (ADR-0027 — time-limited professional senior-loss mark; assessment can only lower the live zero-recovery base and is invalidated by any revision/risk-state change or sGROVE capacity decrease) |
 | SGrove | `setUnbondingPeriod`, **`setRewardsDuration`** (audit R4-EC1). ADR-0035 removes the per-event-cap setter. |
 | PointsModule | `setRate`, `setUSDfrMultiplier`, `setCuratorMultiplier`, `setCuratorModule` |
 
@@ -115,29 +121,31 @@ hence the timelock + (prod) no-EOA rule.
 | `COMPLIANCE_ADMIN_ROLE` | `ComplianceRegistry.{setAllowed, setAllowedBatch, setJurisdictionBlocked}` | cannot reach `protocolExempt` (that is governance) |
 | `ATTESTER_ROLE` | (signer, not a caller) `AttestationOracle.attest` verifies signatures against holders | m-of-n threshold per kind |
 
-### `CREDIT_ROLE` — trusted internal-module primitives (never an EOA)
+### `CREDIT_ROLE` & `LOSS_BURNER_ROLE` — trusted internal-module primitives (never an EOA)
 These are the cross-module value/state operations. Each is callable **only** by the
-specific sibling module granted the role at deploy, and several are **non-pausable**
-at their own entry point. A guardian pause on `ReserveManager` still blocks the
-principal-write-down leg until a controlled unpause; incident procedure must
-explicitly restore that accounting path before realizing a loss.
+specific sibling module granted the role at deploy, and every loss-cascade entry point — including
+`ReserveManager.recordPrincipalWritedown` (which carries no `whenNotPaused` guard) — is
+**non-pausable** so a guardian pause on `ReserveManager` cannot block a realized principal
+write-down. `MintRedeemController.burnLoss` is deliberately split onto `LOSS_BURNER_ROLE`
+(held only by `DefaultManager` and `ReserveManager`, never `WaterfallEngine`).
 
-| Callee . function | Authorized caller(s) | Pausable? |
-|---|---|---|
-| `MintRedeemController.mintYield` | WaterfallEngine | via mint path |
-| `MintRedeemController.burnLoss` | WaterfallEngine, DefaultManager, ReserveManager | **no** (facility or custody cascade) |
-| `CuratorModule.absorbLoss` | DefaultManager | **no** (facility cascade) |
-| `CuratorModule.absorbGlobalLoss` | ReserveManager | **no** (classless custody cascade) |
-| `CuratorModule.freezeOnDefault` | DefaultManager | **no** |
-| `SGrove.coverShortfall(eventId, amount)` | DefaultManager, ReserveManager | **no** (cascade). ADR-0035: `eventId` is observability only; every call reaches the same live reserve. One shortfall may exhaust layer two, leaving all later loss to senior principal until replenishment. |
-| `sUSDfr.beginYieldNotification` | WaterfallEngine | **no** (checkpoints and acquires the vault-side lock before either interest-leg mint) |
-| `sUSDfr.notifyYield` | WaterfallEngine | **no** (moves no value; only defers recognition) |
-| `DefaultManager.onDefaultResolved` | WaterfallEngine | **no** (clears a recovered facility's impairment mark) |
-| `DefaultManager.onDefaultRecovery` | WaterfallEngine | **no** (H-2 — re-anchors a still-defaulted facility's impairment mark to `deployedTo` after a partial cash recovery) |
-| `AttestationOracle.consume` | WaterfallEngine, DefaultManager, ClaimBridge | — |
-| `ClaimBridge.transitionState` | WaterfallEngine, DefaultManager | — |
-| `ReserveManager.{recordDeployment, recordFeeCapitalization, recordPayment, recordPrincipalWritedown}` | WaterfallEngine, DefaultManager | funding/payment paths move USDC and accounting atomically |
-| `CollateralRegistry` exposure record/decrease | ClaimBridge, WaterfallEngine, DefaultManager | — |
+| Callee . function | Authorized caller(s) | Role | Pausable? |
+|---|---|---|---|
+| `MintRedeemController.mintYield` | WaterfallEngine | `CREDIT_ROLE` | via mint path |
+| `MintRedeemController.burnLoss` | DefaultManager, ReserveManager | `LOSS_BURNER_ROLE` | **no** (facility or custody cascade; WaterfallEngine explicitly excluded) |
+| `CuratorModule.absorbLoss` | DefaultManager | `CREDIT_ROLE` | **no** (facility cascade) |
+| `CuratorModule.absorbGlobalLoss` | ReserveManager | `CREDIT_ROLE` | **no** (classless custody cascade) |
+| `CuratorModule.freezeOnDefault` | DefaultManager | `CREDIT_ROLE` | **no** |
+| `SGrove.coverShortfall(eventId, amount)` | DefaultManager, ReserveManager | `CREDIT_ROLE` | **no** (cascade). ADR-0035: `eventId` is observability only; every call reaches the same live reserve. One shortfall may exhaust layer two, leaving all later loss to senior principal until replenishment. |
+| `sUSDfr.beginYieldNotification` | WaterfallEngine | `CREDIT_ROLE` | **no** (checkpoints and acquires the vault-side lock before either interest-leg mint) |
+| `sUSDfr.notifyYield` | WaterfallEngine | `CREDIT_ROLE` | **no** (moves no value; only defers recognition) |
+| `DefaultManager.onDefaultResolved` | WaterfallEngine | `CREDIT_ROLE` | **no** (clears a recovered facility's impairment mark) |
+| `DefaultManager.onDefaultRecovery` | WaterfallEngine | `CREDIT_ROLE` | **no** (H-2 — re-anchors a still-defaulted facility's impairment mark to `deployedTo` after a partial cash recovery) |
+| `AttestationOracle.consume` | WaterfallEngine, DefaultManager, ClaimBridge, ReserveManager | `CREDIT_ROLE` | **no** |
+| `ClaimBridge.transitionState` | WaterfallEngine, DefaultManager | `CREDIT_ROLE` | **no** |
+| `ReserveManager.{recordDeployment, recordFeeCapitalization, recordPikCapitalization, recordPayment}` | WaterfallEngine | `CREDIT_ROLE` | **yes** (pausable on `ReserveManager`; funding/payment paths move USDC and accounting atomically) |
+| `ReserveManager.recordPrincipalWritedown` | DefaultManager | `CREDIT_ROLE` | **no** (cascade write-down is not blocked by `ReserveManager` pause) |
+| `CollateralRegistry` exposure record/decrease | ClaimBridge, WaterfallEngine, DefaultManager | `CREDIT_ROLE` | **no** |
 
 ### `FEE_ACCOUNTING_ROLE` — trusted fee-neutral checkpoint lock (never an EOA)
 
@@ -235,22 +243,28 @@ every cascade leg is ultimately a `USDfr` transfer/burn, a guardian `USDfr.pause
 token-level pause) DOES transitively halt `realizeLoss` — a full break-glass freeze, not a
 selective one (exits halt symmetrically, so no depositor escapes a loss; recoverable by
 unpause). A recommended hardening (exempt protocol-internal `_update`s from the token pause,
-mirroring `protocolExempt`) is flagged in `security-review.md` R5-PAUSE1.\n\n## Compiler-derived role surface and probe disposition
+exemption for protocol-internal `_update`s was tracked as R5-PAUSE1 on the
+[audit register](https://forestroadvault.com/docs/audit).
+
+## Compiler-derived role surface and probe disposition
 
 The generated block below is the compiler-backed role/function matrix. It is derived from the AST of
 `contracts/src` and `contracts/script`, cross-checked against compiled `methodIdentifiers`, and
 includes inherited role-admin entrypoints plus the non-deployed recovery and timelock modules. It is
 not a hand-maintained list.
 
-The invariant access-control handler still needs module-specific calldata and therefore retains its
-stateful probe branches. Its disposition is generated separately at
-`docs/remediation/landing-2026-08-11/ACCESS_CONTROL_PROBE_COVERAGE.json`: this landing has 196
-role-gated functions represented by 197 guarded rows, 28 rows matched to executable handler probes,
-and 169 explicit named exclusions. The exclusions are not counted as coverage; each carries a reason
-(code plus prose) and remains visible to the audit stream. This is deliberately not reported as
-196/196 proof.
+> **Note on the generated `PrivilegeAudit.sol` scan line below:** The AST generator scans
+> `script/PrivilegeAudit.sol` for literal role-name tokens and therefore prints
+> `enumerates 0 of these 13` because `PrivilegeAudit.sol` delegates its canonical role array to
+> compiler-generated `script/generated/PrivilegeTopology.sol` (sourced from
+> `config/privilege-topology.json`). At runtime, `PrivilegeAudit.authorityRoleSet()` and
+> `PrivilegeAudit.roleSet()` enumerate all 13 declared roles cleanly.
 
-Run from the repository root:
+The invariant access-control handler still needs module-specific calldata and therefore retains its
+stateful probe branches, with explicit named exclusions tracked in the internal CI disposition
+check rather than counted as coverage.
+
+Run from the private repository root:
 
 ```
 node tools/generate-access-control-matrix.mjs --check
@@ -266,7 +280,7 @@ function cannot silently reduce the measured surface.
      contracts/src + contracts/script and the compiled artifacts' methodIdentifiers.
      DO NOT EDIT THIS BLOCK BY HAND — run the tool. Prose outside the block is human. -->
 
-_Generated from 24 modules_
+_Generated from 25 modules_
 
 ### Declared roles (from `src/libraries/Roles.sol`)
 
@@ -311,13 +325,18 @@ One row per `(module, external function, guard)`. Selector is the compiled selec
 | `AttestationOracle` | `upgradeToAndCall(address,bytes)` | `0x4f1ef286` | `UPGRADER_ROLE` | onlyRole modifier in AttestationOracle._authorizeUpgrade *(indirect)* | no |
 | `ClaimBridge` | `amendTerms(uint256,bytes32,(uint16,uint64,uint64,uint64,uint8,uint8,bool,bytes32,bytes32,bytes32))` | `0x67e38793` | `ORIGINATOR_ROLE` | onlyRole modifier | yes |
 | `ClaimBridge` | `cancelPending(uint256)` | `0x5588fdf1` | `ORIGINATOR_ROLE` | onlyRole modifier | no |
+| `ClaimBridge` | `cancelPreparedMixedOrigination()` | `0x813e89b9` | `ORIGINATOR_ROLE` | onlyRole modifier | no |
+| `ClaimBridge` | `enableMixedInterest()` | `0xf604c6df` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ClaimBridge` | `grantRole(bytes32,address)` | `0x2f2ff15d` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
 | `ClaimBridge` | `originate(address,(uint256,bytes32,bytes32,uint256,uint16,uint16,uint64,address,uint64,uint64,uint8,uint8,bool,bytes32,bytes32,bytes32,bytes32,bool))` | `0xe6307e0e` | `ORIGINATOR_ROLE` | onlyRole modifier | yes |
 | `ClaimBridge` | `pause()` | `0x8456cb59` | `GUARDIAN_ROLE` | onlyRole modifier | no |
+| `ClaimBridge` | `prepareMixedAmendment(uint256,bytes32,bytes)` | `0xc5afe6cf` | `ORIGINATOR_ROLE` | onlyRole modifier | yes |
+| `ClaimBridge` | `prepareMixedOrigination(bytes)` | `0x88c62f6d` | `ORIGINATOR_ROLE` | onlyRole modifier | yes |
 | `ClaimBridge` | `revokeRole(bytes32,address)` | `0xd547741f` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
 | `ClaimBridge` | `safeTransferFrom(address,address,uint256,bytes)` | `0xb88d4fde` | `DEFAULT_ADMIN_ROLE` | inline hasRole in ClaimBridge._update *(indirect)* | no |
 | `ClaimBridge` | `safeTransferFrom(address,address,uint256)` | `0x42842e0e` | `DEFAULT_ADMIN_ROLE` | inline hasRole in ClaimBridge._update *(indirect)* | no |
 | `ClaimBridge` | `setAccrualReserve(address)` | `0xbe745ef0` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
+| `ClaimBridge` | `setBorrowerPayoutRegistry(address)` | `0x3083b4e5` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ClaimBridge` | `setNextPaymentDue(uint256,uint64)` | `0x716d5bf8` | `CREDIT_ROLE` | onlyRole modifier | no |
 | `ClaimBridge` | `setRequiredMintAttestations(uint256,uint256)` | `0x33ed51c9` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ClaimBridge` | `transferFrom(address,address,uint256)` | `0x23b872dd` | `DEFAULT_ADMIN_ROLE` | inline hasRole in ClaimBridge._update *(indirect)* | no |
@@ -342,6 +361,7 @@ One row per `(module, external function, guard)`. Selector is the compiled selec
 | `ComplianceRegistry` | `revokeRole(bytes32,address)` | `0xd547741f` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
 | `ComplianceRegistry` | `setAllowed(address,bool)` | `0x4697f05d` | `COMPLIANCE_ADMIN_ROLE` | onlyRole modifier | no |
 | `ComplianceRegistry` | `setAllowedBatch(address[],bool)` | `0x5a265dae` | `COMPLIANCE_ADMIN_ROLE` | onlyRole modifier | no |
+| `ComplianceRegistry` | `setFundingRecipientAllowed(address,bool)` | `0x6bcb277f` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ComplianceRegistry` | `setJurisdictionBlocked(address,bool)` | `0x76e4099c` | `COMPLIANCE_ADMIN_ROLE` | onlyRole modifier | no |
 | `ComplianceRegistry` | `setProtocolExempt(address,bool)` | `0x18cf2b61` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ComplianceRegistry` | `upgradeToAndCall(address,bytes)` | `0x4f1ef286` | `UPGRADER_ROLE` | onlyRole modifier in ComplianceRegistry._authorizeUpgrade *(indirect)* | no |
@@ -368,6 +388,7 @@ One row per `(module, external function, guard)`. Selector is the compiled selec
 | `DefaultManager` | `declareDefault(uint256,bytes32)` | `0x21c221d7` | `SERVICER_ROLE` | onlyRole modifier | no |
 | `DefaultManager` | `grantRole(bytes32,address)` | `0x2f2ff15d` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
 | `DefaultManager` | `initializeCommitmentLedger()` | `0x140fc2c1` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
+| `DefaultManager` | `liquidate(uint256)` | `0x415f1240` | `CREDIT_ROLE` | onlyRole modifier in ClaimBridge.transitionState *(indirect)* | yes |
 | `DefaultManager` | `onDefaultRecovery(uint256)` | `0xf3bc6321` | `CREDIT_ROLE` | onlyRole modifier | no |
 | `DefaultManager` | `onDefaultResolved(uint256)` | `0x6e00dfd7` | `CREDIT_ROLE` | onlyRole modifier | no |
 | `DefaultManager` | `onPerformingRepayment(uint256)` | `0x3898cdfe` | `CREDIT_ROLE` | onlyRole modifier | no |
@@ -449,6 +470,7 @@ One row per `(module, external function, guard)`. Selector is the compiled selec
 | `ReserveManager` | `releaseUSDC(address,uint256)` | `0xca258c9f` | `CONTROLLER_ROLE` | onlyRole modifier | yes |
 | `ReserveManager` | `resolveReserveDeficit(bytes32)` | `0xaae98a38` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ReserveManager` | `revokeRole(bytes32,address)` | `0xd547741f` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
+| `ReserveManager` | `setBorrowerPayoutRegistry(address)` | `0x3083b4e5` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ReserveManager` | `setGuardianReserveLossArmsEnabled(bool)` | `0x34ec2d41` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ReserveManager` | `setLossAbsorber(address)` | `0x98ca56d8` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `ReserveManager` | `setLossController(address)` | `0x16783256` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
@@ -500,6 +522,7 @@ One row per `(module, external function, guard)`. Selector is the compiled selec
 | `USDfr` | `setPointsModule(address)` | `0xe8bf3999` | `DEFAULT_ADMIN_ROLE` | onlyRole modifier | no |
 | `USDfr` | `unpause()` | `0x3f4ba83a` | `GUARDIAN_ROLE` | onlyRole modifier | no |
 | `USDfr` | `upgradeToAndCall(address,bytes)` | `0x4f1ef286` | `UPGRADER_ROLE` | onlyRole modifier in USDfr._authorizeUpgrade *(indirect)* | no |
+| `WaterfallEngine` | `capitalizePik(uint256)` | `0x41a3f095` | `CREDIT_ROLE` | onlyRole modifier in ClaimBridge.setNextPaymentDue *(indirect)* | yes |
 | `WaterfallEngine` | `distribute((uint256,bytes32,address,uint256,uint256,uint64))` | `0x1ad2f567` | `SERVICER_ROLE` | onlyRole modifier | yes |
 | `WaterfallEngine` | `fund(uint256,uint256)` | `0xa65e2cfd` | `SERVICER_ROLE` | onlyRole modifier | yes |
 | `WaterfallEngine` | `grantRole(bytes32,address)` | `0x2f2ff15d` | `DEFAULT_ADMIN_ROLE:via getRoleAdmin(role)` | onlyRole modifier | no |
@@ -519,7 +542,7 @@ These non-role surfaces would be invisible to a scan that only looked for `onlyR
 
 | Module | Function | Selector | Guard | How | Pausable |
 |---|---|---|---|---|---|
-| `ClaimBridge` | `setAccruedPaymentDue(uint256,uint64)` | `0xc7915bc1` | address-gated | msg.sender != $.accrualReserve | no |
+| `ClaimBridge` | `setAccruedPaymentDue(uint256,uint64)` | `0xc7915bc1` | address-gated | msg.sender != bridge.accrualReserve *(indirect)* | no |
 | `CollateralRegistry` | `recordAccruedExposure(uint256,bytes32,bytes32,uint256)` | `0x8df250a8` | address-gated | msg.sender != $.accrualReserve | no |
 | `CollateralRegistry` | `recordAccruedWriteDown(uint256,bytes32,bytes32,uint256)` | `0x7ef52e5e` | address-gated | msg.sender != reserve | no |
 | `CommitmentLedger` | `register(uint256,uint256,uint256)` | `0xfaa5c564` | address-gated | { if (msg.sender != manager) revert CommitmentLedger_NotManager(msg.sender); _; } | no |
@@ -529,6 +552,9 @@ These non-role surfaces would be invisible to a scan that only looked for `onlyR
 | `CuratorModule` | `postFirstLoss(uint256,uint256)` | `0x9be38591` | allowlist-gated | !$.approved[classId][msg.sender] | yes |
 | `DefaultManager` | `absorbReserveLoss(uint256,uint256)` | `0xd1f07b38` | address-gated | msg.sender != address($.reserves) | no |
 | `DefaultManager` | `drawForSeniorExit(uint256)` | `0x9eee3b33` | address-gated | msg.sender != address($.controller) | no |
+| `DefaultManager` | `onAccrualOpening(uint256,uint256)` | `0x8cf3340a` | address-gated | msg.sender != reserve *(indirect)* | no |
+| `DefaultManager` | `onAccrualPosted(uint256,uint256)` | `0x914f673a` | address-gated | msg.sender != address($.accrualReserve) *(indirect)* | no |
+| `DefaultManager` | `onAccrualRounding(uint256,uint256)` | `0xe9266651` | address-gated | msg.sender != address($.accrualReserve) *(indirect)* | no |
 | `FRGovernor` | `relay(address,uint256,bytes)` | `0xc28bc2fa` | governance (`onlyGovernance`) | modifier onlyGovernance | no |
 | `FRGovernor` | `setProposalThreshold(uint256)` | `0xece40cc1` | governance (`onlyGovernance`) | modifier onlyGovernance | no |
 | `FRGovernor` | `setVotingDelay(uint48)` | `0x79051887` | governance (`onlyGovernance`) | modifier onlyGovernance | no |
@@ -536,16 +562,30 @@ These non-role surfaces would be invisible to a scan that only looked for `onlyR
 | `FRGovernor` | `updateQuorumNumerator(uint256)` | `0x06f3f9e6` | governance (`onlyGovernance`) | modifier onlyGovernance | no |
 | `FRGovernor` | `updateTimelock(address)` | `0xa890c910` | governance (`onlyGovernance`) | modifier onlyGovernance; terminally disabled in v1 (body always reverts) | no |
 | `FRGovernor` | `upgradeToAndCall(address,bytes)` | `0x4f1ef286` | governance (`onlyGovernance`) | modifier onlyGovernance in FRGovernor._authorizeUpgrade *(indirect)* | no |
+| `MintRedeemController` | `mintAccrued(uint256)` | `0xd1e18356` | address-gated | msg.sender != reserve *(indirect)* | no |
 | `PointsModule` | `onCuratorLoss(uint256,uint256,uint256)` | `0x5b6d8ccc` | address-gated | msg.sender != $.curatorModule | no |
 | `PointsModule` | `onCuratorStakeChange(address,uint256,uint256)` | `0x72191945` | address-gated | msg.sender != $.curatorModule | no |
 | `PointsModule` | `onSharesTransfer(address,address,uint256)` | `0x8b1914c6` | address-gated | msg.sender != $.vault | no |
 | `PointsModule` | `onUSDfrTransfer(address,address,uint256)` | `0xa2417573` | address-gated | msg.sender != $.usdfrToken | no |
+| `ReserveManager` | `amendAccruingLoan(uint256,(uint16,uint32,uint64,uint64,uint64))` | `0x366f124e` | address-gated | msg.sender != expected *(indirect)* | no |
+| `ReserveManager` | `amendMixedAccruingLoan(uint256,(uint16,uint16,uint32,uint64,uint64,uint64))` | `0x6c01c6da` | address-gated | msg.sender != expected *(indirect)* | no |
+| `ReserveManager` | `consumeAccrualLossBurn(address,address,uint256)` | `0x08d6b124` | address-gated | msg.sender != s.modules.controller *(indirect)* | no |
 | `ReserveManager` | `consumeExitPrepayment(uint256,uint256)` | `0x9d2fae9b` | address-gated | msg.sender != address($.lossAbsorber) | no |
+| `ReserveManager` | `enableMixedInterest()` | `0xf604c6df` | address-gated | msg.sender != s.modules.bridge *(indirect)* | no |
 | `ReserveManager` | `recordExitPrepayment(uint256)` | `0x1e5ca889` | address-gated | msg.sender != address($.lossAbsorber) | no |
+| `ReserveManager` | `registerAccruingLoan(uint256)` | `0x39d4bc94` | address-gated | msg.sender != expected *(indirect)* | no |
+| `ReserveManager` | `repayAccruingLoan(uint256,address,uint256,uint256)` | `0x31e7a70f` | address-gated | msg.sender != expected *(indirect)* | yes |
+| `ReserveManager` | `retireAccruedLoan(uint256)` | `0xa5b6e526` | address-gated | msg.sender != s.modules.waterfall *(indirect)* | no |
+| `ReserveManager` | `setAccrualFee(uint16,address)` | `0xb1a8255a` | address-gated | msg.sender != s.modules.waterfall *(indirect)* | no |
+| `ReserveManager` | `setAccrualPastDue(uint256,bool)` | `0xe84b51b9` | address-gated | msg.sender != expected *(indirect)* | no |
+| `ReserveManager` | `stopAccruingLoan(uint256)` | `0x99f39ee1` | address-gated | msg.sender != expected *(indirect)* | no |
 | `SUSDfr` | `prepareRedemptionPricing(uint256)` | `0xb0845d9f` | address-gated | msg.sender != $.redemptionQueue | no |
 | `TimelockControllerUpgradeable` | `updateDelay(uint256)` | `0x64d62353` | address-gated | sender != address(this) | no |
 | `USDfr` | `transfer(address,uint256)` | `0xa9059cbb` | address-gated | msg.sender != $.accrualController *(indirect)* | no |
 | `USDfr` | `transferFrom(address,address,uint256)` | `0x23b872dd` | address-gated | msg.sender != $.accrualController *(indirect)* | no |
+| `WaterfallEngine` | `pikCrankBlockedByProtocol(uint256)` | `0x193d2513` | address-gated | msg.sender != address($.defaultManager) *(indirect)* | no |
+| `WaterfallEngine` | `pikCrankIsDue(uint256)` | `0xe5054b31` | address-gated | msg.sender != address($.defaultManager) *(indirect)* | no |
+| `WaterfallEngine` | `planPik(uint256)` | `0x066e9f61` | address-gated | msg.sender != address($.defaultManager) *(indirect)* | no |
 
 ### Permissionless or self-scoped state-changing entrypoints (no privileged guard)
 
@@ -568,12 +608,8 @@ Derived, not asserted: every non-`view`/`pure` external function with no role, g
 | `CuratorModule` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `CuratorModule` | `withdrawFirstLoss(uint256,uint256)` | `0xef3f3f40` | yes |  |
 | `DefaultManager` | `clearMarginCall(uint256)` | `0x4954fac6` | yes |  |
-| `DefaultManager` | `liquidate(uint256)` | `0x415f1240` | yes |  |
 | `DefaultManager` | `marginCall(uint256)` | `0xdedeaae6` | yes |  |
 | `DefaultManager` | `markPastDue(uint256)` | `0x34615eec` | no |  |
-| `DefaultManager` | `onAccrualOpening(uint256,uint256)` | `0x8cf3340a` | no |  |
-| `DefaultManager` | `onAccrualPosted(uint256,uint256)` | `0x914f673a` | no |  |
-| `DefaultManager` | `onAccrualRounding(uint256,uint256)` | `0xe9266651` | no |  |
 | `DefaultManager` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `FRGovernor` | `cancel(address[],uint256[],bytes[],bytes32)` | `0x452115d6` | no | self-scoped: proposer-scoped; Pending state only |
 | `FRGovernor` | `castVote(uint256,uint8)` | `0x56781388` | no |  |
@@ -595,7 +631,6 @@ Derived, not asserted: every non-`view`/`pure` external function with no role, g
 | `GroveToken` | `transfer(address,uint256)` | `0xa9059cbb` | no |  |
 | `GroveToken` | `transferFrom(address,address,uint256)` | `0x23b872dd` | no |  |
 | `MintRedeemController` | `mint(uint256)` | `0xa0712d68` | yes |  |
-| `MintRedeemController` | `mintAccrued(uint256)` | `0xd1e18356` | no |  |
 | `MintRedeemController` | `redeem(uint256,uint256,uint256)` | `0xb8192205` | yes |  |
 | `MintRedeemController` | `redeem(uint256,uint256)` | `0x7cbc2373` | yes |  |
 | `MintRedeemController` | `redeem(uint256)` | `0xdb006a75` | yes |  |
@@ -609,21 +644,13 @@ Derived, not asserted: every non-`view`/`pure` external function with no role, g
 | `RedemptionQueue` | `claim(uint256)` | `0x379607f5` | no | self-scoped: r.owner != msg.sender |
 | `RedemptionQueue` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 | `RedemptionQueue` | `requestRedeem(uint256)` | `0xaa2f892d` | yes |  |
-| `ReserveManager` | `amendAccruingLoan(uint256,(uint16,uint32,uint64,uint64,uint64))` | `0x366f124e` | no |  |
 | `ReserveManager` | `checkpointAccrual(uint256)` | `0x2ab23cf3` | no |  |
-| `ReserveManager` | `consumeAccrualLossBurn(address,address,uint256)` | `0x08d6b124` | no |  |
 | `ReserveManager` | `materializeAccrued(uint8)` | `0x6777079e` | no |  |
 | `ReserveManager` | `postAccruedLoan(uint256)` | `0xeed8f72e` | no |  |
 | `ReserveManager` | `recapitalize(uint256)` | `0x0c47d267` | no |  |
 | `ReserveManager` | `reconcileIdleUSDC()` | `0x87f0f89a` | no |  |
-| `ReserveManager` | `registerAccruingLoan(uint256)` | `0x39d4bc94` | no |  |
 | `ReserveManager` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
-| `ReserveManager` | `repayAccruingLoan(uint256,address,uint256,uint256)` | `0x31e7a70f` | yes |  |
-| `ReserveManager` | `retireAccruedLoan(uint256)` | `0xa5b6e526` | no |  |
 | `ReserveManager` | `serviceAccruedLoan(uint256)` | `0x0efec40c` | no |  |
-| `ReserveManager` | `setAccrualFee(uint16,address)` | `0xb1a8255a` | no |  |
-| `ReserveManager` | `setAccrualPastDue(uint256,bool)` | `0xe84b51b9` | no |  |
-| `ReserveManager` | `stopAccruingLoan(uint256)` | `0x99f39ee1` | no |  |
 | `SGrove` | `claimRewards()` | `0x372500ab` | yes |  |
 | `SGrove` | `claimUnstake(uint256)` | `0xc5dd6fee` | yes |  |
 | `SGrove` | `delegate(address)` | `0x5c19a95c` | no |  |
@@ -649,7 +676,6 @@ Derived, not asserted: every non-`view`/`pure` external function with no role, g
 | `USDfr` | `approve(address,uint256)` | `0x095ea7b3` | no |  |
 | `USDfr` | `permit(address,address,uint256,uint256,uint8,bytes32,bytes32)` | `0xd505accf` | no |  |
 | `USDfr` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
-| `WaterfallEngine` | `capitalizePik(uint256)` | `0x41a3f095` | yes |  |
 | `WaterfallEngine` | `renounceRole(bytes32,address)` | `0x36568abe` | no | self-scoped: callerConfirmation != _msgSender() |
 
 ### One-shot initialisers (`initializer` / `reinitializer`, no role)
@@ -857,8 +883,8 @@ Some of these are deliberate (the ops EOA is *supposed* to keep `SERVICER_ROLE` 
 - **Live:** `Validate.s.sol` asserts, on the deployed chain, that the timelock holds
   `DEFAULT_ADMIN`/`UPGRADER` everywhere, that no EOA holds `MINTER`/`CREDIT` on value
   modules, and (when `!keepOpsAdmin`) that the deployer holds nothing.
-- **Audit:** the role×function graph was independently re-derived clean in the Round-4
-  access-control lens (`docs/security-review.md`).
+- **Audit:** the role×function graph is independently verified across the external and internal
+  reviews published on the [audit register](https://forestroadvault.com/docs/audit).
 
 *Living document — any new role or privileged function must be added here and to
-`Validate.s.sol` in the same change (CLAUDE.md §3.2).*\n
+`Validate.s.sol` in the same change (CLAUDE.md §3.2).*

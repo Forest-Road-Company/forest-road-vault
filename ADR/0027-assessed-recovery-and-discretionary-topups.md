@@ -1,9 +1,10 @@
 # ADR 0027 — Assessed recovery marks and discretionary redemption top-ups
 
-**Status:** Accepted in principle by Forest Road (2026-07-23); deployed and smoke-tested on
-Sepolia (2026-07-24). Mainnet deployment, recovery-valuation policy, funding policy, and legal
-disclosure remain pre-mainnet review items. ADR-0029 separately defers the top-up distributor from
-mainnet v1. This ADR refines ADR-0022's zero-recovery marking methodology; it does not change the
+**Status:** `AssessedImpairmentSource` deployed and active on Ethereum V2
+(`0x171e4Fc4CC6F39fc6f9813FF93992db573ec00EB`); `RecoveryTopUpDistributor` remains optional
+source-only tooling (not deployed on mainnet, per ADR-0029). Note: V2 compares sGROVE backstop
+capacity directionally (only a capacity *decrease* invalidates a published assessment; an *increase*
+does not). This ADR refines ADR-0022's zero-recovery marking methodology; it does not change the
 forced redemption cooldown or the three-layer loss cascade.
 
 ## Context

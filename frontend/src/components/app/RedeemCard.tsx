@@ -2,8 +2,9 @@
 
 /**
  * Redeem, two honest paths (ADR-0010/0018):
- *  - USDfr → tUSDC: instant, burns against idle reserves via MintRedeemController.redeem
- *    (floors to a whole stable unit, no dust taken).
+ *  - USDfr → USDC (or testnet stable): instant, burns against idle reserves via
+ *    MintRedeemController.redeem (at par, or canonical 3-arg pro-rata when impaired;
+ *    floors to a whole stable unit, no dust taken).
  *  - sUSDfr → queue: epoch FIFO. Requesting locks shares into the queue; fills happen
  *    at epoch settlement within the liquidity budget; claims are anytime after fill.
  *    Never presented as instant.

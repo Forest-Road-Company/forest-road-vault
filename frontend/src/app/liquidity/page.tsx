@@ -15,7 +15,7 @@ export default function LiquidityPage() {
     <PageShell
       section="Treasury operation"
       title="USDfr / USDC liquidity"
-      lede="A wallet-bound, two-step execution surface for the approved Uniswap v4 position. The 50 USDC pilot must settle and verify on-chain before the remaining position can be prepared."
+      lede="Internal wallet-bound execution and reconciliation surface for Forest Road's approved USDfr / USDC Uniswap v4 position (enforcing 50 USDC pilot verification before preparing any remaining tranche)."
       visual={<ProtocolScene scene="markets" />}
     >
       <LiquidityOperation />

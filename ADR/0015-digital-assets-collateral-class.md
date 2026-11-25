@@ -14,9 +14,9 @@ deliberately does **not** reuse the receivable model of the other four classes; 
   Not a receivable; no UCC-foreclosure-and-secondary-sale remedy path.
 - **Valuation:** frequent marks via the `AttestationOracle` `Valuation` path (m-of-n ≥ 2
   attesters), with a **freshness rule**: a facility whose latest mark is older than the
-  class's `maxMarkAge` cannot draw, and its health checks use the last mark with an added
-  staleness haircut. Backing contribution to `backingValue()` always uses conservative,
-  haircut marks (ADR-0012).
+  class's `maxMarkAge` cannot authorize a draw, margin call, cure or liquidation.
+  All three margin actions require a fresh attested mark under ADR-0030. Backing
+  contribution to `backingValue()` uses conservative, haircut marks (ADR-0012).
 - **Dynamic LTV / margin machinery** (replaces the single static LTV of receivable
   classes): three thresholds — `initialLtv` (draw ceiling), `marginCallLtv` (breach emits
   `MarginCalled`; short cure window to top up collateral or pay down), `liquidationLtv`
@@ -64,3 +64,22 @@ Actioned 2026-09-17: the definition the facility documents must carry (numerator
 thresholds, cure window, staleness rule) is written into `docs/legal-wrapper.md` section 6.1, and
 conforming the executed instruments is counsel item 9 of that document. No facility in this class
 has been originated, so no executed instrument needs amending yet.
+
+## Owner clarification, 2026-10-06: parallel attested legal default
+
+An attested legal default is an allowed parallel remedy for marked-to-market
+facilities. The authorized servicer may use `DefaultManager.declareDefault`
+with the exact signed `DefaultDeclared` fact for that facility, including
+while a margin cure window is open. The declaration supersedes the open
+margin cure by design. This records intended existing behaviour; it requires
+no contract change.
+
+## Owner clarification, 2026-10-07: fresh marks for every margin action
+
+The fresh-only rule in ADR-0030 is authoritative for margin calls, cures and
+liquidation. The owner accepts that permissionless protective actions can
+wait when a previously breached mark ages beyond `maxMarkAge` and no fresh
+mark is available. Protection then depends on a fresh attested mark or the
+allowed exact signed legal-default remedy. Older any-age protective-trigger
+wording in the contract header and earlier documents is obsolete. This is a
+documentation correction of intended behaviour; no contract change is selected.

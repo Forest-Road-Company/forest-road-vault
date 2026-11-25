@@ -143,6 +143,6 @@ and role assignment remain human-owned release gates. The mainnet program must u
 reviewed 2-of-4 Squads with its time lock, a separately chosen emergency signer, a dedicated RPC,
 an uploaded/verifiable program artifact and a post-deployment specialist review.
 
-The owner-provided Corrovera review of 20 September and the remediation status are recorded in
-`docs/remediation/CURATOR_VAULT_AUDIT_TRIAGE_2026-09-20.md`. The earlier internal review is a
-historical checkpoint only.
+The Corrovera external review of 20 September 2026 and its two remediation verifications are
+published on the [Audit Register](https://forestroadvault.com/docs/audit/2026-09-20-curator-vault-corrovera).
+The earlier internal review is a historical checkpoint only.

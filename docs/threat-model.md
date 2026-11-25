@@ -1,11 +1,14 @@
 # Threat Model — Forest Road Vault
 
-**Audience:** external auditors and Forest Road. **Companion docs:** `invariants.md` (the
-safety spec), `access-control-matrix.md` (roles), `security-review.md` (the internal
-audit campaign — 4 rounds + a post-fix pass). **Posture:** this protocol custodies real
-capital against real legal claims; a rushed or under-tested contract is worse than none
-(CLAUDE.md Prime Directive 2). The internal review prepares a clean mainnet-v1 candidate
-but does not itself authorize production; the human and external gates in §7 control.
+**Audience:** external auditors and Forest Road. **Updated:** 25 November 2026 (Ethereum V2 live
+on mainnet since September 2026, block 26,006,832; staged LMV Stage 2 remediation candidate
+<!-- tm-check:ignore-start commit hash and external finding IDs -->`ee9b228a`<!-- tm-check:ignore-end -->
+Corrovera re-audited 24 November 2026 and awaiting Stage 1 → Stage 2 governance activation).
+**Companion docs:** `invariants.md` (the safety spec), `access-control-matrix.md` (roles), and the
+public [audit register](https://forestroadvault.com/docs/audit). **Posture:** this protocol
+custodies real capital against real legal claims; live Ethereum proxies currently remain on
+pre-Stage-2 implementations where <!-- tm-check:ignore-start external finding IDs -->`LMV-09`, `LMV-18`, and `FRV-NEW-02`<!-- tm-check:ignore-end -->
+stay explicitly Open until Stage 2 executes and the liquidation bot rollout completes.
 
 ---
 
@@ -103,6 +106,44 @@ added tomorrow reds this document rather than quietly escaping the model.
 - `VaultFeeMath` — the extracted management-fee retention formula used by `sUSDfr`. It owns no
   storage or authority; its risk is rounding or checkpoint-frequency dependence, covered by the
   fee differential and long-time tests.
+- `BorrowerPayoutLib` (added 2026-09-22) is the borrower-payout allowlist. Principal may leave
+  the reserve only for a destination where `ComplianceRegistry.isFundingRecipientAllowed` is
+  true: approved by `DEFAULT_ADMIN_ROLE`, the timelock, and not jurisdiction-blocked. The
+  operational `COMPLIANCE_ADMIN_ROLE` can block a destination but cannot approve one, so a
+  captured compliance key can stop payouts but not redirect them. It is enforced at both credit
+  gates: `ClaimBridge` checks `fundingRecipient` at origination through its own bound copy in
+  `BridgeMixedInterestLib`, and `ReserveCreditLib` checks the destination again when principal
+  is deployed. Each proxy binds the registry once, `bind` refuses a second binding and any
+  registry that does not answer the policy probe, and an unbound proxy refuses every payout, so a
+  missed wiring step fails closed. Residual risk: a captured timelock can approve an attacker
+  address. That is the governance-capture risk of every timelocked parameter, and each change is
+  visible as `FundingRecipientApprovalUpdated`.
+- `ReserveAccrualLifecycleLib` (added 2026-09-21) is the linked body for native loan lifecycle
+  transitions in the `ReserveManager` context: matching both signed receipt legs on `repay`,
+  `retire`, declared-loss `writeDown`, signed-term `amend` and `amendMixed`, `stop` at default
+  declaration, and `setPastDue`. Each transition accepts only its bound module as caller and a
+  fresh book; the host keeps pause and reentrancy guards. Its failure modes are posting a face
+  twice or not at all at declaration, admitting exposure beyond the reserved ceiling, and a
+  receipt that does not match the signed legs. `ReserveMigrationViewLib` is a view-only helper
+  that returns the encoded opening-migration status for the host's view forwarder; it writes no
+  state and holds no authority.
+- `BridgeMixedInterestLib` (added 2026-09-21) carries mixed cash/PIK interest: two authenticated
+  interest legs per facility, a one-shot signed amendment slot and the feature switch, stored in
+  a dedicated ERC-7201 namespace in the bridge. Activation
+  (`BridgeAccrualLib.activateMixed`) requires the reserve, waterfall and default manager to report
+  the same `mixedInterestVersion` before it enables the reserve, and afterwards each module's
+  `requireMixedImplementation` refuses an upgrade to an implementation that cannot decode mixed
+  state. The seven probe interfaces carry exactly those reads: `IMixedInterestVersion`,
+  `IMixedReserveImplementation`, `IMixedInterestWaterfallImplementation` and
+  `IMixedInterestDefaultImplementation` report an implementation's version;
+  `IMixedInterestReserve` enables the reserve; `IMixedInterestReserveStatus` and
+  `IMixedInterestReserveStatusForDefault` let the waterfall and default manager route mixed
+  facilities. Every probe is a staticcall that rejects a failed or malformed reply. Failure modes:
+  a partially upgraded module set, where one module writes mixed state another misreads; a staged
+  amendment replaced before it is applied or revoked, refused as
+  `MixedInterest_UnconsumedAmendment`; and leg due clocks drifting from the signed schedule.
+  Staged terms are emitted as `MixedInterestTermsStaged`, so the mixed-leg register is
+  reconstructable from logs.
 
 Section 4 walks the value-moving path. These contracts sit off it and are modelled here so that
 "not in section 4" never silently means "not modelled".
@@ -121,13 +162,91 @@ Section 4 walks the value-moving path. These contracts sit off it and are modell
 - `ConservativeImpairmentMath` — pure arithmetic for the conservative senior mark. No state, no
   privileges; its risk is a wrong formula, not a wrong caller, so it is covered by the invariant
   tier rather than by access control.
-- `MtmAtomicExecutor` — the marked-to-market margin path executor. Out of scope for launch classes,
-  which are all Receivable.
+- `MtmAtomicExecutor` — the immutable, roleless marked-to-market margin path executor. **Live on
+  Ethereum V2** for Class 5 (Digital Assets, 4 active related-party facilities as of 25 November
+  2026), driven by two independently operated private MTM keepers and backed by fresh m-of-n
+  signed daily valuations (`maxMarkAge` 36 hours / FRV-008). Because it holds no roles and no
+  funds, its risk is operational liveness (keeper availability, attester freshness) and oracle
+  accuracy rather than contract-key compromise.
 - `PointsModule` — off-value-path incentive accounting. Cannot move capital.
 - `GroveToken` — the governance token. Its risk is governance capture, covered by the timelock rows
   above and by ADR-0026.
 - `RecoveryTopUpDistributor` — routes recovered principal back to senior holders. Value-moving but
   post-cascade; the amounts it distributes are already fixed by the cascade that ran before it.
+- `SUSDfrExitValueOracle` (added 2026-09-28, redesigned the same day after an independent review),
+  with its read interfaces `IExitValueVault`, `IUSDfrBackingSource`, `IReserveCustody` and
+  `ILoanTokenDecimals`: the live price source for the Ethereum Morpho Blue market lending USDC
+  against `sUSDfr` (`https://forestroadvault.com/markets`, active with lending, borrowing and
+  Treasury supply enabled). It is immutable, roleless and holds
+  nothing, so there is no key to capture and it cannot move protocol capital. Its risk falls on that
+  market's lenders and borrowers, through the price it publishes.
+  - The price is the smaller of the vault's exit value (`previewRedeem`, net of the declared senior
+    impairment after curator and sGROVE capital) and a backing floor (realized NAV times recognized
+    backing over supply), never their product. The product counted a declared, reserve-marked loss
+    twice: on a mainnet fork a zero-recovery USD 1 million tranche read 0.6295 instead of 0.7822, and
+    a ready timelock `recognizePrincipalImpairment` is executable by anyone, so a liquidator could
+    bundle it with liquidations (review finding H-1, now a unit and fork regression). The floor binds
+    for a PROVISIONAL mark on an undeclared facility, which the vault cannot see.
+  - It fails closed (reverts) while a custody incident is open: USDC missing from custody, or a
+    custody-loss arm awaiting ratification, the two states in which the controller closes or
+    suspends redemptions. A pro-rata haircut mispriced custody losses in both directions (review
+    M-1). It also fails closed when the vault's impairment source is cleared (M-3), mid-operation
+    (audit R18) and whenever a source reverts. Morpho then refuses borrows, liquidations and
+    withdrawals from indebted positions; supplying collateral and repaying still work. A permanent
+    revert would freeze liquidation for the market for good, because a market's oracle is fixed.
+  - Disclosed, not fixed (protocol-level, review M-2): the exit value moves on permissionless or
+    unrelated actions that a liquidator can bundle ahead of `liquidate`. `markPastDue` on a late
+    facility steps it down at once and its relief ramp lowers it further with no transaction; a
+    published assessment is voided by any change to the impairment revision or to a curator pool
+    balance, reverting the mark to zero recovery until governance republishes; and exit draws taken
+    while a reserve mark stands are not netted from `pendingSeniorImpairment`. These mis-price sUSDfr
+    exits themselves, not only this oracle; the LLTV, the liquidation bot and the runbook must allow
+    for them.
+  - The price depends on about ten upgradeable modules (the vault, controller, reserve, default
+    manager, impairment source and the modules they read) and on governance parameters, so any such
+    upgrade must re-run the oracle's fork suite. Reading it costs about 290,000 gas warm.
+  - Residual: a declared default steps the exit value once (about 22% for one USD 1 million tranche
+    today), which at 86% LLTV can carry looped positions past liquidation into bad debt (measured in
+    the Phase 2 rehearsal). That is a market-parameter risk, not an oracle defect.
+- Morpho collateral points (the site loader, frontend/src/lib/morphoPoints.server.ts): the site credits sUSDfr posted as
+  Morpho collateral off-chain from Morpho Blue's events. It serves only finalized blocks, checks
+  every log's block hash, re-reads any answer long enough to have been truncated, reconciles every
+  known owner against Morpho Blue's `position()` at the end of every 9,000-block chunk, refuses
+  over-withdrawals rather than clamping them, pins the market's parameters, the oracle's address and
+  the PointsModule implementation it was verified against, withholds points from protocol-exempt
+  and jurisdiction-blocked owners, and holds them back while the owner's on-chain points ledger
+  tracks more sUSDfr than the wallet holds. Residuals: a missed pair of events that nets to zero for
+  one owner inside a single chunk is invisible to `position()`; and the on-chain over-credit that a
+  dropped hook update accrues before someone reconciles is not netted. Separately, a jurisdiction block cannot reach sUSDfr held as Morpho
+  collateral: a blocked owner can withdraw it to a clean receiver, because the transfer's `from` is
+  Morpho Blue. The same holds for any venue that custodies the token on a user's behalf.
+- Morpho liquidation bot (off-chain keeper, decision D4, gate G5, live on Ethereum mainnet): an
+  off-chain keeper that liquidates positions past the 86% LLTV of the live Morpho USDC/sUSDfr market
+  using an **AWS KMS policy-restricted signer** (rotated from a raw EOA on 22 October 2026; the
+  service refuses startup if any raw private-key environment variable is present, and a separate
+  withdrawal signer path added 5 November 2026 governs Treasury sweeps). Capture of the service
+  credentials can spend at most the signer's funded USDC (25,000 USDC G5 allocation, topped up by
+  the Treasury Safe), and the code bounds it further: at most 25,000 USDC repaid per liquidation
+  and 100,000 per UTC day, counted from the signer's own Liquidate events so a restart cannot reset
+  the day, with ceilings the environment cannot lift past 100,000 and 1,000,000. It calls Morpho's
+  liquidate only on the one market it verifies at start (USDC against sUSDfr, 86%, the adaptive
+  curve IRM, an oracle wired to sUSDfr, the V2 controller and USDC), simulates every call first,
+  sends one transaction at a time, and passes seized sUSDfr to the Treasury Safe at once. Nothing is
+  sent while the oracle reverts or reads zero, and watch mode never signs. Send mode requires the
+  deployed oracle pinned and refuses a wallet USDC has blacklisted. **Open operational finding
+  (25 November 2026):** <!-- tm-check:ignore-start off-chain audit finding IDs -->`FRV-NEW-02`<!-- tm-check:ignore-end -->
+  tracks rolling out and verifying the updated bot image (cold-block gas override and per-marked-leg
+  gas scaling) prior to Stage 2 release clearance. Residuals: compromise of KMS signing access takes
+  the signer's funded USDC and ETH; the signer's approval to Morpho Blue is bounded to the market's
+  liquidation path; a mispriced oracle would mislead it as it would any liquidator; and after a
+  default step it can only stop bad debt growing, not prevent it.
+- Frontend RPC proxy & Blob snapshot cache (off-chain web tier, hardened November 2026): production
+  browser JSON-RPC traffic routes exclusively through same-origin <!-- tm-check:ignore-start Next.js API route paths -->`/api/rpc`<!-- tm-check:ignore-end -->
+  (enforcing an allowlisted method/contract filter and 4-full-block cap, with upstream RPC
+  credentials kept server-side and verified absent from client bundles). Historical transparency
+  and points snapshots persist in private Vercel Blob with compare-and-swap locking and fail-closed
+  error handling. Residuals: upstream RPC outage degrades live reads; Blob unavailability falls
+  back cleanly to bounded live queries or 503 rather than serving fabricated state.
 - `DefaultInitLib` / `DefaultLossLib` — delegatecalled bodies extracted from `DefaultManager` on
   2026-09-10 for EIP-170, mirroring the `ReserveCreditLib` pattern. The SAME rule applies and it is
   the whole risk: a library cannot see its caller's modifiers, so `DefaultManager` keeps
@@ -144,8 +263,8 @@ Section 4 walks the value-moving path. These contracts sit off it and are modell
    commitments to exact amounts, expiry + freshness (`asOf`/`maxMarkAge`), nonce replay
    protection, consume-once digests.
 2. **External ERC-20 ↔ protocol.** Canonical Ethereum USDC only; exact measured inbound
-   receipts, SafeERC20 throughout, and a one-way-downward reconciliation if actual
-   custody falls below the durable idle ledger.
+   receipts, SafeERC20 throughout, and an observation-only `reconcileIdleUSDC` plus arm-bound
+   governed custody-loss cascade (`ADR-0033`) if actual custody falls below the durable idle ledger.
 3. **Module ↔ module (`CREDIT_ROLE`).** Cross-module primitives callable only by the
    specific sibling module; the cascade legs are non-pausable.
 4. **User ↔ vault exit.** ERC-4626 withdraw/redeem is queue-only (epoch FIFO); no instant
@@ -275,7 +394,7 @@ Section 4 walks the value-moving path. These contracts sit off it and are modell
   principal absorbs 100% of later loss until replenishment. Report order therefore allocates the
   shared protection, an owner-accepted economic consequence that must remain explicit externally.
 - *Sanctions-immune fee wallet (`protocolExempt`)* → accepted (liveness-critical inbound); counsel
-  to revisit a sweep-sink / leg-split before third-party capital (OWNER_DECISIONS #5).
+  to revisit a sweep-sink / leg-split before broad third-party capital.
 - *Reward sandwich (deposit-before-harvest)* → rewards **stream** over a duration; a
   mid-stream notify cannot lower the rate (audit R4-EC1 + M-1). Pendle-compatible.
 
@@ -356,13 +475,13 @@ Section 4 walks the value-moving path. These contracts sit off it and are modell
 
 ## 5. Residual risks & accepted items
 
-Flagged in the audit campaign. This table mixes accepted policy/counsel risks with historically
-remediated code defects such as S3-F1 and D7; each row's disposition controls. Full remediation
-detail is in `security-review.md`.
+Flagged across external and internal audit rounds. This table mixes accepted policy/counsel risks
+with historically remediated code defects such as S3-F1, D7, F3 and R7-SM1; each row's disposition
+controls. Full remediation detail is on the [audit register](https://forestroadvault.com/docs/audit).
 
 | Ref | Sev | Risk | Disposition |
 |---|---|---|---|
-| F3 | Med (counsel) | `sUSDfr` transfers bypass compliance — a sanctioned wallet can hold the staked instrument. | **Intentional** (Forest Road: "no transfer gating in DeFi"). The `protocolExempt` plumbing is in place if counsel later requires gating. |
+| F3 | Historical Med | Pre-V2 `sUSDfr` transfers bypassed compliance checks. | **Remediated in V2:** live `sUSDfr` enforces sanctions/jurisdiction transfer blocking (`SUSDfr_TransferBlocked`) on non-exempt transfers (residual noted in §2.2: custodial third-party venues such as Morpho Blue transfer as the venue address rather than the underlying depositor). |
 | F4 | Low | Value stranded by a post-fill jurisdiction block has no governed recovery path. | Accepted (may be intended for sanctions). |
 | R4-EC3 | Historical Low | Redemption-queue budget-snapshot timing griefing (no extraction). | **Fixed by D7:** `closeEpoch` is keeper-authenticated. Production still requires keeper activation, health and Safe-fallback rehearsal. |
 | Deploy | Info | Testnet `KEEP_OPS_ADMIN=true` leaves the ops EOA as `DEFAULT_ADMIN`; testnet attester keys derive from one secret. | **Production MUST** run `KEEP_OPS_ADMIN=false` with genuinely-separated attester signers. |
@@ -377,11 +496,11 @@ detail is in `security-review.md`.
 | G4 | Queue pricing policy | A mark revision between settlement calls can make later chunks use a different price. | **Intentional live inter-call pricing.** Preserve FIFO and transaction/revision monitoring; no claim of intra-call repricing. |
 | PROD-V1-FLOW | Deployment identity / operator integrity | A replacement could overwrite the v4 receipt, validate the wrong manifest, or omit <!-- tm-check:ignore-start describes the DEPLOYMENT MANIFEST of this tree, not its src/ symbols -->`queueKeeper`<!-- tm-check:ignore-end --> from frontend receipt reconstruction. | **Implemented; current default/heavy/focused/cold-build and clean local source-freeze evidence green.** Dedicated production script/validator/receipt names and `1-production-v1.json`; completed-v4 records/manifest immutable while shared base source remains in scope; zero/substituted keeper rejected. No production tag/manifest exists; pinned CI/RPC/Slither, formal review and regenerated authorization remain open. |
 | GOV-TL-V1 | Governance liveness / authority integrity | Inherited `updateTimelock` changes only the Governor pointer and could orphan roles on the old Timelock. | **Fixed for v1; focused/current default/heavy evidence green.** Endpoint is governance-only and terminally reverts; future migration requires an independently reviewed Governor upgrade plus atomic role transfer. |
-| **R7-SM1** | Low | A facility `originate`d then never funded sits in `Pending` forever (only exit is `Pending→Active` via `fund`); its class/borrower/state concentration exposure is stranded, keeping `CuratorModule._requiredFirstLoss` inflated and curator first-loss headroom locked. **Conservative direction** — only shrinks future capacity, never permits over-concentration; value conservation intact. | **Governance-recoverable WITHOUT an upgrade** (timelock `grantRole(CREDIT_ROLE)` → `recordExposureDecrease`). Proper fix: a future governed `cancel/expire` transition out of `Pending`. Not a redeploy blocker. |
+| **R7-SM1** | Historical Low | An originated-but-unfunded facility in `Pending` previously had no cancellation transition, stranding concentration exposure and curator first-loss headroom. | **Remediated in V2:** `ClaimBridge.cancelPending` is deployed on Ethereum V2 (`ORIGINATOR_ROLE`) to retire unfunded `Pending` facilities cleanly and release stranded exposure. |
 | ADR27-VAL1 | High (governance trust) | A malicious or unsupported `AssessedImpairmentSource.setAssessment` can reduce the queue haircut to zero while a real senior loss remains likely, allowing early redeemers to shift that loss to stayers. | Timelock-only; amount can never exceed the zero-recovery base, expires after at most 30 days, commits to a published evidence hash, and automatically fails back to zero recovery. It is also bound to `DefaultManager`'s monotonic revision and to the live **risk-state** hash, so every new default/past-due/recovery/realization or curator first-loss change invalidates it immediately. **sGROVE backstop capacity is deliberately excluded from that hash and compared directionally instead (RC-01 era fix for FRV-FS-04): a capacity DECREASE invalidates, a capacity INCREASE does not.** An increase can only make a published assessment more conservative, whereas an exact-match rule let anyone void a depositor-favourable assessment with a dust `fundCoverage` donation, since that entry point is permissionless. Independent valuation-policy and monitoring sign-off remain mainnet gates. |
 | ADR31-EQ1 | Medium (economic) | A single global HWM is not a depositor tax lot: someone entering during a drawdown shares fee-free recovery to the old protocol peak and may share a later fee on pre-entry gains deferred by performance impairment, even while junior support makes queued-exit impairment zero. There is no clawback of crystallized fees after a later loss. | Deliberate scalable design; the Stake surface independently warns whenever `feeExchangeRate() < highWaterMark()`, monitor both values, and obtain economic/legal acceptance. Per-investor lots/share classes are a future redesign, not a parameter change. |
 | ADR31-EQ2 | Medium (economic under-collection, accepted 2026-07-30) | After serving the 21-day queue cooldown, an incumbent can exit and redeposit during a junior-covered fee deferral. Basis-additive entry plus the holder-protective pro-rata exit law can then reduce the protocol's later performance fee even though assets return. | Forest Road explicitly accepted this direction and declined a launch exit-equalization fee. The per-share HWM cannot fall across the exit, so the residual under-collects protocol revenue rather than charging stayers on non-profit. A composed production-wired regression pins the behavior; monitor material round trips and reopen only as a lot/equalization/share-class economic redesign. |
-| ADR31-VAL1 | Medium (governance/economic) | Professional assessment timing can alter performance-fee NAV between lazy checkpoints; direct USDfr donations are fee-bearing gain. | Timelocked/evidenced assessment policy, permissionless checkpoints, junior-credit snapshotting, event monitoring, and external audit. The v2 deployment contains this surface but remains closed pending operational acceptance. |
+| ADR31-VAL1 | Medium (governance/economic) | Professional assessment timing can alter performance-fee NAV between lazy checkpoints; direct USDfr donations are fee-bearing gain. | Timelocked/evidenced assessment policy, permissionless checkpoints, junior-credit snapshotting, event monitoring, and external audit. Live on Ethereum V2. |
 | ADR31-LIVE1 | High (liveness, remediated) | A reverting, malformed, or semantically inconsistent impairment source can make every fee checkpoint fail and therefore block deposits, queue operations, repayments, and default transitions; checkpointing through that same source also prevents the normal setter from clearing it. | Non-zero replacements are validated through both impairment views and their required ordering before wiring. The normal path remains fail-loud and checkpointed. A separate timelocked recovery function can only clear the current source after a fixed-budget ABI/ordering probe fails, enforces a separate recovery-gas reserve so under-gassing cannot fake failure, emits failure evidence, and HWM-ratchets any lifted NAV fee-free. A valid source cannot use the bypass. Regressions cover reverting, short-return, performance-only malformed, and `performance < redemption` sources. |
 | ADR31-REC1 | Low (economic under-collection, accepted emergency trade-off) | Clearing an unreadable impairment source lifts marked NAV and ratchets that lift fee-free. Any performance fee embedded in the live impairment/recovery gap is permanently waived. | Recovery is timelock-only, can only clear a source that fails a fixed-budget ABI-shape probe, emits failure evidence, and is an incident path rather than ordinary valuation governance. Monitoring must quantify the waived fee and production must remain paused until a validated source is restored. Regressions cover both reverting and successful-but-malformed current sources. |
 | ADR31-EXIT1 | High (economic, remediated; delta review pending) | Carrying an asset hurdle out solely at junior-supported redemption NAV lets a leaver shed deferred performance-fee exposure onto stayers when redemption NAV exceeds performance-fee NAV. | Exits retain `max(asset carry, pro-rata carry)`. A production-wired queue regression cures the impairment and value-asserts that only stayers' proportional deferred profit is charged; the dual-NAV stateful campaign independently derives the same law from pre-flow state. |
@@ -416,18 +535,31 @@ The coverage receipt and its hard source-function denominator must be regenerate
 release source. `--allow-failure` is only an LCOV-emission mechanism; ordinary default/heavy
 profiles own correctness and every coverage-only failure must still be reviewed explicitly.
 
-The fresh Ethereum v2 address set deployed on 2026-09-18 remains closed to user operations while
-live-address qualification runs. Corrovera satisfies Forest Road's independent source-review gate;
-that review and this internal evidence do not authorize third-party capital. Opening the system is
-a separate human governance and operational decision after every gate above is reviewed.
+Ethereum V2 (deployed September 2026, block 26,006,832) is live on Ethereum mainnet with 15 active
+facilities (`USDfr` supply 11.2m on 25 November 2026), an active Morpho Blue USDC/sUSDfr market,
+Uniswap v4 pools, and a live Ethereum↔BSC LayerZero token bridge. Corrovera Security completed
+independent external reviews of V1/V2, the Solana devnet curator vault (20 September 2026), and the
+November 2026 LMV release candidates (full-system review 21 November, delta audit 23 November, and
+delta re-audit **PASS** on candidate <!-- tm-check:ignore-start commit hash -->`ee9b228a`<!-- tm-check:ignore-end -->
+on 24 November alongside 66/66 green hosted CI security gates).
+
+**Staged LMV Upgrade Posture (25 November 2026):** All Stage 1 preliminary release-monitor
+components and all 38 newly compiled Stage 2 contracts and libraries from <!-- tm-check:ignore-start commit hash -->`ee9b228a`<!-- tm-check:ignore-end -->
+are deployed on Ethereum mainnet and verified exact-match on Sourcify. Stage 1 governance
+proposal <!-- tm-check:ignore-start proposal id -->`0xd14e...2ce1`<!-- tm-check:ignore-end --> is
+live (voting opens 25 November 2026 16:34 UTC). Until Stage 2 executes and the liquidation bot
+update (<!-- tm-check:ignore-start audit id -->`FRV-NEW-02`<!-- tm-check:ignore-end -->) is rolled
+out and verified, live proxies remain on their pre-Stage-2 implementations, <!-- tm-check:ignore-start audit ids -->`LMV-09`, `LMV-18`, and `FRV-NEW-02`<!-- tm-check:ignore-end -->
+remain explicitly Open, and broad protocol production release remains gated on completion of those
+steps.
 
 The round-4 ADR-0031 review found no High issue and confirmed the holder-harming exit
 defect closed. Forest Road accepted the remaining protocol-under-collection tradeoff.
-The reviewed contract tree deployed for v2 is bound by the deployment manifest, implementation and
-library runtime hashes, and the post-handover fork pin. It enables continuous accrual from genesis,
+The live Ethereum V2 contract set is bound by on-chain deployment verification, implementation and
+library runtime hashes, and post-handover fork pins. It enables continuous accrual from genesis,
 enforces dual-NAV dependency order, validates the complete backstop interface, gates EIP-170 size,
-and launches with zero yield vesting plus an atomic post-interest checkpoint. Any contract change
-invalidates that identity evidence and requires new bytecode, review and deployment receipts.
+and launches with zero yield vesting plus an atomic post-interest checkpoint. Any contract upgrade
+requires governance approval, new bytecode verification and updated deployment receipts.
 
 *Living document — update as the surface, mitigations, or accepted risks change.*
 
