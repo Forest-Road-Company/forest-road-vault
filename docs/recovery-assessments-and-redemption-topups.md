@@ -1,10 +1,10 @@
 # Recovery assessments and redemption top-ups
 
-> **Clean-v1 status (ADR-0030, 2026-07-24):** `AssessedImpairmentSource` is part of the
-> clean deployment and wraps the revision-aware `DefaultManager`.
-> `RecoveryTopUpDistributor` is optional source-only tooling: it is not deployed, wired,
-> advertised, or promised for mainnet v1. The older Sepolia stack did deploy both tools;
-> that historical test deployment is not the clean-v1 launch topology.
+> **Ethereum V2 status (updated 25 November 2026; ADR-0030):** `AssessedImpairmentSource` is
+> deployed and active on Ethereum V2 (`0x171e4Fc4CC6F39fc6f9813FF93992db573ec00EB`), wrapping the
+> revision-aware `DefaultManager`. `RecoveryTopUpDistributor` remains optional source-only tooling:
+> it is not deployed, wired, advertised, or promised on Ethereum mainnet. Historical Sepolia
+> deployments deployed both tools for testing and do not represent mainnet topology.
 
 ## What the queue price means
 
@@ -37,17 +37,30 @@ an evidence hash and expires within 30 days. Expiry automatically restores zero-
 This makes stale or missing judgment conservative.
 
 Every assessment is also bound to the exact revisioned impairment snapshot standing when it is
-published. A new declared default, past-due mark, recovery, realized loss, backstop change, or
-change in curator/sGROVE capacity invalidates it immediately—even if equal-and-offsetting changes
-leave the headline impairment amount unchanged. Pricing then uses the full live zero-recovery
-result until governance publishes a new assessment backed by an updated memorandum.
+published:
+
+- A new declared default, past-due mark, recovery, realized loss, backstop replacement, or change
+  in curator first-loss capacity invalidates the assessment immediately—even if equal-and-offsetting
+  changes leave the headline impairment amount unchanged.
+- **sGROVE backstop capacity is compared directionally (not by exact match):** a backstop
+  *decrease* invalidates the assessment immediately, whereas a backstop *increase* (for example,
+  via permissionless `SGrove.fundCoverage`) does **not** invalidate it, because adding coverage can
+  only make a published assessment more conservative and prevents a dust donation from voiding a
+  valid assessment.
+- Under continuous past-due interest accrual (ADR-0038), rising unpaid past-due exposure adjusts
+  the underlying zero-recovery ceiling monotonically rather than requiring an assessment to be
+  invalidated on every second of elapsed time; any assessment remains capped at the live
+  zero-recovery result and still expires within 30 days.
+
+Whenever an assessment is invalidated or expires, pricing reverts automatically to the full live
+zero-recovery result until governance publishes a new assessment backed by an updated memorandum.
 
 The assessment can therefore change or become inactive before a queued request settles. The
 frontend preview is an estimate at the current block, not a guaranteed settlement quote.
 
 ## Later top-ups
 
-Mainnet v1 has no recovery-top-up contract. If actual recoveries are better than an assessment
+Ethereum V2 has no deployed recovery-top-up contract. If actual recoveries are better than an assessment
 used for an earlier fill, any later distribution requires a new governance/design decision,
 funding source, legal review, deployment, and audit. The retained optional
 `RecoveryTopUpDistributor` source illustrates a fully funded Merkle design, but no current user

@@ -245,7 +245,7 @@ The release test bar is executable and may not be lowered by editing this docume
 - 32 independent stateful books execute 96 randomized steps each across three positions, retain
   and assert every transaction result, reach withdrawal eligibility, complete withdrawals and
   check the accounting predicates after each step;
-- the committed mutation runner must rebuild eight deliberately defective program variants, prove
+- the committed mutation runner must rebuild nine deliberately defective program variants, prove
   the named regression fails for each, restore every source file and reproduce the pristine host
   artifact hash; and
 - the exact canonical ELF and finalized devnet snapshot must pass the selected deployed-evidence
@@ -253,7 +253,7 @@ The release test bar is executable and may not be lowered by editing this docume
 
 At the latest 20 September 2026 verification checkpoint, the measured local corpus has nine
 arithmetic tests and 24 LiteSVM lifecycle tests. The stateful run checks 3,072 steps and reaches
-real withdrawals in every independent book. Eight committed program mutations all turn their
+real withdrawals in every independent book. Nine committed program mutations all turn their
 directed tests red. CI reruns the tests and census whenever this surface changes.
 
 ## Operations and frontend

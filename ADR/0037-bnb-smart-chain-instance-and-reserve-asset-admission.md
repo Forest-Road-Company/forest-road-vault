@@ -1,10 +1,10 @@
 # ADR-0037: A second protocol instance on BNB Smart Chain, and how a reserve asset is admitted
 
-**Status:** Draft, decided in principle by Forest Road on 2026-09-07 (see "Decisions received"
-below); D1 remains open pending a liquidity measurement and counsel. Written 2026-09-07; revised
-the same day after an independent five-lens review. Not yet accepted as a record. Binds nothing.
-Nothing in this document authorises a broadcast on any chain, extends any owner direction, or
-changes the live Ethereum deployment.
+**Status:** Draft (unlaunched on BSC mainnet as of 25 November 2026). Separately, Phase 1
+Ethereum↔BSC token bridging launched via LayerZero `SUSDfrOFT` (see
+[ADR-0045](0045-bsc-layerzero-oft-token-bridge.md)), leaving the standalone BSC credit protocol
+described below undeployed on BSC mainnet. Nothing in this document authorises a broadcast on any
+chain, extends any owner direction, or changes the live Ethereum deployment.
 
 **Decisions received from Forest Road, 2026-09-07** (the options are defined in §1):
 

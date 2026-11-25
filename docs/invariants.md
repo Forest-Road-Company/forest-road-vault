@@ -1,14 +1,15 @@
 # Invariant Specification — Forest Road Vault
 
-**Audience:** external auditors and reviewers. **Status:** the properties below are the
-normative clean-mainnet-v1 safety specification. Their named Foundry suites must pass at
-the configured heavy profile before release (`heavy`: 10k fuzz runs; invariant runs
-≥ 512, depth ≥ 256). This document is
-the protocol's **safety spec** — it maps each property in CLAUDE.md §1.3 to (a) the
-mechanism that enforces it on-chain and (b) the named test(s) that prove it.
+**Audience:** external auditors and reviewers. **Status (updated 25 November 2026):** the properties
+below are the normative **Ethereum V2** safety specification (live on Ethereum mainnet since
+September 2026, block `26,006,832`, with staged LMV Stage 2 remediation candidate `ee9b228a`
+pending governance activation). Their named Foundry suites must pass at the configured heavy
+profile before release (`heavy`: 10k fuzz runs; invariant runs ≥ 512, depth ≥ 256). This document
+is the protocol's **safety spec** — it maps each property to (a) the mechanism that enforces it
+on-chain and (b) the named test(s) that prove it.
 
 Run: `FOUNDRY_PROFILE=heavy forge test` (from `contracts/`). Release evidence and exact
-counts are recorded in the dated pre-mainnet security report.
+counts are recorded on the [audit register](https://forestroadvault.com/docs/audit).
 
 > Convention: an invariant is a property that must hold **across all reachable states**.
 > If one cannot be made to hold, that is a genuine-problem STOP — we surface it rather
@@ -18,9 +19,13 @@ counts are recorded in the dated pre-mainnet security report.
 
 ## 1. Backing invariant (ADR-0012)
 
-**Property.** `USDfr.totalSupply()` ≤ backing value, always, where backing =
-internally accounted idle USDC at par + deployed facility principal. No reserve
-instrument or direct token donation can increase backing.
+**Property.** `USDfr.totalSupply()` ≤ recognized backing value, always, where backing =
+internally accounted idle USDC at par + deployed facility principal + continuously accrued
+earned-but-unreceived interest (ADR-0038), net of authenticated principal/custody impairments. No
+reserve instrument or direct token donation can increase backing. Under the 5 November 2026 I1
+rounding ruling, an extreme loss exhausting every absorbing layer can leave at most a sub-USDC-unit
+rounding remainder (`< 1e12` USDfr wei); value-sensitive paths then fail closed until the
+rate-limited rounding-correction path supplies the exact remainder.
 
 **Enforcement.** Every supply-increasing path asserts backing *after* the mint:
 `MintRedeemController.mint` (`_assertBacking`), `WaterfallEngine._routeInterest` /
@@ -99,8 +104,15 @@ new requests and settlement but does not block claiming already-settled assets; 
 to 0 assets are rejected (audit R3 N-1); a zero-distribution settlement with requests
 queued reverts rather than consuming the epoch (audit R2 A1 — anti-DoS).
 
-**Tests.** `invariant_queue_fifoHolds`, `invariant_queue_custodyReconciles`,
+**Tests.** `invariant_queue_fifoHolds`, `invariant_queue_internalAggregateMatchesItems`,
+`invariant_queue_neverFillsForZeroAssets`, `invariant_queue_entryFloorAndStrictFifo`,
 `invariant_exchangeRate_neverFallsFromQueueOps`.
+
+> **Staged LMV Stage 2 (`ee9b228a`):** The pending Stage 2 upgrade (Corrovera re-audited 24
+> November 2026; Stage 1 live, Stage 2 pending governance execution) remediates `LMV-09` and
+> `LMV-18`, enforces INV-21 (per-hook gas forwarding bounds and `RedemptionQueue` cooldown
+> lookahead in `_canReachSettlementFloor`), and remains **Open** on live pre-Stage-2 proxies until
+> Stage 2 executes.
 
 ## 6. Concentration limits
 
@@ -119,8 +131,10 @@ concentrationFloor)`**.
 2. **The bootstrap floor is a floor on the ASSUMED BOOK SIZE, not an exemption.** A young
    book (whose first facility is 100% of it) must not be self-blocking, so the limits
    measure against the floor while the real book is smaller. That still caps every
-   dimension in ABSOLUTE terms at `limitBps * floor / BPS` — at the launch defaults,
-   8.75m per 3500bps class, 3.75m per borrower and 6.25m per state against a 25m floor.
+   dimension in ABSOLUTE terms at `limitBps * floor / BPS` — at the live Ethereum V2 floor of
+   **USD 100 million** (`100_000_000e18`, raised from the initial 25m placeholder via FRV-001),
+   that allows up to 35m per 3,500 bps class, 15m per 1,500 bps borrower and 25m per 2,500 bps
+   state (it is a bootstrap concentration floor, not a deposit cap).
    The rule is continuous at the floor and monotone in the amount added, so
    `concentrationHeadroom` is its exact inverse. (Round-1 of AUDIT FIX M-02 keyed the
    exemption on the BUCKET instead, which left the enforcement inert at the shipped floor
@@ -162,8 +176,8 @@ never returns a value the admission path would panic on.
 `DEFAULT_ADMIN_ROLE` parameter bounded only against arithmetic overflow. Within that
 bound, raising it raises every dimension's absolute allowance on a book below it — the same
 class of power as raising `concentrationLimitBps` via `setClass`. What it can no longer do
-is switch the relative limits off on a book above it. The launch value (25,000,000e18) is a
-placeholder pending the pre-mainnet economic review (brief Part 11 gate 5).
+is switch the relative limits off on a book above it. The live Ethereum V2 setting is
+`100,000,000e18` (`USD 100 million`, FRV-001).
 
 **Tests.** `invariant_concentration_limitsHold`, `invariant_exposure_reconciles`,
 `invariant_m02_breachBitmapMatchesTheBook`, `invariant_m02_overLimitDimensionCannotBeGrown`,
@@ -176,9 +190,10 @@ fee-net `sUSDfr` exchange rate does not decrease from yield accrual alone. Credi
 losses enter **only** via the cascade. Due management/performance fees are reflected
 deterministically in read previews and are minted only through explicit ADR-0031 events.
 
-**Enforcement.** Launch yield arrives as USDfr minted into the vault and is recognized
-immediately (rate up); optional governance-enabled vesting may delay that rise but cannot
-create a fall. A cascade burn is paired with a recorded loss. ERC-4626 conversions simulate the management and
+**Enforcement.** Ethereum V2 supports continuous per-second cash and PIK interest accrual
+(ADR-0038) and mixed cash+PIK facilities (ADR-0039) from frozen contractual bases, accruing into
+`sUSDfr` NAV as earned while stopping immediately on default or maturity; optional governance-enabled
+vesting defaults to zero (instant recognition). A cascade burn is paired with a recorded loss. ERC-4626 conversions simulate the management and
 performance shares due at the current timestamp, so a quote immediately before a
 checkpoint matches the post-checkpoint state; the later
 `ManagementFeeAccrued` / `PerformanceFeeAccrued` mint leaves vault assets unchanged and
@@ -290,10 +305,16 @@ reconciles to every admitted value transition. Direct USDC donations never creat
 backing, accounting can rise only with a measured receipt or fee capitalization, and a
 custody shortfall can only lower recognized backing.
 
-**Enforcement.** Mainnet v1 has one immutable six-decimal USDC asset. There is no generic
+**Enforcement.** Ethereum V2 has one immutable six-decimal canonical USDC asset. There is no generic
 asset registry, DSRA, or reserve-instrument path. `depositUSDC` and `recordPayment`
 measure exact receipts; `releaseUSDC`, `recordDeployment`, principal return and write-off
-move the durable ledgers atomically; `reconcileIdleUSDC` is one-way downward.
+move the durable ledgers atomically. Per ADR-0033, `reconcileIdleUSDC` is strictly permissionless
+and **observation-only**: it derives and emits the canonical `(recorded, live, shortfall)` tuple
+without mutating backing or moving capital; any real backing reduction requires arm-bound
+`RESERVE_ADMIN_ROLE` ratification (`ratifyAndOpen`) and executes the ordered loss cascade
+atomically. Loan funding disbursements are additionally gated at origination and immediately before
+disbursement by the Timelock-controlled borrower payout allowlist
+(`ComplianceRegistry.isFundingRecipientAllowed`, ADR-0040).
 
 **Tests.** `invariant_reserves_reconcile`, `invariant_reserves_and_pools_reconcile`,
 `invariant_exposure_reconciles`.
@@ -338,9 +359,8 @@ move the durable ledgers atomically; `reconcileIdleUSDC` is one-way downward.
 - **Differential model:** the attestation oracle runs against an independent ghost model
   (`invariant_oracle_ghostParity`); reward accounting is cross-checked by
   `invariant_sgrove_rewardsConserve` against notified/claimed ghosts.
-- **Symbolic:** Halmos proves five backing-transition properties (four against the real
-  controller/reserve implementations through proxies, one full-domain user-flow lemma)
-  and the modeled cascade arithmetic across nine paths. Exact scope and trust boundaries
+- **Symbolic:** Halmos proves eight properties across three contracts (`BackingSymbolic` 5,
+  `CascadeSymbolic` 1, `ReserveIncidentSymbolic` 2). Exact scope and trust boundaries
   are documented in `formal-methods-amenability.md`; this supplements, rather than
   replaces, the integrated backing and cascade invariant campaigns.
 - **Gas snapshots:** `forge snapshot` tracked; regressions flagged in review.

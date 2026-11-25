@@ -1,61 +1,71 @@
 # Security Policy
 
-> **The contracts are deployed to Ethereum mainnet** (chain 1, block 25,768,251, 16 August 2026)
-> and hold real value. Treat anything affecting them as live. The protocol is not yet accepted for
-> production use and access is KYC-gated, but the code is on chain and upgradeable only through a
-> timelock — assume a finding is exploitable until shown otherwise.
+> **Live Ethereum mainnet deployment (V2, chain 1, deployed block 26,006,832, September 2026).**
+> Forest Road Vault V2 is live on Ethereum mainnet and holds real capital across active borrower
+> facilities, a live Morpho Blue USDC/sUSDfr market, Uniswap v4 liquidity pools, and an
+> Ethereum↔BNB Smart Chain LayerZero `SUSDfrOFT` token bridge. Primary USDfr minting and direct
+> USDC redemption are KYC-gated; holding, transferring, staking (`sUSDfr`), swaps and Morpho
+> lending/borrowing are open to non-blocked addresses. Treat every defect affecting deployed
+> contracts, bridges, keepers or the web interface as live.
 >
-> Known open findings, including three Mediums against the live deployment, are published in the
-> register and in `audit-reports/`. A report that rediscovers one of those is still welcome, but
-> check there first.
+> **Known open findings & staged upgrade (25 November 2026):** Live Ethereum V2 proxies have not
+> yet executed the Stage 2 LMV upgrade, so **`LMV-09`** and **`LMV-18`** remain **Open** on live
+> proxies (fixed and Corrovera re-audited in commit `ee9b228a`; Stage 1 preliminary release-monitor
+> proposal `0xd14e...2ce1` is live, with Stage 2 following after Stage 1). Separately, off-chain
+> liquidation-bot rollout item **`FRV-NEW-02`** remains **Open** pending deployment and
+> verification. See [Live Deployment Status](https://forestroadvault.com/docs/status) and the
+> [Audit Register](https://forestroadvault.com/docs/audit) before reporting.
 
 ## Reporting a vulnerability
 
 Email **jevans@forestroad.com**. Please do not open a public issue for anything that affects the
-safety of deployed contracts or user funds.
+safety of deployed contracts, off-chain infrastructure or user funds.
 
-Include the affected contract and function, the conditions required to reach it, and the impact you
-believe it has. A proof-of-concept test is the most useful thing you can send. If you would rather
-establish a channel before sending details, say so and we will.
+Include the affected contract, endpoint or component, the exact preconditions required to reach
+it, and the impact you believe it has. A reproducible proof-of-concept test (for example, a
+Foundry fork test) is the most useful thing you can send. If you would rather establish a private
+channel before sending details, say so and we will.
 
 ## What happens next
 
-We will acknowledge receipt, tell you plainly whether we consider it a finding and at what severity,
-and agree disclosure timing with you.
+We will acknowledge receipt, tell you plainly whether we consider it a finding and at what
+severity, and agree disclosure timing with you.
 
 Findings that survive validation are published on the
-[audit register](https://forestroadvault.com/docs/audit) with their severity and
-disposition — **including the ones we accept rather than fix**. Reproduction detail is withheld
-while a mechanism is live and unremediated, which is a deliberate exception to publishing in full.
+[audit register](https://forestroadvault.com/docs/audit) with their severity and disposition —
+**including findings we accept or defer rather than fix**. Reproduction detail is withheld while
+a mechanism is live and unremediated, which is a deliberate exception to publishing in full.
 Reporters are credited unless they ask not to be.
 
 There is no bug bounty at this stage.
 
 ## Scope
 
-| | |
+| Category | Scope |
 |---|---|
-| In scope | `contracts/src` — the production contract set, at the commit published here. |
-| In scope | `frontend/` where a defect would mislead a user about on-chain state or cause a harmful transaction. |
-| Not deployed | This protocol is **not live on Ethereum mainnet.** Only a Sepolia test deployment exists; its assets have no value. |
-| Not in this repository | Deployment scripts, the off-chain keeper, and operational tooling are withheld. If you believe you have found something in a component you cannot see, please still report it. |
+| **In scope (Live Ethereum V2)** | Core protocol contracts (`USDfr`, `sUSDfr`, `MintRedeemController`, `ReserveManager`, `RedemptionQueue`, `ClaimBridge`, `WaterfallEngine`, `DefaultManager`, `CollateralRegistry`, `AttestationOracle`, `ComplianceRegistry`, `CuratorModule`, `GROVE`, `sGROVE`, `FRGovernor`, `Timelock`, `PointsModule`, `AssessedImpairmentSource`, `MtmAtomicExecutor`, `SUSDfrExitValueOracle`) verified on Etherscan/Sourcify and published at [Deployed Addresses](https://forestroadvault.com/docs/addresses). |
+| **In scope (Cross-chain & preview)** | Live Ethereum↔BSC LayerZero `SUSDfrOFTAdapter` / `SUSDfrOFT` token bridge; Solana curator subscription vault program (devnet preview `3ZPRvNDUDRZuZ8Hug873JtSDJueA8D7PEVE21uLLAvwh` — not yet on Solana mainnet). |
+| **In scope (Web interface & APIs)** | `frontend/` (`https://forestroadvault.com`) where a defect could mislead a user about on-chain state, leak credentials, bypass RPC/rate protections or construct a harmful transaction. |
+| **In scope (Withheld off-chain services)** | Deployment scripts, settlement/MTM/valuation/activity keepers, Morpho liquidation bot and operational tooling are withheld from the public repository. If you believe you have found a defect affecting them, please still report it. |
+| **Not live on mainnet** | The separate BNB Smart Chain credit protocol (`bsc/`), the Solana curator vault mainnet deployment, and any parked/disabled routes are not live on mainnet. |
 
-The Sepolia deployment retains bootstrap admin privileges, uses a mock stablecoin, and runs with
-concentration limits fully open. Findings that depend only on that configuration are expected and
-are not vulnerabilities — but if you are unsure whether something is configuration or a defect,
-report it and let us make that call rather than discarding it.
+Historical Sepolia testnet deployments retain bootstrap admin privileges, use a mock stablecoin
+and run with open concentration limits; findings that depend solely on testnet configuration are
+expected rather than production vulnerabilities. If you are unsure whether something is
+configuration or a defect, report it and let us make that call.
 
 ## Good-faith research
 
-We have no interest in pursuing good-faith research, and nothing in this policy waives any right.
-Please test against your own deployment or a local fork rather than the live testnet, do not access
-or modify data that is not yours, and do not degrade the service for other users.
+We have no interest in pursuing good-faith security research, and nothing in this policy waives
+any right. Please test against your own local deployment or a local mainnet fork rather than live
+mainnet or production infrastructure, do not access or modify data that is not yours, and do not
+degrade the service for other users.
 
 ## Known and published
 
-Before reporting, it is worth checking the audit register: the protocol's open and accepted findings
-are already published there with their mechanisms and severities. Several live mechanisms are
-knowingly accepted rather than fixed, each with the conditions that make it tolerable and the
-triggers that would force a revisit. Independent confirmation of a published finding is still
-welcome — particularly evidence that one is reachable in a way we have not recorded, or has greater
-impact than we assessed.
+Before reporting, check the [audit register](https://forestroadvault.com/docs/audit) and
+[live status page](https://forestroadvault.com/docs/status): open, accepted and deferred findings
+(including `LMV-09`, `LMV-18`, `FRV-NEW-02` and accepted economic/governance tradeoffs) are
+published there with their exact conditions and triggers. Independent confirmation of a published
+finding is still welcome — particularly evidence that one is reachable under weaker conditions or
+has greater impact than recorded.

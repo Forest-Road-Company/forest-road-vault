@@ -1,14 +1,33 @@
-# Phase A — Restatement & Architecture (DRAFT for review)
+# Phase A — Restatement & Architecture (Historical Baseline)
 
+> **HISTORICAL BASELINE NOTICE (updated 25 November 2026):** This document is the original
+> Phase-A design baseline. Several launch parameters and contract mechanics evolved through later
+> ADRs and are now live on **Ethereum V2 mainnet** (`https://forestroadvault.com/docs/status`):
+> - **sGROVE backstop:** `ADR/0035` removed the 50% per-event cap (live sGROVE absorbs from its
+>   entire live USDfr coverage reserve, currently `10,000 USDfr`, not a `$5M` seed).
+> - **Token decimals & idle reserves:** `sUSDfr` uses **24 decimals** (`1e24` share unit, not
+>   `1e18`); idle reserves hold canonical Ethereum **USDC only** (no T-bill/RWA reserve
+>   instruments, `ADR/0029` & `ADR/0030`); DSRA was retired (`ADR/0028`).
+> - **Curator first-loss:** Anchor curator currently posts `500,000 USDfr` in Renewables and
+>   `1 USDfr` in Digital Assets (not `$10M/class`).
+> - **Accrual, payout & integrations:** Continuous per-second cash/PIK accrual (`ADR/0038`),
+>   mixed cash+PIK facilities (`ADR/0039`), Timelock-only borrower payout allowlist (`ADR/0040`),
+>   protocol-level fees (`ADR/0031`), a live Morpho Blue USDC/sUSDfr market (`ADR/0041`, `ADR/0043`),
+>   Uniswap v4 pools, Pendle SY wrappers, and an Ethereum↔BSC LayerZero `SUSDfrOFT` token bridge
+>   (`ADR/0045`) are live on Ethereum mainnet.
+> - Read `ADR/README.md`, `docs/invariants.md`, `docs/access-control-matrix.md` and
+>   `https://forestroadvault.com/docs/status` for current live behavior.
+>
 > **CHANGE RECORD — 2026-07-09 (Forest Road direction):** a fifth collateral class,
-> **Digital Assets**, was added mid-build (see `ADR/0015` and the change record atop
-> `FABLE_BUILD_BRIEF.md`). Where this document enumerates four classes, read five;
-> ADR-0003 is amended accordingly; `CollateralRegistry` gains a `collateralModel`
-> discriminator (Receivable | MarkedToMarket) plus margin parameters for the new class.
+> **Digital Assets**, was added mid-build (see `ADR/0015-digital-assets-collateral-class.md` and
+> the internal build brief). Where this document enumerates four classes, read five;
+> `ADR/0003-multi-collateral-five-classes.md` is amended accordingly; `CollateralRegistry` gains a
+> `collateralModel` discriminator (Receivable | MarkedToMarket) plus margin parameters for the new
+> class.
 
-**Status:** Architecture prepared for Forest Road, with all launch and technical decisions **resolved** (see §3 ADRs and §5). Fable proceeds directly from this document into implementation — no human sign-off is required before or during the build. Fable may still challenge or improve any technical detail here (it is engineering guidance, not scripture), but the decisions marked *Resolved*/*Locked* reflect Forest Road's direction and should not be reopened without Forest Road input.
+**Status:** Historical Phase-A architecture baseline (superseded where noted above and in `ADR/`). The locked decisions below remain binding.
 
-**Companion document:** `FABLE_BUILD_BRIEF.md` (the full brief). Read Part 0.5 (regulatory reality) and the Part 4 locked decisions before relying on anything here.
+**Companion document:** `FABLE_BUILD_BRIEF.md` (internal governing brief, not published in the public repository). Read Part 0.5 (regulatory reality) and Part 4 locked decisions in the private repository before relying on historical parameters here.
 
 ---
 

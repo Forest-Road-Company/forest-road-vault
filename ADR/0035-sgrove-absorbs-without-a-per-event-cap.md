@@ -1,6 +1,7 @@
 # ADR-0035 — sGROVE absorbs without a per-event cap
 
-**Status:** Accepted — Forest Road decision, 2026-08-11.
+**Status:** Accepted and deployed on Ethereum V2 (Forest Road decision, 2026-08-11; live `SGrove`
+absorbs up to its entire USDfr coverage reserve with no per-event cap).
 
 **Supersedes:** the **per-event coverage cap** element of [ADR-0014](0014-sgrove-backstop-parameters.md)
 and the carry-over restatement of it in [ADR-0021](0021-sgrove-backstop-implementation.md). Everything else in

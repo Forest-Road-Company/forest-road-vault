@@ -21,7 +21,7 @@ grant itself (no escalation loop).
 | `RESERVE_ADMIN_ROLE` | Governance **timelock** | Ratify bounded reserve losses and account for physically recovered reserve capital. |
 | `MINTER_ROLE` | MintRedeemController | Mint USDfr (on `USDfr`). |
 | `CONTROLLER_ROLE` | MintRedeemController | `ReserveManager.{depositUSDC, releaseUSDC}` (mint custody-in and redemption custody-out). |
-| `CREDIT_ROLE` | WaterfallEngine, DefaultManager, ClaimBridge | The **trusted internal-module** role, the only caller of the cross-module value/state primitives (below). Never held by an EOA. |
+| `CREDIT_ROLE` | WaterfallEngine, DefaultManager, ClaimBridge, ReserveManager | The **trusted internal-module** role, the only caller of the cross-module value/state primitives (below). Never held by an EOA. |
 | `LOSS_BURNER_ROLE` | DefaultManager, ReserveManager | Burn USDfr to realize an authenticated loss in the cascade. Split from `CREDIT_ROLE` so the repayment engine cannot hold both mint and burn authority. Never held by an EOA. |
 | `FEE_ACCOUNTING_ROLE` | CuratorModule, SGrove, DefaultManager | Checkpoints and locks fee accounting across mechanical junior-capacity changes. Never held by an EOA. |
 | `ORIGINATOR_ROLE` | Ops (Forest Road) | `ClaimBridge.originate`. |
@@ -77,8 +77,9 @@ realized principal write-down).
 | `MintRedeemController.mintYield` | WaterfallEngine | `CREDIT_ROLE` | via mint path |
 | `MintRedeemController.burnLoss` | DefaultManager, ReserveManager | `LOSS_BURNER_ROLE` | **no** (cascade; WaterfallEngine is explicitly excluded) |
 | `CuratorModule.absorbLoss` | DefaultManager | `CREDIT_ROLE` | **no** (cascade) |
+| `CuratorModule.absorbGlobalLoss` | ReserveManager | `CREDIT_ROLE` | **no** (custody-loss cascade) |
 | `CuratorModule.freezeOnDefault` | DefaultManager | `CREDIT_ROLE` | **no** |
-| `SGrove.coverShortfall` | DefaultManager | `CREDIT_ROLE` | **no** (cascade) |
+| `SGrove.coverShortfall` | DefaultManager, ReserveManager | `CREDIT_ROLE` | **no** (cascade) |
 | `sUSDfr.beginYieldNotification` / `notifyYield` | WaterfallEngine | `CREDIT_ROLE` | **no**; one vault-side lock spans both interest-leg mints, then Waterfall calls permissionless `accrueFees` |
 | `AttestationOracle.consume` | WaterfallEngine, DefaultManager, ClaimBridge, ReserveManager | `CREDIT_ROLE` | **no** (internal servicing/cascade hook) |
 | `ClaimBridge.transitionState` | WaterfallEngine, DefaultManager | `CREDIT_ROLE` | **no** (internal servicing/cascade hook) |

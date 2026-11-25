@@ -7,10 +7,9 @@
  * depositor, derived from the same data the rest of the site renders, so they
  * cannot drift from it.
  *
- * The live Sepolia reads follow as a secondary line rather than leading. They
- * are deliberately still on the page: a testnet book holding ten dollars is not
- * something this site hides. What it should not do is open with that number as
- * the protocol's headline claim.
+ * Live chain reads follow as a secondary line rather than leading. They remain
+ * visible on the page across mainnet, testnet and local-fork builds so the site
+ * reconciles directly to live contract state rather than static headline claims.
  *
  * Anything not honestly derivable from chain state (e.g. trailing yield, which
  * needs rate history) is not shown. Live values render ", " until the reads

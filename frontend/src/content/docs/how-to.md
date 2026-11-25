@@ -128,10 +128,17 @@ your slippage setting before you swap. The pool ID is on the [deployed-addresses
 
 ### USDfr to USDC
 
-**KYC-verified addresses** can redeem USDfr for USDC instantly in **Redeem → USDfr**. It pays 1:1
-while recognized backing remains at least equal to USDfr supply, and is limited to the idle USDC held in reserve. USDC has six
-decimals, so the amount is rounded down to the nearest 0.000001 USDC and any smaller remainder
-stays in your wallet as USDfr.
+**KYC-verified addresses** can redeem USDfr for USDC instantly in **Redeem → USDfr**, limited to
+the idle USDC held in reserve. The app quotes the live redemption output on chain through
+`MintRedeemController.previewRedeem` before submitting:
+
+- **At par (normal operation):** while recognized backing remains at least equal to USDfr supply,
+  redemption pays 1:1. USDC has six decimals, so the payout rounds down to the nearest `0.000001`
+  USDC and any smaller remainder stays in your wallet as USDfr.
+- **Below par (impaired backing):** if recognized backing falls below USDfr supply, redemption
+  pays pro-rata below par. The app routes sub-par redemptions through the canonical three-argument
+  `redeem(amount, minUsdcOut, deadline)` entrypoint with slippage protection, a transaction
+  deadline and an explicit sub-par acknowledgement before your wallet is prompted.
 
 **Any address** can instead sell USDfr on the USDfr/USDC Uniswap pool, at the market price.
 

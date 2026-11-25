@@ -17,7 +17,7 @@ export default function SusdfrLiquidityPage() {
     <PageShell
       section="Treasury operation"
       title="sUSDfr / USDC liquidity"
-      lede="A wallet-bound, two-step Uniswap v4 flow: initialize and verify a 50 USDC in-range seed, then add the USDC-only 0.85–0.95 buy wall."
+      lede="Internal wallet-bound execution and reconciliation surface for Forest Road's sUSDfr / USDC Uniswap v4 position (enforcing 50 USDC in-range seed verification before preparing the 0.85–0.95 USDC buy wall)."
       visual={<ProtocolScene scene="markets" />}
     >
       <SusdfrLiquidityOperation />

@@ -46,7 +46,7 @@ const facts = [
   {
     value: "Solana and Ethereum",
     label: "subscriptions first",
-    note: "Ethereum is live today through the CuratorModule; Solana subscription vault is in devnet preview ahead of mainnet audit; Canton to follow",
+    note: "Ethereum is live today through the CuratorModule; Solana subscription vault is in devnet preview after Corrovera's 20 Sep external audit, ahead of specialist Solana review and mainnet launch gates; Canton to follow",
   },
 ] as const;
 
@@ -80,7 +80,7 @@ const steps = [
   },
   {
     label: "Subscription",
-    body: "Ethereum-native curators post USDfr into the CuratorModule, which is live, from this page once governance has approved their wallet for a class. Solana-native curators will subscribe on this page through a dedicated vault program (currently in devnet preview) that records principal, commitment and notice on chain and pays under the agreement; it will be audited before taking a mainnet deposit.",
+    body: "Ethereum-native curators post USDfr into the CuratorModule, which is live, from this page once governance has approved their wallet for a class. Solana-native curators will subscribe on this page through a dedicated vault program (currently in devnet preview) that records principal, commitment and notice on chain and pays under the agreement; Corrovera completed an external review and two re-verifications on 20 September 2026, and specialist Solana review, counsel, and mainnet multisig gates remain required before taking any mainnet deposit.",
   },
 ];
 

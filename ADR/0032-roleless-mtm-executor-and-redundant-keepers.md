@@ -1,7 +1,7 @@
 # ADR 0032 — Roleless MTM executor and redundant private keepers
 
-**Status:** Accepted (Forest Road direction, 2026-08-03). Production deployment,
-independent-host evidence, end-to-end drills, and external audit remain gates.
+**Status:** Deployed and active on Ethereum V2 (`MtmAtomicExecutor` live for Class 5 Digital
+Assets facilities, backed by two independently operated private keepers; updated 25 November 2026).
 
 ## Context
 

@@ -1,7 +1,9 @@
 # ADR-0009 — Chain: Ethereum L1, single-chain at launch
 
-**Status:** Resolved; disposable mainnet test deployment authorized, production gated
-(Forest Road, amended 2026-07-29).
+**Status:** Deployed on Ethereum L1 (V2 live since September 2026, block 26,006,832). Amended in
+part by [ADR-0045](0045-bsc-layerzero-oft-token-bridge.md) (Phase 1 Ethereum↔BSC LayerZero
+`SUSDfrOFT` token bridge, live November 2026); the separate BSC credit instance in
+[ADR-0037](0037-bnb-smart-chain-instance-and-reserve-asset-admission.md) remains unlaunched.
 
 ## Decision
 Ethereum L1 only for v1. Build and QA targets are local Anvil and Sepolia testnet.

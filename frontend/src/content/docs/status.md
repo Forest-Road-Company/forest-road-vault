@@ -1,11 +1,15 @@
 # Live Deployment Status
 
-**Updated 24 November 2026.** Forest Road Vault V2 is live on Ethereum mainnet and lending to
-real borrowers. Bootstrap administration has been surrendered to timelocked governance. Figures
-below were read from Ethereum mainnet at finalized block 26,486,218 (16:29 UTC, 24 November 2026)
-unless stated otherwise; the Stage 1 governance proposal was confirmed at block 26,486,243
-(16:34 UTC, 24 November 2026). The [transparency dashboard](/transparency) shows protocol figures
-live, and the [deployed-addresses page](/docs/addresses) lists every contract.
+**Updated 25 November 2026.** Forest Road Vault V2 is live on Ethereum mainnet and lending to
+real borrowers. Bootstrap administration has been surrendered to timelocked governance. Detailed
+loan-book and queue tables below were read from Ethereum mainnet at finalized block 26,486,218
+(16:29 UTC, 24 November 2026); the Stage 1 governance proposal was confirmed at block 26,486,243
+(16:34 UTC, 24 November 2026), and headline supply, collateral coverage and Morpho market reads
+were re-verified on 25 November 2026 (block 26,491,784: `11,207,889 USDfr` supply, USD 26.5
+million Gross Collateral & Reserves or `252.43%` of loans, `0.00%` net default rate; Morpho
+USDC/sUSDfr market live with `50,006.12 USDC` lent and `7,765.67 USDC` available liquidity). The
+[transparency dashboard](/transparency) shows protocol figures live, and the
+[deployed-addresses page](/docs/addresses) lists every contract.
 
 Minting USDfr and redeeming it directly for USDC require a KYC-verified address. Holding,
 transferring and staking are open to any wallet that is not sanctions- or jurisdiction-blocked.
@@ -113,10 +117,15 @@ redemption by verified holders is instant but draws on the same idle reserve.
 In a large exit, waits would run to months. The queue exists so that no holder can force a fire
 sale or overtake another.
 
-USDfr holders, including those who have left sUSDfr, can also sell USDfr for USDC in the
-[USDfr/USDC Uniswap pool](https://app.uniswap.org/explore/pools/ethereum/0x72ef9130b1c7bd2daa49405e618b7ad27eb90e03c893629ba1d28a4562fc7b55)
-at the market price, which can differ from par. Forest Road intends to keep USDfr as liquid as is
-feasible while still earning a high rate for sUSDfr holders.
+USDfr and sUSDfr holders can also sell directly for USDC on third-party Uniswap v4 pools at the
+market price, which can differ from par or the vault's exchange rate:
+- [USDfr/USDC Uniswap v4 pool](https://app.uniswap.org/explore/pools/ethereum/0x72ef9130b1c7bd2daa49405e618b7ad27eb90e03c893629ba1d28a4562fc7b55)
+- [sUSDfr/USDC Uniswap v4 pool](https://app.uniswap.org/explore/pools/ethereum/0x1d8694445872d16931c729de06086ccbdc4089875ee73fb6119963a922c92d5a)
+
+Forest Road intends to keep USDfr as liquid as is feasible while still earning a high rate for
+sUSDfr holders. Separately, the live Morpho Blue USDC/sUSDfr market on [/markets](/markets)
+supports USDC lending and sUSDfr-collateralized USDC borrowing (`50,006.12 USDC` total supplied
+and `7,765.67 USDC` available liquidity on 25 November 2026).
 
 ## Security findings in the deployed contracts
 
@@ -184,7 +193,7 @@ accepted and deferred findings, with their exact conditions, are in the
 | 4 Nov | Digital Assets facility 14 originated and funded (`750,000 USDfr` at 12.5% fixed, maturing 4 November 2027). |
 | 28 Oct | Digital Assets facility 13 originated and funded (`2,000,000 USDfr` at 12.5% fixed, maturing 28 October 2027). |
 | 26 Oct | Digital Assets facility 12 originated and funded (`2,400,000 USDfr` at 12.5% fixed, maturing 26 October 2027). |
-| 21 Oct | Morpho sUSDfr/USDC borrowing and lending page ([/markets](/markets)) deployed to production (entry switches subsequently enabled separately by governance/owner). |
+| 21 Oct | Morpho sUSDfr/USDC borrowing and lending page ([/markets](/markets)) deployed to production; lending, borrowing and Treasury supply switches are live (`50,006.12 USDC` lent / `7,765.67 USDC` available liquidity on 25 Nov). |
 
 ## Limits and operating assumptions
 
