@@ -1,9 +1,9 @@
 # ADR-0047: Two-stage LMV upgrade governance (`ee9b228a`) and exit-integrity controls
 
 **Status:** Audited candidate deployed (`ee9b228a`, Corrovera delta re-audit `PASS` & 66/66 CI
-green on 24 November 2026); Stage 1 proposal `0xd14e...2ce1` live on Ethereum mainnet; Stage 2
-pending governance execution (`LMV-09` and `LMV-18` remain **Open** on live proxies until Stage 2
-executes).
+green on 24 November 2026); Stage 1 proposal `0xd14e...2ce1` voted **FOR** on 25 November 2026
+(earliest queue 27 Nov, earliest execution 29 Nov); Stage 2 pending Stage 1 completion (`LMV-09`
+and `LMV-18` remain **Open** on live proxies until Stage 2 executes).
 
 **Date:** 2026-11-24 (recorded 2026-11-25)
 
@@ -42,5 +42,6 @@ without prior monitoring and verification increases operational blast radius.
 
 - Preserves full audit provenance and Sourcify verification across every deployed runtime.
 - Coordinated operational readiness (`queue-keeper` batch limits, `liquidation-bot` `ee9b228a`
-  rollout, and 142-contract `activity-keeper` catalog) was completed and live-verified on 25
-  November 2026 ahead of Stage 1 and Stage 2 governance execution.
+  rollout, 142-contract `activity-keeper` catalog, `forestroadvault.com` fail-closed exit-freeze &
+  cold-relief gas headroom, and `points.forestroadvault.com` Stage 2 `PointsModule` allowlist) was
+  completed and live-verified on 25 November 2026 ahead of Stage 1 and Stage 2 governance execution.

@@ -158,22 +158,29 @@ components) are finalized on Ethereum mainnet and verified `exact_match` on Sour
 
 The upgrade runs in two timelocked governance stages:
 
-1. **Stage 1 (Preliminary release monitor) — LIVE.** Submitted on 24 November 2026 at 16:34 UTC
-   ([transaction](https://etherscan.io/tx/0x83a86e829acec35568c6a1040f57dc4ebcb0dbe99f49d524232fc4044948f698),
-   proposal ID `0xd14e120817bfd084d717dd230118014889c4909d51eb01ec3694a4255c102ce1`). Voting
-   opens **25 November 2026 (16:34 UTC)**, closes **27 November 2026 (16:34 UTC)**, can queue on
-   **27 November**, and can execute from **29 November 2026 (16:34 UTC)**.
-2. **Stage 2 (Core LMV proxy upgrades) — Pending Stage 1 completion.** Follows immediately after
-   Stage 1 executes and installs the audited `ee9b228a` implementations across the core protocol
-   proxies before **21 January 2027**. **Until Stage 2 executes, the live proxies remain on their
-   pre-LMV implementations and LMV-09 / LMV-18 remain Open on chain.**
+1. **Stage 1 (Preliminary release monitor) — VOTED FOR (`Active` until 27 Nov).** Submitted on
+   24 November 2026 at 16:34 UTC
+   ([submission tx](https://etherscan.io/tx/0x83a86e829acec35568c6a1040f57dc4ebcb0dbe99f49d524232fc4044948f698),
+   proposal ID `0xd14e120817bfd084d717dd230118014889c4909d51eb01ec3694a4255c102ce1`). On
+   **25 November 2026**, Treasury governance voted **FOR** with `1,000,000,000 GROVE` (`25x`
+   quorum, [vote tx](https://etherscan.io/tx/0x1b3bfc20a54b8e57cde1dfb9d35d351cdcaa943c2a8ae896bd1cd1b92311cd78)).
+   Voting closes **27 November 2026 (16:34 UTC)**, can queue permissionlessly from
+   **27 November 2026 (16:34 UTC)**, and can execute from **29 November 2026 (16:34 UTC)**.
+2. **Stage 2 (Core LMV proxy upgrades) — Pending Stage 1 completion.** Follows after Stage 1
+   executes (targeting post-3-December history pin to maximize seasoned settlement liquidity) and
+   installs the audited `ee9b228a` implementations across the core protocol proxies before
+   **21 January 2027**. **Until Stage 2 executes, the live proxies remain on their pre-LMV
+   implementations and LMV-09 / LMV-18 remain Open on chain.**
 
-Off-chain keeper readiness for Stage 1 and Stage 2 was completed on 25 November 2026: the audited
-`ee9b228a` liquidation bot (adding `HV-01` cold-block `stateOverride` gas estimation and `JO-08`
-per-marked-leg gas scaling) and the updated 142-contract activity keeper were rolled out and
-live-verified alongside the queue keeper. `FRV-NEW-02` in the [audit register](/docs/audit)
-remains labelled **Open** pending independent Corrovera confirmation (and no live on-chain
-liquidation transaction is executed while no position is liquidatable).
+Off-chain keeper, web-app, and points readiness for Stage 1 and Stage 2 was completed on
+25 November 2026: the audited `ee9b228a` liquidation bot (`HV-01` cold-block `stateOverride` gas
+estimation and `JO-08` per-marked-leg gas scaling) and the updated 142-contract activity keeper
+were rolled out and live-verified alongside the queue keeper; `forestroadvault.com` added
+fail-closed exit-freeze detection (`JO-04`/`LC-03`/`KF-01`) and `HV-09` cold-relief gas headroom;
+and `points.forestroadvault.com` was updated to allowlist both pre-Stage-2 and Stage 2
+`PointsModule` implementations. `FRV-NEW-02` in the [audit register](/docs/audit) remains labelled
+**Open** pending independent Corrovera confirmation (and no live on-chain liquidation transaction
+is executed while no position is liquidatable).
 
 | Finding | Relevant only if | Earliest on today's book | Status and plan |
 | --- | --- | --- | --- |
@@ -189,8 +196,8 @@ accepted and deferred findings, with their exact conditions, are in the
 
 | Date | Change |
 | --- | --- |
-| 25 Nov | Pre-Stage-2 off-chain keeper updates rolled out and live-verified: audited `ee9b228a` liquidation bot (`HV-01` cold-relief `stateOverride` gas estimation + `JO-08`, live RPC `stateOverride` and startup guard verified; `FRV-NEW-02` retained Open in register pending independent Corrovera confirmation) and 142-contract activity-keeper catalog covering all 38 new Stage 2 `ee9b228a` runtimes and 11 proxy transitions. Queue keeper confirmed ready (`MAX_REQUESTS=10`, 8M settlement gas limit). |
-| 24 Nov | Stage 1 governance proposal submitted on Ethereum mainnet ([`0x83a8...f698`](https://etherscan.io/tx/0x83a86e829acec35568c6a1040f57dc4ebcb0dbe99f49d524232fc4044948f698)); voting opens 25 Nov, earliest execution 29 Nov. All 38 new Stage 2 contracts and libraries from audited commit `ee9b228a` deployed and Sourcify-verified (`exact_match`). Live proxies remain unchanged until governance executes. |
+| 25 Nov | Stage 1 governance proposal `0xd14e…2ce1` voted **FOR** (`1,000,000,000 GROVE`, [`0x1b3b...cd78`](https://etherscan.io/tx/0x1b3bfc20a54b8e57cde1dfb9d35d351cdcaa943c2a8ae896bd1cd1b92311cd78); earliest queue 27 Nov, earliest execution 29 Nov). Pre-Stage-2 off-chain updates deployed and live-verified across all surfaces: audited `ee9b228a` liquidation bot (`HV-01` cold-relief `stateOverride` + `JO-08`; `FRV-NEW-02` retained Open in register pending independent Corrovera confirmation), 142-contract activity-keeper catalog covering all 38 Stage 2 runtimes and 11 proxy transitions, queue keeper confirmed ready (`MAX_REQUESTS=10`, 8M settlement gas limit), `forestroadvault.com` Stage 2 fail-closed exit-freeze & cold-relief gas headroom, and `points.forestroadvault.com` Stage 2 `PointsModule` dual-implementation allowlist. |
+| 24 Nov | Stage 1 governance proposal submitted on Ethereum mainnet ([`0x83a8...f698`](https://etherscan.io/tx/0x83a86e829acec35568c6a1040f57dc4ebcb0dbe99f49d524232fc4044948f698)); voting opened 25 Nov, earliest execution 29 Nov. All 38 new Stage 2 contracts and libraries from audited commit `ee9b228a` deployed and Sourcify-verified (`exact_match`). Live proxies remain unchanged until governance executes. |
 | 24 Nov | Corrovera Security completed independent delta re-audit of commit `ee9b228a` (`PASS` on delta remediation), and exact-commit hosted CI security gates completed `66/66` green. |
 | 20 Nov | All 15 Stage 1 preliminary release-monitor components deployed and verified on Ethereum mainnet. |
 | 17 Nov | Renewables facility 15 originated and funded (`176,577 USDfr` PIK leg at 16.75% fixed, maturing 29 May 2029). |
