@@ -220,9 +220,9 @@ export function EthereumCuratorPanel() {
   ) : null;
 
   const row = (label: string, value: string) => (
-    <div className="flex items-baseline justify-between gap-4 border-b border-line py-2 text-[13.5px]">
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-line py-2 text-[13.5px]">
       <span className="text-ink-muted">{label}</span>
-      <span className="font-mono text-ink">{value}</span>
+      <span className="min-w-0 break-all text-right font-mono text-ink">{value}</span>
     </div>
   );
 

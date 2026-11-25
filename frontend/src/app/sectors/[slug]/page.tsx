@@ -155,17 +155,17 @@ export default async function SectorPage({
             <Link
               key={o.slug}
               href={`/sectors/${o.slug}`}
-              className={`group flex flex-col gap-3 py-6 transition-colors hover:bg-surface sm:flex-row sm:items-baseline sm:gap-10 ${
+              className={`group flex flex-col gap-3 py-6 transition-colors hover:bg-surface lg:flex-row lg:items-baseline lg:gap-10 ${
                 i === 0 ? "border-t border-line-strong" : "border-t border-row"
               }`}
             >
-              <span className="display flex-none text-[19px] leading-snug transition-colors group-hover:text-accent sm:w-[3in]">
+              <span className="display flex-none text-[19px] leading-snug transition-colors group-hover:text-accent lg:w-[3in]">
                 {o.name}
               </span>
-              <span className="flex-1 text-[15px] leading-relaxed text-ink-muted">
+              <span className="min-w-0 flex-1 text-[15px] leading-relaxed text-ink-muted">
                 {o.claimType}
               </span>
-              <span className="running-head flex-none sm:w-[1.6in]">
+              <span className="running-head flex-none lg:w-[1.6in]">
                 {o.collateralModel === "marked-to-market"
                   ? "Marked-to-market"
                   : "Receivable-backed"}

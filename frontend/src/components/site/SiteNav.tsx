@@ -83,6 +83,7 @@ export function SiteNav() {
     updateMenuHeight();
     window.addEventListener("resize", updateMenuHeight);
     window.visualViewport?.addEventListener("resize", updateMenuHeight);
+    window.visualViewport?.addEventListener("scroll", updateMenuHeight);
     desktopQuery?.addEventListener("change", onViewportChange);
     window.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown);
@@ -90,6 +91,7 @@ export function SiteNav() {
       document.body.style.overflow = "";
       window.removeEventListener("resize", updateMenuHeight);
       window.visualViewport?.removeEventListener("resize", updateMenuHeight);
+      window.visualViewport?.removeEventListener("scroll", updateMenuHeight);
       desktopQuery?.removeEventListener("change", onViewportChange);
       window.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("pointerdown", onPointerDown);

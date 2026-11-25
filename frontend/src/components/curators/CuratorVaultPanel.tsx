@@ -792,7 +792,7 @@ export function CuratorVaultPanel() {
                     <td className="whitespace-nowrap py-1.5 pr-4 font-mono">{formatUnits(h.amount, DECIMALS)} USDC</td>
                     <td className="whitespace-nowrap py-1.5 pr-4 font-mono">{h.when ? utc(h.when) : "…"}</td>
                     <td className="whitespace-nowrap py-1.5 font-mono">
-                      <a href={CURATOR_VAULT.explorerTx(h.signature)} target="_blank" rel="noreferrer" className="text-accent underline-offset-4 hover:underline">
+                      <a href={CURATOR_VAULT.explorerTx(h.signature)} target="_blank" rel="noreferrer" className="inline-flex min-h-[24px] items-center text-accent underline-offset-4 hover:underline">
                         {short(h.signature)}
                       </a>
                     </td>

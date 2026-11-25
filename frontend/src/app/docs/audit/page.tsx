@@ -259,7 +259,7 @@ export default function AuditRegisterPage() {
         </div>
 
         <details className="mt-6 rounded-card border border-line bg-raised/70 p-6">
-          <summary className="cursor-pointer text-[14px] font-semibold text-ink">
+          <summary className="min-h-[24px] cursor-pointer py-0.5 text-[14px] font-semibold text-ink">
             Read the full September 2026 round-by-round attack chronicle (Rounds 34–130)
           </summary>
           <p className="mt-3 text-[13px] leading-relaxed text-ink-faint">

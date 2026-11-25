@@ -1305,7 +1305,7 @@ table,
 .protocol-reconcile { position: absolute; left: 8%; right: 8%; top: 48px; display: grid; grid-template-columns: 1fr 62px 1fr; align-items: center; gap: 16px; }
 .protocol-reconcile__metric { min-width: 0; padding: 18px; border: 1px solid rgba(91,126,170,.23); border-radius: 18px; background: rgba(255,255,255,.78); }
 .protocol-reconcile__metric > span { color: var(--color-ink-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; }.protocol-reconcile__metric strong { display: block; margin-top: 6px; font-family: var(--font-display); font-size: clamp(20px,2.2vw,32px); line-height: 1; }.protocol-reconcile__metric > i { display: block; height: 8px; margin-top: 14px; overflow: hidden; border-radius: 99px; background: rgba(75,110,154,.12); }.protocol-reconcile__metric > i b { display: block; width: var(--meter); height: 100%; border-radius: inherit; background: linear-gradient(90deg,var(--scene-deep),var(--scene-mid)); transform-origin: left; animation: reconcile-fill 2s var(--ease-out-far) both; }
-.protocol-reconcile__mark { display: flex; align-items: center; justify-content: center; color: var(--scene-mid); }.protocol-reconcile__mark span { width: 12px; height: 1px; background: rgba(64,105,156,.32); }.protocol-reconcile__mark em { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--scene-deep); color: white; font-family: var(--font-display); font-size: 18px; font-style: normal; box-shadow: 0 0 0 8px rgba(64,105,156,.08); animation: reconcile-mark 3.4s ease-in-out infinite; }
+.protocol-reconcile__mark { display: flex; align-items: center; justify-content: center; color: var(--scene-mid); }.protocol-reconcile__mark span { flex: 1; min-width: 0; max-width: 12px; height: 1px; background: rgba(64,105,156,.32); }.protocol-reconcile__mark em { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--scene-deep); color: white; font-family: var(--font-display); font-size: 18px; font-style: normal; box-shadow: 0 0 0 8px rgba(64,105,156,.08); animation: reconcile-mark 3.4s ease-in-out infinite; }
 .protocol-backing-mix { position: absolute; left: 8%; right: 8%; bottom: 28px; display: grid; gap: 8px; }.protocol-backing-mix__bar { display: flex; height: 42px; overflow: hidden; border: 1px solid rgba(91,126,170,.2); border-radius: 12px; background: rgba(255,255,255,.64); }.protocol-backing-mix__bar > span { width: var(--mix); display: flex; align-items: center; min-width: 0; padding-left: 12px; border-right: 1px solid rgba(255,255,255,.7); background: color-mix(in srgb,var(--scene-mid) 16%,transparent); color: var(--color-ink-value); font-size: 11px; white-space: nowrap; }.protocol-backing-mix__bar > span:nth-child(2) { background: color-mix(in srgb,var(--scene-deep) 20%,transparent); }.protocol-backing-mix b { display: flex; align-items: center; justify-self: end; gap: 7px; border: 1px solid rgba(91,126,170,.14); border-radius: 99px; background: rgba(255,255,255,.88); padding: 5px 8px; font-size: 11px; font-weight: 600; box-shadow: 0 8px 20px -16px rgba(20,48,84,.7); }.protocol-backing-mix b i { width: 6px; height: 6px; border-radius: 50%; background: #58b99a; animation: scene-live 2.2s infinite; }
 
 .protocol-market { position: absolute; inset: 52px 6% 74px; display: grid; grid-template-columns: 1fr 136px 1fr; align-items: center; gap: 16px; }
@@ -1402,7 +1402,7 @@ table,
 @media(max-width:1279px){.hero-capital-trace__label{display:none}}
 @media(max-width:760px){.hero-capital-trace{left:30%;opacity:.42}.token-instrument{min-height:470px;padding:23px}.home-transparency__head{grid-template-columns:1fr;gap:20px}.home-transparency__balance{grid-template-columns:1fr 34px 1fr;gap:7px;padding:16px 10px}.home-transparency__balance>div{padding:13px}.home-transparency__metrics{grid-template-columns:1fr 1fr}.home-transparency__metrics>div:nth-child(2){border-right:0}.home-transparency__metrics>div:nth-child(-n+2){border-bottom:1px solid var(--color-navy-border)}.home-transparency__status b{display:none}}
 @media(max-width:760px){.home-transparency__balance{grid-template-columns:minmax(0,1fr) 42px minmax(0,1fr);gap:9px}.home-transparency__balance>em{width:40px;height:40px;font-family:var(--font-body),system-ui,sans-serif;font-size:22px;line-height:1}.home-transparency__balance strong{min-width:0;white-space:nowrap;font-size:clamp(16px,5.4vw,24px);letter-spacing:-.025em;font-variant-numeric:tabular-nums}}
-@media(max-width:420px){.home-transparency__balance{grid-template-columns:1fr;justify-items:stretch;gap:10px;padding:14px 12px}.home-transparency__balance>div{min-width:0;padding:14px}.home-transparency__balance>em{justify-self:center;width:36px;height:36px;font-size:19px}.home-transparency__balance strong{white-space:normal;overflow-wrap:anywhere;font-size:clamp(20px,6.8vw,28px)}}
+@media(max-width:520px){.home-transparency__balance{grid-template-columns:1fr;justify-items:stretch;gap:10px;padding:14px 12px}.home-transparency__balance>div{min-width:0;padding:14px}.home-transparency__balance>em{justify-self:center;width:36px;height:36px;font-size:19px}.home-transparency__balance strong{white-space:normal;overflow-wrap:anywhere;font-size:clamp(20px,6.8vw,28px)}}
 
 /* ── /points: the public landing and the live ledger are one story ───── */
 .points-experience{background:#f5f7f7}.points-main-hero{position:relative;overflow:hidden;border-bottom:1px solid var(--color-line);background:rgba(248,250,249,.92)}.points-main-hero__field{position:absolute;inset:0;background-image:linear-gradient(rgba(47,78,111,.085) 1px,transparent 1px),linear-gradient(90deg,rgba(47,78,111,.085) 1px,transparent 1px);background-size:32px 32px;mask-image:linear-gradient(90deg,black,rgba(0,0,0,.45));animation:technical-grid-drift 52s linear infinite}.points-main-hero__field::after{content:"";position:absolute;width:760px;height:760px;right:-280px;top:-390px;border:1px solid rgba(64,105,156,.1);border-radius:50%;box-shadow:0 0 0 110px rgba(64,105,156,.025),0 0 0 240px rgba(64,105,156,.018);animation:section-orbit 42s linear infinite}
@@ -1542,7 +1542,7 @@ table,
   .protocol-scene--compact .protocol-sectors { top: 48px; left: 3%; right: 3%; gap: 5px; }
   .protocol-sector { min-height: 102px; border-radius: 13px; padding: 10px 4px 14px; }
   .protocol-scene--compact .protocol-sector { min-height: 88px; padding: 9px 4px 10px; }
-  .protocol-sector svg { width: 28px; height: 28px; }
+  .protocol-scene:is(.protocol-scene--hero, .protocol-scene--compact) .protocol-sector svg { width: 28px; height: 28px; }
   .protocol-sector strong, .protocol-sector small { font-size: 11px; overflow-wrap: anywhere; max-width: 100%; }
   .protocol-scene--compact .protocol-sector small { display: none; }
   .protocol-sectors__book { left: 6%; right: 6%; bottom: 16px; padding-top: 16px; }
@@ -1579,19 +1579,19 @@ table,
     gap: 6px;
   }
   .protocol-capital__nodes > * { transform: none !important; flex: 0 1 calc(33.333% - 6px); min-width: 82px; }
-  .protocol-node { min-height: 48px; padding: 7px 6px; }
-  .protocol-node strong { overflow-wrap: anywhere; }
+  .protocol-scene:is(.protocol-scene--hero, .protocol-scene--compact) .protocol-node { min-height: 48px; padding: 7px 6px; }
+  .protocol-scene:is(.protocol-scene--hero, .protocol-scene--compact) .protocol-node strong { overflow-wrap: anywhere; }
 }
 
 @media (max-width: 420px) {
-  .protocol-reconcile { left: 3%; right: 3%; grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr); gap: 5px; }
-  .protocol-reconcile__metric { padding: 10px 8px; }
-  .protocol-reconcile__metric strong { font-size: 15px; }
-  .protocol-reconcile__mark em { width: 28px; height: 28px; font-size: 15px; }
-  .protocol-backing-mix__bar > span { padding-inline: 6px; white-space: normal; line-height: 1.15; justify-content: center; text-align: center; }
-  .protocol-docs { inset: 36px 4% 48px; grid-template-columns: minmax(0, 1fr) 22px minmax(0, 1.15fr); gap: 6px; }
-  .protocol-docs__paper { padding: 24px 10px 14px; }
-  .protocol-docs__proof span { padding: 0 8px; }
+  .protocol-scene:is(.protocol-scene--hero, .protocol-scene--compact) .protocol-reconcile { left: 3%; right: 3%; grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr); gap: 5px; }
+  .protocol-scene:is(.protocol-scene--hero, .protocol-scene--compact) .protocol-reconcile__metric { padding: 10px 8px; }
+  .protocol-scene:is(.protocol-scene--hero, .protocol-scene--compact) .protocol-reconcile__metric strong { font-size: 15px; }
+  .protocol-scene:is(.protocol-scene--hero, .protocol-scene--compact) .protocol-reconcile__mark em { width: 28px; height: 28px; font-size: 15px; }
+  .protocol-scene:is(.protocol-scene--hero, .protocol-scene--compact) .protocol-backing-mix__bar > span { padding-inline: 6px; white-space: normal; line-height: 1.15; justify-content: center; text-align: center; }
+  .protocol-scene:is(.protocol-scene--hero, .protocol-scene--compact) .protocol-docs { inset: 36px 4% 48px; grid-template-columns: minmax(0, 1fr) 22px minmax(0, 1.15fr); gap: 6px; }
+  .protocol-scene:is(.protocol-scene--hero, .protocol-scene--compact) .protocol-docs__paper { padding: 30px 10px 14px; }
+  .protocol-scene:is(.protocol-scene--hero, .protocol-scene--compact) .protocol-docs__proof span { padding: 0 8px; }
 }
 
 @media (max-width: 380px) {

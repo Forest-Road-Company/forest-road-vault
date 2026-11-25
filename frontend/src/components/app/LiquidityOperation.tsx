@@ -249,7 +249,7 @@ function StatusLine({status}: {status: OperationStatus}) {
     >
       <p>{status.message}</p>
       {url ? (
-        <a className="mt-1 inline-block underline" href={url} target="_blank" rel="noreferrer">
+        <a className="mt-1 inline-flex min-h-[24px] items-center underline" href={url} target="_blank" rel="noreferrer">
           View transaction
         </a>
       ) : null}
