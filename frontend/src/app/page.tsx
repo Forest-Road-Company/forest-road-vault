@@ -104,7 +104,7 @@ export default function Landing() {
       <Section tone="light" id="operate">
         <div className="flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
           <SectionHead title="A purpose-built surface for every move." lede="The interface follows the same path as the capital. Each action simulates against current chain state before the wallet opens." />
-          <Link href="/app" className="u-link flex-none text-[12px] font-semibold uppercase tracking-[.14em] text-accent">Open the app →</Link>
+          <Link href="/app" className="u-link inline-flex min-h-[24px] flex-none items-center text-[12px] font-semibold uppercase tracking-[.14em] text-accent">Open the app →</Link>
         </div>
         <OperateCards />
       </Section>

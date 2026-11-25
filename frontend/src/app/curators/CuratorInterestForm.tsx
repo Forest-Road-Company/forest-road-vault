@@ -25,7 +25,7 @@ const SIZES = [
 ] as const;
 
 const field =
-  "op-field mt-2 flex w-full items-center px-4 py-3 text-[16px] text-ink sm:text-[14.5px]";
+  "op-field mt-2 flex w-full items-center px-4 py-3 text-[16px] text-ink lg:text-[14.5px]";
 const control =
   "w-full bg-transparent outline-none placeholder:text-ink-faint";
 const label = "block text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-muted";
@@ -205,7 +205,7 @@ export function CuratorInterestForm() {
             aria-invalid={walletInvalid || undefined}
             aria-describedby={walletInvalid ? "ci-error" : undefined}
             onChange={(e) => setWallet(e.target.value)}
-            className={`${control} font-mono sm:text-[13.5px]`}
+            className={`${control} font-mono lg:text-[13.5px]`}
           />
         </div>
       </div>

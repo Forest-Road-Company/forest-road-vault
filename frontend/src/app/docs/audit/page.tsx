@@ -119,11 +119,11 @@ export default function AuditRegisterPage() {
                 <Link
                   key={a.slug}
                   href={`/docs/audit/${a.slug}`}
-                  className={`panel panel-hover group flex h-full p-8 ${
+                  className={`panel panel-hover group flex h-full min-w-0 p-6 sm:p-8 ${
                     solo ? "flex-col gap-8 lg:flex-row lg:gap-16" : "flex-col"
                   }`}
                 >
-                  <div className={solo ? "lg:w-[3.4in] lg:flex-none" : ""}>
+                  <div className={solo ? "min-w-0 lg:w-[3.4in] lg:flex-none" : "min-w-0"}>
                     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
                       <span className="running-head text-accent">
                         {a.dateLabel}
@@ -132,7 +132,7 @@ export default function AuditRegisterPage() {
                         {a.eyebrow}
                       </span>
                     </div>
-                    <h3 className="display mt-5 text-[25px] leading-tight transition-colors group-hover:text-accent">
+                    <h3 className="display mt-5 [overflow-wrap:anywhere] text-[25px] leading-tight transition-colors group-hover:text-accent">
                       {a.title}
                     </h3>
                     <div
@@ -151,8 +151,8 @@ export default function AuditRegisterPage() {
                     </span>
                   </div>
 
-                  <div className="flex flex-1 flex-col">
-                    <p className="mt-4 max-w-[64ch] text-[14px] leading-relaxed text-ink-muted">
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <p className="mt-4 max-w-[64ch] [overflow-wrap:anywhere] text-[14px] leading-relaxed text-ink-muted">
                       {a.summary}
                     </p>
                     {solo ? null : (
@@ -1062,7 +1062,7 @@ export default function AuditRegisterPage() {
             <Link
               key={a.slug}
               href={`/docs/audit/${a.slug}`}
-              className={`group flex flex-col gap-4 py-7 transition-colors hover:bg-raised lg:flex-row lg:gap-12 ${
+              className={`group flex min-w-0 flex-col gap-4 py-7 transition-colors hover:bg-raised lg:flex-row lg:gap-12 ${
                 i === 0 ? "border-t border-line-strong" : "border-t border-row"
               }`}
             >
@@ -1078,11 +1078,11 @@ export default function AuditRegisterPage() {
                 </div>
               </div>
 
-              <div className="flex-1">
-                <h3 className="display text-[19px] leading-tight transition-colors group-hover:text-accent">
+              <div className="min-w-0 flex-1">
+                <h3 className="display [overflow-wrap:anywhere] text-[19px] leading-tight transition-colors group-hover:text-accent">
                   {a.title}
                 </h3>
-                <p className="mt-2.5 text-[14px] leading-relaxed text-ink-muted">
+                <p className="mt-2.5 [overflow-wrap:anywhere] text-[14px] leading-relaxed text-ink-muted">
                   {a.summary}
                 </p>
               </div>

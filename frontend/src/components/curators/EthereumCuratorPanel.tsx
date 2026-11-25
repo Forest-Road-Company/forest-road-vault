@@ -329,7 +329,7 @@ export function EthereumCuratorPanel() {
               value={recoveryClass.toString()}
               onChange={(e) => setRecoverySelected(BigInt(e.target.value))}
               disabled={flow.busy}
-              className="op-field mt-1.5 block w-full px-4 py-2.5 text-[14px] text-ink"
+              className="op-field mt-1.5 block w-full px-4 py-2.5 text-[16px] text-ink lg:text-[14px]"
             >
               {views.map((v) => (
                 <option key={v.classId.toString()} value={v.classId.toString()}>
@@ -372,24 +372,24 @@ export function EthereumCuratorPanel() {
         <table className="w-full text-[13px]">
           <thead>
             <tr className="text-left text-ink-faint">
-              <th scope="col" className="py-1.5 font-medium">Class</th>
-              <th scope="col" className="py-1.5 font-medium">Your posting</th>
-              <th scope="col" className="py-1.5 font-medium">Class pool</th>
-              <th scope="col" className="py-1.5 font-medium">Required by live facilities</th>
-              <th scope="col" className="py-1.5 font-medium">Withdrawable now</th>
+              <th scope="col" className="whitespace-nowrap py-1.5 pr-4 font-medium">Class</th>
+              <th scope="col" className="whitespace-nowrap py-1.5 pr-4 font-medium">Your posting</th>
+              <th scope="col" className="whitespace-nowrap py-1.5 pr-4 font-medium">Class pool</th>
+              <th scope="col" className="whitespace-nowrap py-1.5 pr-4 font-medium">Required by live facilities</th>
+              <th scope="col" className="whitespace-nowrap py-1.5 font-medium">Withdrawable now</th>
             </tr>
           </thead>
           <tbody>
             {positionViews.map((v) => (
               <tr key={v.classId.toString()} className="border-t border-line">
-                <td className="py-2 text-ink">
+                <td className="whitespace-nowrap py-2 pr-4 text-ink">
                   {v.name}
                   {!v.approved ? <span className="ml-1 text-ink-faint">(approval withdrawn)</span> : null}
                 </td>
-                <td className="py-2 font-mono">{fmtAmount(v.posted, USDFR_DECIMALS)} USDfr</td>
-                <td className="py-2 font-mono">{fmtAmount(v.pool, USDFR_DECIMALS)} USDfr</td>
-                <td className="py-2 font-mono">{fmtAmount(v.required, USDFR_DECIMALS)} USDfr</td>
-                <td className="py-2 font-mono">{fmtAmount(withdrawableNow(v, exitsBlocked), USDFR_DECIMALS)} USDfr</td>
+                <td className="whitespace-nowrap py-2 pr-4 font-mono">{fmtAmount(v.posted, USDFR_DECIMALS)} USDfr</td>
+                <td className="whitespace-nowrap py-2 pr-4 font-mono">{fmtAmount(v.pool, USDFR_DECIMALS)} USDfr</td>
+                <td className="whitespace-nowrap py-2 pr-4 font-mono">{fmtAmount(v.required, USDFR_DECIMALS)} USDfr</td>
+                <td className="whitespace-nowrap py-2 font-mono">{fmtAmount(withdrawableNow(v, exitsBlocked), USDFR_DECIMALS)} USDfr</td>
               </tr>
             ))}
           </tbody>
@@ -416,7 +416,7 @@ export function EthereumCuratorPanel() {
                 }
               }}
               disabled={flow.busy}
-              className="op-field mt-1.5 block w-full px-4 py-2.5 text-[14px] text-ink"
+              className="op-field mt-1.5 block w-full px-4 py-2.5 text-[16px] text-ink lg:text-[14px]"
             >
               {!current ? <option value="">Choose a class</option> : null}
               {positionViews.map((v) => (
@@ -476,7 +476,7 @@ export function EthereumCuratorPanel() {
               onClick={() =>
                 setAmount(fmtAmount(withdrawable, USDFR_DECIMALS, USDFR_DECIMALS).replace(/,/g, ""))
               }
-              className="text-[11.5px] font-medium text-accent underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-[24px] items-center text-[11.5px] font-medium text-accent underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
             >
               Max withdraw ({fmtAmount(withdrawable, USDFR_DECIMALS)} USDfr)
             </button>
@@ -524,7 +524,7 @@ export function EthereumCuratorPanel() {
 
       {positionViews.length < views.length ? (
         <details className="mt-5 border-t border-line pt-4">
-          <summary className="cursor-pointer text-[13px] font-semibold text-ink">
+          <summary className="min-h-[24px] cursor-pointer py-1 text-[13px] font-semibold text-ink">
             Previously posted capital in another class?
           </summary>
           <p className="mt-2 text-[13px] leading-relaxed text-ink-muted">
@@ -537,7 +537,7 @@ export function EthereumCuratorPanel() {
               value={recoveryClass.toString()}
               onChange={(e) => setRecoverySelected(BigInt(e.target.value))}
               disabled={flow.busy}
-              className="op-field mt-1.5 block w-full px-4 py-2.5 text-[14px] text-ink"
+              className="op-field mt-1.5 block w-full px-4 py-2.5 text-[16px] text-ink lg:text-[14px]"
             >
               {views.map((v) => (
                 <option key={v.classId.toString()} value={v.classId.toString()}>

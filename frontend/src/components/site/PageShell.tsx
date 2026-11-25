@@ -79,8 +79,8 @@ export function PageShell({
           <div className="relative z-10 mx-auto flex min-h-[min(72svh,780px)] max-w-6xl flex-col px-5 pb-16 pt-10 md:pb-20">
             {breadcrumb(true)}
             <div className={`mt-auto grid items-end gap-6 ${visual ? "lg:grid-cols-[.78fr_1.22fr]" : ""}`}>
-              <div className="page-hero__glass max-w-3xl p-7 sm:p-10">
-                <h1 className="display text-[clamp(2.7rem,7vw,5.4rem)] leading-[1.02] text-white">
+              <div className="page-hero__glass min-w-0 max-w-3xl p-7 sm:p-10">
+                <h1 className="display [overflow-wrap:anywhere] text-[clamp(2rem,6.5vw,5.4rem)] leading-[1.02] text-white">
                   {title}
                 </h1>
                 {lede ? (
@@ -89,7 +89,7 @@ export function PageShell({
                   </p>
                 ) : null}
               </div>
-              {visual ? <div className="page-hero__forest-visual">{visual}</div> : null}
+              {visual ? <div className="page-hero__forest-visual min-w-0">{visual}</div> : null}
             </div>
           </div>
         </section>
@@ -106,8 +106,8 @@ export function PageShell({
           <div className="rule-head mt-3" />
 
           <div className={`mt-10 grid gap-x-14 gap-y-10 ${visual ? "items-center lg:grid-cols-[.88fr_1.12fr]" : "lg:grid-cols-12"}`}>
-            <div className={visual ? "max-w-2xl" : "lg:col-span-7"}>
-              <h1 className="display text-[clamp(2.35rem,5.4vw,4.9rem)] leading-[1.04]">
+            <div className={visual ? "min-w-0 max-w-2xl" : "min-w-0 lg:col-span-7"}>
+              <h1 className="display [overflow-wrap:anywhere] text-[clamp(2rem,6vw,4.9rem)] leading-[1.04]">
                 {title}
               </h1>
               {lede ? (

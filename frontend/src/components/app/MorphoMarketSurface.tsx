@@ -245,7 +245,7 @@ export function MorphoMarketSurface() {
           <p className="mt-2 text-sm text-ink-muted">Ethereum · Morpho Blue · 86% liquidation LTV</p></div>
         {safe.context ? <p className="rounded-pill border border-line px-4 py-2 font-mono text-xs">Safe {shortAddress(safe.context.address)} · {safe.context.threshold}-of-{safe.context.owners.length}</p> : <ConnectControl />}
       </div>
-      <dl className="mt-7 grid grid-cols-2 gap-6 md:grid-cols-4">
+      <dl className="mt-7 grid grid-cols-1 gap-6 min-[420px]:grid-cols-2 md:grid-cols-4">
         <Metric label="Total lent" value={snapshot ? `${fmtAmount(snapshot.market.totalSupplyAssets, 6)} USDC` : "—"} />
         <Metric label="Available liquidity" value={snapshot ? `${fmtAmount(snapshot.liquidity, 6)} USDC` : "—"} />
         <Metric label="Lending APR · variable" value={snapshot ? apr(snapshot.supplyRate) : "—"} />
@@ -290,7 +290,7 @@ export function MorphoMarketSurface() {
             <p key="valid">Quote valid for five minutes from issuance. Expires {new Date(displayedQuote.expiresAt).toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC")}.</p>
           )}
           <p>This is not an on-chain deadline. Expiry cannot cancel a wallet request or Safe proposal already handed over. After expiry, refresh and review before signing; later execution is not protected.</p>
-          {quoteExpired && !busy ? <button type="button" className="u-link" onClick={() => void marketQuery.refetch()}>Refresh quote</button> : null}
+          {quoteExpired && !busy ? <button type="button" className="u-link inline-flex min-h-[24px] items-center" onClick={() => void marketQuery.refetch()}>Refresh quote</button> : null}
         </div> : null}
         {account && snapshot && (action === "borrow" || action === "withdrawCollateral" || action === "repay") ? <div className="mt-4 space-y-2 text-sm">
           <p>Current LTV: {formatLtv(account.values)} · liquidation LTV: 86%</p>
@@ -305,7 +305,7 @@ export function MorphoMarketSurface() {
         {disabledReason ? <p id="morpho-disabled-reason" role="status" className="mt-3 text-[13px] leading-relaxed text-ink-muted">{disabledReason}</p> : null}
         <StatusLine status={flow.status} />
         {flow.status.phase === "pending" && flow.status.delayed && !flow.status.stopped ? (
-          <button type="button" className="u-link mt-2 text-xs text-ink-muted" onClick={flow.stopWaiting}>
+          <button type="button" className="u-link mt-2 inline-flex min-h-[24px] items-center text-xs text-ink-muted" onClick={flow.stopWaiting}>
             Stop checking this transaction
           </button>
         ) : null}
@@ -313,23 +313,25 @@ export function MorphoMarketSurface() {
         {safeProposed ? <div role="status" className="mt-4 break-words text-sm leading-relaxed text-ink-muted">
           Safe review returned a proposal reference. Funds have not been confirmed as moved. The Safe&apos;s owners must review its nonce, signatures and execution.
           <p className="mt-2 font-mono text-xs">{safeStatus.hash}</p><p className="mt-2">Check the Safe transaction queue before creating another proposal.</p>
-          <button type="button" className="u-link mt-3 text-accent" onClick={() => {resetSafeProposal(); void marketQuery.refetch();}}>Start another action</button>
+          <button type="button" className="u-link mt-3 inline-flex min-h-[24px] items-center text-accent" onClick={() => {resetSafeProposal(); void marketQuery.refetch();}}>Start another action</button>
         </div> : null}
         {treasurySeed && proposal?.record ? <div role="status" className="mt-4 break-words text-xs leading-relaxed text-ink-muted">
           <p>Saved Treasury proposal: {proposal.status}.</p>
           {proposal.record.hash ? <p className="mt-2 font-mono">{proposal.record.hash}</p> : <p>The Safe reply was not recorded. Do not retry before reconciling its queue.</p>}
           <p className="mt-2">This browser record does not cover other devices or origins. Reconcile the complete Safe queue before any signature.</p>
-          <button type="button" className="u-link mt-2 text-accent" disabled={busy} onClick={() => void proposalQuery.refetch()}>Recheck proposal status</button>
-          {proposal.canClear ? <button type="button" className="u-link ml-3 mt-2 text-accent" disabled={busy} onClick={() => {
-            void clearResolvedTreasuryProposal(window.localStorage, safe.context!.sdk, client!).then(() => proposalQuery.refetch()).catch(error =>
-              setSafeStatus({phase: "error", message: error instanceof Error ? error.message : "The proposal record could not be reconciled."}));
-          }}>Clear confirmed obsolete record</button> : null}
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <button type="button" className="u-link inline-flex min-h-[24px] items-center text-accent" disabled={busy} onClick={() => void proposalQuery.refetch()}>Recheck proposal status</button>
+            {proposal.canClear ? <button type="button" className="u-link inline-flex min-h-[24px] items-center text-accent" disabled={busy} onClick={() => {
+              void clearResolvedTreasuryProposal(window.localStorage, safe.context!.sdk, client!).then(() => proposalQuery.refetch()).catch(error =>
+                setSafeStatus({phase: "error", message: error instanceof Error ? error.message : "The proposal record could not be reconciled."}));
+            }}>Clear confirmed obsolete record</button> : null}
+          </div>
         </div> : null}
         {treasury ? <SafeInstructions /> : null}
       </section>
       <aside className="market-console__aside min-w-0 space-y-7">
         <section className="border-t border-line-strong pt-6"><h3 className="font-display text-lg font-semibold">Your position</h3>
-          <dl className="mt-5 grid grid-cols-2 gap-6">
+          <dl className="mt-5 grid grid-cols-1 gap-6 min-[420px]:grid-cols-2">
             <Metric label="USDC lent" value={account ? fmtAmount(account.values.supplied, 6, 6) : "—"} />
             <Metric label="USDC borrowed" value={account ? fmtAmount(account.values.borrowed, 6, 6) : "—"} />
             <Metric label="sUSDfr collateral" value={account ? fmtAmount(account.position.collateral, MORPHO_MARKET.collateralDecimals, 6) : "—"} />
@@ -341,12 +343,12 @@ export function MorphoMarketSurface() {
           <p className="mt-3 text-sm leading-relaxed text-ink-muted">Lenders earn variable interest from USDC borrowers. Withdrawals depend on available liquidity. Borrowers deposit sUSDfr before borrowing and must maintain collateral above the liquidation threshold.</p>
           <p className="mt-3 text-sm leading-relaxed text-ink-muted">sUSDfr carries the underlying credit book&apos;s gains and losses. Its redemption queue and the market&apos;s liquidation process can limit exits. USDC lending here is a separate position from staking USDfr.</p>
           <p className="mt-3 text-sm leading-relaxed text-ink-muted">The PT market is not open on this page.</p>
-          <Link href="/app" className="u-link mt-4 inline-block text-sm text-accent">Buy USDfr or stake into sUSDfr →</Link>
+          <Link href="/app" className="u-link mt-4 inline-flex min-h-[24px] items-center text-sm text-accent">Buy USDfr or stake into sUSDfr →</Link>
         </section>
-        <details className="border-t border-line pt-5"><summary className="cursor-pointer text-sm font-medium">Verify the market</summary>
+        <details className="border-t border-line pt-5"><summary className="min-h-[24px] cursor-pointer py-1 text-sm font-medium">Verify the market</summary>
           <div className="mt-4 space-y-3 break-all font-mono text-xs text-ink-muted">
             <p>Market ID: {MORPHO_MARKET.id}</p><p>Oracle: {P.oracle}</p>
-            <a href={`https://etherscan.io/address/${MORPHO_MARKET.address}`} target="_blank" rel="noreferrer" className="u-link text-accent">Morpho Blue on Etherscan</a>
+            <a href={`https://etherscan.io/address/${MORPHO_MARKET.address}`} target="_blank" rel="noreferrer" className="u-link inline-flex min-h-[24px] items-center text-accent">Morpho Blue on Etherscan</a>
             {treasury ? <><p>Treasury: {MORPHO_MARKET.treasury}</p><p>Unsigned call digest: {treasurySupplyDigest()}</p>
               <p>Safe nonce at the displayed block: {account?.safeNonce?.toString() ?? "unavailable"}. Verify the proposal&apos;s nonce in Safe before signing.</p></> : null}
           </div>
@@ -399,9 +401,9 @@ function SafeInstructions() {
   const url = origin.startsWith("https://") ? `https://app.safe.global/apps/open?safe=eth:${MORPHO_MARKET.treasury}&appUrl=${encodeURIComponent(`${origin}/markets`)}` : null;
   return <div className="mt-5 border-t border-line pt-5 text-xs leading-relaxed text-ink-muted">
     <p>Use the Treasury Safe as the connected account. Its owners review an atomic batch together; an owner&apos;s personal wallet is a different lending position.</p>
-    {url ? <a href={url} target="_blank" rel="noreferrer" className="u-link mt-3 inline-block text-accent">Open this market in the Treasury Safe →</a> : null}
+    {url ? <a href={url} target="_blank" rel="noreferrer" className="u-link mt-3 inline-flex min-h-[24px] items-center text-accent">Open this market in the Treasury Safe →</a> : null}
     <p className="mt-3">Before the final signature, repeat the full live book, governance, bot-protection, balance, allowance and exact-byte checks. An enabled button does not replace those checks.</p>
-    <details className="mt-3 break-words"><summary className="cursor-pointer">Reviewed 50,000-USDC generator</summary>
+    <details className="mt-3 break-words"><summary className="min-h-[24px] cursor-pointer py-1">Reviewed 50,000-USDC generator</summary>
       <p className="mt-2 font-mono">{REVIEWED_TREASURY_GENERATOR.commit}:{REVIEWED_TREASURY_GENERATOR.path}</p>
       <p className="mt-2 font-mono">SHA-256: {REVIEWED_TREASURY_GENERATOR.sha256}</p>
       <p className="mt-2">Regenerate only from these reviewed bytes. The older 250,000-USDC generator is not approved for this contribution.</p>

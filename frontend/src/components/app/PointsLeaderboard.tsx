@@ -330,7 +330,7 @@ export function PointsLeaderboard({
             <button
               type="button"
               onClick={() => setShown((n) => n + LEADERBOARD_STEP)}
-              className="mt-3 text-[13px] font-semibold text-accent underline-offset-4 hover:underline"
+              className="mt-3 inline-flex min-h-[24px] items-center text-[13px] font-semibold text-accent underline-offset-4 hover:underline"
             >
               Show more
             </button>

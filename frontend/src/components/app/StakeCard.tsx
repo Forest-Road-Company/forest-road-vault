@@ -203,32 +203,28 @@ export function StakeCard({writesEnabled}: {writesEnabled: boolean}) {
 
       {/* Same balance vocabulary as the other two write cards: an absent wallet
           says so in words rather than as a dash. */}
-      <p className="mt-4 font-mono text-[11px] text-ink-faint">
-        Balance:{" "}
-        {balanceLoading ? (
-          <span>loading…</span>
-        ) : balance !== undefined ? (
-          <span className="text-ink-muted">{fmtAmount(balance, 18)} USDfr</span>
-        ) : address ? (
-          <span>unavailable</span>
-        ) : (
-          <span>wallet not connected</span>
-        )}
-        {/* The rate is one unbreakable run: it read "Rate: 1" at the end of a
-            line and "sUSDfr = 1.0021 USDfr" on the next once the line wrapped,
-            on any phone. The space before it is the line's only break
-            opportunity, and without it the unbreakable run and the balance
-            together set the card's minimum width. */}
-        {rate !== undefined ? " " : null}
+      <div className="mt-4 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-ink-faint">
+        <span>
+          Balance:{" "}
+          {balanceLoading ? (
+            <span>loading…</span>
+          ) : balance !== undefined ? (
+            <span className="text-ink-muted">{fmtAmount(balance, 18)} USDfr</span>
+          ) : address ? (
+            <span>unavailable</span>
+          ) : (
+            <span>wallet not connected</span>
+          )}
+        </span>
         {rate !== undefined ? (
-          <span className="ml-2 whitespace-nowrap">
+          <span className="min-w-0 [overflow-wrap:anywhere]">
             Rate:{" "}
             <span className="text-ink-muted">
               1 sUSDfr = {fmtAmount(rate, 18, 4)} USDfr
             </span>
           </span>
         ) : null}
-      </p>
+      </div>
 
       <AmountInput
         value={amount}

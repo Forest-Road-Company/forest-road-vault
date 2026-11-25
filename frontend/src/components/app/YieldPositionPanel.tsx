@@ -566,7 +566,7 @@ export function YieldPositionPanel() {
           </h2>
           {address ? (
             <>
-              <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-5">
+              <div className="mt-5 grid grid-cols-1 gap-x-6 gap-y-5 min-[420px]:grid-cols-2">
                 <DarkMetric
                   label="Position"
                   value={
@@ -714,13 +714,13 @@ export function YieldPositionPanel() {
 
 function DarkMetric({label, value, note}: {label: string; value: string; note: string}) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-on-navy/65">
         {label}
       </p>
       {/* Carries words ("Immediate") as well as figures, so this is the body face with
           tabular numerals rather than mono. */}
-      <p className="tnum mt-1 text-[15px] font-medium text-on-navy">{value}</p>
+      <p className="tnum mt-1 [overflow-wrap:anywhere] text-[15px] font-medium text-on-navy">{value}</p>
       <p className="mt-1 text-[11px] leading-snug text-on-navy/65">{note}</p>
     </div>
   );

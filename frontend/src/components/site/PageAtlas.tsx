@@ -78,7 +78,7 @@ export function PageAtlas() {
               <li><span>02</span><p><strong>Put it to work.</strong> Staked USDfr finances named facilities after legal and on-chain records agree.</p></li>
               <li><span>03</span><p><strong>Return the cash.</strong> Principal and interest flow back through the waterfall, vault and redemption queue.</p></li>
             </ol>
-            <Link href="/how-it-works" className="u-link mt-7 inline-flex text-[12px] font-semibold uppercase tracking-[.14em] text-accent">Trace the complete system →</Link>
+            <Link href="/how-it-works" className="u-link mt-7 inline-flex min-h-[24px] items-center text-[12px] font-semibold uppercase tracking-[.14em] text-accent">Trace the complete system →</Link>
           </div>
         </div>
 

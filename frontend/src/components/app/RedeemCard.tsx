@@ -736,7 +736,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
             )}
             {completedRequests.length > 0 ? (
               <details className="mt-3 rounded-card border border-line bg-surface px-3.5 py-2">
-                <summary className="cursor-pointer font-mono text-[11px] text-ink-faint hover:text-ink-muted">
+                <summary className="min-h-[24px] cursor-pointer py-1 font-mono text-[11px] text-ink-faint hover:text-ink-muted">
                   Completed requests ({completedRequests.length})
                 </summary>
                 <ul className="mt-2 space-y-1.5 border-t border-line pt-2">
