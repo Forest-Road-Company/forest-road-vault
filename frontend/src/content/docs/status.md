@@ -184,7 +184,7 @@ accepted and deferred findings, with their exact conditions, are in the
 | 4 Nov | Digital Assets facility 14 originated and funded (`750,000 USDfr` at 12.5% fixed, maturing 4 November 2027). |
 | 28 Oct | Digital Assets facility 13 originated and funded (`2,000,000 USDfr` at 12.5% fixed, maturing 28 October 2027). |
 | 26 Oct | Digital Assets facility 12 originated and funded (`2,400,000 USDfr` at 12.5% fixed, maturing 26 October 2027). |
-| 21 Oct | Morpho sUSDfr/USDC borrowing and lending page (`/markets`) deployed to production (entry switches subsequently enabled separately by governance/owner). |
+| 21 Oct | Morpho sUSDfr/USDC borrowing and lending page ([/markets](/markets)) deployed to production (entry switches subsequently enabled separately by governance/owner). |
 
 ## Limits and operating assumptions
 

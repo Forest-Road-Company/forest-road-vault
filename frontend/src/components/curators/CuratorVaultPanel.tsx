@@ -104,20 +104,24 @@ async function awaitSignature(
   connection: Connection,
   signature: string,
   lastValidBlockHeight: number,
-): Promise<"confirmed" | "failed" | "expired"> {
+  isCancelled?: () => boolean,
+): Promise<"confirmed" | "failed" | "expired" | "cancelled"> {
   // A throttled status poll is not an unknown outcome: keep polling through it. Only a
   // sustained refusal (nothing readable for two minutes) gives up, and the caller then says
   // the status could not be read and re-reads the position from chain.
   let lastReadable = Date.now();
   for (;;) {
+    if (isCancelled?.()) return "cancelled";
     try {
       const { value } = await connection.getSignatureStatuses([signature]);
+      if (isCancelled?.()) return "cancelled";
       const status = value[0];
       if (status?.err) return "failed";
       if (status && (status.confirmationStatus === "confirmed" || status.confirmationStatus === "finalized")) return "confirmed";
       if ((await connection.getBlockHeight()) > lastValidBlockHeight) return "expired";
       lastReadable = Date.now();
     } catch (e) {
+      if (isCancelled?.()) return "cancelled";
       if (!isRateLimited(e) || Date.now() - lastReadable > 120_000) throw e;
     }
     await new Promise((r) => setTimeout(r, 2_000));
@@ -129,6 +133,13 @@ export function CuratorVaultPanel() {
   const { publicKey, wallet, wallets, select, connect, connected, connecting, disconnect, sendTransaction } = useWallet();
   const walletAddress = publicKey?.toBase58() ?? null;
   const walletAddressRef = useRef(walletAddress);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   // Wallets register through the Wallet Standard on the client only, so the server renders no
   // wallet list; the list appears after mount to keep hydration exact.
   const [mounted, setMounted] = useState(false);
@@ -344,7 +355,7 @@ export function CuratorVaultPanel() {
       if (inFlightByWalletRef.current.has(actionWallet)) return;
       const runId = ++runIdSeqRef.current;
       inFlightByWalletRef.current.set(actionWallet, runId);
-      const actionWalletIsCurrent = () => walletAddressRef.current === actionWallet;
+      const actionWalletIsCurrent = () => mountedRef.current && walletAddressRef.current === actionWallet;
       setBusyByWallet((prev) => ({...prev, [actionWallet]: {runId, label}}));
       setNotice(null);
       let sig: string | null = null;
@@ -355,14 +366,16 @@ export function CuratorVaultPanel() {
         tx.recentBlockhash = blockhash;
         const sim = await connection.simulateTransaction(tx);
         if (sim.value.err) throw Object.assign(new Error("simulation failed"), { logs: sim.value.logs });
-        if (walletAddressRef.current !== actionWallet) return;
+        if (!mountedRef.current || walletAddressRef.current !== actionWallet) return;
         sig = await sendTransaction(tx, connection);
-        const outcome = await awaitSignature(connection, sig, lastValidBlockHeight);
+        const outcome = await awaitSignature(connection, sig, lastValidBlockHeight, () => !mountedRef.current);
+        if (outcome === "cancelled") return;
         // A confirmation for wallet A must never start a refresh tagged to A after the user has
         // switched to wallet B. The wallet-B render owns its own refresh sequence.
         if (!actionWalletIsCurrent()) return;
         // The outcome is announced together with the re-read figures, never ahead of them.
         const refreshed = await refresh();
+        if (!mountedRef.current || walletAddressRef.current !== actionWallet) return;
         if (outcome === "confirmed") {
           if (refreshed) {
             setNotice({ tone: "ok", text: `${label} confirmed.` });
@@ -391,12 +404,14 @@ export function CuratorVaultPanel() {
         if (inFlightByWalletRef.current.get(actionWallet) === runId) {
           inFlightByWalletRef.current.delete(actionWallet);
         }
-        setBusyByWallet((prev) => {
-          if (prev[actionWallet]?.runId !== runId) return prev;
-          const next = {...prev};
-          delete next[actionWallet];
-          return next;
-        });
+        if (mountedRef.current) {
+          setBusyByWallet((prev) => {
+            if (prev[actionWallet]?.runId !== runId) return prev;
+            const next = {...prev};
+            delete next[actionWallet];
+            return next;
+          });
+        }
       }
     },
     [connection, publicKey, refresh, sendTransaction, setAmount, setNotice],
