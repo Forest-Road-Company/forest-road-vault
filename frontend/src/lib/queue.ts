@@ -47,6 +47,7 @@ export type QueueSettlementStatus =
   | {kind: "epoch-open"; secondsRemaining: number}
   | {kind: "queue-empty"}
   | {kind: "head-cooldown"; secondsRemaining: number}
+  | {kind: "exit-frozen"}
   | {kind: "settlement-due"};
 
 /**
@@ -59,10 +60,13 @@ export function queueSettlementStatus(
   queuedShares: bigint | undefined,
   headEligibleAt: bigint | undefined,
   nowSeconds: number | null,
+  unresolvedPastDueExposure: bigint | undefined,
 ): QueueSettlementStatus {
   if (epochEndsAt === undefined || queuedShares === undefined || nowSeconds === null) {
     return {kind: "loading"};
   }
+  if (unresolvedPastDueExposure === undefined) return {kind: "loading"};
+  if (unresolvedPastDueExposure > 0n) return {kind: "exit-frozen"};
   const untilEpochEnd = Number(epochEndsAt) - nowSeconds;
   if (untilEpochEnd > 0) return {kind: "epoch-open", secondsRemaining: untilEpochEnd};
   if (queuedShares === 0n) return {kind: "queue-empty"};

@@ -28,16 +28,17 @@ import {
   SGROVE_ABI,
   SHARE_DECIMALS,
   VAULT_ABI,
-  VAULT_STAGE2_ABI,
   WATERFALL_ABI,
 } from "@/lib/abi";
 import {formatUtcMinute, type HistoricalNetDefaultMetrics} from "@/lib/book";
 import {fmtAmount, fmtCountdown, shortAddress} from "@/lib/format";
 import {formatBps} from "@/lib/yield";
 import {queueSettlementStatus} from "@/lib/queue";
+import {exitFreezeExposure} from "@/lib/exitFreeze";
 import {parseTransparencyHistoryResponse} from "@/lib/transparencyHistory";
 import {VERTICALS} from "@/lib/verticals";
 import {useNowSeconds} from "@/components/app/useNowSeconds";
+import {useVaultExitFreeze} from "@/components/app/useVaultExitFreeze";
 import {useBookEconomics} from "@/components/app/useBookEconomics";
 import {useCollateralValue} from "@/components/app/useCollateralValue";
 import {PROTOCOL_POLL} from "@/lib/polling";
@@ -63,6 +64,8 @@ type CreditPerformanceState =
   | {phase: "error"};
 
 export function TransparencyDashboard() {
+  // JO-04: zero on the reviewed pre-freeze vault implementation, undefined while unknown.
+  const unresolvedPastDueExposure = exitFreezeExposure(useVaultExitFreeze(CONTRACTS.sUSDfr!, PROTOCOL_POLL));
   // A "live" dashboard that freezes at page-load is dishonest, so it polls, every
   // five minutes (a single multicall + one blockNumber call; lib/polling.ts).
   const POLL = PROTOCOL_POLL;
@@ -109,7 +112,6 @@ export function TransparencyDashboard() {
       // recognizedBackingValue can never straddle a mint/burn block boundary.
       {address: CONTRACTS.MintRedeemController!, abi: CONTROLLER_ABI, functionName: "totalUSDfr"},
       {address: CONTRACTS.ReserveManager!, abi: RESERVES_ABI, functionName: "recognizedBackingValue"},
-      {address: CONTRACTS.sUSDfr!, abi: VAULT_STAGE2_ABI, functionName: "unresolvedPastDueExposure"},
       {address: CONTRACTS.ReserveManager!, abi: RESERVES_ABI, functionName: "reserveLossExitsLocked"},
     ],
   });
@@ -147,12 +149,11 @@ export function TransparencyDashboard() {
       : !IS_MAINNET && recognizedBackingEntry?.status === "failure"
         ? v(1)
         : undefined;
-  const unresolvedPastDue =
-    data?.[31]?.status === "success" ? (data[31].result as bigint) : undefined;
   const reserveLossExitsLocked =
-    data?.[32]?.status === "success" ? (data[32].result as boolean) : undefined;
+    data?.[31]?.status === "success" ? (data[31].result as boolean) : undefined;
   const queueSettlementFrozen =
-    (unresolvedPastDue !== undefined && unresolvedPastDue > 0n) || reserveLossExitsLocked === true;
+    (unresolvedPastDueExposure !== undefined && unresolvedPastDueExposure > 0n) ||
+    reserveLossExitsLocked === true;
   const idle = v(2);
   const deployed = v(3);
   const vaultAssets = v(4);
@@ -271,17 +272,20 @@ export function TransparencyDashboard() {
     queuedShares,
     hasQueueHead ? headEligibleAt : undefined,
     now,
+    unresolvedPastDueExposure,
   );
   const settlementStatusText =
-    settlementStatus.kind === "epoch-open"
-      ? `ends in ${fmtCountdown(settlementStatus.secondsRemaining)}`
-      : settlementStatus.kind === "queue-empty"
-        ? "ended · queue empty"
-        : settlementStatus.kind === "head-cooldown"
-          ? `ended · head eligible in ${fmtCountdown(settlementStatus.secondsRemaining)}`
-          : settlementStatus.kind === "settlement-due"
-            ? "ended · keeper settlement due"
-            : "–";
+    settlementStatus.kind === "exit-frozen"
+      ? "settlement paused · awaiting verified loan resolution"
+      : settlementStatus.kind === "epoch-open"
+        ? `ends in ${fmtCountdown(settlementStatus.secondsRemaining)}`
+        : settlementStatus.kind === "queue-empty"
+          ? "ended · queue empty"
+          : settlementStatus.kind === "head-cooldown"
+            ? `ended · head eligible in ${fmtCountdown(settlementStatus.secondsRemaining)}`
+            : settlementStatus.kind === "settlement-due"
+              ? "ended · keeper settlement due"
+              : "–";
   const currentOriginationFee = originationFeeBps.every(
     (fee): fee is number => fee !== undefined,
   )
@@ -456,10 +460,8 @@ export function TransparencyDashboard() {
           <Row
             k="Settlement status"
             val={
-              queueSettlementFrozen
-                ? reserveLossExitsLocked
-                  ? "frozen · reserve-loss exit lock active"
-                  : `frozen · $${fmt(unresolvedPastDue)} unresolved past-due`
+              reserveLossExitsLocked === true
+                ? "frozen · reserve-loss exit lock active"
                 : settlementStatusText
             }
           />

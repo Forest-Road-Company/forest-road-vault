@@ -54,6 +54,10 @@ const MAX_BUY_RECEIPT_WAIT_MS = 30 * 60_000;
  * the fee paid.
  */
 const POINTS_HOOK_GAS_HEADROOM = 300_000n;
+/** HV-09: latest-block RPC estimates can reuse a primed relief cache. The audited cold
+ *  rebuild needs at least 2.15M additional limit. Unused gas is refunded. Approval does
+ *  not convert vault assets or rebuild relief pricing and retains its existing margin. */
+const RELIEF_REBUILD_GAS_HEADROOM = 2_150_000n;
 
 export type WriteStatus =
   | {phase: "idle"}
@@ -200,7 +204,7 @@ export function useWriteFlow() {
         // simulation can run against one network while the tx goes to another.
         const hash = await writeContractAsync({
           ...request,
-          gas: estimatedGas + POINTS_HOOK_GAS_HEADROOM,
+          gas: estimatedGas + POINTS_HOOK_GAS_HEADROOM + (params.functionName === "approve" ? 0n : RELIEF_REBUILD_GAS_HEADROOM),
           chainId: EXPECTED_CHAIN.id,
         });
         setCurrentStatus({phase: "pending", hash});

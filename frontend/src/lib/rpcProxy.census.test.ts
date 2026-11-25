@@ -12,10 +12,12 @@ import {
   type Hex,
 } from "viem";
 import {sepolia} from "viem/chains";
+import {CONTRACTS} from "@/config/contracts";
 import {RPC_PROXY_ALLOWED_METHODS, rpcProxyEntryRefusal} from "@/lib/rpcProxy.server";
 import {DEFAULT_BLOCK_CHUNK, readBlockRangeChunked} from "@/lib/logs";
 import {TREASURY_HISTORY_CHUNK} from "@/lib/morphoTreasury";
 import {probeRpcAlignment, type RpcRequest} from "@/lib/rpcAlignment";
+import {ERC1967_IMPLEMENTATION_SLOT} from "@/lib/exitFreeze";
 
 /**
  * The method census behind the proxy's allowlist.
@@ -30,7 +32,7 @@ import {probeRpcAlignment, type RpcRequest} from "@/lib/rpcAlignment";
  * A viem or Wagmi upgrade that starts sending something new fails this test before it fails a user.
  */
 
-const VAULT = "0x4761995f4f6daddf7886acd9d16e119ef2fb4132";
+const VAULT = CONTRACTS.sUSDfr!;
 const WALLET = "0x7fde000000000000000000000000000000008337";
 const OTHER = "0x00000000000000000000000000000000000000aa";
 const SENT: Hex = `0x${"11".repeat(32)}`;
@@ -127,6 +129,8 @@ function stubNode() {
         return "0x5208";
       case "eth_getCode":
         return "0x6000";
+      case "eth_getStorageAt":
+        return `0x${"00".repeat(12)}${VAULT.slice(2)}`;
       case "eth_getLogs":
         return [];
       case "eth_getTransactionByHash":
@@ -190,6 +194,10 @@ describe("the proxy allowlist is exactly what the site's browser actions send", 
     expect(await client.getBlockNumber()).toBeGreaterThan(0n);
     expect(await client.getChainId()).toBe(11155111);
     expect(await client.getCode({address: VAULT})).toBe("0x6000");
+    // useStorageAt in useVaultExitFreeze (audit JO-04): the implementation slot at latest.
+    expect(await client.getStorageAt({address: VAULT, slot: ERC1967_IMPLEMENTATION_SLOT})).toBe(
+      `0x${"00".repeat(12)}${VAULT.slice(2)}`,
+    );
 
     // History: getContractEvents and getLogs, always with an address.
     expect(await client.getContractEvents({address: VAULT, abi, eventName: "Deposit", fromBlock: 1n, toBlock: 2n})).toEqual([]);

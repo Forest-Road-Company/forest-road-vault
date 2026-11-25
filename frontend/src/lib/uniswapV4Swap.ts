@@ -655,7 +655,7 @@ export function revertDataOf(err: unknown): Hex | undefined {
  * can fall back to the generic decoder.
  */
 export function describeSwapRevert(data: Hex, depth = 0): DecodedError | null {
-  if (depth > 3) return null;
+  if (depth > 5) return null;
   let decoded: {errorName: string; args: readonly unknown[] | undefined};
   try {
     decoded = decodeErrorResult({abi: SWAP_ROUTE_ERRORS, data}) as typeof decoded;
@@ -667,8 +667,23 @@ export function describeSwapRevert(data: Hex, depth = 0): DecodedError | null {
     const inner = (errorName === "WrappedError" ? args[2] : errorName === "ExecutionFailed" ? args[1] : args[0]) as Hex;
     const innerDecoded = describeSwapRevert(inner, depth + 1);
     if (innerDecoded) return innerDecoded;
-    if (errorName === "WrappedError" && String(args[0]).toLowerCase() === USDFR.toLowerCase()) {
-      return {message: "USDfr refused the pool's payment to this address, so the swap reverts.", errorName};
+    if (errorName === "WrappedError") {
+      const details = args[3] as Hex | undefined;
+      if (details && details !== "0x") {
+        const detailsDecoded = describeSwapRevert(details, depth + 1);
+        if (detailsDecoded && detailsDecoded.errorName !== "ERC20TransferFailed") {
+          return detailsDecoded;
+        }
+      }
+      if (String(args[0]).toLowerCase() === USDFR.toLowerCase()) {
+        if (!inner || inner === "0x") {
+          return {
+            message: "The USDfr transfer from the pool reverted without a reason (the transaction may have run out of gas). Try again.",
+            errorName,
+          };
+        }
+        return {message: "USDfr refused the pool's payment to this address, so the swap reverts.", errorName};
+      }
     }
     return {message: `The Uniswap route reverted (${errorName}).`, errorName};
   }

@@ -534,6 +534,39 @@ describe("revert decoding", () => {
     expect(describeSwapRevert(unknownInner)?.message).toBe("USDfr refused the pool's payment to this address, so the swap reverts.");
   });
 
+  it("unwraps PointsHook_InsufficientGas from WrappedError(USDFR, ...) instead of misreporting a compliance refusal", () => {
+    const insufficientGas = raw("PointsHook_InsufficientGas", [120_000n, 2_000_000n]);
+    const wrapped = raw("WrappedError", [USDFR, "0xa9059cbb", insufficientGas, raw("ERC20TransferFailed")]);
+    const viaRouter = raw("ExecutionFailed", [1n, wrapped]);
+    const deeplyNested = raw("UnexpectedRevertBytes", [
+      raw("ExecutionFailed", [1n, raw("WrappedError", [UNIVERSAL_ROUTER, "0x3593564c", wrapped, "0x"])]),
+    ]);
+    const inDetails = raw("WrappedError", [USDFR, "0xa9059cbb", "0x", insufficientGas]);
+    for (const payload of [wrapped, viaRouter, deeplyNested, inDetails]) {
+      const decoded = describeSwapRevert(payload);
+      expect(decoded).toEqual({
+        message: SWAP_ERROR_MESSAGES.PointsHook_InsufficientGas,
+        errorName: "PointsHook_InsufficientGas",
+      });
+      expect(decoded?.message).not.toContain("refused the pool's payment");
+      expect(decoded?.message).not.toContain("jurisdiction-blocked");
+    }
+    const simulated = new ContractFunctionExecutionError(
+      new ContractFunctionRevertedError({abi: UNIVERSAL_ROUTER_ABI, data: wrapped, functionName: "execute"}),
+      {abi: UNIVERSAL_ROUTER_ABI, args: [], contractAddress: UNIVERSAL_ROUTER, functionName: "execute"},
+    );
+    expect(decodeSwapError(simulated)).toEqual({
+      message: SWAP_ERROR_MESSAGES.PointsHook_InsufficientGas,
+      errorName: "PointsHook_InsufficientGas",
+    });
+    // An empty revert (e.g., OOG inside USDfr.transfer) must not be misreported as a compliance refusal.
+    const emptyInner = raw("WrappedError", [USDFR, "0xa9059cbb", "0x", raw("ERC20TransferFailed")]);
+    const emptyDecoded = describeSwapRevert(emptyInner);
+    expect(emptyDecoded?.errorName).toBe("WrappedError");
+    expect(emptyDecoded?.message).toContain("gas");
+    expect(emptyDecoded?.message).not.toContain("refused the pool's payment");
+  });
+
   it("unwraps the quoter's UnexpectedRevertBytes around NotEnoughLiquidity", () => {
     const pool = "0x72ef9130b1c7bd2daa49405e618b7ad27eb90e03c893629ba1d28a4562fc7b55";
     const data = raw("UnexpectedRevertBytes", [raw("NotEnoughLiquidity", [pool])]);

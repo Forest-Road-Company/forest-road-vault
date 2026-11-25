@@ -7,6 +7,15 @@ import {fileURLToPath} from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cases = [
+  {"name": "LMV cold relief headroom is retained at wallet handoff", "file": "src/components/app/useWriteFlow.ts", "testFile": "src/components/app/useWriteFlow.test.tsx", "test": "includes the cold relief rebuild allowance in the transaction sent to the wallet", "needle": "const RELIEF_REBUILD_GAS_HEADROOM = 2_150_000n;", "replacement": "const RELIEF_REBUILD_GAS_HEADROOM = 0n;"},
+  {"name": "LMV frozen settlement is never described as due", "file": "src/lib/queue.ts", "testFile": "src/lib/queue.test.ts", "test": "does not present an elapsed cooldown as settlement due during a reversible mark", "needle": "if (unresolvedPastDueExposure > 0n)", "replacement": "if (false && unresolvedPastDueExposure > 0n)"},
+  {"name": "LMV unknown exit gate cannot become a zero mark", "file": "src/lib/queue.ts", "testFile": "src/lib/queue.test.ts", "test": "does not present an elapsed cooldown as settlement due during a reversible mark", "needle": "if (unresolvedPastDueExposure === undefined)", "replacement": "if (false && unresolvedPastDueExposure === undefined)"},
+  {"name": "LMV paused heartbeat remains visible before a queue request", "file": "src/components/app/RedeemCard.tsx", "testFile": "src/components/app/RedeemCard.test.tsx", "test": "shows the unresolved-mark pause instead of promising settlement when the heartbeat is open", "needle": ") : unresolvedPastDueExposure > 0n ? (", "replacement": ") : false && unresolvedPastDueExposure > 0n ? ("},
+  {"name": "LMV JO-04 an empty revert is the legacy status only on the reviewed pre-freeze implementation", "file": "src/lib/exitFreeze.ts", "testFile": "src/lib/exitFreeze.test.ts", "test": "the same empty revert on any other implementation (the released vault) stays unavailable", "needle": "return implementation !== null && preExitFreezeImplementations(chainId, vault).includes(implementation)", "replacement": "return implementation !== null"},
+  {"name": "LMV JO-04 a transport failure never selects the legacy status", "file": "src/lib/exitFreeze.ts", "testFile": "src/lib/exitFreeze.test.ts", "test": "a transport or decoded failure never probes and never becomes the legacy status", "needle": "if (!needsImplementationProbe(chainId, vault, data, error)) return {kind: \"unavailable\"};", "replacement": "if (data !== undefined) return {kind: \"unavailable\"};"},
+  {"name": "LMV JO-04 a proxy failure without revert data is not an empty revert", "file": "src/lib/exitFreeze.ts", "testFile": "src/lib/exitFreeze.test.ts", "test": "refuses transport, proxy, rate-limit and timeout failures and every revert that carries data", "needle": "return reverted.raw === \"0x\" && reverted.data === undefined && reverted.signature === undefined;", "replacement": "return reverted.data === undefined && reverted.signature === undefined;"},
+  {"name": "LMV JO-04 the pre-release vault is not stuck loading", "file": "src/lib/exitFreeze.ts", "testFile": "src/components/app/RedeemCard.exitFreeze.test.tsx", "test": "shows the ordinary heartbeat on the reviewed pre-freeze implementation instead of loading forever", "needle": "if (read.kind === \"legacy-vault\") return 0n;", "replacement": "if (read.kind === \"legacy-vault\") return undefined;"},
+  {"name": "LMV JO-04 the RPC proxy reads only the ERC-1967 implementation slot", "file": "src/lib/rpcProxy.server.ts", "testFile": "src/app/api/rpc/route.test.ts", "test": "refuses every other eth_getStorageAt shape, before the upstream", "needle": "slot.toLowerCase() === IMPLEMENTATION_SLOT && block === \"latest\"", "replacement": "block === \"latest\""},
   {
     name: "a vanished class cannot retarget an Ethereum write",
     file: "src/components/curators/EthereumCuratorPanel.tsx",
@@ -582,8 +591,9 @@ const cases = [
 ];
 
 const args = process.argv.slice(2);
-if (args.some(arg => arg !== "--morpho")) throw new Error("Only --morpho or the default full gate is supported.");
-const selected = args.includes("--morpho") ? cases.filter(c => /morpho(Market|Safe|Treasury)|MorphoMarketSurface|useMorphoSafe/.test(c.file) || c.name.startsWith("Morpho ")) : cases;
+if (args.some(arg => !["--morpho", "--lmv"].includes(arg))) throw new Error("Only --morpho, --lmv or the default full gate is supported.");
+if (new Set(args).size !== args.length || args.length > 1) throw Error("Choose one mutation suite");
+const selected = args.includes("--lmv") ? cases.filter(c => c.name.startsWith("LMV ")) : args.includes("--morpho") ? cases.filter(c => /morpho(Market|Safe|Treasury)|MorphoMarketSurface|useMorphoSafe/.test(c.file) || c.name.startsWith("Morpho ")) : cases;
 const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function runTests(files, name, diagnosticLabel) {
   const result = spawnSync(join(root, "node_modules/.bin/vitest"),
