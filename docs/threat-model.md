@@ -549,12 +549,14 @@ on 24 November alongside 66/66 green hosted CI security gates).
 **Staged LMV Upgrade Posture (25 November 2026):** All Stage 1 preliminary release-monitor
 components and all 38 newly compiled Stage 2 contracts and libraries from <!-- tm-check:ignore-start commit hash -->`ee9b228a`<!-- tm-check:ignore-end -->
 are deployed on Ethereum mainnet and verified exact-match on Sourcify. Stage 1 governance
-proposal <!-- tm-check:ignore-start proposal id -->`0xd14e...2ce1`<!-- tm-check:ignore-end --> is
-live (voting opens 25 November 2026 16:34 UTC). Pre-Stage-2 off-chain keepers (including the
-audited <!-- tm-check:ignore-start commit hash -->`ee9b228a`<!-- tm-check:ignore-end --> liquidation
-bot for <!-- tm-check:ignore-start audit id -->`FRV-NEW-02`<!-- tm-check:ignore-end --> and the
-142-contract activity keeper) were rolled out and live-verified on 25 November 2026. Until Stage 2
-executes, live proxies remain on their pre-Stage-2 implementations, <!-- tm-check:ignore-start audit ids -->`LMV-09` and `LMV-18`<!-- tm-check:ignore-end -->
+proposal <!-- tm-check:ignore-start proposal id -->`0xd14e...2ce1`<!-- tm-check:ignore-end --> was
+voted FOR on 25 November 2026 (earliest queue 27 November, earliest execution 29 November).
+Pre-Stage-2 off-chain keepers (including the audited <!-- tm-check:ignore-start commit hash -->`ee9b228a`<!-- tm-check:ignore-end -->
+liquidation bot for <!-- tm-check:ignore-start audit id -->`FRV-NEW-02`<!-- tm-check:ignore-end -->
+and the 142-contract activity keeper), fail-closed web exit-freeze and cold-relief gas headroom on
+the web interface, and Stage 2 `PointsModule` allowlisting on the points backend were rolled out
+and live-verified on 25 November 2026. Until Stage 2 executes, live proxies remain on their
+pre-Stage-2 implementations, <!-- tm-check:ignore-start audit ids -->`LMV-09` and `LMV-18`<!-- tm-check:ignore-end -->
 remain explicitly Open (with <!-- tm-check:ignore-start audit id -->`FRV-NEW-02`<!-- tm-check:ignore-end -->
 retained Open pending independent confirmation), and broad protocol production release remains
 gated on governance completion.
