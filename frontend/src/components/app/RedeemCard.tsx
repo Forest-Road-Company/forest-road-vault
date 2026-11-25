@@ -15,11 +15,13 @@ import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {parseUnits, zeroAddress, type Address} from "viem";
 import {useAccount, usePublicClient, useReadContract, useReadContracts} from "wagmi";
 import {CONTRACTS, IS_TESTNET, STABLE_SYMBOL} from "@/config/contracts";
-import {CONTROLLER_ABI, ERC20_ABI, IMPAIRMENT_SOURCE_ABI, QUEUE_ABI, RESERVES_ABI, SHARE_DECIMALS, VAULT_ABI, VAULT_STAGE2_ABI} from "@/lib/abi";
+import {CONTROLLER_ABI, ERC20_ABI, IMPAIRMENT_SOURCE_ABI, QUEUE_ABI, RESERVES_ABI, SHARE_DECIMALS, VAULT_ABI} from "@/lib/abi";
 import {fmtAmount, fmtCountdown} from "@/lib/format";
 import {secondsUntilEligible} from "@/lib/queue";
+import {exitFreezeExposure} from "@/lib/exitFreeze";
 import {useWriteFlow} from "@/components/app/useWriteFlow";
 import {useNowSeconds} from "@/components/app/useNowSeconds";
+import {useVaultExitFreeze} from "@/components/app/useVaultExitFreeze";
 import {ActionButton, AmountInput, StatusLine, busyLabelFor} from "@/components/app/WriteBits";
 import {RedeemRouteVisual} from "@/components/app/ActionRouteVisuals";
 import {RestartingEventWatcher} from "@/components/app/RestartingEventWatcher";
@@ -83,6 +85,8 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
   const vault = CONTRACTS.sUSDfr!;
   const controller = CONTRACTS.MintRedeemController!;
   const queue = CONTRACTS.RedemptionQueue!;
+  // JO-04: zero on the reviewed pre-freeze vault implementation, undefined while unknown.
+  const unresolvedPastDueExposure = exitFreezeExposure(useVaultExitFreeze(vault, QUEUE_POLL));
   // ── Reads ────────────────────────────────────────────────────────────
   const {data: usdfrBalance, isLoading: usdfrBalanceLoading} = useReadContract({
     address: usdfr, abi: ERC20_ABI, functionName: "balanceOf",
@@ -121,22 +125,15 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
     functionName: "pendingSeniorImpairment",
     query: {enabled: hasImpairmentSource, ...QUEUE_POLL},
   });
-  // Stage 2 (ee9b228a) settlement freeze views: read with allowFailure: true so pre-Stage-2
-  // deployments without unresolvedPastDueExposure() degrade cleanly.
-  const {data: freezeReads} = useReadContracts({
-    allowFailure: true,
+  const {data: reserveLossExitsLocked} = useReadContract({
+    address: CONTRACTS.ReserveManager!,
+    abi: RESERVES_ABI,
+    functionName: "reserveLossExitsLocked",
     query: QUEUE_POLL,
-    contracts: [
-      {address: vault, abi: VAULT_STAGE2_ABI, functionName: "unresolvedPastDueExposure"},
-      {address: CONTRACTS.ReserveManager!, abi: RESERVES_ABI, functionName: "reserveLossExitsLocked"},
-    ],
   });
-  const unresolvedPastDue =
-    freezeReads?.[0]?.status === "success" ? (freezeReads[0].result as bigint) : undefined;
-  const reserveLossExitsLocked =
-    freezeReads?.[1]?.status === "success" ? (freezeReads[1].result as boolean) : undefined;
   const queueSettlementFrozen =
-    (unresolvedPastDue !== undefined && unresolvedPastDue > 0n) || reserveLossExitsLocked === true;
+    (unresolvedPastDueExposure !== undefined && unresolvedPastDueExposure > 0n) ||
+    reserveLossExitsLocked === true;
   const exitImpaired = (pendingSeniorImpairment ?? 0n) > 0n;
 
   // USDfr is 18-dec; sUSDfr shares are 24-dec (ERC-4626 decimals offset).
@@ -458,7 +455,13 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
             <span className="text-warn">{cooldownDuration ?? "loading…"}</span>
           </p>
           <p>
-            {epochOpen ? (
+            {unresolvedPastDueExposure === undefined ? (
+              <>Settlement availability is being checked. The hold countdown alone does not confirm settlement.</>
+            ) : unresolvedPastDueExposure > 0n ? (
+              <span role="status" className="text-warn">Settlement paused until a verified cure or attested default resolves the overdue loan mark. You can still claim an already filled request.</span>
+            ) : reserveLossExitsLocked === true ? (
+              <span role="status" className="text-warn">Settlement paused while a reserve custody loss or reserve-loss arm is active. You can still claim an already filled request.</span>
+            ) : epochOpen ? (
               <>
                 Settlement heartbeat: <span className="text-ink-muted">open</span>, eligible
                 requests settle as their hold ends
@@ -469,7 +472,7 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
                 <span className="text-ink-muted">{epochCountdown ?? "–"}</span>
               </>
             )}
-            {isSettling ? <span className="ml-2 text-warn">settling now</span> : null}
+            {isSettling && unresolvedPastDueExposure === 0n && !reserveLossExitsLocked ? <span className="ml-2 text-warn">settling now</span> : null}
           </p>
           <p>
             The heartbeat is not your exit date. FIFO order and available liquidity may extend
@@ -702,7 +705,13 @@ export function RedeemCard({writesEnabled, chainOk}: {writesEnabled: boolean; ch
                             {eligibilityCountdown === null
                               ? "Loading cooldown eligibility…"
                               : eligibilityCountdown === "now"
-                                ? "Cooldown complete · awaiting FIFO settlement and liquidity"
+                                ? unresolvedPastDueExposure === undefined
+                                  ? "Cooldown complete · settlement availability unavailable"
+                                  : unresolvedPastDueExposure > 0n
+                                    ? "Waiting for verified loan resolution · settlement paused"
+                                    : reserveLossExitsLocked === true
+                                      ? "Waiting for reserve-loss lock to clear · settlement paused"
+                                      : "Cooldown complete · awaiting FIFO settlement and liquidity"
                                 : `First eligible in ${eligibilityCountdown} · settlement may be later`}
                           </span>
                         ) : null}

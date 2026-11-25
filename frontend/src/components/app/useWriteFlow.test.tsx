@@ -52,6 +52,20 @@ beforeEach(() => {
 });
 
 describe("Morpho quote guard at the actual wallet handoff", () => {
+  it("includes the cold relief rebuild allowance in the transaction sent to the wallet", async () => {
+    harness.wait.mockResolvedValue({status: "success", transactionHash: HASH});
+    const {result} = renderHook(() => useWriteFlow());
+    await act(async () => {await result.current.run(INPUT);});
+    expect(harness.write).toHaveBeenCalledWith(expect.objectContaining({gas: 2_950_000n}));
+  });
+
+  it("retains the normal points margin for an approval that does not rebuild relief pricing", async () => {
+    harness.wait.mockResolvedValue({status: "success", transactionHash: HASH});
+    const {result} = renderHook(() => useWriteFlow());
+    await act(async () => {await result.current.run({...INPUT, functionName: "approve"});});
+    expect(harness.write).toHaveBeenCalledWith(expect.objectContaining({gas: 800_000n}));
+  });
+
   it.each(["simulation", "gas estimation"])("does not open the wallet when the quote expires during %s", async stage => {
     vi.useFakeTimers({toFake: ["Date"]});vi.setSystemTime(1_000);
     const quote = {issuedAt: 1_000, expiresAt: 301_000};

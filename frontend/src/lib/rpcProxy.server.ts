@@ -92,7 +92,6 @@ export const RPC_PROXY_RESPONSE_TOO_BIG = {
  *
  * Deliberately absent, because no browser path sends them through this transport:
  *   eth_getBlockByHash  no getBlock({blockHash}) anywhere in browser code.
- *   eth_getStorageAt    used only by server-side archive reads (points), never through the proxy.
  *   eth_getBalance, eth_getTransactionCount, eth_gasPrice, eth_maxPriorityFeePerGas,
  *   eth_feeHistory      viem fills nonce and fees only for local accounts; this site signs with
  *                       wallets (json-rpc accounts), whose eth_sendTransaction goes to the wallet,
@@ -127,6 +126,10 @@ export const RPC_PROXY_ALLOWED_METHODS: ReadonlySet<string> = new Set([
   "eth_getTransactionReceipt",
   // waitForTransactionReceipt reads the sent transaction to detect a replacement (speed-up/cancel).
   "eth_getTransactionByHash",
+  // useStorageAt in useVaultExitFreeze (audit JO-04, owner KF-01): only the configured vault's ERC-1967 implementation slot
+  // at "latest", to tell the pre-release vault from the released one; see the shape rule below. The
+  // server-side archive reads (points) call it at pinned blocks directly, never through this proxy.
+  "eth_getStorageAt",
 ]);
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -195,6 +198,10 @@ const ENTRY_REFUSALS = {
   callShape: {
     code: -32602,
     message: "eth_call and eth_estimateGas through this proxy take [transaction] or [transaction, block] with a contract address",
+  },
+  storageShape: {
+    code: -32602,
+    message: "eth_getStorageAt through this proxy reads only the sUSDfr vault's ERC-1967 implementation slot at latest",
   },
   paramsShape: {
     code: -32602,
@@ -437,6 +444,23 @@ function callShapeAllowed(params: unknown[] | undefined, chainId?: number): bool
   return true;
 }
 
+/** The ERC-1967 implementation slot: keccak256("eip1967.proxy.implementation") - 1. */
+const IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
+
+/**
+ * eth_getStorageAt exactly as useVaultExitFreeze sends it: [address, implementation slot, "latest"].
+ * Any other slot, a block number or hash (archive reads) or a missing tag is refused, so the method
+ * cannot become a general storage reader or an archive scan through the site's key.
+ */
+function storageShapeAllowed(params: unknown[] | undefined): boolean {
+  if (!params || params.length !== 3) return false;
+  const [address, slot, block] = params;
+  const vault = CONTRACTS.sUSDfr;
+  return typeof vault === "string" && typeof address === "string" && ADDRESS.test(address) &&
+    address.toLowerCase() === vault.toLowerCase() &&
+    typeof slot === "string" && slot.toLowerCase() === IMPLEMENTATION_SLOT && block === "latest";
+}
+
 function defaultAllowedLogAddresses(chainId: number): ReadonlySet<string> | null {
   if (chainId !== 1) return null;
   const addresses = new Set<string>([MORPHO_BLUE_MAINNET]);
@@ -490,6 +514,9 @@ export function rpcProxyEntryRefusal(
   }
   if (entry.method === "eth_call" || entry.method === "eth_estimateGas") {
     return callShapeAllowed(entry.params, chainId) ? null : {...ENTRY_REFUSALS.callShape};
+  }
+  if (entry.method === "eth_getStorageAt" && !storageShapeAllowed(entry.params)) {
+    return {...ENTRY_REFUSALS.storageShape};
   }
   if (entry.method === "eth_getBlockByNumber") {
     const params = entry.params;

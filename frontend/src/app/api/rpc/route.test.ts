@@ -13,6 +13,7 @@ import {
   resetRpcProxyStateForTests,
 } from "@/lib/rpcProxy.server";
 import {RPC_PROXY_MAX_BATCH, RPC_PROXY_MAX_BODY_BYTES} from "@/lib/rpcProxyShared";
+import {CONTRACTS} from "@/config/contracts";
 
 /**
  * The proxy route through its exported handlers, with a stub upstream in place of global fetch.
@@ -25,10 +26,12 @@ const UPSTREAM = `https://${UPSTREAM_HOST}/v2/${KEY}`;
 const SEPOLIA = "0xaa36a7";
 const SITE = "https://forestroadvault.com";
 const ADDRESS = "0x4761995f4f6daddf7886acd9d16e119ef2fb4132";
+const VAULT = CONTRACTS.sUSDfr!;
 /** A log filter as the site sends it: one contract, numeric bounds 9,000 blocks apart. */
 const LOGS = {address: ADDRESS, fromBlock: "0x18cd630", toBlock: "0x18cf937"};
 /** An eth_call transaction as the site sends it. */
 const TX = {to: ADDRESS, data: "0x"};
+const IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
 
 type Upstream = {
   /** The eth_chainId answer, or an error to throw from fetch. */
@@ -336,7 +339,7 @@ describe("request shape", () => {
 });
 
 describe("method allowlist", () => {
-  it("is exactly the nine methods the site sends", () => {
+  it("is exactly the ten methods the site sends", () => {
     expect([...RPC_PROXY_ALLOWED_METHODS].sort()).toEqual([
       "eth_blockNumber",
       "eth_call",
@@ -345,6 +348,7 @@ describe("method allowlist", () => {
       "eth_getBlockByNumber",
       "eth_getCode",
       "eth_getLogs",
+      "eth_getStorageAt",
       "eth_getTransactionByHash",
       "eth_getTransactionReceipt",
     ]);
@@ -368,7 +372,6 @@ describe("method allowlist", () => {
     "eth_getFilterChanges",
     "eth_uninstallFilter",
     "eth_subscribe",
-    "eth_getStorageAt",
     "eth_getBalance",
     "eth_getBlockByHash",
     "eth_feeHistory",
@@ -521,6 +524,61 @@ describe("request shapes the site never sends (review F3)", () => {
   it("refuses a second eth_getLogs parameter", async () => {
     const answer = await read(await POST(rpcRequest(call("eth_getLogs", [LOGS, "extra"], 6))));
     expect(answer.body).toEqual({jsonrpc: "2.0", id: 6, error: logsRange});
+  });
+
+  // Audit JO-04: the exit-freeze hook reads one slot, the ERC-1967 implementation, at latest.
+  const storageShape = {
+    code: -32602,
+    message: "eth_getStorageAt through this proxy reads only the sUSDfr vault's ERC-1967 implementation slot at latest",
+  };
+
+  it("forwards eth_getStorageAt only for the configured vault implementation slot at latest", async () => {
+    for (const slot of [IMPLEMENTATION_SLOT, IMPLEMENTATION_SLOT.toUpperCase().replace("0X", "0x")]) {
+      const answer = await read(await POST(rpcRequest(call("eth_getStorageAt", [VAULT, slot, "latest"], 8))));
+      expect(answer.body).toEqual({jsonrpc: "2.0", id: 8, result: "ok:eth_getStorageAt:1"});
+    }
+  });
+
+  it("KF-01: refuses another address before contacting the upstream", async () => {
+    const other = "0x1111111111111111111111111111111111111111";
+    expect(other.toLowerCase()).not.toBe(VAULT.toLowerCase());
+    const answer = await read(await POST(rpcRequest(call("eth_getStorageAt", [other, IMPLEMENTATION_SLOT, "latest"], 81))));
+    expect(answer.body).toEqual({jsonrpc: "2.0", id: 81, error: storageShape});
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("KF-01: a mixed batch forwards the vault read and refuses a foreign storage read independently", async () => {
+    const allowed = call("eth_getStorageAt", [VAULT.toLowerCase(), IMPLEMENTATION_SLOT, "latest"], 82);
+    const refused = call("eth_getStorageAt", ["0x1111111111111111111111111111111111111111", IMPLEMENTATION_SLOT, "latest"], 83);
+    const answer = await read(await POST(rpcRequest([allowed, refused])));
+    expect(answer.body).toEqual([
+      {jsonrpc: "2.0", id: 82, result: "ok:eth_getStorageAt:1"},
+      {jsonrpc: "2.0", id: 83, error: storageShape},
+    ]);
+    expect(forwardedPayloads()).toEqual([[{...allowed, id: 1}]]);
+  });
+
+  it("refuses every other eth_getStorageAt shape, before the upstream", async () => {
+    for (const params of [
+      [],
+      [VAULT],
+      [VAULT, IMPLEMENTATION_SLOT],
+      [VAULT, `0x${"00".repeat(32)}`, "latest"],
+      [VAULT, "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103", "latest"],
+      [VAULT, IMPLEMENTATION_SLOT, "0x18cd630"],
+      [VAULT, IMPLEMENTATION_SLOT, "pending"],
+      [VAULT, IMPLEMENTATION_SLOT, "finalized"],
+      [VAULT, IMPLEMENTATION_SLOT, {blockHash: `0x${"ab".repeat(32)}`}],
+      [VAULT, IMPLEMENTATION_SLOT, "latest", "extra"],
+      ["0x1234", IMPLEMENTATION_SLOT, "latest"],
+      [null, IMPLEMENTATION_SLOT, "latest"],
+      [VAULT, 0, "latest"],
+    ]) {
+      const answer = await read(await POST(rpcRequest(call("eth_getStorageAt", params as unknown[], 9))));
+      expect(answer.status).toBe(200);
+      expect(answer.body).toEqual({jsonrpc: "2.0", id: 9, error: storageShape});
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
@@ -945,7 +1003,7 @@ describe("pass-through", () => {
     ]);
   });
 
-  it("answers each of the nine allowed methods", async () => {
+  it("answers each of the ten allowed methods", async () => {
     const TX_HASH = `0x${"ab".repeat(32)}`;
     for (const method of RPC_PROXY_ALLOWED_METHODS) {
       const params =
@@ -957,9 +1015,11 @@ describe("pass-through", () => {
               ? ["latest", false]
               : method === "eth_getCode"
                 ? [ADDRESS, "latest"]
-                : method === "eth_getTransactionReceipt" || method === "eth_getTransactionByHash"
-                  ? [TX_HASH]
-                  : [];
+                : method === "eth_getStorageAt"
+                  ? [VAULT, IMPLEMENTATION_SLOT, "latest"]
+                  : method === "eth_getTransactionReceipt" || method === "eth_getTransactionByHash"
+                    ? [TX_HASH]
+                    : [];
       const answer = await read(await POST(rpcRequest(call(method, params, method))));
       expect(answer.status).toBe(200);
       // The stub answers every single eth_chainId as it answers the proxy's own chain probe.

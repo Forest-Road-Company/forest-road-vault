@@ -45,6 +45,8 @@ vi.mock("wagmi", () => ({
   }),
   useReadContracts: () => ({data: reads.__positions ?? [], refetch: vi.fn()}),
   useWatchContractEvent: () => undefined,
+  // The exit-freeze implementation probe (JO-04) runs only after a failed read; see RedeemCard.exitFreeze.test.tsx.
+  useStorageAt: () => ({data: undefined}),
 }));
 
 vi.mock("@/components/app/useWriteFlow", () => ({
@@ -63,6 +65,7 @@ function baseReads(overrides: Record<string, unknown> = {}) {
     allowance: 0n,
     epochEndsAt: BigInt(NOW + 3600), // ~1h, the misleadingly short signal
     isSettling: false,
+    unresolvedPastDueExposure: 0n,
     totalRequests: 0n,
     redeemCooldown: COOLDOWN,
     previewRedeem: 0n,
@@ -83,6 +86,24 @@ afterEach(() => {
 });
 
 describe("RedeemCard, queue disclosure (FRV-FS-02)", () => {
+  it("shows the unresolved-mark pause instead of promising settlement when the heartbeat is open", async () => {
+    reads = baseReads({unresolvedPastDueExposure: 1n, epochEndsAt: BigInt(NOW - 1), isSettling: true});
+    const user = userEvent.setup();
+    render(<RedeemCard writesEnabled chainOk />);
+    await openQueueMode(user);
+    expect(screen.getByText(/Settlement paused until a verified cure or attested default/)).toBeInTheDocument();
+    expect(screen.queryByText(/eligible requests settle as their hold ends/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/settling now/)).not.toBeInTheDocument();
+  });
+
+  it("does not claim settlement availability when the gate cannot be read", async () => {
+    reads = baseReads({unresolvedPastDueExposure: undefined, epochEndsAt: BigInt(NOW - 1)});
+    const user = userEvent.setup();
+    render(<RedeemCard writesEnabled chainOk />);
+    await openQueueMode(user);
+    expect(screen.getByText(/Settlement availability is being checked/)).toBeInTheDocument();
+  });
+
   it("changes the route diagram with the selected redemption path", async () => {
     reads = baseReads();
     const user = userEvent.setup();

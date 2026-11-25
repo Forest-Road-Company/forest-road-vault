@@ -29,6 +29,7 @@ const WAGMI: Record<string, readonly string[] | typeof WALLET | "none"> = {
   useReadContracts: ["eth_call"],
   useBlockNumber: ["eth_blockNumber"],
   useBlock: ["eth_getBlockByNumber"],
+  useStorageAt: ["eth_getStorageAt"],
   useWatchContractEvent: ["eth_newFilter", "eth_blockNumber", "eth_getLogs"],
   usePublicClient: "none",
   useWalletClient: WALLET,
