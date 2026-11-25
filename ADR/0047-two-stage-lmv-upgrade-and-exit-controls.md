@@ -33,12 +33,14 @@ without prior monitoring and verification increases operational blast radius.
    exact commit (`ee9b228a`) with all 38 runtimes verified `exact_match` on Sourcify, pre-existing
    non-blocking Low/Medium items (`CORR-REAUDIT-01`–`03`, `CORR-DELTA-06`–`07`) are deferred to
    the next scheduled upgrade cycle rather than mutating the audited bytecode mid-ceremony.
-4. **Honest open-finding posture.** Until Stage 2 executes on chain, `LMV-09` and `LMV-18` (plus
-   off-chain `FRV-NEW-02`) remain explicitly marked **Open** across every public status and audit
-   surface.
+4. **Honest open-finding posture.** Until Stage 2 executes on chain, `LMV-09` and `LMV-18` remain
+   explicitly marked **Open** across every public status and audit surface (and off-chain
+   `FRV-NEW-02`, though rolled out and live-verified on 25 November 2026, is retained Open pending
+   independent Corrovera confirmation).
 
 ## Consequences
 
 - Preserves full audit provenance and Sourcify verification across every deployed runtime.
-- Requires coordinated operational readiness (including `queue-keeper` batch limits and
-  `liquidation-bot` rollout) before Stage 2 clearance.
+- Coordinated operational readiness (`queue-keeper` batch limits, `liquidation-bot` `ee9b228a`
+  rollout, and 142-contract `activity-keeper` catalog) was completed and live-verified on 25
+  November 2026 ahead of Stage 1 and Stage 2 governance execution.

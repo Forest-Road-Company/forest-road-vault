@@ -148,7 +148,7 @@ loan can be marked past due before 10 January 2027 (for the USD 20 facility) or 
 (for Renewables). A default for any other reason, such as insolvency, would need Forest Road's
 servicer and both attesters to declare it.
 
-**Upgrade status (24 November 2026).** Both LMV-09 and LMV-18, together with the contract
+**Upgrade status (25 November 2026).** Both LMV-09 and LMV-18, together with the contract
 findings from Corrovera Security's November reviews, are fixed in audited commit `ee9b228a`
 (`ee9b228ad05e5a5888c1aa496ea53318036d37a3`), which passed Corrovera's independent re-audit
 (`PASS` on the delta remediation, 24 November 2026) and full hosted CI security gates (`66/66`).
@@ -168,9 +168,12 @@ The upgrade runs in two timelocked governance stages:
    proxies before **21 January 2027**. **Until Stage 2 executes, the live proxies remain on their
    pre-LMV implementations and LMV-09 / LMV-18 remain Open on chain.**
 
-Separately, an off-chain operational update (`FRV-NEW-02` in the [audit register](/docs/audit))
-remains open pending rollout and verification of the updated liquidation-bot image (cold-block gas
-override and per-marked-leg gas scaling) alongside Stage 2 readiness.
+Off-chain keeper readiness for Stage 1 and Stage 2 was completed on 25 November 2026: the audited
+`ee9b228a` liquidation bot (adding `HV-01` cold-block `stateOverride` gas estimation and `JO-08`
+per-marked-leg gas scaling) and the updated 142-contract activity keeper were rolled out and
+live-verified alongside the queue keeper. `FRV-NEW-02` in the [audit register](/docs/audit)
+remains labelled **Open** pending independent Corrovera confirmation (and no live on-chain
+liquidation transaction is executed while no position is liquidatable).
 
 | Finding | Relevant only if | Earliest on today's book | Status and plan |
 | --- | --- | --- | --- |
@@ -186,6 +189,7 @@ accepted and deferred findings, with their exact conditions, are in the
 
 | Date | Change |
 | --- | --- |
+| 25 Nov | Pre-Stage-2 off-chain keeper updates rolled out and live-verified: audited `ee9b228a` liquidation bot (`HV-01` cold-relief `stateOverride` gas estimation + `JO-08`, live RPC `stateOverride` and startup guard verified; `FRV-NEW-02` retained Open in register pending independent Corrovera confirmation) and 142-contract activity-keeper catalog covering all 38 new Stage 2 `ee9b228a` runtimes and 11 proxy transitions. Queue keeper confirmed ready (`MAX_REQUESTS=10`, 8M settlement gas limit). |
 | 24 Nov | Stage 1 governance proposal submitted on Ethereum mainnet ([`0x83a8...f698`](https://etherscan.io/tx/0x83a86e829acec35568c6a1040f57dc4ebcb0dbe99f49d524232fc4044948f698)); voting opens 25 Nov, earliest execution 29 Nov. All 38 new Stage 2 contracts and libraries from audited commit `ee9b228a` deployed and Sourcify-verified (`exact_match`). Live proxies remain unchanged until governance executes. |
 | 24 Nov | Corrovera Security completed independent delta re-audit of commit `ee9b228a` (`PASS` on delta remediation), and exact-commit hosted CI security gates completed `66/66` green. |
 | 20 Nov | All 15 Stage 1 preliminary release-monitor components deployed and verified on Ethereum mainnet. |

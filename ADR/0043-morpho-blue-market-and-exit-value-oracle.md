@@ -1,8 +1,9 @@
 # ADR-0043: Morpho Blue USDC/sUSDfr market and immutable exit-value oracle
 
 **Status:** Accepted and deployed on Ethereum mainnet (Oracle and market deployed October 2026;
-lending, borrowing and Treasury supply active on `/markets`; off-chain liquidation-bot image
-update `FRV-NEW-02` remains Open pending rollout verification).
+lending, borrowing and Treasury supply active on `/markets`; audited `ee9b228a` liquidation-bot
+update rolled out and live-verified on 25 November 2026 — `FRV-NEW-02` retained Open in external
+audit register pending independent confirmation).
 
 **Date:** 2026-10-21 (recorded 2026-11-25)
 

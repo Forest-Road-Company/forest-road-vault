@@ -684,7 +684,9 @@ V2 launch review sequence:
 - the 23 November 2026 Corrovera protocol delta review (`58e651f1`) covering the `LMV-09` and
   `LMV-18` remediation diff;
 - the 21 November 2026 Corrovera full-system LMV review across contracts and off-chain services
-  (six findings remediated; off-chain liquidation bot `FRV-NEW-02` remaining Open pending rollout);
+  (six contract findings remediated in `ee9b228a`; off-chain liquidation bot `FRV-NEW-02` rolled
+  out and live-verified on 25 November 2026 and retained Open in the register pending independent
+  confirmation);
 - the 20 September 2026 internal review of the exact Ethereum V2 deployment on forked mainnet state
   and the 20 September 2026 Corrovera Solana curator-vault review;
 - the 18 September 2026 internal Solana and curator correctness review;
@@ -740,8 +742,10 @@ The following limits remain relevant:
 - LMV-18 can charge sUSDfr holders a performance fee when curator and sGROVE protection absorbs a
   genuine loss. Its fix in `ee9b228a` passed Corrovera re-audit (`PASS`, 24 November 2026) and is
   staged on Ethereum mainnet; it remains open on live proxies until Stage 2 governance executes.
-- FRV-NEW-02 (Corrovera 21 November 2026 full-system review, Medium / Open): off-chain liquidation
-  bot operational remediation remains open pending bot rollout; see
+- FRV-NEW-02 (Corrovera 21 November 2026 full-system review, Medium / Open): the audited `ee9b228a`
+  liquidation bot (`HV-01` + `JO-08`) was rolled out and live-verified on 25 November 2026 (startup
+  guard, live RPC `stateOverride`, SEND/KMS/journal/singleton verified); retained Open in the
+  register pending independent Corrovera confirmation and live liquidation execution. See
   [Live deployment status](/docs/status).
 - If curator capital, sGROVE coverage and senior assets are all exhausted, a close can leave a
   remainder smaller than one USDC base unit. Value-sensitive operations fail closed. A funded

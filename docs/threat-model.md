@@ -7,8 +7,8 @@ Corrovera re-audited 24 November 2026 and awaiting Stage 1 → Stage 2 governanc
 **Companion docs:** `invariants.md` (the safety spec), `access-control-matrix.md` (roles), and the
 public [audit register](https://forestroadvault.com/docs/audit). **Posture:** this protocol
 custodies real capital against real legal claims; live Ethereum proxies currently remain on
-pre-Stage-2 implementations where <!-- tm-check:ignore-start external finding IDs -->`LMV-09`, `LMV-18`, and `FRV-NEW-02`<!-- tm-check:ignore-end -->
-stay explicitly Open until Stage 2 executes and the liquidation bot rollout completes.
+pre-Stage-2 implementations where <!-- tm-check:ignore-start external finding IDs -->`LMV-09` and `LMV-18`<!-- tm-check:ignore-end -->
+stay explicitly Open until Stage 2 executes (off-chain <!-- tm-check:ignore-start external finding ID -->`FRV-NEW-02`<!-- tm-check:ignore-end --> was rolled out and live-verified on 25 November 2026 and is retained Open pending independent confirmation).
 
 ---
 
@@ -233,10 +233,13 @@ Section 4 walks the value-moving path. These contracts sit off it and are modell
   curve IRM, an oracle wired to sUSDfr, the V2 controller and USDC), simulates every call first,
   sends one transaction at a time, and passes seized sUSDfr to the Treasury Safe at once. Nothing is
   sent while the oracle reverts or reads zero, and watch mode never signs. Send mode requires the
-  deployed oracle pinned and refuses a wallet USDC has blacklisted. **Open operational finding
-  (25 November 2026):** <!-- tm-check:ignore-start off-chain audit finding IDs -->`FRV-NEW-02`<!-- tm-check:ignore-end -->
-  tracks rolling out and verifying the updated bot image (cold-block gas override and per-marked-leg
-  gas scaling) prior to Stage 2 release clearance. Residuals: compromise of KMS signing access takes
+  deployed oracle pinned and refuses a wallet USDC has blacklisted. **Operational update
+  (25 November 2026):** the audited <!-- tm-check:ignore-start commit hash -->`ee9b228a`<!-- tm-check:ignore-end -->
+  bot image (cold-block state-override gas estimation and per-marked-leg gas scaling, addressing
+  <!-- tm-check:ignore-start off-chain audit finding IDs -->`FRV-NEW-02`<!-- tm-check:ignore-end -->)
+  was rolled out and live-verified on Railway (startup guard, live RPC state-override, SEND/KMS,
+  journal continuity and singleton check passed; retained Open in the external register pending
+  independent Corrovera confirmation and live liquidation execution). Residuals: compromise of KMS signing access takes
   the signer's funded USDC and ETH; the signer's approval to Morpho Blue is bounded to the market's
   liquidation path; a mispriced oracle would mislead it as it would any liquidator; and after a
   default step it can only stop bad debt growing, not prevent it.
@@ -547,11 +550,14 @@ on 24 November alongside 66/66 green hosted CI security gates).
 components and all 38 newly compiled Stage 2 contracts and libraries from <!-- tm-check:ignore-start commit hash -->`ee9b228a`<!-- tm-check:ignore-end -->
 are deployed on Ethereum mainnet and verified exact-match on Sourcify. Stage 1 governance
 proposal <!-- tm-check:ignore-start proposal id -->`0xd14e...2ce1`<!-- tm-check:ignore-end --> is
-live (voting opens 25 November 2026 16:34 UTC). Until Stage 2 executes and the liquidation bot
-update (<!-- tm-check:ignore-start audit id -->`FRV-NEW-02`<!-- tm-check:ignore-end -->) is rolled
-out and verified, live proxies remain on their pre-Stage-2 implementations, <!-- tm-check:ignore-start audit ids -->`LMV-09`, `LMV-18`, and `FRV-NEW-02`<!-- tm-check:ignore-end -->
-remain explicitly Open, and broad protocol production release remains gated on completion of those
-steps.
+live (voting opens 25 November 2026 16:34 UTC). Pre-Stage-2 off-chain keepers (including the
+audited <!-- tm-check:ignore-start commit hash -->`ee9b228a`<!-- tm-check:ignore-end --> liquidation
+bot for <!-- tm-check:ignore-start audit id -->`FRV-NEW-02`<!-- tm-check:ignore-end --> and the
+142-contract activity keeper) were rolled out and live-verified on 25 November 2026. Until Stage 2
+executes, live proxies remain on their pre-Stage-2 implementations, <!-- tm-check:ignore-start audit ids -->`LMV-09` and `LMV-18`<!-- tm-check:ignore-end -->
+remain explicitly Open (with <!-- tm-check:ignore-start audit id -->`FRV-NEW-02`<!-- tm-check:ignore-end -->
+retained Open pending independent confirmation), and broad protocol production release remains
+gated on governance completion.
 
 The round-4 ADR-0031 review found no High issue and confirmed the holder-harming exit
 defect closed. Forest Road accepted the remaining protocol-under-collection tradeoff.

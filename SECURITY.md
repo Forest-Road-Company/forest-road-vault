@@ -11,9 +11,10 @@
 > **Known open findings & staged upgrade (25 November 2026):** Live Ethereum V2 proxies have not
 > yet executed the Stage 2 LMV upgrade, so **`LMV-09`** and **`LMV-18`** remain **Open** on live
 > proxies (fixed and Corrovera re-audited in commit `ee9b228a`; Stage 1 preliminary release-monitor
-> proposal `0xd14e...2ce1` is live, with Stage 2 following after Stage 1). Separately, off-chain
-> liquidation-bot rollout item **`FRV-NEW-02`** remains **Open** pending deployment and
-> verification. See [Live Deployment Status](https://forestroadvault.com/docs/status) and the
+> proposal `0xd14e...2ce1` is live, with Stage 2 following after Stage 1). Off-chain liquidation-bot
+> update **`FRV-NEW-02`** (`ee9b228a` with `HV-01` and `JO-08`) was rolled out and live-verified on
+> 25 November 2026 and is retained **Open** in the register pending independent Corrovera
+> confirmation. See [Live Deployment Status](https://forestroadvault.com/docs/status) and the
 > [Audit Register](https://forestroadvault.com/docs/audit) before reporting.
 
 ## Reporting a vulnerability
