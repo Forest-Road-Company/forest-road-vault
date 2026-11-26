@@ -49,9 +49,27 @@ export const POINTS_VENUES: readonly {key: string; label: string; address: Addre
   },
   {
     key: "bsc-oft-lockbox",
-    label: "sUSDfr BSC LayerZero OFT lockbox",
+    label: "sUSDfr LayerZero OFT lockbox (BSC & Base)",
     address: "0x9022D706D15273865DbF3deAa34d0DdC465524aB",
-    note: "Ethereum escrow locking sUSDfr bridged to BNB Smart Chain. Individual BSC holders are credited separately via BSC points checkpoints.",
+    note: "Ethereum escrow locking sUSDfr bridged to BNB Smart Chain and Base. Individual BSC holders are credited separately via BSC points checkpoints.",
+  },
+  {
+    key: "base-cctp-deposit-composer",
+    label: "Base CCTP Deposit Composer",
+    address: "0x128F22B3B25D167e6a4712BCAA275d9A62C074F1",
+    note: "Cross-chain subscription router bridging Base USDC into sUSDfr; any transient balance or bridge dust held here is not a ranked participant.",
+  },
+  {
+    key: "base-cctp-buy-composer",
+    label: "Base CCTP Buy Composer",
+    address: "0x98eD35dF2cffe56f64Ea59cDA99D887D2252a66f",
+    note: "Cross-chain market-buy router swapping Base USDC into sUSDfr; any transient balance or bridge dust held here is not a ranked participant.",
+  },
+  {
+    key: "base-redeem-composer",
+    label: "Base Redeem Composer",
+    address: "0x035297Eff0e3512353CE14603aD5D058D6A208c8",
+    note: "Cross-chain redemption router holding Base sUSDfr shares awaiting Ethereum queue admission or settlement; not a ranked participant.",
   },
 ]);
 
