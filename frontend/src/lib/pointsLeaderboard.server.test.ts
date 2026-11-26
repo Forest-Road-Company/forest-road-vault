@@ -587,8 +587,15 @@ describe("review fixes", () => {
     expect(offLoads).toBe(2);
   });
 
-  it("supports Stage 2 PointsModule, indexes BscPointsCredited, proves BSC completeness, and excludes BSC OFT lockbox", async () => {
-    expect(POINTS_VENUES.some((v) => v.address.toLowerCase() === "0x9022d706d15273865dbf3deaa34d0ddc465524ab")).toBe(true);
+  it("supports Stage 2 PointsModule, indexes BscPointsCredited, proves BSC completeness, and excludes bridge lockbox & Base composers", async () => {
+    for (const addr of [
+      "0x9022d706d15273865dbf3deaa34d0ddc465524ab",
+      "0x128f22b3b25d167e6a4712bcaa275d9a62c074f1",
+      "0x98ed35df2cffe56f64ea59cda99d887d2252a66f",
+      "0x035297eff0e3512353ce14603ad5d058d6a208c8",
+    ]) {
+      expect(POINTS_VENUES.some((v) => v.address.toLowerCase() === addr)).toBe(true);
+    }
     const BSC_ONLY = wallet(0x5c01);
     chain.implementation = STAGE2_POINTS_MODULE_IMPLEMENTATION;
     chain.hold(BSC_ONLY, {shares: 0n, usdfr: 0n, points: 42n * E18, bscCredited: 42n * E18});

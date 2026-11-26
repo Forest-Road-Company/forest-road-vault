@@ -43,10 +43,12 @@ export const TARGET_TOTAL_LIQUIDITY = 138_501_527_279_400_417_396n;
 export const TARGET_USDC_MAX = 2_103_852_527_328n;
 export const TARGET_USDFR_MAX = 2_339_647_912_981_486_927_614_300n;
 
-// The exact failed call succeeds on the pinned mainnet fork at 1,300,000 gas
-// (495,599 consumed). The additional 200,000 is unused and refunded; it keeps
-// the old USDfr points hook above its absolute 500,000-gas entry requirement.
-export const LIQUIDITY_TX_GAS = 1_500_000n;
+// The exact failed call succeeds on the pinned mainnet fork at ~495,599 gas when
+// PointsModule is healthy. Setting 3,500,000 leaves >2,000,000 gas on entry into
+// Stage 2's PointsHookGas.FAILURE_CLASSIFICATION_GAS classifier so a PointsModule
+// fault fails open cleanly rather than reverting PointsHook_InsufficientGas; unused
+// gas is refunded.
+export const LIQUIDITY_TX_GAS = 3_500_000n;
 
 const Q96 = 1n << 96n;
 const MAX_UINT256 = (1n << 256n) - 1n;

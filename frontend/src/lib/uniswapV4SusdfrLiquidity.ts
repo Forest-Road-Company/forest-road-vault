@@ -49,7 +49,9 @@ export const WALL_TICK_LOWER = 415_000; // 0.9499048432 USDC/sUSDfr
 export const WALL_TICK_UPPER = 416_112; // 0.8499413730 USDC/sUSDfr
 export const SEED_USDC_CAP = 50n * 10n ** 6n;
 export const TOTAL_USDC_CAP = 250_000n * 10n ** 6n;
-export const SUSDFR_LIQUIDITY_TX_GAS = 2_000_000n;
+// Keeps >2,000,000 gas remaining on entry into Stage 2's PointsHookGas fault
+// classifier so a PointsModule fault fails open cleanly; unused gas is refunded.
+export const SUSDFR_LIQUIDITY_TX_GAS = 3_500_000n;
 
 const Q96 = 1n << 96n;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";

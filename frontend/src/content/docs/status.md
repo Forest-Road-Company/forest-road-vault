@@ -26,8 +26,11 @@ exposure is zero.
 | Renewables | 11: five USD 1m tranches to one borrower (each booked as a cash leg and a PIK leg, with 30 Sep PIK interest capitalized) plus one USD 176,577 PIK facility | 5,183,422 | 5,313,749 | 16.75% fixed | 55% | 31 Dec 2026 (30 Sep paid), then every 92 days | 29 May 2029 |
 | Digital Assets (related party) | 4: USD 20, USD 2.4m, USD 2.0m and USD 0.75m cash-pay facilities | 5,150,020 | 5,197,563 | 12.5% fixed | 32.72%: collateral valued at USD 15.88m on 24 Nov (02:32 UTC) | 20 Dec 2026 (USD 20 facility); 24 Jan, 26 Jan and 2 Feb 2027 (USD 5.15m tranches), then every 90 days | 21 Sep to 4 Nov 2027 |
 
-The per-borrower limit is 15%, measured against the larger of the book and a USD 100 million
-bootstrap floor. While the book is small, that allows up to USD 15 million per borrower.
+The global per-borrower limit is 15%, measured against the larger of the book and a USD 100 million
+bootstrap floor (allowing up to USD 15 million per borrower by default). Governance proposal
+`FRV-010` (`0xfe9a…ee3`, voted **FOR** 25 November, earliest execution 29 November 2026) sets
+35% (`USD 35 million` at floor) borrower-limit overrides for the two existing borrowers and lifts
+Digital Assets class concentration from 20% to 35%.
 
 **Related party.** The digital-assets sector lends to Forest Road's own trading subsidiary, so
 Forest Road is originator, servicer and an affiliate of the borrower. The facilities are for cash
@@ -37,8 +40,10 @@ collateral. Forest Road's digital-assets business has a strong record of deployi
 profitably while staying liquid.
 
 Its collateral is valued daily, each valuation is signed by two attesters, and each is checked
-against the class's margin-call (65% loan-to-value) and liquidation (80%) thresholds in the same
-transaction. New lending in the class may start at no more than 50% loan-to-value. On 24 November
+against the class's margin-call (65% loan-to-value today; rising to 82.5% on 29 November under
+voted proposal `FRV-010`) and liquidation (80% today; rising to 90% under `FRV-010`) thresholds in
+the same transaction. New lending in the class may start at no more than 50% loan-to-value today
+(rising to 75% under `FRV-010`). On 24 November
 (02:32 UTC), attested collateral across the four Digital Assets facilities stood at
 USD 15,884,514 against USD 5,197,563 of principal and accrued interest (`32.72%` loan-to-value).
 Any amount lent to these facilities is no longer idle cash, so until it is repaid it lowers the
@@ -184,7 +189,7 @@ is executed while no position is liquidatable).
 
 | Finding | Relevant only if | Earliest on today's book | Status and plan |
 | --- | --- | --- | --- |
-| LMV-09 | A borrower misses a payment and the loan is marked past due | 21 January 2027 (10 January for the USD 20 facility; 14 February+ for the USD 5.15m Digital Assets tranches) | Open on live proxies. Fixed and Corrovera re-audited (`ee9b228a`); Stage 2 components deployed & Sourcify-verified; Stage 1 proposal `0xd14e…2ce1` live (submission tx [`0x83a8...f698`](https://etherscan.io/tx/0x83a86e829acec35568c6a1040f57dc4ebcb0dbe99f49d524232fc4044948f698)); Stage 2 upgrade follows before 21 January 2027 |
+| LMV-09 | A borrower misses a payment and the loan is marked past due | 21 January 2027 (10 January for the USD 20 facility; 14 February+ for the USD 5.15m Digital Assets tranches) | Open on live proxies. Fixed and Corrovera re-audited (`ee9b228a`); Stage 2 components deployed & Sourcify-verified; Stage 1 proposal `0xd14e…2ce1` voted **FOR** ([`0x1b3b...cd78`](https://etherscan.io/tx/0x1b3bfc20a54b8e57cde1dfb9d35d351cdcaa943c2a8ae896bd1cd1b92311cd78), earliest execution 29 Nov); Stage 2 upgrade follows before 21 January 2027 |
 | LMV-18 | A facility defaults and a loss is realized | No payment can be missed before 20 December 2026 (31 December for Renewables), and no facility has defaulted or taken a loss | Open on live proxies. Same fix, verification and Stage 1 to Stage 2 rollout plan |
 
 A governance upgrade takes at least five days from proposal: a one-day delay, a two-day vote and a
